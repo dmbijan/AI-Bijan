@@ -1,0 +1,148 @@
+name: CI — Ujian & Keselamatan
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  struktur:
+    name: Struktur & Dokumen
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, bcmath, gd, zip, intl
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Salin .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Sediakan pangkalan data SQLite
+        run: |
+          touch database/database.sqlite
+          php artisan migrate --force
+
+      - name: Sahkan angka dokumen vs kod
+        # Exit 1 jika modul/jadual/laluan/resource/kebenaran/model/service/controller/migration
+        # dalam KATALOG-MODUL-AI-BIJAN.md atau SISTEM-AI-BIJAN.md tidak sepadan dengan kod.
+        run: php skrip/semak-dokumen.php
+
+      - name: Semak laluan wildcard (MESTI kosong)
+        run: |
+          WILDCARD=$(php artisan route:list --path=api/v1 --json | grep -c 'api/v1/{' || true)
+          echo "Laluan wildcard ditemui: $WILDCARD"
+          if [ "$WILDCARD" != "0" ]; then
+            echo "::error::Laluan wildcard api/v1/{id} dikesan — provider modul tiada prefix."
+            php artisan route:list --path=api/v1 | grep 'api/v1/{' || true
+            exit 1
+          fi
+
+  ujian:
+    name: Ujian PHPUnit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, bcmath, gd, zip, intl
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Salin .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Jalankan ujian penuh
+        # AI_GATEWAY_LIVE=false (lalai) — ujian AI guna mod simulasi, tiada kos/kunci.
+        env:
+          AI_GATEWAY_LIVE: 'false'
+        run: php artisan test --without-tty
+
+  keselamatan:
+    name: Keselamatan Pakej
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Composer validate
+        run: composer validate --no-check-publish
+
+      - name: Composer audit
+        # Gagal jika ada advisori keselamatan terbuka.
+        run: composer audit
+
+  gaya:
+    name: Gaya PHP
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true   # Peringatan sahaja — jangan sekat merge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Semak sintaks PHP (seluruh app/)
+        run: |
+          gagal=0
+          while IFS= read -r f; do
+            php -l "$f" > /dev/null || { echo "::warning file=$f::Ralat sintaks"; gagal=1; }
+          done < <(find app routes config database skrip -name '*.php' -type f)
+          exit 0
+
+      - name: Kesan aksara CJK/tersembunyi dalam kod
+        # Pepijat sebenar: ruang tersembunyi memecahkan nama kaedah PHP.
+        run: |
+          if grep -rIlP '[\x{4e00}-\x{9fff}]' app routes 2>/dev/null; then
+            echo "::warning::Aksara CJK dikesan dalam kod PHP — semak ruang tersembunyi."
+          else
+            echo "Bersih."
+          fi

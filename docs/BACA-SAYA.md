@@ -1,38 +1,125 @@
-# AI BIJAN SaaS — Panduan Pakej & Pelaksanaan (v4.5, 18/10/2026)
+# BACA-SAYA — Panduan Pantas AI BIJAN SaaS
 
-## Isi
-- `ai-bijan-saas/`: **sistem utama** (Laravel 11+, PHP 8.3+, MySQL/MariaDB). Tanpa ERPNext/Frappe.
-  - Platform teras: multi-tenant SaaS, RBAC, audit trail, 2FA, Master/Super/White-label/Customer Admin hierarchy.
-  - Subscription & Monetization Engine: pricing plans, AI Token Wallet, coupons, revenue sharing.
-  - Brand Portfolio Management: parent brand + sub-brands, custom domain, white-label configuration.
-  - Dokumen: 18 templat Malaysia, PDF/Word/ODT/Excel/ODS/CSV/HTML/JSON, 4 tema.
-  - Modul sedia ada: Inventory & Warehouse, BOM & Manufacturing, Projects, Assets, Helpdesk.
-  - `PASANG.md`: panduan pasang (cPanel). Ujian: `php artisan test` (43 ujian).
-- `rujukan-ui-v25/pos/`: skrin Next.js gaya v2.5 (versi lama atas ERPNext) untuk **rujukan reka bentuk** UI baru.
-- `docs/`: dokumen V3.0 owner, seni bina v2.5.
-- `laporan/`: laporan Fasa 0/1, dokumen, modul operasi (+ contoh dokumen).
+> **Dikemas kini:** 26 Oktober 2026 · menggantikan versi v4.5 (18 Okt 2026) yang lapuk
+> Indeks penuh: [`README.md`](README.md)
 
-## Mula
-```
+---
+
+## Ini Apa?
+
+**AI BIJAN SaaS** — *AI-Native Business OS* untuk PKS Malaysia/SEA.
+Aplikasi **Laravel 12 tulen** (bukan ERPNext/Frappe), multi-tenant, modular, API-first.
+
+---
+
+## Fakta Teknikal (DISAHKAN 26 Okt 2026)
+
+| Metrik | Nilai |
+|---|---|
+| PHP | **8.2.12** |
+| Laravel | **12.70.1** |
+| Pangkalan data (dev) | **SQLite** |
+| Modul | **58** |
+| Jadual | **346** |
+| Laluan API (`api/v1`) | **1,518** |
+| Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
+| Assertion | **5,033** |
+| Resource Filament | **66** |
+| Kebenaran | **212** |
+| Advisori keselamatan | **0** |
+
+> Untuk versi yang sentiasa tepat: `php skrip/semak-dokumen.php`
+
+---
+
+## Isi Repositori
+
+| Lokasi | Isi |
+|---|---|
+| `app/Modules/` | **58 modul** domain (setiap satu provider + config + routes sendiri) |
+| `app/Filament/` | **66 resource** UI admin di `/admin` |
+| `app/Support/Tenancy/` | `TenantContext` — pusat pengasingan tenant |
+| `database/migrations/` | **49 fail** → **346 jadual** |
+| `routes/api.php` | Laluan API utama |
+| `docs/` | **56 dokumen** — mula dengan `README.md` |
+| `skrip/` | 19 skrip penyelenggaraan/diagnostik |
+| `.github/skills/aibijan-coding/` | Skill pengekodan + gotchas + peraturan keselamatan |
+| `tests/` | **44 fail ujian** Feature |
+
+---
+
+## Mula Pantas
+
+```bash
 cd ai-bijan-saas
-composer install
-cp .env.example .env      # isi DB_*, APP_URL
-php artisan key:generate
+composer install && npm install
+cp .env.example .env && php artisan key:generate
 php artisan migrate --seed
-php artisan test
+php artisan storage:link
+php skrip/sync-perm.php          # WAJIB
+php artisan serve --host=127.0.0.1 --port=8145
 ```
 
-## Tidak dimasukkan (sengaja)
-`.env` (kata laluan & kunci), `vendor/`, `node_modules/`, log. Jana semula dengan langkah di atas.
+Buka `http://127.0.0.1:8145/admin`.
 
-## Belum siap
-Skrin (UI) untuk semua 18 B-Modules, HR/payroll, POS Laravel, Kewangan/lejar, Pembelian, e-Invois LHDN, Brain Hub, AI Gateway, Industry Blueprint Engine. Templat dokumen perlu semakan profesional.
+Panduan penuh: [`getting-started.md`](getting-started.md)
 
-## Arkitektur v4.5 — Ringkasan Perubahan Utama
-1. **Laravel standalone** — Tiada dependency kepada ERPNext, Frappe atau Frappe HR.
-2. **Multi-tenant SaaS** — Satu codebase, banyak tenant dengan pengasingan data penuh.
-3. **4-tier Admin Hierarchy** — Master → Super → White-label → Customer.
-4. **Platform Business** — Brand portfolio, revenue sharing, white-label reseller.
-5. **18 B-Modules** — Virtual Office, HRMS, Projects, Assets, Sign & Docs, POS, Site, Link, Marketplace, Loyalty, Omnichannel, Booking, Marketing, Finance, Invoicing, Procurement, Logistics, Analytics, Brain Hub.
-6. **AI Token Wallet** — Kredit AI berasingan daripada langganan SaaS.
-7. **Industry Blueprint Engine** — Onboarding automatik mengikut jenis perniagaan Malaysia.
+---
+
+## Modul Mengikut Kategori
+
+**Jualan & Pemasaran (8)** — CRM · Marketing · Blast · Prospecting · SalesCopilot · Loyalty · Affiliate · Link
+
+**AI & Automasi (10)** — AIAgents · AIGateway · PersonalAssistant · Boardroom · FlowAutomation · ExecutiveAI · AgentStudio · McpStudio · WorkflowStudio · BusinessIntel
+
+**Operasi & Logistik (10)** — Inventory · Manufacturing · SCM · Logistics · Fleet · Cod · Booking · POS · Orders · Reminder
+
+**Kewangan & People (7)** — Finance · Invoicing · Payroll · COGS · HRMS · Projects · Assets
+
+**Platform & Komunikasi (9)** — Site · Marketplace · Omnichannel · SignDocs · DocumentAI · Helpdesk · IndustryPacks · LiveSupport · Community
+
+**Lain-lain** — Analytics · BrainHub · ProofOfValue · Vision · MediaStudio · ContentStudio · MediaEditor · Seo · ServiceOS · Expense · **ADE**
+
+Katalog penuh: [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md)
+
+---
+
+## Apa Yang SUDAH Siap
+
+- ✅ **58 modul** backend dengan pengasingan tenant (`BelongsToTenant`)
+- ✅ **UI admin Filament** — 66 resource CRUD, 6 widget, halaman Tetapan
+- ✅ **AI Gateway** dengan wallet, `PromptGuard` (anti prompt-injection), redaksi PII
+- ✅ **Pematuhan MY** — EPF/SOCSO/EIS/PCB/HRDF, e-Invois LHDN, biometrik + pagar PDPA
+- ✅ **ADE** (BAB 92) — skills engine, git worktree isolation, sub-agent coordinator, review surface
+- ✅ **0 advisori keselamatan** (Laravel 12.70.1)
+
+## Apa Yang BELUM Siap (jujur)
+
+- ⏸️ **B-Receipt & B-Vision** (BAB 90-91) — **spesifikasi sahaja**, tiada kod
+- ⏸️ **ADE pelaksanaan kod sebenar** — callback sedia, sambungan enjin P2
+- ⏸️ **Qdrant** — RAG guna hash-v1 (padanan perkataan, bukan semantik)
+- ⏸️ **Connector Pack 20 sistem** (T-75), **Migration Wizard** (T-72)
+- ⏸️ **SOC 2 / ISO 27001** — tiada
+- ⏸️ **Integrasi bayaran** (FPX) — tiada
+- ⏸️ **Telefoni sebenar** untuk LiveSupport — perlu kredensial
+- ⏸️ **Renderer media** (FFmpeg/Sharp) — worker luar belum
+
+---
+
+## Amaran Penting
+
+| ⚠️ | Perkara |
+|---|---|
+| **WhatsApp** | Jangan guna `whatsapp-web.js` — guna WhatsApp Business Cloud API |
+| **Menu tersembunyi** | Bukan kawalan keselamatan. API dikawal `perm:` + `module:` |
+| **`migrate:fresh`** | Memadam data dev — jalankan semula `db:seed` + `cipta-tenant-ujian.php` |
+| **`rmdir app\Filament\Resources`** | Memadam resource manual — jalankan `pulih-pos.php` selepas `jana-resource.php` |
+| **Produksi** | `composer audit` mesti 0, ujian staging, `sync-perm.php` pada DB produksi |
+| **Angka dokumen** | Sentiasa `php skrip/semak-dokumen.php` sebelum mempercayai angka |
+
+---
+
+## Fail Tidak Dimasukkan (sengaja)
+
+`.env` (kata laluan & kunci), `vendor/`, `node_modules/`, log, `database/database.sqlite`.
+Jana semula dengan langkah di atas.

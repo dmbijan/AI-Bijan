@@ -487,7 +487,7 @@ $tenant->decrement('ai_credit_balance', $usage['cost_usd']);
 
 ### Queue Strategy
 - **High priority:** Approval notifications (immediate)
-- **Normal priority:** Agent scheduled tasks (Horizon queue)
+- **Normal priority:** Agent scheduled tasks (Laravel queue worker)
 - **Low priority:** Content generation, analytics (delayed queue)
 
 ### Memory Management

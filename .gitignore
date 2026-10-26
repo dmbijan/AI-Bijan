@@ -49,3 +49,46 @@ Thumbs.db
 
 # --- Sampah sementara ---
 _ide_helper.php
+# Peraturan tambahan aplikasi
+*.log
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/node_modules
+/public/build
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+Thumbs.db
+
+# Pangkalan data tempatan — JANGAN commit (data pelanggan)
+/database/*.sqlite
+/database/*.sqlite-journal
+/database/*.sqlite-shm
+/database/*.sqlite-wal
+
+# Fail kerja / output sementara
+/up*.txt
+down*.txt
+*.bak
+routes_dump.json
+
+# Arkib sandaran besar
+/backups

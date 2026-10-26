@@ -1,0 +1,288 @@
+@extends('layouts.app')
+
+@section('title', 'Dashboard')
+
+@section('content')
+<style>
+    /* Dashboard BI — susun atur padat (rujukan mockup owner), token rumah BAB 24 */
+    .dash-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5); }
+    .dash-hello h1 { font-size: var(--text-2xl); font-weight: 700; }
+    .dash-hello p { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
+    .dash-demo { font-size: var(--text-xs); font-weight: 700; color: var(--warning-500); background: var(--brand-subtle); padding: 4px 10px; border-radius: var(--radius-full); }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-4); }
+    @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px)  { .kpi-grid { grid-template-columns: 1fr; } }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-sm); }
+    .kpi-top { display: flex; align-items: center; gap: var(--space-2); }
+    .kpi-ic { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; font-size: 17px; background: var(--brand-subtle); color: var(--brand); flex: 0 0 auto; }
+    .kpi-label { font-size: var(--text-sm); color: var(--text-muted); }
+    .kpi-val { font-size: var(--text-2xl); font-weight: 700; margin-top: 10px; letter-spacing: -.01em; }
+    .kpi-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+    .kpi-delta { font-size: var(--text-xs); font-weight: 700; }
+    .kpi-delta.up { color: var(--success-600); } .kpi-delta.down { color: var(--danger-500); }
+    .kpi-spark { width: 72px; height: 26px; }
+
+    .dash-grid { display: grid; gap: var(--space-4); grid-template-columns: 2fr 1fr; margin-bottom: var(--space-4); }
+    .dash-grid-3 { display: grid; gap: var(--space-4); grid-template-columns: 1.3fr 1fr 1fr; margin-bottom: var(--space-4); }
+    @media (max-width: 1000px) { .dash-grid, .dash-grid-3 { grid-template-columns: 1fr; } }
+
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+    .chart-box { position: relative; height: 260px; }
+    .chart-box.sm { height: 210px; }
+
+    .legend { display: flex; flex-direction: column; gap: 9px; }
+    .legend-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
+    .legend-dot { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; }
+    .legend-row .v { margin-left: auto; color: var(--text-muted); font-weight: 600; }
+
+    .tbl { width: 100%; border-collapse: collapse; }
+    .tbl th { text-align: left; font-size: var(--text-xs); color: var(--text-subtle); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .tbl td { padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+    .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .tbl tr:last-child td { border-bottom: 0; }
+    .rank { width: 22px; height: 22px; border-radius: var(--radius-sm); background: var(--surface-3); display: inline-grid; place-items: center; font-size: var(--text-xs); font-weight: 700; }
+
+    .stocklist { display: flex; flex-direction: column; }
+    .stock-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--border); font-size: var(--text-sm); }
+    .stock-row:first-child { border-top: 0; }
+
+    .qa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+    .qa { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: var(--space-4) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); text-align: center; font-size: var(--text-xs); font-weight: 600; transition: var(--transition); }
+    .qa:hover { border-color: var(--brand); color: var(--text); background: var(--brand-subtle); }
+    .qa .ic { font-size: 18px; color: var(--brand); }
+
+    .feed { display: flex; flex-direction: column; }
+    .feed-row { display: flex; gap: var(--space-3); padding: 11px 0; border-top: 1px solid var(--border); }
+    .feed-row:first-child { border-top: 0; }
+    .feed-ic { width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--brand-subtle); color: var(--brand); display: grid; place-items: center; flex: 0 0 auto; }
+    .feed-b b { font-size: var(--text-sm); font-weight: 600; display: block; }
+    .feed-b small { font-size: var(--text-xs); color: var(--text-muted); }
+    .feed-time { margin-left: auto; font-size: var(--text-xs); color: var(--text-subtle); white-space: nowrap; }
+
+    .mod-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--space-3); }
+    @media (max-width: 1100px) { .mod-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 560px)  { .mod-grid { grid-template-columns: repeat(3, 1fr); } }
+    .mod { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: var(--space-3) 4px; border-radius: var(--radius-md); color: var(--text); text-align: center; transition: var(--transition); }
+    .mod:hover { background: var(--surface-2); color: var(--text); }
+    .mod .ic { width: 40px; height: 40px; border-radius: var(--radius-md); display: grid; place-items: center; font-size: 18px; background: var(--brand-subtle); color: var(--brand); }
+    .mod .nm { font-size: var(--text-xs); font-weight: 600; }
+    .mod .ds { font-size: 10px; color: var(--text-subtle); }
+
+    .ai-card { background: linear-gradient(160deg, var(--brand-subtle), var(--surface)); border: 1px solid var(--border); }
+</style>
+
+<div class="dash-head">
+    <div class="dash-hello">
+        <h1>Selamat datang 👋</h1>
+        <p id="dashDate">Ini ringkasan prestasi perniagaan anda hari ini.</p>
+    </div>
+    <span class="dash-demo" title="Widget tanpa sumber sebenar dipaparkan sebagai contoh sehingga endpoint disambung">Pratonton · sebahagian data contoh</span>
+</div>
+
+{{-- KPI --}}
+<div class="kpi-grid" id="kpiGrid">
+    <div class="kpi">
+        <div class="kpi-top"><span class="kpi-ic">▦</span><span class="kpi-label">Jumlah Jualan</span></div>
+        <div class="kpi-val" id="kpiSales">—</div>
+        <div class="kpi-foot"><span class="kpi-delta up" id="kpiSalesD">&nbsp;</span><canvas class="kpi-spark" data-spark="sales"></canvas></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-top"><span class="kpi-ic">◫</span><span class="kpi-label">Pesanan Baru</span></div>
+        <div class="kpi-val" id="kpiOrders">—</div>
+        <div class="kpi-foot"><span class="kpi-delta up" id="kpiOrdersD">&nbsp;</span><canvas class="kpi-spark" data-spark="orders"></canvas></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-top"><span class="kpi-ic">◍</span><span class="kpi-label">Pelanggan Aktif</span></div>
+        <div class="kpi-val" id="kpiCust">—</div>
+        <div class="kpi-foot"><span class="kpi-delta up" id="kpiCustD">&nbsp;</span><canvas class="kpi-spark" data-spark="cust"></canvas></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-top"><span class="kpi-ic">◆</span><span class="kpi-label">Duit Belum Kutip</span></div>
+        <div class="kpi-val" id="kpiAr">—</div>
+        <div class="kpi-foot"><span class="kpi-delta" id="kpiArD">&nbsp;</span><canvas class="kpi-spark" data-spark="ar"></canvas></div>
+    </div>
+</div>
+
+{{-- Carta jualan + saluran --}}
+<div class="dash-grid">
+    <div class="card">
+        <div class="card-head">
+            <div><h2 class="card-title">Jualan &amp; Pesanan</h2><p class="card-subtitle">30 hari terakhir</p></div>
+        </div>
+        <div class="chart-box"><canvas id="chartSales"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="card-head"><div><h2 class="card-title">Jualan Mengikut Saluran</h2><p class="card-subtitle" id="chCh">contoh</p></div></div>
+        <div class="chart-box sm"><canvas id="chartChannel"></canvas></div>
+        <div class="legend" id="channelLegend" style="margin-top:12px"></div>
+    </div>
+</div>
+
+{{-- Top produk + status pesanan + stok --}}
+<div class="dash-grid-3">
+    <div class="card">
+        <div class="card-head"><h2 class="card-title">Top Produk Terlaris</h2><span class="card-subtitle">contoh</span></div>
+        <table class="tbl" id="topProducts"></table>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2 class="card-title">Status Pesanan</h2><span class="card-subtitle">contoh</span></div>
+        <div class="chart-box sm"><canvas id="chartStatus"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2 class="card-title">Stok Gudang</h2><span class="card-subtitle">contoh</span></div>
+        <div class="stocklist" id="stockList"></div>
+    </div>
+</div>
+
+{{-- Tindakan pantas + aktiviti + AI --}}
+<div class="dash-grid-3">
+    <div class="card">
+        <div class="card-head"><h2 class="card-title">Tindakan Pantas</h2></div>
+        <div class="qa-grid">
+            <a class="qa" href="/app/crm"><span class="ic">◍</span>Tambah Pelanggan</a>
+            <a class="qa" href="/app/pos"><span class="ic">▤</span>Buat Pesanan</a>
+            <a class="qa" href="/app/inventory"><span class="ic">▥</span>Stok Produk</a>
+            <a class="qa" href="/app/marketing"><span class="ic">◈</span>Hantar Kempen</a>
+            <a class="qa" href="/app/invoicing"><span class="ic">▦</span>Jana Invois</a>
+            <a class="qa" href="/app/analytics"><span class="ic">◔</span>Laporan</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2 class="card-title">Aktiviti Terkini</h2></div>
+        <div class="feed" id="feed"><div class="skeleton" style="height:40px"></div><div class="skeleton" style="height:40px;margin-top:8px"></div></div>
+    </div>
+    <div class="card ai-card">
+        <div class="card-head"><h2 class="card-title">AI BIJAN Assistant</h2></div>
+        <p class="card-subtitle" style="margin-bottom:12px">Boleh bantu ringkasan prestasi, analisis jualan &amp; ramalan, cadangan tindakan, dan laporan.</p>
+        <a class="btn btn-primary btn-block" href="/app/personal-ai">Buka AI Assistant</a>
+        <a class="btn btn-block" href="/app/boardroom" style="margin-top:8px">Sesi Boardroom</a>
+    </div>
+</div>
+
+{{-- Modul utama --}}
+<div class="card">
+    <div class="card-head"><div><h2 class="card-title">Modul Utama</h2><p class="card-subtitle">Akses pantas ke modul teras AI BIJAN</p></div><a href="/app/industry" class="card-subtitle">Lihat semua →</a></div>
+    <div class="mod-grid">
+        @php $mods = [
+            ['CRM','/app/crm','◍','Pelanggan'], ['Marketing','/app/marketing','◈','Kempen'],
+            ['Invois','/app/invoicing','▦','e-Invois'], ['POS','/app/pos','▤','Jualan'],
+            ['Inventori','/app/inventory','▥','Stok'], ['Kewangan','/app/finance','▧','Akaun'],
+            ['HRMS','/app/hrms','◍','Pekerja'], ['Booking','/app/booking','▣','Tempahan'],
+            ['Omnichannel','/app/omnichannel','◈','Inbox'], ['Helpdesk','/app/helpdesk','◔','Tiket'],
+            ['Analitik','/app/analytics','◔','Laporan'], ['Brain Hub','/app/brainhub','◇','AI'],
+            ['Projek','/app/projects','▦','Kerja'], ['B-Site','/app/site','▩','Web'],
+        ]; @endphp
+        @foreach ($mods as [$nm,$href,$ic,$ds])
+            <a class="mod" href="{{ $href }}"><span class="ic">{{ $ic }}</span><span class="nm">{{ $nm }}</span><span class="ds">{{ $ds }}</span></a>
+        @endforeach
+    </div>
+</div>
+@endsection
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const D = {
+    rm: (n) => 'RM ' + Number(n || 0).toLocaleString('en-MY', { maximumFractionDigits: 0 }),
+    num: (n) => Number(n || 0).toLocaleString('en-MY'),
+    body: (r) => (r && typeof r === 'object' && 'data' in r) ? r.data : r,
+    css: (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim(),
+};
+// Palet carta (kategori perlu pelbagai warna; jenama = amber)
+const PAL = ['#f59e0b', '#3b82f6', '#22c55e', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
+
+// ---- DATA CONTOH (ganti bila endpoint sedia) ----
+const CONTOH = {
+    salesTrend: [12,15,13,18,16,21,19,24,22,20,26,28,25,30,27,33,31,35],
+    channel: [['Shopee',32.5],['Lazada',24.8],['TikTok',18.7],['POS',14.0],['Laman Web',6.9],['Lain-lain',3.1]],
+    status: [['Dalam Proses',404],['Dihantar',368],['Selesai',330],['Dibatalkan',90],['Pending',56]],
+    topProducts: [['Wireless Earbuds',482,38560],['Smart Watch',351,42120],['T-Shirt Premium',298,17880],['Power Bank',276,13800],['Laptop Bag',221,11050]],
+    stock: [['Utama (KL)',1892],['Selangor',892],['Johor',432],['Sabah',186],['Sarawak',80]],
+    feed: [['Pesanan baharu diterima','Shopee · RM 299','5 min'],['Pelanggan baharu','Nur Aisyah Bt Hassan','12 min'],['Kempen WhatsApp','2,500 penerima','18 min'],['Stok hampir habis','Wireless Earbuds (11 unit)','25 min'],['Tiket sokongan','Keutamaan tinggi','32 min']],
+};
+
+async function loadDash() {
+    const ok = await App.loadSession();
+    if (!ok) { location.href = '/login'; return; }
+    try { App.$('#dashDate').textContent = new Date().toLocaleDateString('ms-MY', { weekday:'long', day:'numeric', month:'long', year:'numeric' }) + ' · ini ringkasan prestasi anda.'; } catch {}
+    kpis(); charts(); fillTop(); fillStatus(); fillStock(); fillFeed();
+}
+
+// KPI — wayar yang ada endpoint; selain itu contoh
+async function kpis() {
+    // Duit belum kutip = SEBENAR (B-Invoicing)
+    try {
+        const s = D.body(await App.api.get('/api/v1/invoicing/invoices/statistics'));
+        App.$('#kpiAr').textContent = D.rm(s.total_outstanding);
+        App.$('#kpiArD').textContent = (s.overdue_count ? s.overdue_count + ' lewat' : 'semua dalam tempoh');
+        App.$('#kpiArD').className = 'kpi-delta ' + (s.overdue_count ? 'down' : 'up');
+    } catch { App.$('#kpiAr').textContent = '—'; }
+    // Jualan — cuba POS sales summary; kalau tiada, contoh
+    try {
+        const p = D.body(await App.api.get('/api/v1/pos/sales/summary'));
+        App.$('#kpiSales').textContent = D.rm(p.total ?? p.total_sales ?? p.grand_total ?? 0);
+    } catch { App.$('#kpiSales').textContent = D.rm(284560); }
+    App.$('#kpiSalesD').textContent = '↑ 12.5%';
+    App.$('#kpiOrders').textContent = D.num(1248); App.$('#kpiOrdersD').textContent = '↑ 18.7%';
+    App.$('#kpiCust').textContent = D.num(3892); App.$('#kpiCustD').textContent = '↑ 9.3%';
+    sparklines();
+}
+
+function sparklines() {
+    document.querySelectorAll('[data-spark]').forEach((c, i) => {
+        c.width = 72; c.height = 26;
+        const base = CONTOH.salesTrend.length ? CONTOH.salesTrend : [5,7,6,8,7,9,8,11];
+        new Chart(c, { type: 'line', data: { labels: base.map((_, j) => j), datasets: [{ data: base.map(v => v + i), borderColor: D.css('--brand') || '#f59e0b', borderWidth: 2, pointRadius: 0, tension: .4, fill: false }] },
+            options: { responsive: false, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } } });
+    });
+}
+
+function charts() {
+    const grid = D.css('--border') || '#2a2a2e';
+    const txt = D.css('--text-muted') || '#9a9aa2';
+    // Jualan 30 hari
+    const n = CONTOH.salesTrend.length || 18;
+    new Chart(App.$('#chartSales'), {
+        type: 'bar',
+        data: { labels: Array.from({ length: n }, (_, i) => `${i + 1}`),
+            datasets: [
+                { type: 'line', label: 'Jualan (RM)', data: CONTOH.salesTrend.map(v => v * 1300), borderColor: PAL[1], backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: .35, yAxisID: 'y' },
+                { type: 'bar', label: 'Pesanan', data: CONTOH.salesTrend.map(v => Math.round(v * 1.6)), backgroundColor: D.css('--brand') || '#f59e0b', borderRadius: 4, yAxisID: 'y1' },
+            ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: txt, boxWidth: 10 } } },
+            scales: { x: { grid: { display: false }, ticks: { color: txt, maxTicksLimit: 8 } },
+                y: { grid: { color: grid }, ticks: { color: txt } }, y1: { position: 'right', grid: { display: false }, ticks: { color: txt } } } },
+    });
+    // Saluran donut
+    new Chart(App.$('#chartChannel'), {
+        type: 'doughnut',
+        data: { labels: CONTOH.channel.map(c => c[0]), datasets: [{ data: CONTOH.channel.map(c => c[1]), backgroundColor: PAL, borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { display: false } } },
+    });
+    App.$('#channelLegend').innerHTML = CONTOH.channel.map((c, i) =>
+        `<div class="legend-row"><span class="legend-dot" style="background:${PAL[i % PAL.length]}"></span>${c[0]}<span class="v">${c[1]}%</span></div>`).join('');
+    // Status pesanan donut
+    new Chart(App.$('#chartStatus'), {
+        type: 'doughnut',
+        data: { labels: CONTOH.status.map(s => s[0]), datasets: [{ data: CONTOH.status.map(s => s[1]), backgroundColor: PAL, borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '64%', plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 9, font: { size: 10 } } } } },
+    });
+}
+
+function fillTop() {
+    App.$('#topProducts').innerHTML = '<thead><tr><th>#</th><th>Produk</th><th class="num">Terjual</th><th class="num">Jualan</th></tr></thead><tbody>' +
+        CONTOH.topProducts.map((p, i) => `<tr><td><span class="rank">${i + 1}</span></td><td>${p[0]}</td><td class="num">${D.num(p[1])}</td><td class="num">${D.rm(p[2])}</td></tr>`).join('') + '</tbody>';
+}
+function fillStatus() { /* carta diisi dalam charts() */ }
+function fillStock() {
+    App.$('#stockList').innerHTML = CONTOH.stock.map(s => `<div class="stock-row"><span>${s[0]}</span><b>${D.num(s[1])}</b></div>`).join('');
+}
+function fillFeed() {
+    App.$('#feed').innerHTML = CONTOH.feed.map(f => `<div class="feed-row"><span class="feed-ic">◷</span><div class="feed-b"><b>${f[0]}</b><small>${f[1]}</small></div><span class="feed-time">${f[2]}</span></div>`).join('');
+}
+
+loadDash();
+</script>
+@endpush

@@ -496,7 +496,7 @@ Phase 3: Scale (Month 6-12)
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  Frontend (User-Facing)                             │
-│  ├── Next.js 15 + React 19                          │
+│  ├── Blade + Vite (Filament admin UI)                │
 │  ├── Tailwind CSS                                   │
 │  ├── B-Site Builder (drag-and-drop)                 │
 │  ├── CRM Dashboard                                  │

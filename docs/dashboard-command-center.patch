@@ -1,0 +1,374 @@
+diff --git a/ai-bijan-saas/resources/views/app/dashboard.blade.php b/ai-bijan-saas/resources/views/app/dashboard.blade.php
+index 631c187..d14074c 100644
+--- a/ai-bijan-saas/resources/views/app/dashboard.blade.php
++++ b/ai-bijan-saas/resources/views/app/dashboard.blade.php
+@@ -1,17 +1,129 @@
+ @extends('layouts.app')
+ 
+-@section('title', 'Papan Pemuka')
++@section('title', 'Command Center')
+ 
+ @section('content')
++<style>
++    /* Command Center — papan "sekali pandang" (gaya RekaDesk, token rumah BAB 24) */
++    .cc-grid { display: grid; gap: var(--space-4); grid-template-columns: 1fr; }
++    @media (min-width: 900px) {
++        .cc-grid { grid-template-columns: 1.05fr .95fr; align-items: start; }
++        .cc-duit { grid-row: span 2; }
++    }
++    .cc-live {
++        display: flex; align-items: center; gap: var(--space-3);
++        background: var(--surface); border: 1px solid var(--border);
++        border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
++        box-shadow: var(--shadow-sm); margin-bottom: var(--space-4);
++    }
++    .cc-live-dot { width: 34px; height: 34px; border-radius: var(--radius-md); flex: 0 0 auto;
++        display: grid; place-items: center; background: var(--brand-subtle); }
++    .cc-live-dot i { width: 9px; height: 9px; border-radius: 50%; background: var(--brand);
++        animation: ccPulse 1.6s infinite; }
++    @keyframes ccPulse { 0% { box-shadow: 0 0 0 0 var(--brand-subtle);} 70% { box-shadow: 0 0 0 7px transparent;} 100% { box-shadow: 0 0 0 0 transparent;} }
++    .cc-live .cc-live-body { flex: 1; min-width: 0; }
++    .cc-live b { font-size: var(--text-base); display: block; }
++    .cc-live small { font-size: var(--text-xs); color: var(--text-muted); }
++    .cc-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--brand);
++        background: var(--brand-subtle); padding: 3px 8px; border-radius: var(--radius-full); white-space: nowrap; }
++
++    .cc-bar { height: 6px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; }
++    .cc-bar i { display: block; height: 100%; background: var(--brand); border-radius: var(--radius-full); transition: width var(--transition); }
++
++    .cc-head { display: flex; align-items: center; justify-content: space-between; }
++    .cc-headline { font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.01em; }
++    .cc-sub { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
++    .cc-sub .is-late { color: var(--danger-500); font-weight: 600; }
++
++    .cc-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
++    .cc-row:first-of-type { margin-top: var(--space-2); }
++    .cc-row .cc-name { flex: 1; min-width: 0; }
++    .cc-row .cc-name b { font-size: var(--text-md); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++    .cc-row .cc-name small { font-size: var(--text-xs); color: var(--text-muted); }
++    .cc-row .cc-name small.is-late { color: var(--danger-500); font-weight: 600; }
++    .cc-rm { font-size: var(--text-md); font-weight: 700; white-space: nowrap; }
++
++    .cc-next { display: flex; gap: var(--space-4); align-items: flex-start; margin-top: var(--space-2); }
++    .cc-next-time { flex: 0 0 auto; }
++    .cc-next-time .h { font-size: var(--text-3xl); font-weight: 700; line-height: 1; }
++    .cc-next-time .in { font-size: var(--text-sm); font-weight: 700; color: var(--brand); margin-top: 6px; }
++    .cc-next-det { flex: 1; border-left: 1px solid var(--border); padding-left: var(--space-4); }
++    .cc-badge-soft { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
++        color: var(--brand); background: var(--brand-subtle); padding: 3px 8px; border-radius: var(--radius-sm); margin-bottom: 7px; }
++    .cc-next-det b { font-size: var(--text-lg); display: block; }
++    .cc-next-det .lok { font-size: var(--text-sm); color: var(--text-muted); margin-top: 3px; }
++    .cc-next-det .more { font-size: var(--text-xs); color: var(--text-muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
++
++    .cc-week-top { display: flex; align-items: baseline; justify-content: space-between; margin: var(--space-3) 0; }
++    .cc-week-top .big { font-size: var(--text-2xl); font-weight: 700; }
++    .cc-week-top .big span { color: var(--text-muted); font-size: var(--text-lg); }
++    .cc-task { display: flex; align-items: center; gap: var(--space-3); padding: 8px 0; }
++    .cc-chk { width: 20px; height: 20px; border-radius: var(--radius-sm); border: 2px solid var(--border); flex: 0 0 auto; position: relative; }
++    .cc-task.done .cc-chk { background: var(--brand); border-color: var(--brand); }
++    .cc-task.done .cc-chk::after { content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid var(--on-brand); border-width: 0 2px 2px 0; transform: rotate(45deg); }
++    .cc-task .t { flex: 1; font-size: var(--text-base); }
++    .cc-task.done .t { color: var(--text-muted); text-decoration: line-through; }
++    .cc-task .k { font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); }
++</style>
++
+ <div class="page-head">
+     <div>
+-        <h1 class="page-title">Papan Pemuka</h1>
+-        <p class="page-desc">Ringkasan operasi, AI dan kewangan perniagaan anda.</p>
++        <h1 class="page-title">Command Center</h1>
++        <p class="page-desc" id="ccSalam">Ringkasan operasi, kutipan & tugas hari ini.</p>
+     </div>
+-    <button class="btn btn-sm" onclick="loadStats()">Muat Semula</button>
++    <button class="btn btn-sm" onclick="ccLoad()">Muat Semula</button>
++</div>
++
++{{-- Jalur Langsung (kempen sedang berjalan) --}}
++<div class="cc-live" id="ccLive" hidden>
++    <span class="cc-live-dot"><i></i></span>
++    <div class="cc-live-body">
++        <b id="ccLiveTitle">—</b>
++        <small id="ccLiveNote">—</small>
++        <div class="cc-bar" style="margin-top:7px"><i id="ccLiveBar" style="width:0%"></i></div>
++    </div>
++    <span class="cc-tag">LANGSUNG</span>
++</div>
++
++<div class="cc-grid">
++    {{-- KAD 1: Duit belum kutip --}}
++    <section class="card cc-duit">
++        <div class="cc-head">
++            <h2 class="card-title">Duit belum kutip</h2>
++            <div class="cc-headline" id="ccOutstanding">—</div>
++        </div>
++        <div class="cc-sub" id="ccOutstandingSub">&nbsp;</div>
++        <div id="ccInvoiceList">
++            <div class="skeleton" style="height:48px;margin-top:12px"></div>
++            <div class="skeleton" style="height:48px;margin-top:8px"></div>
++        </div>
++    </section>
++
++    {{-- KAD 2: Seterusnya --}}
++    <section class="card">
++        <h2 class="card-title">Seterusnya</h2>
++        <div id="ccNext">
++            <div class="skeleton" style="height:70px;margin-top:12px"></div>
++        </div>
++    </section>
++
++    {{-- KAD 3: Tugas minggu ni --}}
++    <section class="card">
++        <div class="cc-head">
++            <h2 class="card-title">Tugas</h2>
++            <span class="card-subtitle" id="ccTaskCount">—</span>
++        </div>
++        <div class="cc-week-top">
++            <div class="big" id="ccTaskPct">—<span> siap</span></div>
++            <span class="card-subtitle" id="ccTaskLeft">&nbsp;</span>
++        </div>
++        <div class="cc-bar" style="margin-bottom:14px"><i id="ccTaskBar" style="width:0%"></i></div>
++        <div id="ccTaskList"></div>
++    </section>
+ </div>
+ 
+-<div class="grid grid-4 mb-5">
++{{-- Ringkasan AI & automasi (kekal dari papan asal) --}}
++<div class="grid grid-4" style="margin-top:var(--space-5)">
+     <div class="stat">
+         <div class="stat-label">Kredit AI</div>
+         <div class="stat-value" id="statCredits">—</div>
+@@ -33,82 +145,173 @@
+         <div class="stat-delta" id="statFlowsSub">—</div>
+     </div>
+ </div>
+-
+-<div class="grid grid-2">
+-    <div class="card">
+-        <div class="card-header">
+-            <div>
+-                <h2 class="card-title">Pintasan Pantas</h2>
+-                <p class="card-subtitle">Mulakan tugas biasa</p>
+-            </div>
+-        </div>
+-        <div class="stack">
+-            <a href="/app/boardroom" class="btn btn-block" style="justify-content:flex-start">◈&nbsp; Buka sesi Boardroom</a>
+-            <a href="/app/ai-agents" class="btn btn-block" style="justify-content:flex-start">◆&nbsp; Panggil ejen AI</a>
+-            <a href="/app/flows" class="btn btn-block" style="justify-content:flex-start">⇄&nbsp; Cipta automasi</a>
+-            <a href="/app/ai-gateway" class="btn btn-block" style="justify-content:flex-start">⚡&nbsp; Semak kredit AI</a>
+-        </div>
+-    </div>
+-
+-    <div class="card">
+-        <div class="card-header">
+-            <div>
+-                <h2 class="card-title">Status Sistem</h2>
+-                <p class="card-subtitle">Kesihatan komponen utama</p>
+-            </div>
+-        </div>
+-        <div class="stack" id="health">
+-            <div class="skeleton" style="height:20px"></div>
+-            <div class="skeleton" style="height:20px"></div>
+-            <div class="skeleton" style="height:20px"></div>
+-        </div>
+-    </div>
+-</div>
+ @endsection
+ 
+ @push('scripts')
+ <script>
+-async function loadStats() {
++const CC = {
++    rm: (n) => 'RM ' + Number(n || 0).toLocaleString('en-MY', { maximumFractionDigits: 0 }),
++    // payload boleh {success,data:...} atau terus objek/array
++    body: (r) => (r && typeof r === 'object' && 'data' in r) ? r.data : r,
++    hari: (iso) => {
++        if (!iso) return null;
++        const d = new Date(iso.replace(' ', 'T'));
++        return Math.round((d - new Date()) / 86400000);
++    },
++    jam: (iso) => {
++        const d = new Date((iso || '').replace(' ', 'T'));
++        if (isNaN(d)) return { h: '—', in: '' };
++        let jam = d.getHours(), ap = jam >= 12 ? 'PM' : 'AM';
++        jam = jam % 12 || 12;
++        const mm = String(d.getMinutes()).padStart(2, '0');
++        const diff = Math.round((d - new Date()) / 60000);
++        let sel = diff < 0 ? '' : diff < 60 ? `dalam ${diff}m`
++            : diff < 1440 ? `dalam ${Math.floor(diff/60)}j ${diff%60}m`
++            : `dalam ${Math.floor(diff/1440)} hari`;
++        return { h: `${jam}:${mm}`, ap, in: sel };
++    },
++    esc: (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
++};
++
++async function ccLoad() {
+     const ok = await App.loadSession();
+     if (!ok) { location.href = '/login'; return; }
++    ccDuit(); ccSeterusnya(); ccTugas(); ccLive(); ccStatsAI();
++}
+ 
++// --- KAD 1: Duit belum kutip (B-Invoicing) ---
++async function ccDuit() {
+     try {
+-        const wallet = await App.api.get('/api/v1/ai-gateway/wallet');
+-        const w = wallet.data;
+-        App.$('#statCredits').textContent = App.number(w.effective_balance);
+-        App.$('#statCreditsSub').textContent = `Top-up: ${App.number(w.balance)}`;
+-        App.$('#statUsage').textContent = w.usage_percent + '%';
+-        App.$('#statUsageSub').textContent = `Kuota: ${App.number(w.period_quota)}`;
++        const s = CC.body(await App.api.get('/api/v1/invoicing/invoices/statistics'));
++        App.$('#ccOutstanding').textContent = CC.rm(s.total_outstanding);
++        const late = Number(s.overdue_count || 0);
++        App.$('#ccOutstandingSub').innerHTML = late > 0
++            ? `<span class="is-late">${late} lewat tempoh</span> · ${CC.rm(s.overdue_amount)} tertunggak`
++            : 'Tiada invois lewat tempoh';
++    } catch { App.$('#ccOutstanding').textContent = '—'; }
++
++    try {
++        const list = CC.body(await App.api.get('/api/v1/invoicing/invoices?per_page=25'));
++        const rows = (Array.isArray(list) ? list : (list.data || []))
++            .filter(i => Number(i.amount_outstanding) > 0)
++            .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
++            .slice(0, 3);
++        App.$('#ccInvoiceList').innerHTML = rows.length ? rows.map(i => {
++            const d = CC.hari(i.due_date);
++            const nota = d === null ? '' : d < 0 ? `${-d} hari lewat` : d === 0 ? 'Cukup tempoh hari ni' : `Cukup tempoh ${d} hari lagi`;
++            const late = d !== null && d < 0;
++            return `<div class="cc-row">
++                <div class="cc-name"><b>${CC.esc(i.customer_name || i.invoice_number)}</b>
++                    <small class="${late ? 'is-late' : ''}">${CC.esc(nota)}</small></div>
++                <div class="cc-rm">${CC.rm(i.amount_outstanding)}</div>
++                <button class="btn btn-sm" onclick="ccIngatkan('${CC.esc(i.invoice_number)}')">Ingatkan</button>
++            </div>`;
++        }).join('') : '<div class="empty"><div class="empty-text">Tiada baki untuk dikutip 🎉</div></div>';
++    } catch { App.$('#ccInvoiceList').innerHTML = '<div class="empty"><div class="empty-text">Tak dapat muat invois.</div></div>'; }
++}
++
++function ccIngatkan(no) {
++    // Pagar: hanya sedia draf; hantar keluar perlu kelulusan owner.
++    App.toast ? App.toast('Draf peringatan untuk ' + no + ' disediakan. Hantar perlu kelulusan.', 'info')
++              : alert('Draf peringatan untuk ' + no + ' disediakan. Hantar perlu kelulusan.');
++}
++
++// --- KAD 2: Seterusnya (B-Booking) ---
++async function ccSeterusnya() {
++    try {
++        const list = CC.body(await App.api.get('/api/v1/booking/appointments?status=confirmed'));
++        const arr = (Array.isArray(list) ? list : (list.data || []))
++            .filter(a => new Date((a.start_time || '').replace(' ', 'T')) > new Date())
++            .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
++        let today = 0;
++        try { today = Number(CC.body(await App.api.get('/api/v1/booking/appointments/summary')).today_count || 0); } catch {}
++        if (!arr.length) {
++            App.$('#ccNext').innerHTML = '<div class="empty" style="margin-top:8px"><div class="empty-text">Tiada tempahan akan datang.</div></div>';
++            return;
++        }
++        const a = arr[0];
++        const t = CC.jam(a.start_time);
++        const tajuk = a.service?.name || a.service_name || ('Tempahan ' + (a.appointment_no || ''));
++        const pelanggan = a.customer?.name || a.customer_name || '';
++        const lagi = today > 1 ? `+${today - 1} lagi tempahan hari ni` : '';
++        App.$('#ccNext').innerHTML = `<div class="cc-next">
++            <div class="cc-next-time">
++                <div class="h">${t.h}<span style="font-size:var(--text-sm);color:var(--text-muted)"> ${t.ap}</span></div>
++                <div class="in">${t.in}</div>
++            </div>
++            <div class="cc-next-det">
++                <span class="cc-badge-soft">TEMPAHAN</span>
++                <b>${CC.esc(tajuk)}</b>
++                ${pelanggan ? `<div class="lok">${CC.esc(pelanggan)}</div>` : ''}
++                ${lagi ? `<div class="more">${lagi}</div>` : ''}
++            </div>
++        </div>`;
++    } catch { App.$('#ccNext').innerHTML = '<div class="empty" style="margin-top:8px"><div class="empty-text">Tak dapat muat tempahan.</div></div>'; }
++}
++
++// --- KAD 3: Tugas (B-Personal Assistant) ---
++async function ccTugas() {
++    try {
++        const s = CC.body(await App.api.get('/api/v1/pa/tasks-stats'));
++        const total = Number(s.total || 0), siap = Number(s.completed || 0);
++        const pct = total > 0 ? Math.round(siap / total * 100) : 0;
++        App.$('#ccTaskCount').textContent = `${siap} dari ${total} siap`;
++        App.$('#ccTaskPct').innerHTML = `${pct}%<span> siap</span>`;
++        App.$('#ccTaskLeft').textContent = `${Math.max(total - siap, 0)} belum selesai`;
++        App.$('#ccTaskBar').style.width = pct + '%';
+     } catch {
+-        App.$('#statCredits').textContent = '—';
+-        App.$('#statUsage').textContent = '—';
++        App.$('#ccTaskPct').innerHTML = '—<span> siap</span>';
+     }
++    try {
++        const list = CC.body(await App.api.get('/api/v1/pa/tasks?per_page=4'));
++        const arr = (Array.isArray(list) ? list : (list.data || [])).slice(0, 4);
++        App.$('#ccTaskList').innerHTML = arr.map(t => {
++            const done = ['completed', 'done', 'selesai'].includes(String(t.status || '').toLowerCase());
++            return `<div class="cc-task ${done ? 'done' : ''}">
++                <span class="cc-chk"></span>
++                <div class="t">${CC.esc(t.title || t.name || 'Tugas')}</div>
++                ${t.risk ? `<div class="k">${CC.esc(String(t.risk).toUpperCase())}</div>` : ''}
++            </div>`;
++        }).join('');
++    } catch { /* senarai pilihan sahaja */ }
++}
+ 
++// --- Jalur Langsung (kempen B-Marketing berjalan) ---
++async function ccLive() {
+     try {
+-        const b = await App.api.get('/api/v1/boardroom/stats');
+-        App.$('#statBoardroom').textContent = App.number(b.data.total);
+-        App.$('#statBoardroomSub').textContent = `${b.data.awaiting_owner} menunggu keputusan`;
+-    } catch { /* modul mungkin tiada akses */ }
++        const r = CC.body(await App.api.get('/api/v1/marketing/campaigns?status=running&per_page=1'));
++        const c = (Array.isArray(r) ? r : (r.data || []))[0];
++        if (!c) return;
++        const sent = Number(c.sent_count ?? c.sent ?? 0), total = Number(c.recipient_count ?? c.total ?? 0);
++        const pct = total > 0 ? Math.round(sent / total * 100) : 0;
++        App.$('#ccLiveTitle').textContent = (c.name || 'Kempen') + ' sedang dihantar';
++        App.$('#ccLiveNote').textContent = total ? `${sent} / ${total} terhantar` : 'sedang berjalan';
++        App.$('#ccLiveBar').style.width = pct + '%';
++        App.$('#ccLive').hidden = false;
++    } catch { /* tiada kempen aktif */ }
++}
+ 
++// --- Ringkasan AI/ops (kekal) ---
++async function ccStatsAI() {
+     try {
+-        const f = await App.api.get('/api/v1/flows/stats');
+-        App.$('#statFlows').textContent = App.number(f.data.workflows.active);
+-        App.$('#statFlowsSub').textContent = `${f.data.runs.total} jumlah run`;
+-    } catch { /* abaikan */ }
+-
+-    const rows = [
+-        ['AI Gateway', 'Aktif', 'success'],
+-        ['Boardroom', 'Aktif', 'success'],
+-        ['Automasi', 'Aktif', 'success'],
+-    ];
+-    App.$('#health').innerHTML = rows.map(([name, status, cls]) => `
+-        <div class="row-between">
+-            <span class="text-sm">${name}</span>
+-            <span class="badge badge-${cls} badge-dot">${status}</span>
+-        </div>
+-    `).join('');
++        const w = CC.body(await App.api.get('/api/v1/ai-gateway/wallet'));
++        App.$('#statCredits').textContent = App.number(w.effective_balance);
++        App.$('#statCreditsSub').textContent = `Top-up: ${App.number(w.balance)}`;
++        App.$('#statUsage').textContent = w.usage_percent + '%';
++        App.$('#statUsageSub').textContent = `Kuota: ${App.number(w.period_quota)}`;
++    } catch {}
++    try {
++        const b = CC.body(await App.api.get('/api/v1/boardroom/stats'));
++        App.$('#statBoardroom').textContent = App.number(b.total);
++        App.$('#statBoardroomSub').textContent = `${b.awaiting_owner} menunggu keputusan`;
++    } catch {}
++    try {
++        const f = CC.body(await App.api.get('/api/v1/flows/stats'));
++        App.$('#statFlows').textContent = App.number(f.workflows.active);
++        App.$('#statFlowsSub').textContent = `${f.runs.total} jumlah run`;
++    } catch {}
+ }
+ 
+-loadStats();
++ccLoad();
+ </script>
+ @endpush
