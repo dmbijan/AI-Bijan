@@ -3,6 +3,7 @@
 namespace App\Modules\SCM\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\SCM\Models\PurchaseOrder;
 use App\Modules\SCM\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
 use App\Support\Tenancy\TenantContext;
@@ -32,7 +33,9 @@ class PurchaseOrderController extends Controller
      */
     public function index(Request $request)
     {
-        $query = DB::table('purchase_orders')
+        // ⚠️ 27 Okt 2026: kod lama guna DB::table()->with() — `with()` TIDAK
+        // wujud pada query builder → 500 "Call to undefined method". Guna Eloquent.
+        $query = PurchaseOrder::query()
             ->where('tenant_id', $this->tenantId())
             ->with(['supplier', 'lines', 'approver'])
             ->orderBy('order_date', 'desc');

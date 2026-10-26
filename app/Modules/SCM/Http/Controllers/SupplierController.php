@@ -3,6 +3,7 @@
 namespace App\Modules\SCM\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\SCM\Models\Supplier;
 use App\Modules\SCM\Services\SupplierManagementService;
 use Illuminate\Http\Request;
 use App\Support\Tenancy\TenantContext;
@@ -32,7 +33,8 @@ class SupplierController extends Controller
      */
     public function index(Request $request)
     {
-        $query = DB::table('suppliers')
+        // ⚠️ 27 Okt 2026: DB::table()->with() tidak sah → guna Eloquent.
+        $query = Supplier::query()
             ->where('tenant_id', $this->tenantId())
             ->with(['contacts'])
             ->orderBy('company_name');
@@ -63,7 +65,8 @@ class SupplierController extends Controller
      */
     public function show($id, Request $request)
     {
-        $supplier = DB::table('suppliers')
+        // ⚠️ 27 Okt 2026: DB::table()->with() tidak sah → guna Eloquent.
+        $supplier = Supplier::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->with(['contacts', 'purchaseOrders'])

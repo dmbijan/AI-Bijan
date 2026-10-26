@@ -177,6 +177,45 @@ foreach ($modul as $m) {
 }
 
 // ---------------------------------------------------------------
+// 4b. Integriti skema — FK rosak, SoftDeletes tanpa kolum
+// ---------------------------------------------------------------
+$fkRosak = [];
+$softDeletesRosak = [];
+
+if (DB::connection()->getDriverName() === 'sqlite') {
+    $jadualSemua = DB::select("select name, sql from sqlite_master where type = 'table'");
+    $namaJadual = array_map(fn ($x) => $x->name, $jadualSemua);
+
+    foreach ($jadualSemua as $r) {
+        if (! $r->sql) {
+            continue;
+        }
+        if (preg_match_all('/references\s+"([a-zA-Z_]+)"/i', $r->sql, $m)) {
+            foreach ($m[1] as $ref) {
+                if (! in_array($ref, $namaJadual, true)) {
+                    $fkRosak[] = "{$r->name} → {$ref}";
+                }
+            }
+        }
+    }
+}
+
+foreach ($semua as $m) {
+    if (! in_array(Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($m['kelas']), true)) {
+        continue;
+    }
+    try {
+        $ada = collect(DB::select('select name from pragma_table_info(?)', [$m['jadual']]))
+            ->contains(fn ($k) => $k->name === 'deleted_at');
+        if (! $ada) {
+            $softDeletesRosak[] = "{$m['pendek']} → {$m['jadual']}";
+        }
+    } catch (Throwable $e) {
+        // MySQL — langkau.
+    }
+}
+
+// ---------------------------------------------------------------
 // 5. Laporkan
 // ---------------------------------------------------------------
 echo str_repeat('=', 66) . PHP_EOL;
@@ -195,6 +234,30 @@ printf("Modul ......................... %d\n", count($modul));
 printf("  ✅ ada ujian pengasingan ..... %d\n", count($adaUjianIsolasi));
 printf("  ❌ tiada ujian pengasingan ... %d\n", count($tiadaUjianIsolasi));
 echo PHP_EOL;
+
+printf("Integriti skema:\n");
+printf("  %s FK rosak .................. %d\n", $fkRosak === [] ? '✅' : '❌', count($fkRosak));
+printf("  %s SoftDeletes tanpa kolum ... %d\n", $softDeletesRosak === [] ? '✅' : '❌', count($softDeletesRosak));
+echo PHP_EOL;
+
+if ($fkRosak !== []) {
+    echo "❌ FK MERUJUK JADUAL TIDAK WUJUD (INSERT akan gagal):" . PHP_EOL;
+    foreach (array_slice($fkRosak, 0, 15) as $r) {
+        echo '   • ' . $r . PHP_EOL;
+    }
+    if (count($fkRosak) > 15) {
+        echo '   … dan ' . (count($fkRosak) - 15) . ' lagi' . PHP_EOL;
+    }
+    echo PHP_EOL;
+}
+
+if ($softDeletesRosak !== []) {
+    echo "❌ MODEL GUA SoftDeletes TETAPI TIADA KOLUM deleted_at:" . PHP_EOL;
+    foreach ($softDeletesRosak as $r) {
+        echo '   • ' . $r . PHP_EOL;
+    }
+    echo PHP_EOL;
+}
 
 if ($bocor !== []) {
     echo "❌ MODEL BOCOR — ada kolum tenant_id tetapi TIADA BelongsToTenant:" . PHP_EOL;
@@ -229,14 +292,14 @@ if ($terperinci && $tiadaUjianIsolasi !== []) {
     echo PHP_EOL;
 }
 
-$gagal = count($bocor) + count($tanpaKolom);
+$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak);
 
 echo str_repeat('-', 66) . PHP_EOL;
 if ($gagal === 0) {
-    echo '✅ Tiada model berisiko. ' . count($tiadaUjianIsolasi) . ' modul masih perlu ujian pengasingan.' . PHP_EOL;
+    echo '✅ Tiada isu model/skema. ' . count($tiadaUjianIsolasi) . ' modul masih perlu ujian pengasingan.' . PHP_EOL;
     echo '   (Ujian pengasingan TIDAK menyekat exit — tambah berperingkat.)' . PHP_EOL;
 } else {
-    echo "❌ {$gagal} isu model pengasingan mesti dibetulkan." . PHP_EOL;
+    echo "❌ {$gagal} isu pengasingan/skema mesti dibetulkan." . PHP_EOL;
 }
 echo str_repeat('-', 66) . PHP_EOL;
 

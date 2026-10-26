@@ -3,6 +3,7 @@
 namespace App\Modules\Finance\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Finance\Models\JournalEntry;
 use App\Modules\Finance\Services\JournalService;
 use App\Modules\Finance\Services\FinancialReportService;
 use Illuminate\Http\Request;
@@ -33,7 +34,8 @@ class JournalController extends Controller
      */
     public function index(Request $request)
     {
-        $query = DB::table('journal_entries')
+        // ⚠️ 27 Okt 2026: DB::table()->with() tidak sah → guna Eloquent.
+        $query = JournalEntry::query()
             ->where('tenant_id', $this->tenantId())
             ->with(['lines.account', 'approver'])
             ->orderBy('entry_date', 'desc');
@@ -65,7 +67,8 @@ class JournalController extends Controller
      */
     public function show($id, Request $request)
     {
-        $entry = DB::table('journal_entries')
+        // ⚠️ 27 Okt 2026: DB::table()->with() tidak sah → guna Eloquent.
+        $entry = JournalEntry::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->with(['lines.account', 'approver'])

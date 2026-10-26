@@ -318,14 +318,14 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 | Metrik | B-POS | AI BIJAN |
 |---|---|---|
-| Migration | 109 | **49** |
+| Migration | 109 | **52** |
 | Model | 61 | 292 |
 | Service | 30 | 166 |
 | Controller | 73 | 127 |
 | Multi-tenant | ❌ Tiada | ✅ `BelongsToTenant` |
 | AI | ❌ Tiada | ✅ **10 modul** |
 
-> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **49 fail** menghasilkan **346 jadual**
+> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **52 fail** menghasilkan **346 jadual**
 > (satu fail migration boleh mencipta banyak jadual).
 
 **6 jurang B-POS yang perlu dipindahkan ke AI BIJAN:**

@@ -77,6 +77,29 @@ class Quotation extends Model
             if (empty($quotation->exchange_rate)) {
                 $quotation->exchange_rate = 1.0;
             }
+
+            // ⚠️ 27 Okt 2026: jadual `quotations` mempunyai DUA set nama untuk
+            // konsep sama (warisan migration lama). `quotation_date` &
+            // `valid_until` ialah NOT NULL tanpa default — mesti diisi, atau
+            // setiap cipta sebut harga gagal dengan "NOT NULL constraint failed".
+            if (empty($quotation->quotation_date)) {
+                $quotation->quotation_date = $quotation->issue_date ?: now()->toDateString();
+            }
+            if (empty($quotation->issue_date)) {
+                $quotation->issue_date = $quotation->quotation_date;
+            }
+
+            if (empty($quotation->valid_until)) {
+                $hari = (int) ($quotation->validity_days ?: 30);
+                $asas = $quotation->quotation_date ?: now();
+                $quotation->valid_until = \Carbon\Carbon::parse($asas)->addDays($hari)->toDateString();
+            }
+            if (empty($quotation->expiry_date)) {
+                $quotation->expiry_date = $quotation->valid_until;
+            }
+            if (empty($quotation->validity_days)) {
+                $quotation->validity_days = 30;
+            }
         });
     }
 

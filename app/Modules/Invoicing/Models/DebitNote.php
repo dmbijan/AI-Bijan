@@ -26,8 +26,10 @@ class DebitNote extends Model
         'customer_name',
         'customer_email',
         'reason', // Undercharge, additional services, price error
-        'original_amount',
-        'additional_amount',
+        // ⚠️ 27 Okt 2026: kolum DB sebenar ialah `amount` (bukan
+        // original_amount/additional_amount). Fillable lama tidak sepadan →
+        // MassAssignmentException setiap kali cipta nota debit.
+        'amount',
         'currency',
         'notes',
         'status', // draft, issued, paid

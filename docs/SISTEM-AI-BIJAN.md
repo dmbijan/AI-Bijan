@@ -34,7 +34,7 @@ dengan **satu lapisan AI**, **satu pengasingan tenant**, dan **satu UI admin**.
 | Resource Filament | **66** |
 | Widget dashboard | **6** |
 | Kebenaran | **212** |
-| Migration | **49 fail** |
+| Migration | **52 fail** |
 | Kandungan blueprint | **102 bab / 26 PART** |
 | Laravel / PHP | **12.70.1 / 8.2.12** |
 | Advisori keselamatan | **0** |
