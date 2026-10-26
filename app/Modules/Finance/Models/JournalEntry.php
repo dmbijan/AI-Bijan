@@ -79,24 +79,39 @@ class JournalEntry extends Model
     }
 
     /**
-     * Generate next entry number
+     * Generate next entry number untuk TENANT SEMASA.
+     *
+     * ⚠️ PEPIJAT DITEMUI 26 Okt 2026:
+     * `journal_entries.entry_number` mempunyai UNIQUE index GLOBAL (bukan
+     * UNIQUE(tenant_id, entry_number)). Versi lama guna `self::where(...)`
+     * yang DITAPIS oleh global scope tenant → setiap tenant mula dari '00001'
+     * → tenant kedua dapat "UNIQUE constraint failed: journal_entries.entry_number"
+     * dan TIDAK BOLEH mencipta jurnal sama sekali.
+     *
+     * Pembetulan: semak merentas SEMUA tenant (withoutGlobalScopes) supaya
+     * nombor terus unik global. Format kekal JE-YYYY-NNNNN.
+     *
+     * Jika mahu nombor berasingan per tenant kelak, tukar index DB kepada
+     * UNIQUE(tenant_id, entry_number) dalam migration baharu, kemudian
+     * buang `withoutGlobalScopes()` di sini.
      */
     public static function generateEntryNumber(): string
     {
         $year = date('Y');
         $prefix = "JE-{$year}-";
-        
-        $lastEntry = self::where('entry_number', 'like', "{$prefix}%")
+
+        $lastEntry = self::withoutGlobalScopes()
+            ->where('entry_number', 'like', "{$prefix}%")
             ->orderBy('entry_number', 'desc')
             ->first();
-        
+
         if ($lastEntry) {
             $lastNumber = (int) substr($lastEntry->entry_number, -5);
             $newNumber = str_pad($lastNumber + 1, 5, '0', STR_PAD_LEFT);
         } else {
             $newNumber = '00001';
         }
-        
+
         return "{$prefix}{$newNumber}";
     }
 

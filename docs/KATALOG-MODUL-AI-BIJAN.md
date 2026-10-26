@@ -1,6 +1,12 @@
 # AI BIJAN — Katalog Penuh Modul (v9.4)
 
-> **58 modul** · **346 jadual** · **1,518 laluan API** · **962 ujian lulus** (0 gagal, 4 skip, 5,033 assertion)
+> **58 modul** · **346 jadual** · **1,382 laluan API** · **963 ujian lulus** (0 gagal, 4 skip, 5,034 assertion)
+>
+> ⚠️ **Pembetulan 26 Okt 2026:** kiraan lama **1,518** adalah SALAH — ia termasuk
+> **154 laluan berganda** (`api/v1/finance/finance/*` dsb.) akibat 5 modul mendaftar
+> prefix DUA KALI (provider + `routes/api.php` masing-masing). Laluan berganda telah
+> dibuang. `php skrip/semak-dokumen.php` kini memantau `laluan_berganda` dan
+> `laluan_wildcard` (kedua-duanya mesti 0).
 > Blueprint: `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` → **v9.4**, **102 bab / 26 PART**
 > Tarikh audit: 26 Oktober 2026
 >
@@ -181,7 +187,7 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 | Service | **166** |
 | Controller (modul) | **127** |
 | Jadual pangkalan data | **346** |
-| Laluan API (`api/v1`) | **1,518** |
+| Laluan API (`api/v1`) | **1,382** |
 | Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
 | Assertion | **5,033** |
 | Resource Filament | **66** |

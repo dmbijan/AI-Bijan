@@ -89,6 +89,7 @@ Thumbs.db
 down*.txt
 *.bak
 routes_dump.json
+ujian-*.txt
 
 # Arkib sandaran besar
 /backups

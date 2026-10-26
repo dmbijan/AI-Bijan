@@ -4,10 +4,22 @@ namespace App\Modules\Finance\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 class ChartOfAccountsController extends Controller
 {
+    /**
+     * ID tenant semasa — MESTI dari konteks, BUKAN header klien.
+     * ⚠️ 26 Okt 2026: kod lama guna `$request->header('X-Tenant-ID')` yang
+     * membolehkan IDOR — pengguna boleh baca COA tenant lain dengan menukar
+     * header. Sentiasa guna TenantContext.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
+
     /**
      * List chart of accounts.
      * GET /api/finance/chart-of-accounts
@@ -15,7 +27,7 @@ class ChartOfAccountsController extends Controller
     public function index(Request $request)
     {
         $query = DB::table('chart_of_accounts')
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->orderBy('sort_order')
             ->orderBy('code');
         
@@ -47,7 +59,7 @@ class ChartOfAccountsController extends Controller
     {
         $account = DB::table('chart_of_accounts')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->first();
         
         if (! $account) {
@@ -64,7 +76,7 @@ class ChartOfAccountsController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'code' => 'required|string|max:20|unique:chart_of_accounts,code,NULL,tenant_id,tenant_id,' . $request->header('X-Tenant-ID'),
+            'code' => 'required|string|max:20|unique:chart_of_accounts,code,NULL,tenant_id,tenant_id,' . $this->tenantId(),
             'name' => 'required|string|max:255',
             'name_bm' => 'nullable|string|max:255',
             'type' => 'required|in:asset,liability,equity,revenue,expense,cost_of_goods',
@@ -74,7 +86,7 @@ class ChartOfAccountsController extends Controller
             'allow_posting' => 'boolean',
         ]);
         
-        $validated['tenant_id'] = $request->header('X-Tenant-ID');
+        $validated['tenant_id'] = $this->tenantId();
         $validated['is_active'] = true;
         $validated['is_system'] = false;
         $validated['normal_balance'] = in_array($validated['type'], ['asset', 'expense', 'cost_of_goods']) ? 'debit' : 'credit';
@@ -92,7 +104,7 @@ class ChartOfAccountsController extends Controller
     {
         $account = DB::table('chart_of_accounts')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->first();
         
         if (! $account) {
@@ -105,7 +117,7 @@ class ChartOfAccountsController extends Controller
         }
         
         $validated = $request->validate([
-            'code' => 'sometimes|string|max:20|unique:chart_of_accounts,code,' . $id . ',id,tenant_id,' . $request->header('X-Tenant-ID'),
+            'code' => 'sometimes|string|max:20|unique:chart_of_accounts,code,' . $id . ',id,tenant_id,' . $this->tenantId(),
             'name' => 'sometimes|string|max:255',
             'name_bm' => 'nullable|string|max:255',
             'type' => 'sometimes|in:asset,liability,equity,revenue,expense,cost_of_goods',

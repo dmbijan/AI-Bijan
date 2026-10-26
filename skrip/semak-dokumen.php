@@ -160,6 +160,52 @@ foreach ($sebenar as $kunci => $nilai) {
 
 echo str_repeat('-', 62) . PHP_EOL;
 
+// ---------------------------------------------------------------
+// SEMAKAN LALUAN BERGanda & WILDCARD (pepijat sebenar 26 Okt 2026)
+// ---------------------------------------------------------------
+/** @var \Illuminate\Routing\RouteCollection $koleksi */
+$koleksi = app('router')->getRoutes();
+$berganda = [];
+$wildcard = [];
+
+foreach ($koleksi as $laluan) {
+    $uri = $laluan->uri();
+
+    // api/v1/{id} — provider modul tiada prefix
+    if (preg_match('#^api/v1/\{#', $uri)) {
+        $wildcard[] = $uri;
+    }
+
+    // api/v1/finance/finance/* — provider DAN routes/api.php kedua-duanya tambah prefix
+    if (preg_match('#^api/v1/([a-z][a-z0-9-]*)/\1(/|$)#', $uri)) {
+        $berganda[] = $uri;
+    }
+}
+
+printf("%-22s %10s %10d  %s\n", 'laluan_berganda', '0', count($berganda), count($berganda) === 0 ? '✅' : '❌ PERLU DIBETULKAN');
+printf("%-22s %10s %10d  %s\n", 'laluan_wildcard', '0', count($wildcard), count($wildcard) === 0 ? '✅' : '❌ PERLU DIBETULKAN');
+
+if ($berganda !== []) {
+    echo PHP_EOL . 'Laluan prefix berganda (buang Route::prefix(...) dalam app/Modules/<X>/routes/api.php):' . PHP_EOL;
+    foreach (array_slice($berganda, 0, 10) as $u) {
+        echo '  • ' . $u . PHP_EOL;
+    }
+    if (count($berganda) > 10) {
+        echo '  … dan ' . (count($berganda) - 10) . ' lagi' . PHP_EOL;
+    }
+    $percanggahan++;
+}
+
+if ($wildcard !== []) {
+    echo PHP_EOL . 'Laluan wildcard api/v1/{id} (tambah ->prefix(...) pada provider):' . PHP_EOL;
+    foreach (array_slice($wildcard, 0, 10) as $u) {
+        echo '  • ' . $u . PHP_EOL;
+    }
+    $percanggahan++;
+}
+
+echo str_repeat('-', 62) . PHP_EOL;
+
 if ($percanggahan === 0) {
     echo '✅ Semua angka dalam katalog sepadan dengan kod.' . PHP_EOL;
 } else {
@@ -167,6 +213,6 @@ if ($percanggahan === 0) {
 }
 
 echo PHP_EOL . 'Nota: ujian diukur dengan arahan berasingan:' . PHP_EOL;
-echo '  php artisan test        # patut: 962 lulus, 4 dilangkau, 0 gagal' . PHP_EOL;
+echo '  php artisan test        # baseline disahkan 26 Okt 2026: 963 lulus, 4 dilangkau, 0 gagal' . PHP_EOL;
 
 exit($percanggahan === 0 ? 0 : 1);

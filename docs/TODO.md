@@ -17,16 +17,36 @@
 
 ## Status Ringkas
 
-| Ukuran | Nilai |
-|---|---|
-| Modul (`app/Modules/`) | 39 (34 asal + 5 baharu BAB 82) |
-| Modul dengan controller + route | 37 |
-| Endpoint API | ~1,015 |
-| Ujian | 314 (314 lulus, 0 gagal, 3 dilangkau) |
-| Migrasi | 32 (semua dijalankan) |
-| DB | SQLite (MySQL: audit siap, belum dijalankan) |
-| AI Gateway | Simulasi — ujian live sedia, hanya perlu kunci |
-| Blueprint | v9.0 (PART XXII / BAB 86-87) |
+> ⚠️ **Jadual ini disahkan semula 26 Oktober 2026.** Angka lama (39 modul / ~1,015 endpoint /
+> 314 ujian / blueprint v9.0) di bawah adalah **sejarah** — jangan guna sebagai status semasa.
+
+| Ukuran | Nilai semasa | Sahkan dengan |
+|---|---|---|
+| Modul (`app/Modules/`) | **58** (+1 spesifikasi: `Reseller`) | `(Get-ChildItem app\Modules -Directory).Count` |
+| Jadual pangkalan data | **346** | `php skrip/semak-dokumen.php` |
+| Laluan API (`api/v1`) | **1,518** | `php artisan route:list --path=api/v1` |
+| Semua laluan | **1,795** | `php artisan route:list` |
+| Ujian | **963 lulus · 4 dilangkau · 0 gagal (5,034 assertion)** | `php artisan test` |
+| Migrasi | **49 fail** | `php skrip/semak-dokumen.php` |
+| Resource Filament | **66** (+6 widget + halaman Tetapan) | `(Get-ChildItem app\Filament\Resources -Directory).Count` |
+| Kebenaran | **212** | `skrip/sync-perm.php` |
+| Model · Service · Controller | **292 · 166 · 127** | `php skrip/semak-dokumen.php` |
+| DB | SQLite (dev) · MySQL disokong (`skrip/tukar_db.ps1`) | — |
+| AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) — ujian live sedia, hanya perlu kunci | — |
+| Blueprint | **v9.5 — 103 bab / 27 PART** | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` |
+| Advisori keselamatan | **0** | `composer audit` |
+| Laravel · PHP | **12.70.1 · 8.2.12** | `php artisan --version` |
+| Kawalan versi | **git + CI** (baseline `v9.5-baseline`) | `git log --oneline -1` |
+
+### Sejarah (JANGAN guna sebagai status)
+
+| Tarikh | Modul | Endpoint | Ujian | Blueprint |
+|---|---|---|---|---|
+| ~BAB 82 | 39 | ~1,015 | 314 | v9.0 |
+| BAB 86-87 | 54 | ~1,300 | 781 | v9.0 |
+| BAB 89 | 55 | 1,345 | 829 | v9.2 |
+| BAB 92 | 56 | 1,460 | 962 | v9.4 |
+| **Kini** | **58** | **1,518** | **963** | **v9.5** |
 
 ---
 

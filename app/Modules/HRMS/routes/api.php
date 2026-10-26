@@ -18,7 +18,7 @@ use App\Modules\HRMS\Http\Controllers\ShiftController;
 */
 
 // Employee routes
-Route::prefix('hrms/employees')->name('hrms.employees.')->group(function () {
+Route::prefix('employees')->name('hrms.employees.')->group(function () {
     Route::get('/', [EmployeeController::class, 'index'])->middleware('permission:hrms.view')->name('index');
     Route::post('/', [EmployeeController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
     Route::get('/expiring-contracts', [EmployeeController::class, 'getExpiringContracts'])->middleware('permission:hrms.view')->name('expiring');
@@ -38,7 +38,7 @@ Route::prefix('hrms/employees')->name('hrms.employees.')->group(function () {
 });
 
 // Department routes
-Route::prefix('hrms/departments')->name('hrms.departments.')->group(function () {
+Route::prefix('departments')->name('hrms.departments.')->group(function () {
     Route::get('/', [DepartmentController::class, 'index'])->middleware('permission:hrms.view')->name('index');
     Route::post('/', [DepartmentController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
     Route::get('/statistics', [DepartmentController::class, 'statistics'])->middleware('permission:hrms.view')->name('statistics');
@@ -54,7 +54,7 @@ Route::prefix('hrms/departments')->name('hrms.departments.')->group(function () 
 });
 
 // Leave routes
-Route::prefix('hrms/leave')->name('hrms.leave.')->group(function () {
+Route::prefix('leave')->name('hrms.leave.')->group(function () {
     // Leave types
     Route::get('/types', [LeaveController::class, 'leaveTypes'])->middleware('permission:hrms.view')->name('types');
     Route::post('/types', [LeaveController::class, 'createLeaveType'])->middleware('permission:hrms.manage')->name('types.store');
@@ -81,7 +81,7 @@ Route::prefix('hrms/leave')->name('hrms.leave.')->group(function () {
 });
 
 // Attendance routes
-Route::prefix('hrms/attendance')->name('hrms.attendance.')->group(function () {
+Route::prefix('attendance')->name('hrms.attendance.')->group(function () {
     // Self-service
     Route::post('/check-in', [AttendanceController::class, 'checkIn'])->middleware('permission:hrms.view')->name('check-in');
     Route::post('/check-out', [AttendanceController::class, 'checkOut'])->middleware('permission:hrms.view')->name('check-out');
@@ -101,7 +101,7 @@ Route::prefix('hrms/attendance')->name('hrms.attendance.')->group(function () {
 });
 
 // Shift routes
-Route::prefix('hrms/shifts')->name('hrms.shifts.')->group(function () {
+Route::prefix('shifts')->name('hrms.shifts.')->group(function () {
     Route::get('/', [ShiftController::class, 'index'])->middleware('permission:hrms.view')->name('index');
     Route::post('/', [ShiftController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
 

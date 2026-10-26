@@ -59,6 +59,20 @@ jobs:
             exit 1
           fi
 
+      - name: Semak prefix berganda (MESTI kosong)
+        # Pepijat sebenar: provider daftar api/v1/finance DAN module routes/api.php
+        # juga ada Route::prefix('finance') → api/v1/finance/finance/*.
+        # 154 laluan rosak ditemui 26 Okt 2026. Jangan biar berulang.
+        run: |
+          BERG=$(php artisan route:list --json \
+            | php -r '$r=json_decode(stream_get_contents(STDIN),true);$n=0;foreach($r as $x){if(preg_match("#^api/v1/([a-z-]+)/\\1(/|$)#",$x["uri"])){$n++;fwrite(STDERR,$x["uri"].PHP_EOL);}}echo $n;' || true)
+          echo "Laluan prefix berganda: $BERG"
+          if [ "$BERG" != "0" ]; then
+            echo "::error::$BERG laluan mempunyai prefix berganda (cth api/v1/finance/finance/*)."
+            echo "Buang Route::prefix(...) dalam app/Modules/<X>/routes/api.php — provider sudah menambahnya."
+            exit 1
+          fi
+
   ujian:
     name: Ujian PHPUnit
     runs-on: ubuntu-latest

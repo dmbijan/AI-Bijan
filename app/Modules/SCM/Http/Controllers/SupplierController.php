@@ -5,11 +5,21 @@ namespace App\Modules\SCM\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\SCM\Services\SupplierManagementService;
 use Illuminate\Http\Request;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 class SupplierController extends Controller
 {
     protected $supplierService;
+
+    /**
+     * ID tenant semasa — MESTI dari konteks, BUKAN header klien.
+     * ⚠️ 26 Okt 2026: kod lama guna `$request->header('X-Tenant-ID')` → IDOR.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
 
     public function __construct(SupplierManagementService $supplierService)
     {
@@ -23,7 +33,7 @@ class SupplierController extends Controller
     public function index(Request $request)
     {
         $query = DB::table('suppliers')
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['contacts'])
             ->orderBy('company_name');
         
@@ -55,7 +65,7 @@ class SupplierController extends Controller
     {
         $supplier = DB::table('suppliers')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['contacts', 'purchaseOrders'])
             ->first();
         
@@ -99,7 +109,7 @@ class SupplierController extends Controller
             'primary_contact.phone' => 'nullable|string|max:50',
         ]);
         
-        $validated['tenant_id'] = $request->header('X-Tenant-ID');
+        $validated['tenant_id'] = $this->tenantId();
         
         try {
             $supplier = $this->supplierService->createSupplier($validated);
@@ -117,7 +127,7 @@ class SupplierController extends Controller
     {
         $supplier = DB::table('suppliers')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->first();
         
         if (! $supplier) {
@@ -164,7 +174,7 @@ class SupplierController extends Controller
     {
         $supplier = \App\Modules\SCM\Models\Supplier::find($id);
         
-        if (! $supplier || $supplier->tenant_id !== $request->header('X-Tenant-ID')) {
+        if (! $supplier || $supplier->tenant_id !== $this->tenantId()) {
             return response()->json(['message' => 'Supplier not found'], 404);
         }
         

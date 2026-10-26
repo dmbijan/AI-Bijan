@@ -10,9 +10,7 @@ use App\Modules\Site\Http\Controllers\DomainController;
 use App\Modules\Site\Http\Controllers\AnalyticsController;
 
 // B-Site Routes — Website Builder (Shopify Replacement)
-Route::prefix('site')->name('site.')->group(function () {
-    
-    // Site management routes
+// Site management routes
     Route::prefix('sites')->name('sites.')->group(function () {
         Route::get('/', [SiteController::class, 'index'])->middleware('perm:site.view');
         Route::post('/', [SiteController::class, 'store'])->middleware('perm:site.manage');
@@ -117,4 +115,3 @@ Route::prefix('site')->name('site.')->group(function () {
         Route::get('/referrers', [AnalyticsController::class, 'getReferrers'])->middleware('perm:site.reports');
         Route::get('/dashboard', [AnalyticsController::class, 'dashboard'])->middleware('perm:site.reports');
     });
-});

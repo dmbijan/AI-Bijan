@@ -6,11 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Modules\Finance\Services\JournalService;
 use App\Modules\Finance\Services\FinancialReportService;
 use Illuminate\Http\Request;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 class JournalController extends Controller
 {
     protected $journalService;
+
+    /**
+     * ID tenant semasa — MESTI dari konteks, BUKAN header klien.
+     * ⚠️ 26 Okt 2026: kod lama guna `$request->header('X-Tenant-ID')` → IDOR.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
 
     public function __construct(JournalService $journalService)
     {
@@ -24,7 +34,7 @@ class JournalController extends Controller
     public function index(Request $request)
     {
         $query = DB::table('journal_entries')
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['lines.account', 'approver'])
             ->orderBy('entry_date', 'desc');
         
@@ -57,7 +67,7 @@ class JournalController extends Controller
     {
         $entry = DB::table('journal_entries')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['lines.account', 'approver'])
             ->first();
         
@@ -88,7 +98,7 @@ class JournalController extends Controller
             'lines.*.description' => 'nullable|string',
         ]);
         
-        $validated['tenant_id'] = $request->header('X-Tenant-ID');
+        $validated['tenant_id'] = $this->tenantId();
         
         try {
             $entry = $this->journalService->createJournalEntry($validated);
@@ -106,7 +116,7 @@ class JournalController extends Controller
     {
         $entry = DB::table('journal_entries')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->first();
         
         if (! $entry || $entry->status !== 'draft') {
@@ -129,7 +139,7 @@ class JournalController extends Controller
     {
         $entry = \App\Modules\Finance\Models\JournalEntry::find($id);
         
-        if (! $entry || $entry->tenant_id !== $request->header('X-Tenant-ID')) {
+        if (! $entry || $entry->tenant_id !== $this->tenantId()) {
             return response()->json(['message' => 'Journal entry not found'], 404);
         }
         

@@ -5,11 +5,21 @@ namespace App\Modules\SCM\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\SCM\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseOrderController extends Controller
 {
     protected $poService;
+
+    /**
+     * ID tenant semasa — MESTI dari konteks, BUKAN header klien.
+     * ⚠️ 26 Okt 2026: kod lama guna `$request->header('X-Tenant-ID')` → IDOR.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
 
     public function __construct(PurchaseOrderService $poService)
     {
@@ -23,7 +33,7 @@ class PurchaseOrderController extends Controller
     public function index(Request $request)
     {
         $query = DB::table('purchase_orders')
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['supplier', 'lines', 'approver'])
             ->orderBy('order_date', 'desc');
         
@@ -54,7 +64,7 @@ class PurchaseOrderController extends Controller
     {
         $po = DB::table('purchase_orders')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->with(['lines', 'supplier', 'approver', 'grns'])
             ->first();
         
@@ -92,7 +102,7 @@ class PurchaseOrderController extends Controller
             'lines.*.tax_rate' => 'nullable|numeric|min:0|max:100',
         ]);
         
-        $validated['tenant_id'] = $request->header('X-Tenant-ID');
+        $validated['tenant_id'] = $this->tenantId();
         
         try {
             $po = $this->poService->createPurchaseOrder($validated);
@@ -110,7 +120,7 @@ class PurchaseOrderController extends Controller
     {
         $po = DB::table('purchase_orders')
             ->where('id', $id)
-            ->where('tenant_id', $request->header('X-Tenant-ID'))
+            ->where('tenant_id', $this->tenantId())
             ->first();
         
         if (! $po || $po->status !== 'draft') {
@@ -133,7 +143,7 @@ class PurchaseOrderController extends Controller
     {
         $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
         
-        if (! $po || $po->tenant_id !== $request->header('X-Tenant-ID') || $po->status !== 'pending_approval') {
+        if (! $po || $po->tenant_id !== $this->tenantId() || $po->status !== 'pending_approval') {
             return response()->json(['message' => 'Invalid PO for approval'], 400);
         }
         
@@ -153,7 +163,7 @@ class PurchaseOrderController extends Controller
     {
         $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
         
-        if (! $po || $po->tenant_id !== $request->header('X-Tenant-ID') || $po->status !== 'approved') {
+        if (! $po || $po->tenant_id !== $this->tenantId() || $po->status !== 'approved') {
             return response()->json(['message' => 'Invalid PO for sending'], 400);
         }
         
@@ -173,7 +183,7 @@ class PurchaseOrderController extends Controller
     {
         $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
         
-        if (! $po || $po->tenant_id !== $request->header('X-Tenant-ID')) {
+        if (! $po || $po->tenant_id !== $this->tenantId()) {
             return response()->json(['message' => 'PO not found'], 404);
         }
         
@@ -200,7 +210,7 @@ class PurchaseOrderController extends Controller
     {
         $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
         
-        if (! $po || $po->tenant_id !== $request->header('X-Tenant-ID')) {
+        if (! $po || $po->tenant_id !== $this->tenantId()) {
             return response()->json(['message' => 'PO not found'], 404);
         }
         
