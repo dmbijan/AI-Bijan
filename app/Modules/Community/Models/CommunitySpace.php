@@ -2,11 +2,19 @@
 
 namespace App\Modules\Community\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Ruang komuniti.
+ *
+ * ⚠️ 27 Okt 2026: kolum `tenant_id` ada tetapi trait TIDAK dipasang → tiada
+ * skop global → `CommunitySpace::find($id)` boleh baca ruang tenant lain.
+ */
 class CommunitySpace extends Model
 {
+    use BelongsToTenant;
     protected $table = 'community_spaces';
 
     public const TYPE_FORUM = 'forum';

@@ -12,6 +12,21 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Untuk AI tokens: reserve dahulu (atomic), kemudian settle. Ini
  * langkah pencegahan credit overspend.
+ *
+ * ⚠️ MODEL INI SENGAJA TIDAK GUNA `BelongsToTenant` (disahkan 27 Okt 2026).
+ *
+ * Sebab: `EntitlementService` membaca/menulis kaunter semasa **provisioning**,
+ * CLI dan seed — ketika `TenantContext` KOSONG. Global scope akan menapis
+ * `tenant_id = 0` dan mencipta rekod dengan tenant_id salah (bug yang pernah
+ * berlaku dalam `EntitlementGrant`, lihat memori projek).
+ *
+ * **Ganti jaminan skop:** setiap query MESTI menulis `where('tenant_id', $id)`
+ * secara eksplisit. Semua pemanggil sedia ada sudah berbuat demikian:
+ *   - `EntitlementService::kaunter()`  — firstOrCreate dengan tenant_id
+ *   - `EntitlementService::reserve()`  — where('tenant_id', …)->lockForUpdate()
+ *
+ * Jika menambah query baharu pada model ini, **salin** corak itu.
+ * Jika mahu trait, pindahkan logik provisioning ke `withoutGlobalScope` dahulu.
  */
 class UsageCounter extends Model
 {

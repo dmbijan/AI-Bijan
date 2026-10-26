@@ -88,9 +88,10 @@ class CommunityController extends Controller
         return response()->json(['success' => true, 'data' => $pos], 201);
     }
 
-    /** Butiran pos. */
+    /** Butiran pos. — DITAPIS tenant (IDOR dibetulkan 27 Okt 2026). */
     public function showPost(int $id): JsonResponse
     {
+        // Skop global tenant pada CommunityPost menghalang bacaan silang tenant.
         $pos = CommunityPost::query()->with('replies')->findOrFail($id);
 
         $pos->increment('view_count');

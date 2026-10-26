@@ -28,13 +28,15 @@ class CommunityService
     {
         $slug = $data['slug'] ?? Str::slug($data['name']);
 
-        // Pastikan slug unik
+        // Pastikan slug unik — DALAM tenant semasa sahaja (skop global aktif)
         $asas = $slug;
         $n = 1;
         while (CommunitySpace::where('slug', $slug)->exists()) {
             $slug = $asas . '-' . $n++;
         }
 
+        // `tenant_id` TIDAK dihantar — trait BelongsToTenant mengisinya dari
+        // TenantContext. Menghantar nilai sendiri akan ditolak jika berbeza.
         return CommunitySpace::create(array_merge([
             'slug' => $slug,
             'name' => $data['name'] ?? 'Ruang Baharu',
@@ -46,13 +48,17 @@ class CommunityService
 
     /**
      * Cipta pos.
+     *
+     * ⚠️ 27 Okt 2026: parameter `$tenantId` DIBUANG. Nilai itu datang dari
+     * pemanggil (boleh null) → `tenant_id` boleh jadi NULL atau salah tenant.
+     * Trait BelongsToTenant mengisi `tenant_id` dari TenantContext.
+     * `CommunitySpace::findOrFail()` kini DITAPIS tenant → ruang tenant lain 404.
      */
     public function ciptaPos(int $spaceId, array $data, ?int $tenantId = null): CommunityPost
     {
-        $ruang = CommunitySpace::findOrFail($spaceId);
+        $ruang = CommunitySpace::findOrFail($spaceId);   // skop tenant aktif
 
         $pos = CommunityPost::create([
-            'tenant_id' => $tenantId,
             'community_space_id' => $ruang->id,
             'author_user_id' => auth()->id(),
             'post_type' => $data['post_type'] ?? CommunityPost::TYPE_DISCUSSION,
@@ -69,18 +75,17 @@ class CommunityService
     }
 
     /**
-     * Balas pos.
+     * Balas pos. Laluan `findOrFail()` DITAPIS tenant.
      */
     public function balas(int $postId, string $body, ?int $tenantId = null): CommunityReply
     {
-        $pos = CommunityPost::findOrFail($postId);
+        $pos = CommunityPost::findOrFail($postId);   // skop tenant aktif
 
         if (! $pos->tersiar()) {
             throw new \RuntimeException('Pos ini tidak menerima balasan');
         }
 
         $balasan = CommunityReply::create([
-            'tenant_id' => $tenantId,
             'community_post_id' => $pos->id,
             'author_user_id' => auth()->id(),
             'body' => $body,

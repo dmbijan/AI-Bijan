@@ -49,6 +49,12 @@ jobs:
         # dalam KATALOG-MODUL-AI-BIJAN.md atau SISTEM-AI-BIJAN.md tidak sepadan dengan kod.
         run: php skrip/semak-dokumen.php
 
+      - name: Audit pengasingan tenant
+        # Exit 1 jika ada model dengan kolum tenant_id TANPA BelongsToTenant
+        # (dan tiada dalam config/tenant-global-models.php).
+        # Pepijat sebenar: CommunitySpace/Post/Reply, JournalEntryLine (Okt 2026).
+        run: php skrip/audit-tenant.php
+
       - name: Semak laluan wildcard (MESTI kosong)
         run: |
           WILDCARD=$(php artisan route:list --path=api/v1 --json | grep -c 'api/v1/{' || true)

@@ -2,11 +2,19 @@
 
 namespace App\Modules\Community\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Balasan siaran komuniti.
+ *
+ * ⚠️ 27 Okt 2026: kolum `tenant_id` ada tetapi trait TIDAK dipasang → tiada
+ * skop global. Trait dipasang di sini.
+ */
 class CommunityReply extends Model
 {
+    use BelongsToTenant;
     protected $table = 'community_replies';
 
     protected $fillable = [
