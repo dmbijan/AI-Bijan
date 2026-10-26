@@ -1,0 +1,51 @@
+# ============================================================
+# AI BIJAN — .gitignore (root repo)
+# ============================================================
+
+# --- Rahsia: JANGAN sekali-kali commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!storage/*.key
+
+# --- Kebergantungan (dipasang semula melalui composer/npm) ---
+vendor/
+node_modules/
+
+# --- Hasil binaan ---
+public/build/
+public/hot
+public/storage
+
+# --- Cache & log ---
+*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
+bootstrap/cache/*.php
+.phpunit.result.cache
+.phpunit.cache/
+
+# --- Sandaran tempatan (besar, tidak perlu dalam repo) ---
+backups/
+
+# --- Pangkalan data SQLite (data pembangunan) ---
+*.sqlite
+*.sqlite3
+
+# --- Folder tidak di-push (diputuskan pengguna) ---
+b-pos-system/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.nova/
+.zed/
+.DS_Store
+Thumbs.db
+
+# --- Sampah sementara ---
+_ide_helper.php

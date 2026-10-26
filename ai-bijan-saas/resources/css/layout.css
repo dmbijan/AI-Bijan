@@ -1,0 +1,319 @@
+/* ============================================================
+   AI BIJAN — Layout Shell (BAB 75)
+   ============================================================ */
+
+.app {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: 100vh;
+}
+
+.app[data-sidebar="collapsed"] {
+    grid-template-columns: var(--sidebar-w-collapsed) 1fr;
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
+    transition: width var(--transition);
+}
+
+.sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 var(--space-4);
+    height: var(--topbar-h);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.brand-mark {
+    width: 30px; height: 30px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--brand-400), var(--brand-700));
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: var(--text-sm);
+    color: #1a1206;
+    flex-shrink: 0;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: var(--text-md);
+    letter-spacing: -.01em;
+    white-space: nowrap;
+}
+
+.app[data-sidebar="collapsed"] .brand-text,
+.app[data-sidebar="collapsed"] .nav-label,
+.app[data-sidebar="collapsed"] .nav-group-title,
+.app[data-sidebar="collapsed"] .sidebar-foot-text {
+    display: none;
+}
+
+.sidebar-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-2);
+}
+
+.nav-group { margin-bottom: var(--space-4); }
+
+.nav-group-title {
+    padding: 0 var(--space-3) var(--space-2);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--text-subtle);
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-decoration: none;
+    transition: background var(--transition), color var(--transition);
+    margin-bottom: 1px;
+}
+
+.nav-item:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.nav-item[aria-current="page"] {
+    background: var(--sidebar-active);
+    color: var(--brand);
+    font-weight: 600;
+}
+
+.nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+}
+
+.app[data-sidebar="collapsed"] .nav-item {
+    justify-content: center;
+    padding: 10px;
+}
+
+.sidebar-foot {
+    padding: var(--space-3);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+/* ---------- Topbar ---------- */
+
+.topbar {
+    height: var(--topbar-h);
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 var(--space-5);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.topbar-title {
+    font-size: var(--text-md);
+    font-weight: 600;
+    margin-right: auto;
+}
+
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 15px;
+    transition: background var(--transition), color var(--transition);
+}
+
+.icon-btn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+/* ---------- Kandungan ---------- */
+
+.content {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.page {
+    padding: var(--space-6);
+    max-width: 1400px;
+    width: 100%;
+    margin: 0 auto;
+    flex: 1;
+}
+
+.page-head {
+    margin-bottom: var(--space-5);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.page-title {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    letter-spacing: -.015em;
+}
+
+.page-desc {
+    margin: 4px 0 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    max-width: 620px;
+}
+
+/* Papar hanya bila tidak hidden — elak display utiliti menimpa atribut hidden */
+[hidden] { display: none !important; }
+
+/* Grid utiliti */
+.grid { display: grid; gap: var(--space-4); }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.row-between { display: flex; gap: var(--space-3); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mt-5 { margin-top: var(--space-5); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-5 { margin-bottom: var(--space-5); }
+
+.text-muted { color: var(--text-muted); }
+.text-xs { font-size: var(--text-xs); }
+.text-sm { font-size: var(--text-sm); }
+.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+/* ---------- Auth shell ---------- */
+
+.auth-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: var(--space-5);
+    background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, var(--brand-subtle), transparent),
+        var(--bg);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-lg);
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: var(--space-6);
+}
+
+/* ---------- Responsif ---------- */
+
+@media (max-width: 900px) {
+    .app {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: var(--sidebar-w);
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform var(--transition);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .app[data-sidebar="open"] .sidebar {
+        transform: translateX(0);
+    }
+
+    .app[data-sidebar="collapsed"] .sidebar {
+        width: var(--sidebar-w);
+    }
+
+    .app[data-sidebar="collapsed"] .brand-text,
+    .app[data-sidebar="collapsed"] .nav-label,
+    .app[data-sidebar="collapsed"] .nav-group-title {
+        display: revert;
+    }
+
+    .app[data-sidebar="collapsed"] .nav-item {
+        justify-content: flex-start;
+        padding: 8px var(--space-3);
+    }
+
+    .sidebar-scrim {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.5);
+        z-index: 45;
+    }
+
+    .page { padding: var(--space-4); }
+
+    .topbar { padding: 0 var(--space-4); }
+}
+
+@media (min-width: 901px) {
+    .sidebar-toggle-mobile,
+    .sidebar-scrim { display: none !important; }
+}
+
+/* Cetak (BAB 77) */
+@media print {
+    .sidebar, .topbar, .toast-stack, .btn { display: none !important; }
+    .app { display: block; }
+    .page { padding: 0; max-width: none; }
+    body { background: #fff; color: #000; }
+    .card { border: 1px solid #ccc; box-shadow: none; break-inside: avoid; }
+}
