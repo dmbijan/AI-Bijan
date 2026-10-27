@@ -42,7 +42,9 @@ class InvoicingServiceProvider extends ServiceProvider
         }
 
         // Load views (if any)
-        $this->loadViewsFrom(__DIR__ . '/resources/views', 'invoicing');
+        if (is_dir(__DIR__ . '/resources/views')) {
+            $this->loadViewsFrom(__DIR__ . '/resources/views', 'invoicing');
+        }
 
         // Load translations
         $this->loadTranslationsFrom(__DIR__ . '/resources/lang', 'invoicing');

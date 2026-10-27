@@ -48,22 +48,28 @@ Boost replaces these bootstrap instructions with guidelines tailored to the appl
 
 ---
 
-# AI BIJAN SaaS — Master Blueprint v9.4 Context
+# AI BIJAN SaaS — Master Blueprint v9.6 Context
 
 ## Product Overview
 AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail, F&B, services). Built with **Laravel 12.70.1, PHP 8.2.12**, SQLite (dev) / MySQL 8 (prod).
 
 **Tagline:** *Your AI Business Team, in the Room.*
 
-> **Verified 2026-10-26:** 58 modules · 346 tables · 1,518 API routes · 962 tests passing.
+> **Verified 2026-10-27:** 59 modules · 58 migrations · ~872 API routes · ~1,119 test methods · 65 Filament resources.
+> Modul `Billing` (reseller komisen berulang) kini dikodkan — 9 jadual, 6 laluan API, 32 ujian.
+> **Baseline angka:** `docs/AUDIT-BASELINE.md` (satu-satunya sumber kebenaran — jangan salin angka secara manual).
 > Run `php skrip/semak-dokumen.php` to re-verify. Full system doc: `docs/SISTEM-AI-BIJAN.md`.
+> Status platform: **`DEVELOPMENT`** — belum production-ready (lihat `README.md`).
+
+> ⚠️ **Jangan** nyatakan modul, jadual, laluan atau bilangan ujian sebagai fakta
+> tanpa merujuk `docs/AUDIT-BASELINE.md`. Angka dalam dokumen lain ada yang lapuk.
 
 ## Key Architecture Decisions
 1. **Laravel standalone** — No ERPNext/Frappe dependency
 2. **Multi-tenant SaaS** — Single codebase, tenant_id scoped data isolation
 3. **4-tier Admin Hierarchy** — Master → Super → White-label → Customer
 4. **Platform Business** — Brand portfolio, revenue sharing, white-label reseller
-5. **58 Modules** — CRM, POS, Invoicing, Finance, Payroll, HRMS, Inventory, Manufacturing, SCM, Logistics, Orders, Booking, Site, Marketplace, Loyalty, Affiliate, Marketing, Blast, Prospecting, Analytics, BrainHub, plus **AI layer** (AIGateway, AIAgents, Boardroom, AgentStudio, McpStudio, BusinessIntel, ADE) and platform core (Entitlement, Fundamental)
+5. **59 Modules** — CRM, POS, Invoicing, Finance, Payroll, HRMS, Inventory, Manufacturing, SCM, Logistics, Orders, Booking, Site, Marketplace, Loyalty, Affiliate, Marketing, Blast, Prospecting, Analytics, BrainHub, plus **AI layer** (AIGateway, AIAgents, Boardroom, AgentStudio, McpStudio, BusinessIntel, ADE) and platform core (Entitlement, Fundamental, IndustryPacks) and **Billing** (reseller komisen berulang)
 6. **AI Token Wallet** — Separate from SaaS subscription
 7. **Industry Blueprint Engine** — Auto-onboarding by business type
 
@@ -74,11 +80,13 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 | Database | SQLite (dev) / **MySQL 8.x** (prod) |
 | Cache/Queue | Laravel cache + queue (database driver by default) |
 | Frontend | **Blade + Vite** (no separate SPA framework) |
-| Admin Panel | **Filament 3.3.53** (66 resources, `/admin`) |
+| Admin Panel | **Filament 3.3.53** (65 resources, `/admin`) |
 | Storage | Local disk (dev) / S3-compatible (prod) |
 
 ## Development Guidelines
-- Follow Master-Blueprint.md for product specifications
+- Follow [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) for product specifications
+- **Never copy metrics manually** — read `docs/AUDIT-BASELINE.md`. Regenerate with
+  `php skrip/jana-baseline.php --tulis`
 - All pricing must be database-driven, never hardcoded
 - Tenant data isolation via query scopes and authorization policies
 - AI agents use tools/API with limited permissions — no direct DB writes

@@ -204,7 +204,7 @@ keseluruhan. **`SISTEM-AI-BIJAN.md`** dicipta sebagai **dokumen sistem lengkap**
 |---|---|
 | §0 | Ringkasan satu halaman + semua angka |
 | §1 | Seni bina — 4 lapisan, pengasingan tenant 4 lapis, middleware |
-| §2 | **Peta 58 modul** dengan laluan sebenar setiap satu (dari router) |
+| §2 | **Peta 59 modul** dengan laluan sebenar setiap satu (dari router) |
 | §3 | Lapisan AI — satu enjin, 8 muka, 6 pagar |
 | §4 | UI Filament — kebenaran dua lapis |
 | §5 | Pematuhan Malaysia |
@@ -270,7 +270,7 @@ docs/
 ├── customer-side.md
 ├── PELAN-VIRTUAL-OFFICE.md
 ├── cara-pasang.md
-├── AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md
+├── AI-BIJAN-MASTER-BLUEPRINT.md
 ├── [mockup: .html/.tsx/.php/.patch/.png]
 └── archive/                   ← JANGAN GUNA
     ├── features/              (28 fail B-POS)

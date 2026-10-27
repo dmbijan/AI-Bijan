@@ -69,9 +69,10 @@ $controller = $kira('Http/Controllers');
 
 $katalog = __DIR__ . '/../docs/KATALOG-MODUL-AI-BIJAN.md';
 $sistem = __DIR__ . '/../docs/SISTEM-AI-BIJAN.md';
+$baseline = __DIR__ . '/../docs/AUDIT-BASELINE.md';
 $dakwaan = [];
 
-foreach ([$katalog, $sistem] as $failDok) {
+foreach ([$katalog, $sistem, $baseline] as $failDok) {
     if (! is_file($failDok)) {
         continue;
     }
@@ -108,6 +109,28 @@ foreach ([$katalog, $sistem] as $failDok) {
     }
     if (preg_match('/\|\s*Migration\s*\|\s*\*\*(\d+)/', $teks, $m)) {
         $dakwaan['migration'] = (int) $m[1];
+    }
+
+    // Format jadual AUDIT-BASELINE.md: "| Modul | **59** | ... |"
+    // (baris "| METRIK | NILAI | CARA DIUKUR |" adalah pengepala dan dilangkau
+    //  kerana tiada nilai angka dalam kurungan kurung)
+    foreach ([
+        'modul' => 'Modul',
+        'jadual' => 'Jadual DB sebenar',
+        'laluan' => 'Laluan `api/v1`',
+        'resource_filament' => 'Resource Filament',
+        'kebenaran' => 'Kebenaran',
+        'model' => 'Model',
+        'service' => 'Service',
+        'controller' => 'Controller \(modul\)',
+        'migration' => 'Migration',
+    ] as $kunci => $labelBaris) {
+        if (isset($dakwaan[$kunci]) || $label !== 'AUDIT-BASELINE.md') {
+            continue;
+        }
+        if (preg_match('/\|\s*' . $labelBaris . '\s*\|\s*\*\*([\d,]+)\*\*/', $teks, $m)) {
+            $dakwaan[$kunci] = (int) str_replace(',', '', $m[1]);
+        }
     }
 }
 

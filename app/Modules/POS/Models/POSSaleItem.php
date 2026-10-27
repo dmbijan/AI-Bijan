@@ -23,6 +23,9 @@ class POSSaleItem extends Model
         'discount_amount',
         'tax_amount',
         'line_total',
+        // BAB 88 / T-77 — snapshot modifier pada baris
+        'modifiers',
+        'modifier_total',
     ];
 
     protected $casts = [
@@ -32,6 +35,8 @@ class POSSaleItem extends Model
         'discount_amount' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'modifiers' => 'array',
+        'modifier_total' => 'decimal:2',
     ];
 
     /**

@@ -30,7 +30,7 @@
             </div>
         </div>
         <div class="row">
-            <input class="input" id="metricId" type="number" placeholder="ID metrik" style="max-width:200px">
+            <input class="input" id="metricId" type="number" placeholder="ID metrik" aria-label="ID metrik" style="max-width:200px">
             <button class="btn btn-primary" onclick="generateForecast()">Jana</button>
         </div>
         <div id="forecastOut" class="mt-4"></div>

@@ -1,7 +1,8 @@
 # AI Bijan SaaS: pemasangan
 
-> **Status (26 Okt 2026):** **58 modul siap** — termasuk POS, stok, kewangan, HR/payroll,
-> e-Invois LHDN, CRM, ServiceOS, AI Gateway, dan UI admin Filament (66 resource).
+> **Status (27 Okt 2026):** **59 modul siap** — termasuk POS, stok, kewangan, HR/payroll,
+> e-Invois LHDN, CRM, ServiceOS, AI Gateway, Billing (langganan + komisen reseller),
+> dan UI admin Filament (66 resource).
 > Platform teras (log masuk, multi-tenant, peranan, audit, fail, kunci API, kelulusan,
 > Super Admin) juga siap.
 >

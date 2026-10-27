@@ -104,6 +104,7 @@ class SecureHeaders
             "img-src 'self' data: blob: https:" . $this->tambahan($cfg['img_extra'] ?? ''),
             "font-src 'self' data:" . $this->tambahan($cfg['font_extra'] ?? ''),
             "connect-src 'self'" . $this->tambahan($cfg['connect_extra'] ?? ''),
+            $this->sumberFrame(),
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -114,6 +115,21 @@ class SecureHeaders
         ];
 
         return implode('; ', array_filter($directives));
+    }
+
+    private function sumberFrame(): string
+    {
+        $url = parse_url((string) config('openbot.url'));
+        if (! is_array($url) || ! in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host'])) {
+            return "frame-src 'self'";
+        }
+
+        $origin = $url['scheme'].'://'.$url['host'];
+        if (isset($url['port'])) {
+            $origin .= ':'.$url['port'];
+        }
+
+        return "frame-src 'self' ".$origin;
     }
 
     /**

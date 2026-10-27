@@ -34,6 +34,22 @@ class POSSale extends Model
         'notes',
         'sale_date',
         'completed_at',
+        // BAB 88 — ciri B-POS
+        'service_charge_amount',
+        'service_charge_rate',
+        'payment_method',
+        'payment_status',
+        'client_uuid',
+        'sync_fingerprint',
+        'discount_approved_by',
+        'discount_approved_at',
+        'order_type',
+        'kitchen_status',
+        'kitchen_queued_at',
+        'kitchen_started_at',
+        'kitchen_ready_at',
+        'kitchen_served_at',
+        'dine_table_id',
     ];
 
     protected $casts = [
@@ -43,8 +59,21 @@ class POSSale extends Model
         'total_amount' => 'decimal:2',
         'amount_paid' => 'decimal:2',
         'change_amount' => 'decimal:2',
+        'service_charge_amount' => 'decimal:2',
+        'service_charge_rate' => 'decimal:2',
+        'discount_approved_at' => 'datetime',
+        'kitchen_queued_at' => 'datetime',
+        'kitchen_started_at' => 'datetime',
+        'kitchen_ready_at' => 'datetime',
+        'kitchen_served_at' => 'datetime',
         'sale_date' => 'date',
         'completed_at' => 'datetime',
+    ];
+
+    protected $attributes = [
+        'payment_status' => 'unpaid',
+        'order_type' => 'takeaway',
+        'service_charge_amount' => 0,
     ];
 
     /**
@@ -101,6 +130,32 @@ class POSSale extends Model
     public function discounts(): HasMany
     {
         return $this->hasMany(POSSaleDiscount::class, 'sale_id');
+    }
+
+    /**
+     * Tender pembayaran (BAB 88 / T-79) — satu jualan boleh ada 1–2 tender.
+     */
+    public function tenders(): HasMany
+    {
+        return $this->hasMany(POSSaleTender::class, 'sale_id');
+    }
+
+    /** Meja dine-in (BAB 88 / T-76). */
+    public function dineTable(): BelongsTo
+    {
+        return $this->belongsTo(POSDineTable::class, 'dine_table_id');
+    }
+
+    /** Adakah jualan ini dibayar dengan lebih daripada satu kaedah? */
+    public function pembayaranBerpisah(): bool
+    {
+        return $this->tenders()->count() > 1;
+    }
+
+    /** Baki yang belum dibayar (0 bila lunas). */
+    public function bakiPerluBayar(): float
+    {
+        return max(0, (float) $this->total_amount - (float) $this->amount_paid);
     }
 
     /**

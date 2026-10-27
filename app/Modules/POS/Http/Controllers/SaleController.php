@@ -84,7 +84,10 @@ class SaleController extends Controller
     public function addItem(Request $request, int $saleId)
     {
         $validated = $request->validate([
-            'product_id' => 'nullable|exists:inventory_products,id',
+            // ⚠️ 27 Okt 2026: `inventory_products` sudah dipetakan semula kepada
+            // `items` oleh migrasi `2026_10_27_000200_fix_broken_foreign_keys`.
+            // Validasi lama menunjuk jadual yang tidak wujud → 500/pemilih produk gagal.
+            'product_id' => 'nullable|exists:items,id',
             'product_name' => 'required|string|max:255',
             'product_sku' => 'nullable|string|max:255',
             'quantity' => 'required|integer|min:1',
@@ -162,6 +165,65 @@ class SaleController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
+
+    /**
+     * Bayar & selesaikan jualan dengan tender berbilang (BAB 88 / T-79).
+     *
+     * Berbeza daripada `complete()` (yang guna pos_sale_payments lama):
+     * endpoint ini menggunakan `pos_sale_tenders`, mengira caj perkhidmatan
+     * (T-78), memeriksa kelulusan diskaun (T-83) dan menyokong idempotency
+     * luar talian (T-81) melalui `client_uuid`.
+     */
+    public function pay(Request $request, int $saleId)
+    {
+        $validated = $request->validate([
+            'tenders' => 'required|array|min:1|max:2',
+            'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher',
+            'tenders.*.amount' => 'required|numeric|min:0.01',
+            'tenders.*.cash_received' => 'nullable|numeric|min:0',
+            'tenders.*.reference' => 'nullable|string|max:255',
+            'client_uuid' => 'nullable|uuid',
+        ]);
+
+        $sale = \App\Modules\POS\Models\POSSale::forTenant($this->tenantId())->find($saleId);
+
+        if (! $sale) {
+            return response()->json(['message' => 'Jualan tidak dijumpai.'], 404);
+        }
+
+        try {
+            $sale = app(\App\Modules\POS\Services\SalePaymentService::class)
+                ->bayar($sale, $validated['tenders'], $validated['client_uuid'] ?? null);
+
+            return response()->json([
+                'message' => 'Pembayaran berjaya.',
+                'data' => [
+                    'id' => $sale->id,
+                    'sale_no' => $sale->sale_no,
+                    'status' => $sale->status,
+                    'payment_method' => $sale->payment_method,
+                    'payment_status' => $sale->payment_status,
+                    'subtotal' => (float) $sale->subtotal,
+                    'discount_amount' => (float) $sale->discount_amount,
+                    'service_charge_amount' => (float) $sale->service_charge_amount,
+                    'service_charge_rate' => $sale->service_charge_rate !== null ? (float) $sale->service_charge_rate : null,
+                    'total_amount' => (float) $sale->total_amount,
+                    'amount_paid' => (float) $sale->amount_paid,
+                    'change_amount' => (float) $sale->change_amount,
+                    'tenders' => $sale->tenders->map(fn ($t) => [
+                        'method' => $t->method,
+                        'amount' => (float) $t->amount,
+                        'cash_received' => $t->cash_received !== null ? (float) $t->cash_received : null,
+                        'change_amount' => (float) $t->change_amount,
+                        'payment_status' => $t->payment_status,
+                    ])->values(),
+                ],
+            ], 200);
+        } catch (ValidationException $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+        }
+    }
+
 
     /**
      * Cancel a draft sale.

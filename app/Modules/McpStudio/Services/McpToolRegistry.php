@@ -412,7 +412,7 @@ class McpToolRegistry
             'cod' => \App\Modules\Cod\Models\CodOrder::class,
             'fleet' => \App\Modules\Fleet\Models\FleetVehicle::class,
             'booking' => \App\Modules\Booking\Models\Appointment::class,
-            'pos' => \App\Modules\Pos\Models\POSSale::class,
+            'pos' => \App\Modules\POS\Models\POSSale::class,
             'marketplace' => \App\Modules\Marketplace\Models\Order::class,
             'loyalty' => \App\Modules\Loyalty\Models\Member::class,
             'hrms' => \App\Modules\HRMS\Models\Employee::class,

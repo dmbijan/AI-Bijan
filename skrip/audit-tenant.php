@@ -209,12 +209,24 @@ foreach ($semua as $m) {
 // ---------------------------------------------------------------
 // 4. Liputan ujian pengasingan per modul
 // ---------------------------------------------------------------
+// ⚠️ 27 Okt 2026: dahulu `glob('tests/Feature/*.php')` sahaja — ujian dalam
+// subfolder (`tests/Feature/Pengasingan/`) TIDAK dikira, jadi audit melaporkan
+// "54 modul tiada ujian" walaupun liputan sebenar lebih tinggi. Kini rekursif.
 $modul = array_map(
     fn ($d) => basename($d),
     glob(__DIR__ . '/../app/Modules/*', GLOB_ONLYDIR)
 );
 
-$failUjian = glob(__DIR__ . '/../tests/Feature/*.php');
+$failUjian = [];
+$itUjian = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator(__DIR__ . '/../tests', FilesystemIterator::SKIP_DOTS)
+);
+foreach ($itUjian as $f) {
+    if ($f->isFile() && $f->getExtension() === 'php') {
+        $failUjian[] = $f->getPathname();
+    }
+}
+
 $korpusUjian = '';
 foreach ($failUjian as $f) {
     $korpusUjian .= file_get_contents($f);
@@ -223,9 +235,65 @@ foreach ($failUjian as $f) {
 $adaUjianIsolasi = [];
 $tiadaUjianIsolasi = [];
 foreach ($modul as $m) {
-    // Ujian khusus "Isolation" untuk modul ini
+    // Ujian khusus untuk modul ini:
+    //   • `XxxIsolationTest`  — corak asal
+    //   • `\App\Modules\<M>\...` diimport dalam fail ujian kelas isolasi
     $corak = '/class\s+' . preg_quote($m, '/') . '\w*IsolationTest/';
-    if (preg_match($corak, $korpusUjian) && str_contains($korpusUjian, 'test_')) {
+    // ⚠️ Dalam single-quoted PHP, setiap `\\` = 1 backslash regex.
+    // Perlu 4 (`\\\\`) supaya regex menerima DUA backslash literal iaitu `App\Models\Item`.
+    $corakImport = '/use\s+App\\\\Modules\\\\' . preg_quote($m, '/') . '\\\\/';
+
+    $adaDalaman = (bool) preg_match($corak, $korpusUjian);
+    $adaImport = false;
+    $adaModelTeras = false;
+
+    // Modul tanpa folder Models/ (Helpdesk, Inventory, Manufacturing, SalesCopilot)
+    // menggunakan model teras `app/Models`. Ujian pengasingan yang mengimport
+    // model tersebut DITERIMA sebagai liputan modul ini.
+    $modelTeras = [
+        'Helpdesk' => ['Ticket', 'TicketCategory', 'TicketMessage', 'SlaPolicy'],
+        'Inventory' => ['Item', 'StockBalance', 'StockLedgerEntry', 'Warehouse', 'StockMovement'],
+        'Manufacturing' => ['Bom', 'BomLine', 'WorkOrder', 'WorkOrderMaterial'],
+        'SalesCopilot' => ['Prospect', 'BlastMessage'],
+    ];
+
+    // Modul yang TIDAK memiliki model sendiri → dibaca/ditulis melalui model
+    // modul LAIN. Liputan diterima jika ujian isolasi mengimport model tersebut.
+    $modulBergantung = [
+        'SalesCopilot' => ['Prospecting' => ['Prospect'], 'Blast' => ['BlastMessage']],
+    ];
+
+    foreach ($modulBergantung[$m] ?? [] as $asalModul => $kelasSenarai) {
+        foreach ($kelasSenarai as $kelasAsal) {
+            $corakAsal = '/use\s+App\\\\Modules\\\\' . preg_quote($asalModul, '/')
+                . '\\\\Models\\\\' . preg_quote($kelasAsal, '/') . ';/';
+
+            if (preg_match($corakAsal, $korpusUjian)) {
+                $adaModelTeras = true;
+
+                break 2;
+            }
+        }
+    }
+
+    foreach ($modelTeras[$m] ?? [] as $kelasTeras) {
+        if (preg_match('/use\s+App\\\\Models\\\\' . preg_quote($kelasTeras, '/') . ';/', $korpusUjian)) {
+            $adaModelTeras = true;
+
+            break;
+        }
+    }
+
+    foreach ($failUjian as $f) {
+        $isi = file_get_contents($f);
+        if (preg_match('/class\s+\w*IsolationTest/', $isi) && preg_match($corakImport, $isi)) {
+            $adaImport = true;
+
+            break;
+        }
+    }
+
+    if (($adaDalaman || $adaImport || $adaModelTeras) && str_contains($korpusUjian, 'test_')) {
         $adaUjianIsolasi[] = $m;
     } else {
         $tiadaUjianIsolasi[] = $m;
@@ -392,14 +460,25 @@ if ($terperinci && $tiadaUjianIsolasi !== []) {
     echo PHP_EOL;
 }
 
-$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak) + count($takSefasa) + count($kaedahHantu);
+// ⚠️ 27 Okt 2026 (P1-1d): liputan kini 59/59 — keputusan audit §7.2
+// ("setiap modul MESTI ada ujian pengasingan → CI merah") dikuatkuasakan.
+// Modul baharu TANPA ujian pengasingan akan menggagalkan audit (dan CI).
+$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak)
+    + count($takSefasa) + count($kaedahHantu) + count($tiadaUjianIsolasi);
 
 echo str_repeat('-', 66) . PHP_EOL;
 if ($gagal === 0) {
-    echo '✅ Tiada isu model/skema. ' . count($tiadaUjianIsolasi) . ' modul masih perlu ujian pengasingan.' . PHP_EOL;
-    echo '   (Ujian pengasingan TIDAK menyekat exit — tambah berperingkat.)' . PHP_EOL;
+    echo '✅ Tiada isu model/skema. Liputan ujian pengasingan: '
+        . count($adaUjianIsolasi) . '/' . count($modul) . ' modul.' . PHP_EOL;
 } else {
-    echo "❌ {$gagal} isu pengasingan/skema mesti dibetulkan." . PHP_EOL;
+    if ($tiadaUjianIsolasi !== []) {
+        echo '❌ ' . count($tiadaUjianIsolasi) . ' modul tiada ujian pengasingan'
+            . ' (tambah tests/Feature/Pengasingan/<Modul>*IsolationTest.php).' . PHP_EOL;
+    }
+    $isuLain = $gagal - count($tiadaUjianIsolasi);
+    if ($isuLain > 0) {
+        echo "❌ {$isuLain} isu pengasingan/skema mesti dibetulkan." . PHP_EOL;
+    }
 }
 echo str_repeat('-', 66) . PHP_EOL;
 

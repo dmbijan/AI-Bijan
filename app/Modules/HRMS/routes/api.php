@@ -19,11 +19,11 @@ use App\Modules\HRMS\Http\Controllers\ShiftController;
 
 // Employee routes
 Route::prefix('employees')->name('hrms.employees.')->group(function () {
-    Route::get('/', [EmployeeController::class, 'index'])->middleware('permission:hrms.view')->name('index');
-    Route::post('/', [EmployeeController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
-    Route::get('/expiring-contracts', [EmployeeController::class, 'getExpiringContracts'])->middleware('permission:hrms.view')->name('expiring');
-    Route::get('/probationers', [EmployeeController::class, 'getProbationers'])->middleware('permission:hrms.view')->name('probationers');
-    Route::post('/bulk-import', [EmployeeController::class, 'bulkImport'])->middleware('permission:hrms.manage')->name('bulk-import');
+    Route::get('/', [EmployeeController::class, 'index'])->middleware('perm:hrms.view')->name('index');
+    Route::post('/', [EmployeeController::class, 'store'])->middleware('perm:hrms.manage')->name('store');
+    Route::get('/expiring-contracts', [EmployeeController::class, 'getExpiringContracts'])->middleware('perm:hrms.view')->name('expiring');
+    Route::get('/probationers', [EmployeeController::class, 'getProbationers'])->middleware('perm:hrms.view')->name('probationers');
+    Route::post('/bulk-import', [EmployeeController::class, 'bulkImport'])->middleware('perm:hrms.manage')->name('bulk-import');
 
     Route::middleware('can:hrms.view')->group(function () {
         Route::get('/{id}', [EmployeeController::class, 'show'])->name('show');
@@ -39,9 +39,9 @@ Route::prefix('employees')->name('hrms.employees.')->group(function () {
 
 // Department routes
 Route::prefix('departments')->name('hrms.departments.')->group(function () {
-    Route::get('/', [DepartmentController::class, 'index'])->middleware('permission:hrms.view')->name('index');
-    Route::post('/', [DepartmentController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
-    Route::get('/statistics', [DepartmentController::class, 'statistics'])->middleware('permission:hrms.view')->name('statistics');
+    Route::get('/', [DepartmentController::class, 'index'])->middleware('perm:hrms.view')->name('index');
+    Route::post('/', [DepartmentController::class, 'store'])->middleware('perm:hrms.manage')->name('store');
+    Route::get('/statistics', [DepartmentController::class, 'statistics'])->middleware('perm:hrms.view')->name('statistics');
 
     Route::middleware('can:hrms.view')->group(function () {
         Route::get('/{id}', [DepartmentController::class, 'show'])->name('show');
@@ -56,13 +56,13 @@ Route::prefix('departments')->name('hrms.departments.')->group(function () {
 // Leave routes
 Route::prefix('leave')->name('hrms.leave.')->group(function () {
     // Leave types
-    Route::get('/types', [LeaveController::class, 'leaveTypes'])->middleware('permission:hrms.view')->name('types');
-    Route::post('/types', [LeaveController::class, 'createLeaveType'])->middleware('permission:hrms.manage')->name('types.store');
+    Route::get('/types', [LeaveController::class, 'leaveTypes'])->middleware('perm:hrms.view')->name('types');
+    Route::post('/types', [LeaveController::class, 'createLeaveType'])->middleware('perm:hrms.manage')->name('types.store');
 
     // Leave requests
-    Route::post('/requests', [LeaveController::class, 'submitRequest'])->middleware('permission:hrms.manage')->name('requests.submit');
-    Route::get('/pending', [LeaveController::class, 'getPending'])->middleware('permission:hrms.approve')->name('pending');
-    Route::post('/auto-approve', [LeaveController::class, 'autoApprove'])->middleware('permission:hrms.approve')->name('auto-approve');
+    Route::post('/requests', [LeaveController::class, 'submitRequest'])->middleware('perm:hrms.manage')->name('requests.submit');
+    Route::get('/pending', [LeaveController::class, 'getPending'])->middleware('perm:hrms.approve')->name('pending');
+    Route::post('/auto-approve', [LeaveController::class, 'autoApprove'])->middleware('perm:hrms.approve')->name('auto-approve');
 
     Route::middleware('can:hrms.view')->group(function () {
         Route::get('/balance', [LeaveController::class, 'getBalance'])->name('balance');
@@ -83,9 +83,9 @@ Route::prefix('leave')->name('hrms.leave.')->group(function () {
 // Attendance routes
 Route::prefix('attendance')->name('hrms.attendance.')->group(function () {
     // Self-service
-    Route::post('/check-in', [AttendanceController::class, 'checkIn'])->middleware('permission:hrms.view')->name('check-in');
-    Route::post('/check-out', [AttendanceController::class, 'checkOut'])->middleware('permission:hrms.view')->name('check-out');
-    Route::get('/today', [AttendanceController::class, 'getToday'])->middleware('permission:hrms.view')->name('today');
+    Route::post('/check-in', [AttendanceController::class, 'checkIn'])->middleware('perm:hrms.view')->name('check-in');
+    Route::post('/check-out', [AttendanceController::class, 'checkOut'])->middleware('perm:hrms.view')->name('check-out');
+    Route::get('/today', [AttendanceController::class, 'getToday'])->middleware('perm:hrms.view')->name('today');
 
     // Admin attendance management
     Route::middleware('can:hrms.view')->group(function () {
@@ -102,8 +102,8 @@ Route::prefix('attendance')->name('hrms.attendance.')->group(function () {
 
 // Shift routes
 Route::prefix('shifts')->name('hrms.shifts.')->group(function () {
-    Route::get('/', [ShiftController::class, 'index'])->middleware('permission:hrms.view')->name('index');
-    Route::post('/', [ShiftController::class, 'store'])->middleware('permission:hrms.manage')->name('store');
+    Route::get('/', [ShiftController::class, 'index'])->middleware('perm:hrms.view')->name('index');
+    Route::post('/', [ShiftController::class, 'store'])->middleware('perm:hrms.manage')->name('store');
 
     Route::middleware('can:hrms.view')->group(function () {
         Route::get('/{id}', [ShiftController::class, 'show'])->name('show');

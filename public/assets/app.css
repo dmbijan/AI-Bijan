@@ -696,6 +696,21 @@ a:hover { color: var(--brand-hover); }
     grid-template-columns: var(--sidebar-w-collapsed) 1fr;
 }
 
+.skip-link {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 100;
+    padding: 12px 16px;
+    background: var(--surface);
+    color: var(--text);
+    border: 2px solid var(--brand);
+    border-radius: var(--radius-md);
+    transform: translateY(-150%);
+}
+
+.skip-link:focus { transform: translateY(0); }
+
 /* ---------- Sidebar ---------- */
 
 .sidebar {
@@ -824,9 +839,29 @@ a:hover { color: var(--brand-hover); }
 }
 
 .topbar-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--text-md);
     font-weight: 600;
     margin-right: auto;
+}
+
+.tenant-picker {
+    display: flex;
+    align-items: center;
+    margin-right: var(--space-2);
+}
+
+.tenant-picker[hidden] { display: none !important; }
+
+.tenant-select {
+    width: auto;
+    max-width: 220px;
+    padding: 6px 32px 6px 10px;
+    font-size: var(--text-xs);
+    background-position: right 10px center;
 }
 
 .icon-btn {
@@ -943,9 +978,15 @@ a:hover { color: var(--brand-hover); }
 /* ---------- Responsif ---------- */
 
 @media (max-width: 900px) {
-    .app {
-        grid-template-columns: 1fr;
+    .app,
+    .app[data-sidebar="collapsed"] {
+        grid-template-columns: minmax(0, 1fr);
     }
+
+    .sidebar { height: 100dvh; }
+    .icon-btn { min-width: 44px; min-height: 44px; }
+    .nav-item { min-height: 44px; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
 
     .sidebar {
         position: fixed;
@@ -991,6 +1032,137 @@ a:hover { color: var(--brand-hover); }
 @media (min-width: 901px) {
     .sidebar-toggle-mobile,
     .sidebar-scrim { display: none !important; }
+}
+
+/* ---------- Kemasan workspace ---------- */
+
+.nav-search {
+    position: relative;
+    margin: 0 4px var(--space-4);
+}
+
+.nav-search .input {
+    min-height: 38px;
+    padding: 8px 58px 8px 12px;
+    font-size: var(--text-xs);
+    background: var(--surface-2);
+}
+
+.nav-search kbd {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-subtle);
+    font: 10px var(--font-mono);
+    pointer-events: none;
+}
+
+.nav-search-empty {
+    padding: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    text-align: center;
+}
+
+.app[data-sidebar="collapsed"] .nav-search {
+    display: none;
+}
+
+.workspace-identity {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--border);
+}
+
+.workspace-identity[hidden] { display: none !important; }
+
+.workspace-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-full);
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    background: var(--brand-subtle);
+    color: var(--brand);
+    font-size: var(--text-xs);
+    font-weight: 700;
+}
+
+.workspace-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.workspace-copy strong,
+.workspace-copy small {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-copy strong { font-size: var(--text-xs); font-weight: 600; }
+.workspace-copy small { color: var(--text-muted); font-size: 10px; }
+
+.page-title { line-height: 1.2; }
+.page-desc { line-height: 1.55; }
+
+.stat {
+    min-width: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-value {
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-delta { line-height: 1.45; }
+
+.health-link { color: var(--text); }
+.health-link:hover { color: var(--brand); }
+.dashboard-shortcut { justify-content: flex-start; }
+
+.card,
+.table-wrap {
+    min-width: 0;
+}
+
+.table-wrap {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 600px) {
+    .workspace-copy { display: none; }
+    .workspace-identity { padding-left: var(--space-2); }
+    .page { padding: var(--space-4) var(--space-3); }
+    .page-head { gap: var(--space-3); }
+    .page-head > .btn { width: 100%; }
+    .card { padding: var(--space-4); }
+    .toast-stack { right: var(--space-3); bottom: var(--space-3); left: var(--space-3); }
+    .toast { min-width: 0; max-width: none; }
+}
+
+@media (max-width: 400px) {
+    .topbar { gap: var(--space-2); padding: 0 var(--space-2); }
+    .topbar-title { flex: 1; font-size: var(--text-sm); }
+    .workspace-identity { display: none; }
+    .tenant-picker { margin-right: 0; }
+    .tenant-select { max-width: 28vw; padding: 6px 24px 6px 8px; }
+    .topbar .icon-btn { width: 40px; min-width: 40px; min-height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
 }
 
 /* Cetak (BAB 77) */

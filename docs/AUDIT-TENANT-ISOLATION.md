@@ -1,7 +1,7 @@
 # AI BIJAN — P1-1: Audit Pengasingan Tenant Menyeluruh
 
 > **Tarikh:** 27 Oktober 2026 · **Asas:** semakan kod langsung, bukan dokumen
-> **Baseline:** commit `7a9d5e3` (tag `v9.5-p0`) · 58 modul · 346 jadual
+> **Baseline:** commit `7a9d5e3` (tag `v9.5-p0`) · 58 modul (kini 59 selepas modul `Billing` ditambah 27 Okt 2026) · 346 jadual
 > **Tujuan:** jawab satu soalan sahaja — **adakah setiap rekod tenant benar-benar terasing?**
 
 ---

@@ -2,7 +2,7 @@
 
 > ⚠️ **Nota penamaan (26 Okt 2026):** "34" merujuk bilangan **kategori modul**
 > dalam peta pesaing ini — serta angka modul dalam kod pada masa penulisan (24 Okt).
-> Kod kini mempunyai **58 modul**; lihat `KATALOG-MODUL-AI-BIJAN.md`.
+> Kod kini mempunyai **59 modul**; lihat `KATALOG-MODUL-AI-BIJAN.md`.
 > Peta ini kekal sah sebagai **peta kategori pesaing**, bukan senarai modul kod.
 
 **Tarikh:** 24 Oktober 2026

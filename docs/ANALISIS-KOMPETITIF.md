@@ -239,7 +239,7 @@ Untuk PKS dengan 15 pekerja, ini **8.6× lebih murah** daripada Zoho.
 |---|---|---|
 | "Ganti SAP" | Tidak benar; hilang kredibiliti | "Untuk PKS, bukan perusahaan" |
 | "AI urus perniagaan anda" | Tidak boleh dibuktikan | "AI jimatkan X jam, tambah Y prospek" |
-| "58 modul siap" | 66 resource Filament = CRUD berfungsi, tetapi borang generik | "POS, CRM, HR, kewangan dalam satu" |
+| "59 modul siap" | 66 resource Filament = CRUD berfungsi, tetapi borang generik | "POS, CRM, HR, kewangan dalam satu" |
 | "Voice interface" | Belum dikodkan | Jangan sebut sehingga siap |
 | "Collective intelligence" | Belum dikodkan | Jangan sebut sehingga siap |
 | "Proprietary model" | Tidak wujud | "Model terbaik untuk setiap tugas" |

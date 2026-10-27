@@ -267,7 +267,7 @@ This is BLUE OCEAN — no direct competition, create new category.
 │  3. NO ONE is multilingual-by-default (8+ languages)│
 │  4. NO ONE focuses on emerging market compliance    │
 │  5. NO ONE offers white-label at bank/telco scale   │
-│  6. NO ONE combines ALL 58 modules in one platform │
+│  6. NO ONE combines ALL 59 modules in one platform │
 │  7. NO ONE is priced for SME affordability          │
 │  8. NO ONE has voice-first business interface       │
 │                                                     │

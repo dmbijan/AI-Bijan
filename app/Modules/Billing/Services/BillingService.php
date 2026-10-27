@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Models\BillingCharge;
 use App\Modules\Billing\Models\BillingSubscription;
+use App\Modules\Billing\Models\Reseller;
 use App\Modules\Billing\Models\ResellerReferral;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -33,22 +34,198 @@ class BillingService
     }
 
     /**
-     * Cipta invois langganan untuk satu tenant.
+     * Pakej token AI yang tersedia.
      *
-     * ⚠️ Jika invois untuk period ini sudah wujud dan belum dibayar, ia
-     * DIGUNAKAN SEMULA (idempotent). Jika sudah dibayar, tolak — jangan
-     * caj dua kali.
+     * ⚠️ Token WAJIB dipilih semasa langganan — ia bukan pilihan. Tanpa token,
+     * ciri AI tidak berfungsi, jadi menjual langganan sahaja bermakna pelanggan
+     * membayar untuk sistem yang sebahagian besarnya mati.
+     *
+     * @return array<string, array{name:string, tokens:int, price:float}>
+     */
+    public function pakejToken(): array
+    {
+        return (array) config('billing.token_packages', []);
+    }
+
+    /**
+     * Harga pakej token.
+     */
+    public function hargaToken(string $pakejCode): float
+    {
+        $pakej = config("billing.token_packages.{$pakejCode}");
+
+        if ($pakej === null) {
+            throw new RuntimeException("Pakej token '{$pakejCode}' tiada.");
+        }
+
+        return (float) $pakej['price'];
+    }
+
+    /**
+     * Analisis margin setiap pakej token.
+     *
+     * ⚠️ Angka ini datang dari config (`kos_pembekal`), yang mesti disahkan
+     * terhadap kontrak pembekal. Jika pembekal naikkan harga, kemas kini
+     * config — margin dikira semula secara automatik.
+     *
+     * @return array<string, array{
+     *   nama:string, tokens:int, jual:float, beli:float,
+     *   untung:float, margin_pct:float, kos_per_juta:float, untung_per_juta:float
+     * }>
+     */
+    public function analisisMarginToken(): array
+    {
+        $hasil = [];
+
+        foreach ($this->pakejToken() as $kod => $p) {
+            $tokens = (int) $p['tokens'];
+            $jual = (float) $p['price'];
+            $beli = (float) ($p['kos_pembekal'] ?? 0);
+            $untung = round($jual - $beli, 2);
+            $juta = $tokens / 1_000_000;
+
+            $hasil[$kod] = [
+                'nama' => $p['name'],
+                'tokens' => $tokens,
+                'jual' => $jual,
+                'beli' => $beli,
+                'untung' => $untung,
+                'margin_pct' => $jual > 0 ? round(($untung / $jual) * 100, 1) : 0.0,
+                'kos_per_juta' => $juta > 0 ? round($beli / $juta, 4) : 0.0,
+                'untung_per_juta' => $juta > 0 ? round($untung / $juta, 4) : 0.0,
+            ];
+        }
+
+        return $hasil;
+    }
+
+    /**
+     * Semak pakej token dijual di ATAS kos pembekal.
+     *
+     * ⚠️ Jika ini pulang pakej dalam senarai, JANGAN lancar — anda akan rugi
+     * setiap bulan pada pelanggan yang menggunakan token penuh.
+     *
+     * @return array<string, string> kod pakej => mesej ralat
+     */
+    public function pakejRugi(): array
+    {
+        $rugi = [];
+
+        foreach ($this->analisisMarginToken() as $kod => $a) {
+            if ($a['untung'] <= 0) {
+                $rugi[$kod] = sprintf(
+                    '%s dijual RM%.2f tetapi kos pembekal RM%.2f — RUGI RM%.2f',
+                    $a['nama'],
+                    $a['jual'],
+                    $a['beli'],
+                    abs($a['untung'])
+                );
+            }
+
+            // Amaran tambahan: margin di bawah 50% bermakna naik kos sedikit
+            // sahaja akan memusnahkan keuntungan.
+            if ($a['margin_pct'] < 50 && $a['untung'] > 0) {
+                $rugi[$kod . '_nipis'] = sprintf(
+                    '%s margin hanya %.1f%% — terlalu nipis',
+                    $a['nama'],
+                    $a['margin_pct']
+                );
+            }
+        }
+
+        return $rugi;
+    }
+
+    /**
+     * Untung bersih platform untuk satu pelanggan dalam satu bulan.
+     *
+     * @param  string  $planCode     starter|growth|enterprise
+     * @param  string  $pakejToken   kod pakej token
+     * @param  bool    $adaReseller  true jika pelanggan dirujuk reseller
+     */
+    public function untungBersih(string $planCode, string $pakejToken, bool $adaReseller = false): array
+    {
+        $langganan = $this->hargaBulanan($planCode);
+        $token = $this->hargaToken($pakejToken);
+        $pakej = config("billing.token_packages.{$pakejToken}");
+        $kosToken = (float) ($pakej['kos_pembekal'] ?? 0);
+        $komisen = $adaReseller ? (float) $this->komisenUntuk($planCode) : 0.0;
+
+        $jumlah = round($langganan + $token, 2);
+        $kos = round($kosToken, 2);
+        $net = round($jumlah - $komisen - $kos, 2);
+
+        return [
+            'langganan' => $langganan,
+            'token' => $token,
+            'jumlah_dibilkan' => $jumlah,
+            'komisen_reseller' => $komisen,
+            'kos_token' => $kos,
+            'untung_bersih' => $net,
+            'margin_pct' => $jumlah > 0 ? round(($net / $jumlah) * 100, 1) : 0.0,
+        ];
+    }
+
+    /**
+     * Jumlah yang pelanggan bayar setiap bulan = langganan + token.
+     */
+    public function jumlahBulanan(string $planCode, string $pakejToken): float
+    {
+        return round($this->hargaBulanan($planCode) + $this->hargaToken($pakejToken), 2);
+    }
+
+    /**
+     * Kira komisen reseller.
+     *
+     * ⚠️ Peraturan: komisen dikira dari LANGGANAN SAHAJA, bukan dari token.
+     * Jika dikira dari jumlah penuh (langganan + token), reseller boleh dapat
+     * RM100 dari RM438 — dan apabila pelanggan membeli pakej token besar,
+     * komisen itu akan melebihi had 50% dan merosakkan margin platform.
+     *
+     * @return string nilai komisen (2 titik perpuluhan)
+     */
+    public function komisenUntuk(string $planCode, ?Reseller $reseller = null): string
+    {
+        $asas = $this->hargaBulanan($planCode);
+        $nilai = (float) ($reseller?->commission_value ?? config('billing.reseller.commission_value', 100));
+        $hadPct = (float) ($reseller?->commission_cap_pct ?? config('billing.reseller.commission_cap_pct', 50));
+
+        $komisen = min($nilai, $asas * ($hadPct / 100));
+
+        return number_format(max(0.0, $komisen), 2, '.', '');
+    }
+
+    /**
+     * Cipta invois langganan + pakej token AI (WAJIB).
+     *
+     * ⚠️ Token bukan pilihan. `$pakejToken` mesti sah; jika tidak, transaksi
+     * ditolak. Jangan sesekali mencipta langganan tanpa token — pelanggan akan
+     * membayar untuk sistem yang ciri AI-nya mati.
+     *
+     * ⚠️ Jumlah invois = langganan + token. Tetapi komisen reseller dikira
+     * dari LANGGANAN SAHAJA (lihat `ResellerCommissionService::rekodKomisen`).
      */
     public function ciptaInvoisLangganan(
         int $tenantId,
         string $planCode,
+        string $pakejToken,
         array $pelanggan,
         array $url = []
     ): BillingCharge {
-        $period = now()->format('Y-m');
-        $harga = $this->hargaBulanan($planCode);
+        // Sahkan pakej token dahulu — lebih awal gagal, lebih baik
+        if (! array_key_exists($pakejToken, $this->pakejToken())) {
+            throw new RuntimeException(
+                "Pakej token '{$pakejToken}' tidak sah. Pilih salah satu: "
+                . implode(', ', array_keys($this->pakejToken()))
+            );
+        }
 
-        return DB::transaction(function () use ($tenantId, $planCode, $pelanggan, $url, $period, $harga) {
+        $period = now()->format('Y-m');
+        $hargaLangganan = $this->hargaBulanan($planCode);
+        $hargaToken = $this->hargaToken($pakejToken);
+        $jumlah = round($hargaLangganan + $hargaToken, 2);
+
+        return DB::transaction(function () use ($tenantId, $planCode, $pakejToken, $pelanggan, $url, $period, $hargaLangganan, $hargaToken, $jumlah) {
             $sedia = BillingCharge::where('tenant_id', $tenantId)
                 ->where('kind', BillingCharge::KIND_SUBSCRIPTION)
                 ->where('period_key', $period)
@@ -69,7 +246,7 @@ class BillingService
                 ['tenant_id' => $tenantId, 'status' => BillingSubscription::STATUS_PENDING],
                 [
                     'plan_code' => $planCode,
-                    'amount' => $harga,
+                    'amount' => $hargaLangganan,
                     'currency' => 'MYR',
                     'billing_cycle' => 'monthly',
                 ]
@@ -80,33 +257,50 @@ class BillingService
                 'billing_subscription_id' => $langganan->id,
                 'kind' => BillingCharge::KIND_SUBSCRIPTION,
                 'period_key' => $period,
-                'amount' => $harga,
                 'currency' => 'MYR',
                 'status' => BillingCharge::STATUS_CREATED,
             ]);
+
+            // ⚠️ Jumlah = langganan + token. `base_amount` komisen TIDAK
+            // menggunakan nilai ini — lihat ResellerCommissionService.
+            $cas->amount = $jumlah;
 
             $invois = $this->chip->ciptaInvois([
                 'email' => $pelanggan['email'],
                 'full_name' => $pelanggan['name'] ?? null,
                 'phone' => $pelanggan['phone'] ?? null,
-                'amount' => $harga,
+                'amount' => $jumlah,
                 'currency' => 'MYR',
                 'reference' => sprintf('SUB-%d-%s', $tenantId, $period),
-                'product_name' => 'Langganan AI BIJAN (' . ucfirst($planCode) . ')',
+                'product_name' => sprintf(
+                    'AI BIJAN %s + %s',
+                    ucfirst($planCode),
+                    $this->pakejToken()[$pakejToken]['name']
+                ),
                 'success_url' => $url['success'] ?? config('billing.urls.success'),
                 'failure_url' => $url['failure'] ?? config('billing.urls.failure'),
                 'cancel_url' => $url['cancel'] ?? config('billing.urls.failure'),
-                'metadata' => ['tenant_id' => $tenantId, 'plan' => $planCode, 'period' => $period],
+                'metadata' => [
+                    'tenant_id' => $tenantId,
+                    'plan' => $planCode,
+                    'token_package' => $pakejToken,
+                    'period' => $period,
+                ],
             ]);
 
             $cas->fill([
                 'chip_purchase_id' => $invois['id'] ?: null,
                 'chip_checkout_url' => $invois['checkout_url'] ?: null,
                 'status' => BillingCharge::STATUS_PENDING,
-                // ⚠️ JANGAN simpan payload penuh — mungkin ada data peribadi
                 'chip_payload' => [
                     'id' => $invois['id'],
                     'status' => $invois['status'],
+                    // Simpan pecahan supaya boleh diaudit kemudian
+                    'pecahan' => [
+                        'langganan' => $hargaLangganan,
+                        'token' => $hargaToken,
+                        'pakej_token' => $pakejToken,
+                    ],
                 ],
             ])->save();
 

@@ -1,7 +1,7 @@
 # Prospect → Blast → Close: Panduan Pelaksanaan (BAB 82)
 
 **Tarikh:** 24 Oktober 2026
-**Blueprint:** `AI-Bijan/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` — BAB 82
+> **Blueprint:** `AI-BIJAN-MASTER-BLUEPRINT.md` — BAB 82
 **Status kod:** Diimplementasikan & diuji (94 ujian baharu)
 
 > ✅ **Disemak 26 Okt 2026:** angka dalam dokumen ini (94 ujian, 6 jadual Prospecting,

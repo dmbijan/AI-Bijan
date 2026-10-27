@@ -70,7 +70,7 @@ php skrip/cipta-tenant-ujian.php
 Menghasilkan:
 - Pengguna: `ujian@bijan.test` / `Password12345`
 - Tenant: "Syarikat Ujian ADE" (slug `syarikat-ujian-ade`)
-- Plan: `enterprise` — **58 modul aktif**
+- Plan: `enterprise` — **59 modul aktif**
 
 ⚠️ **Selepas `migrate:fresh`, anda MESTI jalankan semula:**
 ```bash
@@ -84,9 +84,10 @@ php skrip/sync-perm.php              # kebenaran
 ## Sahkan Pemasangan
 
 ```bash
-php artisan test                     # patut: 962 lulus, 4 dilangkau, 0 gagal
-php artisan route:list --path=api/v1 # patut: 1,518 laluan
-php skrip/semak-dokumen.php          # patut: semua angka ✅
+php artisan test                     # suite penuh — lulus, 0 gagal
+php artisan route:list --path=api/v1 # ~872 laluan api/v1
+php skrip/semak-dokumen.php          # semua angka ✅
+php skrip/jana-baseline.php          # jana semula AUDIT-BASELINE.md
 ```
 
 Titik kesihatan HTTP:

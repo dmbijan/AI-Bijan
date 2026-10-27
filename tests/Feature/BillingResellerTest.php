@@ -529,6 +529,216 @@ class BillingResellerTest extends TestCase
     }
 
     // ===============================================================
+    // TOKEN AI — WAJIB, HASIL TAMBAHAN (bukan kos)
+    // ===============================================================
+
+    public function test_pakej_token_tersedia(): void
+    {
+        $pakej = $this->billing->pakejToken();
+
+        $this->assertNotEmpty($pakej, 'Mesti ada sekurang-kurangnya satu pakej token.');
+        $this->assertArrayHasKey('t60m', $pakej);
+
+        foreach ($pakej as $kod => $p) {
+            $this->assertArrayHasKey('name', $p);
+            $this->assertArrayHasKey('tokens', $p);
+            $this->assertArrayHasKey('price', $p);
+            $this->assertArrayHasKey('kos_pembekal', $p, "Pakej {$kod} mesti ada kos pembekal.");
+            $this->assertGreaterThan(0, $p['tokens'], "Pakej {$kod} mesti ada token.");
+            $this->assertGreaterThan(0, $p['price'], "Pakej {$kod} mesti ada harga.");
+        }
+    }
+
+    public function test_jumlah_bulanan_langganan_plus_token(): void
+    {
+        // Growth RM388 + 60 juta token RM55 = RM443
+        $this->assertSame(
+            443.0,
+            $this->billing->jumlahBulanan('growth', 't60m'),
+            'Jumlah mesti = langganan + token.'
+        );
+
+        // Growth RM388 + 130 juta token RM88 = RM476
+        $this->assertSame(476.0, $this->billing->jumlahBulanan('growth', 't130m'));
+
+        // Growth RM388 + 2 bilion token RM1100 = RM1488
+        $this->assertSame(1488.0, $this->billing->jumlahBulanan('growth', 't2b'));
+    }
+
+    // ===============================================================
+    // MARGIN TOKEN — berdasarkan harga pembekal sebenar (27 Okt 2026)
+    // ===============================================================
+
+    public function test_semua_pakej_token_menguntungkan(): void
+    {
+        $rugi = $this->billing->pakejRugi();
+
+        $this->assertSame(
+            [],
+            $rugi,
+            'Pakej token RUGI atau margin terlalu nipis: ' . implode('; ', $rugi)
+        );
+    }
+
+    public function test_margin_token_90_peratus(): void
+    {
+        $analisis = $this->billing->analisisMarginToken();
+
+        foreach ($analisis as $kod => $a) {
+            $this->assertSame(
+                90.9,
+                $a['margin_pct'],
+                "Pakej {$kod} margin dijangka 90.9% (jual RM{$a['jual']}, beli RM{$a['beli']})."
+            );
+        }
+    }
+
+    public function test_harga_jual_melebihi_kos_pembekal(): void
+    {
+        foreach ($this->billing->analisisMarginToken() as $kod => $a) {
+            $this->assertGreaterThan(
+                $a['beli'],
+                $a['jual'],
+                "Pakej {$kod} dijual di Bawah kos pembekal — kerugian berulang."
+            );
+            $this->assertGreaterThan(0, $a['untung']);
+        }
+    }
+
+    public function test_untung_bersih_dengan_dan_tanpa_reseller(): void
+    {
+        // Tanpa reseller: RM388 + RM55 - kos RM5 = RM438
+        $tanpa = $this->billing->untungBersih('growth', 't60m', false);
+        $this->assertSame(388.0, $tanpa['langganan']);
+        $this->assertSame(55.0, $tanpa['token']);
+        $this->assertSame(443.0, $tanpa['jumlah_dibilkan']);
+        $this->assertSame(0.0, $tanpa['komisen_reseller']);
+        $this->assertSame(5.0, $tanpa['kos_token']);
+        $this->assertSame(438.0, $tanpa['untung_bersih']);
+
+        // Dengan reseller: RM443 - RM100 - RM5 = RM338
+        $dengan = $this->billing->untungBersih('growth', 't60m', true);
+        $this->assertSame(100.0, $dengan['komisen_reseller']);
+        $this->assertSame(338.0, $dengan['untung_bersih']);
+    }
+
+    public function test_untung_meningkat_dengan_pakej_besar(): void
+    {
+        $kecil = $this->billing->untungBersih('growth', 't60m', true);
+        $besar = $this->billing->untungBersih('growth', 't2b', true);
+
+        // Pakej besar: RM388 + RM1100 - RM100 - RM100 = RM1288
+        $this->assertSame(1288.0, $besar['untung_bersih']);
+        $this->assertGreaterThan(
+            $kecil['untung_bersih'],
+            $besar['untung_bersih'],
+            'Pakej lebih besar mesti memberi untung lebih tinggi.'
+        );
+    }
+
+    public function test_pakej_token_tidak_sah_ditolak(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->billing->hargaToken('pakej_hantu');
+    }
+
+    public function test_komisen_dikira_dari_langganan_bukan_jumlah_penuh(): void
+    {
+        $r = $this->reseller();   // RM100
+        $this->rujuk($r, $this->t->id);
+
+        // Komisen untuk pelan growth (RM388) — mesti RM100, bukan RM146
+        // (50% × RM438 jika dikira dari jumlah termasuk token).
+        $this->assertSame('100.00', $this->billing->komisenUntuk('growth', $r));
+
+        // Had 50% dikira dari LANGGANAN sahaja
+        $murah = $this->reseller(['commission_value' => 300]);
+        $this->assertSame(
+            '194.00',
+            $this->billing->komisenUntuk('growth', $murah),
+            'Had 50% mesti dari RM388, bukan dari jumlah termasuk token.'
+        );
+    }
+
+    public function test_komisen_tidak_melebihi_langganan(): void
+    {
+        // Komisen RM500 pada pelan RM88 — mesti terhad 50% = RM44
+        $r = $this->reseller(['commission_value' => 500]);
+        $this->assertSame('44.00', $this->billing->komisenUntuk('starter', $r));
+    }
+
+    public function test_komisen_tetap_walau_pelanggan_beli_token_besar(): void
+    {
+        $r = $this->reseller();
+        $this->rujuk($r, $this->t->id);
+        $l = $this->langgananAktif($this->t->id);
+
+        // Cas = RM388 langganan + RM1100 token (2 bilion) = RM1488
+        $cas = BillingCharge::withoutGlobalScope('tenant')->create([
+            'tenant_id' => $this->t->id,
+            'billing_subscription_id' => $l->id,
+            'chip_purchase_id' => 'purch_' . uniqid(),
+            'status' => BillingCharge::STATUS_PAID,
+            'kind' => BillingCharge::KIND_SUBSCRIPTION,
+            'period_key' => now()->format('Y-m'),
+            'amount' => 1488,
+            'currency' => 'MYR',
+            'paid_at' => now(),
+            'chip_payload' => [
+                'pecahan' => ['langganan' => 388, 'token' => 1100, 'pakej_token' => 't2b'],
+            ],
+        ]);
+
+        $k = $this->komisen->rekodKomisen($cas, $l);
+
+        $this->assertNotNull($k);
+        $this->assertSame(
+            '100.00',
+            (string) $k->commission_amount,
+            'Komisen mesti RM100 (dari langganan sahaja), BUKAN RM146 atau lebih tinggi.'
+        );
+        $this->assertSame(
+            '388.00',
+            (string) $k->base_amount,
+            'Asas komisen mesti langganan sahaja, bukan jumlah termasuk token.'
+        );
+    }
+
+    public function test_api_pakej_token(): void
+    {
+        $this->sebagai($this->u, $this->t);
+
+        $this->getJson('/api/v1/billing/packages')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'data' => [['code', 'name', 'tokens', 'price']],
+            ]);
+    }
+
+    public function test_api_langgan_tanpa_token_ditolak(): void
+    {
+        $this->sebagai($this->u, $this->t);
+
+        // ⚠️ token_package WAJIB — tanpa ia, AI tidak berfungsi
+        $this->postJson('/api/v1/billing/subscribe', [
+            'plan_code' => 'growth',
+            'email' => 'pemilik@billing.my',
+        ])->assertStatus(422)->assertJsonValidationErrors('token_package');
+    }
+
+    public function test_api_langgan_token_tidak_sah_ditolak(): void
+    {
+        $this->sebagai($this->u, $this->t);
+
+        $this->postJson('/api/v1/billing/subscribe', [
+            'plan_code' => 'growth',
+            'token_package' => 'pakej_hantu',
+            'email' => 'pemilik@billing.my',
+        ])->assertStatus(500);   // RuntimeException dari service (CHIP tidak dikonfigurasi)
+    }
+
+    // ===============================================================
     // PENGASINGAN — komisen tidak bocor merentas reseller
     // ===============================================================
 

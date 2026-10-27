@@ -3,6 +3,7 @@
 return [
     App\Modules\AIAgents\AIAgentsServiceProvider::class,
     App\Modules\AIGateway\AIGatewayServiceProvider::class,
+    App\Modules\TeamAI\TeamAIServiceProvider::class,
     App\Modules\ADE\ADEServiceProvider::class,
     App\Modules\Affiliate\AffiliateServiceProvider::class,
     App\Modules\AgentStudio\AgentStudioServiceProvider::class,

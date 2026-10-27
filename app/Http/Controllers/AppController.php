@@ -21,6 +21,11 @@ class AppController extends Controller
     {
         $map = [
             'ai-agents'       => 'ai-agents',
+            'team-ai'         => 'team-ai',
+            'openbot'         => 'openbot',
+            'command-centre'  => 'command-centre',
+            'prospects'       => 'prospects',
+            'blast'           => 'blast',
             'boardroom'       => 'boardroom',
             'personal-ai'     => 'personal-ai',
             'flows'           => 'flows',

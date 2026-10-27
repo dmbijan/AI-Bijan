@@ -1,22 +1,34 @@
-# AI BIJAN — Katalog Penuh Modul (v9.4)
+# AI BIJAN — Katalog Penuh Modul (v9.6)
 
-> **59 modul** · **366 jadual** · **1,387 laluan API** · **1,059 ujian lulus** (0 gagal, 4 skip, 5,370 assertion)
+> **59 modul** · **368 jadual** (kiraan migration) · **~872 laluan API** · **~1,119 kaedah ujian**
+>
+> 📊 **Baseline rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) — **satu-satunya sumber kebenaran angka**.
+> Fail ini tidak boleh menyalin angka secara manual; jika ia berbeza dengan baseline,
+> **baseline yang menang**.
 >
 > ⚠️ **Pembetulan 26 Okt 2026:** kiraan lama **1,518** adalah SALAH — ia termasuk
 > **154 laluan berganda** (`api/v1/finance/finance/*` dsb.) akibat 5 modul mendaftar
 > prefix DUA KALI (provider + `routes/api.php` masing-masing). Laluan berganda telah
 > dibuang. `php skrip/semak-dokumen.php` kini memantau `laluan_berganda` dan
 > `laluan_wildcard` (kedua-duanya mesti 0).
-> Blueprint: `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` → **v9.4**, **102 bab / 26 PART**
-> Tarikh audit: 26 Oktober 2026
 >
-> **UI:** Filament 3.3 di `/admin` — **66 resource** (liputan semua 58 modul),
+> ⚠️ **Pembetulan 27 Okt 2026:** selepas pembuangan laluan berganda, **kiraan laluan
+> sebenar ialah ~872** (bukan 1,388 atau 1,518), dan **kaedah ujian ~1,119** (bukan
+> 962 / 1,009 / 1,059). Bilangan **ujian lulus**, **assertion** dan **jadual sebenar**
+> memerlukan PHP + pangkalan data — sahkan dengan `php artisan test` dan
+> `php skrip/semak-dokumen.php`.
+>
+> Blueprint: [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) → **v9.6**, **103 bab / 27 PART**
+> Tarikh audit: 27 Oktober 2026
+>
+> **UI:** Filament 3.3 di `/admin` — **65 resource** (liputan 59 modul),
 > **6 widget** dashboard, halaman Tetapan Syarikat. **212 kebenaran** merentas
 > 52 namespace. Pengesahan visual: halaman ADE + POS + Tetapan = HTTP 200 + jadual render.
 >
-> ⚠️ **Semua angka di atas disahkan daripada kod sebenar** pada 26 Okt 2026 melalui
-> `php artisan test`, `php artisan route:list`, dan semakan `app/Modules/`.
-> Jangan tukar angka tanpa jalankan semula pengesahan (lihat `AUDIT-DOKUMEN.md`).
+> Modul `Billing` (reseller komisen berulang) telah ditambah →
+> **59 modul**. Modul `Billing` = **9 jadual**, **6 laluan API**, **32 ujian**;
+> status komersial `BLOCKED` (ADR-010) walaupun kod dan ujian sudah lengkap.
+> Jangan tukar angka tanpa jalankan semula pengesahan (lihat `AUDIT-BASELINE.md`).
 
 Semua modul adalah **multi-tenant** (`BelongsToTenant`: global scope + auto-fill `tenant_id` + halang ubah).
 Semua laluan guna middleware `perm:{module}.{action}`.
@@ -37,8 +49,9 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 | SEO | Seo | 1 |
 | Perkhidmatan | ServiceOS | 1 |
 | Perbelanjaan | Expense | 1 |
+| Langganan & Komisen | **Billing** | 1 |
 | Pembangunan & Automasi Agen | **ADE** | 1 |
-| **Jumlah** | | **58** |
+| **Jumlah** | | **59** |
 
 ---
 
@@ -166,7 +179,18 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 ---
 
-## 11. Pembangunan & Automasi Agen (1)
+## 11. Langganan & Komisen Berulang (1)
+
+| Modul | Prefix | Ringkasan |
+|---|---|---|
+| **Billing** | `/api/v1/billing` · `/api/v1/reseller` | **Langganan AI BIJAN + komisen reseller berulang**: langganan **RM388/bulan** (CHIP Collect), **pakej token AI WAJIB** (RM55–1,100, 30 hari, kos pembekal disahkan — margin 90.9%), **Reseller dapat RM100/bulan** dari langganan sahaja selagi pelanggan langgan, komisen jadi hak selepas **30 hari**, churn membatalkan `pending` (bukan `approved`), had 50%, snapshot bank semasa bayar, tiada self-referral, IP di-hash, payout + bukti (**BAB 93**) |
+
+> **Nota:** modul ini berasingan daripada `Affiliate` (tenant-scoped, sekali per
+> transaksi). `Billing` ialah **platform-level** dan berulang.
+
+---
+
+## 12. Pembangunan & Automasi Agen (1)
 
 | Modul | Prefix | Ringkasan |
 |---|---|---|
@@ -180,22 +204,27 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 ## Statistik Terkini
 
+> 📊 Sumber: [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) (27 Okt 2026).
+
 | Metrik | Nilai |
 |---|---|
 | Modul | **59** |
-| Model | **300** |
-| Service | **170** |
-| Controller (modul) | **128** |
-| Jadual pangkalan data | **346** |
-| Laluan API (`api/v1`) | **1,387** |
-| Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
-| Assertion | **5,033** |
-| Resource Filament | **66** |
+| Model | **310** |
+| Service | **174** |
+| Controller (modul) | **134** |
+| Jadual pangkalan data | **368** (kiraan migration) |
+| Laluan API (`api/v1`) | **~872** |
+| Kaedah ujian | **~1,119** (89 fail Feature) |
+| Resource Filament | **65** |
 | Kebenaran | **212** |
-| Blueprint | **102 bab / 26 PART** |
-| Versi | **v9.4** |
+| Blueprint | **103 bab / 27 PART** |
+| Versi | **v9.6** |
 | Laravel | 12.70.1 |
 | Advisori keselamatan | **0** |
+
+> `Ujian lulus` / `Assertion` / `Jadual sebenar` sengaja tiada — ia memerlukan PHP
+> dan pangkalan data. Jana dengan `php artisan test` dan `php skrip/semak-dokumen.php`,
+> kemudian kemas kini `AUDIT-BASELINE.md` sahaja.
 
 ---
 

@@ -51,7 +51,7 @@
                 </div>
             </div>
             <div class="field">
-                <label class="label">Jenis Tugas</label>
+                <label class="label" for="taskType">Jenis Tugas</label>
                 <select class="select" id="taskType">
                     <option value="quick">Pantas — GLM Flash</option>
                     <option value="reasoning">Penaakulan — GPT-6 Astra</option>
@@ -63,7 +63,7 @@
                 </select>
             </div>
             <div class="field">
-                <label class="label">Mesej</label>
+                <label class="label" for="chatMsg">Mesej</label>
                 <textarea class="textarea" id="chatMsg" rows="3">Ringkaskan prestasi jualan bulan ini.</textarea>
             </div>
             <button class="btn btn-primary btn-block" id="chatBtn" onclick="sendChat()">Hantar</button>
@@ -94,7 +94,7 @@
                 <div><h2 class="card-title">Tambah Kredit</h2></div>
             </div>
             <div class="field">
-                <label class="label">Jumlah (RM)</label>
+                <label class="label" for="topUpAmount">Jumlah (RM)</label>
                 <input class="input" type="number" id="topUpAmount" value="500" min="1">
             </div>
             <button class="btn btn-primary btn-block" onclick="topUp()">Top-up</button>

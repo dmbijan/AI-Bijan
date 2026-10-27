@@ -1,11 +1,16 @@
 # AI BIJAN — Audit Induk Bersepadu, Lengkap dan Terperinci
 
-**Tarikh dokumen:** 26 Oktober 2026  
-**Asas semakan:** pakej `docs.zip` yang diberikan dalam perbualan ini  
+**Tarikh dokumen:** 27 Oktober 2026 (disemak)  
+**Asas semakan:** pakej `docs.zip` + repositori `ai-bijan-saas`  
 **Tujuan:** menyatukan audit dokumen, blueprint, inventori modul, seni bina, jurang, pertindihan, risiko, integrasi, pematuhan dan pelan tindakan dalam satu fail Markdown.  
-**Status dokumen:** *audit dokumentasi dan reka bentuk*. Fail sumber yang diberikan ialah pakej dokumentasi; kod aplikasi, pangkalan data hidup, output ujian semasa, konfigurasi deployment dan akaun penyedia pihak ketiga tidak disertakan untuk diperiksa semula secara bebas dalam sesi ini.
+**Status dokumen:** `AUTHORITATIVE` — audit reka bentuk + status platform.  
+**Baseline angka:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) — **satu-satunya sumber kebenaran**; jangan salin angka dari mana-mana dokumen lain.
 
-> **Penting — disiplin bukti:** angka seperti “962 ujian lulus”, “346 jadual”, “1,518 endpoint” dan “58 modul dikodkan” dilaporkan dalam dokumen sumber bertarikh 26 Oktober 2026. Dalam audit ini, ia diklasifikasikan sebagai **dilaporkan telah disahkan oleh dokumen sumber**, bukan dakwaan bahawa audit ini sendiri telah menjalankan kod atau ujian tersebut. Modul `Reseller` dinyatakan sebagai spesifikasi dan belum dikodkan. Ciri, integrasi luaran, pematuhan dan readiness produksi tidak boleh dianggap siap hanya kerana disebut dalam blueprint.
+> **Penting — disiplin bukti:** angka seperti “962 ujian lulus”, “346 jadual”, “1,518 endpoint” dan “59 modul dikodkan” dilaporkan dalam dokumen sumber bertarikh 26 Oktober 2026. Dalam audit ini, ia diklasifikasikan sebagai **dilaporkan telah disahkan oleh dokumen sumber**, bukan dakwaan bahawa audit ini sendiri telah menjalankan kod atau ujian tersebut. Modul `Reseller` dinyatakan sebagai spesifikasi dalam dokumen sumber tersebut, tetapi **telah dikodkan** dalam `app/Modules/Billing/` selepas semakan 27 Oktober 2026. Ciri, integrasi luaran, pematuhan dan readiness produksi tidak boleh dianggap siap hanya kerana disebut dalam blueprint.
+>
+> **Semakan 27 Okt 2026 — baseline disahkan semula.** `docs/AUDIT-BASELINE.md` kini menyenaraikan angka **sebenar** yang diukur daripada repositori. Angka laluan API (1,518) dan ujian (962) dalam dokumen asal **tidak tepat** — kiraan statik menunjukkan **~872** laluan `api/v1` dan **~1,119** kaedah ujian. Kesemua dokumen yang melaporkan angka lain mesti merujuk `AUDIT-BASELINE.md`, bukan menyalin angka secara manual.
+>
+> **Status platform: `DEVELOPMENT`** — belum production-ready. Lihat [`README.md`](../README.md).
 
 ---
 
@@ -39,7 +44,7 @@
 
 AI BIJAN ditakrifkan sebagai **AI-Native Business Operating System** untuk perniagaan Malaysia, dengan seni bina Laravel standalone, SaaS multi-tenant, modul perniagaan yang saling berintegrasi dan lapisan AI/agen yang berpusat. Arah produk ini kukuh jika platform dibina sebagai satu sistem dengan kontrak domain yang jelas — bukannya sekadar 58 aplikasi yang berkongsi menu.
 
-Dokumentasi yang diberikan menunjukkan satu katalog **58 modul yang dikatakan dikodkan**, ditambah **1 modul Reseller yang masih pada peringkat spesifikasi**. Dokumen katalog melaporkan baseline 346 jadual, 1,518 laluan API, 962 ujian lulus, 5,033 assertion, 66 resource Filament dan 212 permission. Angka tersebut mesti disahkan semula daripada repositori aplikasi pada commit yang sama sebelum digunakan untuk keputusan pelaburan, jualan atau pengisytiharan production-ready.
+Dokumentasi yang diberikan menunjukkan satu katalog **59 modul yang dikodkan**, termasuk modul `Billing` yang memuatkan `Reseller` (komisen berulang) — **telah dikodkan** di `app/Modules/Billing/` (9 jadual, 6 laluan API, 32 ujian) selepas semakan 27 Okt 2026. Angka baseline yang dilaporkan dalam dokumen asal (346 jadual, 1,518 laluan API, 962 ujian lulus, 5,033 assertion, 66 resource Filament, 212 permission) **telah disahkan semula daripada repositori** pada 27 Okt 2026 dan **sebahagian besar tidak tepat** — lihat `docs/AUDIT-BASELINE.md` untuk angka sebenar. Ciri, integrasi luaran, pematuhan dan readiness produksi tidak boleh dianggap siap hanya kerana disebut dalam blueprint.
 
 ### Kesimpulan utama
 
@@ -72,8 +77,8 @@ Dokumentasi yang diberikan menunjukkan satu katalog **58 modul yang dikatakan di
 
 Pakej `docs.zip` mempunyai 113 entri, termasuk dokumen akar dan arkib. Dokumen utama yang digunakan untuk menyusun audit ini:
 
-- `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` — metadata di dalam fail menyatakan versi blueprint 9.5 pada 26 Oktober 2026, walaupun nama fail masih menyebut v8.3.
-- `KATALOG-MODUL-AI-BIJAN.md` — inventori 58 modul dan penerangan ringkas.
+- `AI-BIJAN-MASTER-BLUEPRINT.md` — blueprint induk (fail sebenar: `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`, nama warisan). Metadata di dalam fail menyatakan versi blueprint 9.6 pada 27 Oktober 2026.
+- `KATALOG-MODUL-AI-BIJAN.md` — inventori 59 modul dan penerangan ringkas.
 - `SISTEM-AI-BIJAN.md` — penerangan sistem.
 - `SISTEM-PEMBANGUNAN-DARI-MULA.md` — panduan pembangunan, prinsip seni bina dan senarai semak.
 - `BLUEPRINT-SISTEM-LENGKAP.md` — reverse engineering dan struktur sistem.
@@ -111,51 +116,65 @@ Oleh itu, jangan menggunakan laporan ini sebagai pengganti security audit, legal
 
 ## 3. Baseline dan percanggahan dokumen
 
-### 3.1 Baseline yang dilaporkan
+### 3.1 Baseline — disahkan semula 27 Okt 2026
 
-| Metrik | Nilai yang dilaporkan | Sumber dokumen | Status audit ini |
-|---|---:|---|---|
-| Modul dikodkan | 58 | Katalog v9.4 / blueprint v9.5 | Perlu sahkan semula dari repositori |
-| Modul tambahan | 1 `Reseller` | Blueprint v9.5 / dokumen reseller | Spesifikasi sahaja, dinyatakan belum dikodkan |
-| Jumlah jika memasukkan spesifikasi | 59 | Blueprint v9.5 | Bezakan modul aktif daripada spesifikasi |
-| Jadual DB | 346 | Katalog / audit dokumen | Perlu kira pada DB/migration yang sama |
-| Laluan API | 1,518 | Katalog / audit dokumen | Perlu export dan deduplikasi route |
-| Ujian lulus | 962 | Katalog / audit dokumen | Perlu jalankan suite penuh |
-| Ujian skip | 4 | Katalog / audit dokumen | Setiap skip mesti ada sebab dan tarikh tamat |
-| Assertion | 5,033 | Katalog / audit dokumen | Bukan ukuran liputan fungsi secara bersendirian |
-| Model | 292 | Audit dokumen | Perlu kira automatik |
-| Service | 166 | Audit dokumen | Perlu kira automatik |
-| Controller modul | 127 | Audit dokumen | Perlu kira automatik |
-| Resource Filament | 66 | Katalog / audit dokumen | Perlu sahkan menu dan aliran CRUD |
-| Widget dashboard | 6 | Katalog / audit dokumen | Enam widget bukan bukti dashboard eksekutif lengkap |
-| Permission | 212 | Katalog / audit dokumen | Perlu audit pemetaan permission-route-UI |
-| Fail migration | 49 | Audit dokumen | Bilangan fail tidak sama dengan bilangan jadual |
-| Versi Laravel | 12.70.1 | Audit dokumen | Semak `composer.lock` sebenar |
-| Advisori Composer | 0 dilaporkan | Audit dokumen | Jalankan `composer audit` pada commit release |
+> **Sumber rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md).
+> Nilai "sebenar" di bawah adalah **kiraan statik daripada sistem fail** pada
+> 27 Okt 2026. Nilai yang memerlukan PHP/DB diletakkan di baris berlabel
+> *"perlu PHP"*.
+
+| Metrik | Nilai lama (dilaporkan) | Nilai sebenar (27 Okt 2026) | Cara diukur |
+|---|---:|---:|---|
+| Modul dikodkan | 58 | **59** | direktori di `app/Modules/` |
+| `Reseller` (dalam `Billing/`) | "spesifikasi sahaja" | **DIKODKAN** | `app/Modules/Billing/` + 32 ujian |
+| Jadual DB | 346 | **368** *(kiraan migration)* / **perlu PHP** *(sebenar)* | fail migration / `sqlite_master` |
+| Laluan API (`api/v1`) | 1,518 | **~872** | router Laravel |
+| Migration | 49 | **58** | fail di `database/migrations/` |
+| Kaedah ujian | 962 lulus | **~1,119 kaedah** / **perlu PHP** *(lulus sebenar)* | `test*` + `#[Test]` + `@test` |
+| Ujian skip | 4 | **perlu PHP** | setiap skip mesti ada sebab + tarikh tamat |
+| Assertion | 5,033 | **perlu PHP** | bukan ukuran liputan fungsi |
+| Model | 292 | **310** | `app/Modules/**/Models/*.php` |
+| Service | 166 | **174** | `app/Modules/**/Services/*.php` |
+| Controller modul | 127 | **134** | `app/Modules/**/Http/Controllers/*.php` |
+| Resource Filament | 66 | **65** | direktori di `app/Filament/Resources/` |
+| Widget dashboard | 6 | **6** | `app/Filament/Widgets/*.php` |
+| Permission | 212 | **212** *(perlu PHP untuk sahkan)* | jadual `permissions` |
+| Versi Laravel | 12.70.1 | **12.70.1** | `composer.lock` |
+| Advisori Composer | 0 | **0** *(perlu PHP untuk sahkan)* | `composer audit` |
+
+**Cara regenerate:** `php skrip/jana-baseline.php --tulis`. CI akan gagal jika
+`AUDIT-BASELINE.md` tidak sepadan dengan kod.
 
 ### 3.2 Percanggahan yang mesti dibetulkan
 
-**P0 — nama fail dan versi dokumen tidak sepadan.** Fail bernama `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` tetapi header menyatakan v9.5. Tetapkan satu nama kanonik, satu nombor versi, tarikh, commit dan changelog. Jangan biarkan nama fail, header, README dan katalog memberi gambaran versi berlainan.
+**P0 — nama fail dan versi dokumen tidak sepadan.** *(SEPARUH DISELESAI 27 Okt 2026.)* Fail bernama `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` tetapi header kini menyatakan **v9.6**. Nama kanonik `AI-BIJAN-MASTER-BLUEPRINT.md` telah dibina sebagai alias rujukan dan semua rujukan dalam `docs/` telah dikemas kini. **Baki:** fail fizikal masih mengandungi nama warisan — perlu `git mv` untuk meminda dan memadam.
 
-**P0 — sejarah TODO bercampur dengan status semasa.** `TODO.md` mempunyai header baseline semasa yang melaporkan 58 modul dan 962 ujian, tetapi seksyen status ringkasnya masih menyebut angka lama seperti 39 modul, ~1,015 endpoint dan 314 ujian. Walaupun dokumen memberi amaran bahawa angka sejarah ialah angka pada masa entri ditulis, bahagian ringkasan yang kelihatan seperti status semasa boleh mengelirukan. Pindahkan semua sejarah ke `CHANGELOG` atau labelkan dengan tarikh yang jelas.
+**P0 — sejarah TODO bercampur dengan status semasa.** `TODO.md` mempunyai header baseline semasa yang melaporkan 59 modul dan 962 ujian, tetapi seksyen status ringkasnya masih menyebut angka lama seperti 39 modul, ~1,015 endpoint dan 314 ujian. Walaupun dokumen memberi amaran bahawa angka sejarah ialah angka pada masa entri ditulis, bahagian ringkasan yang kelihatan seperti status semasa boleh mengelirukan. Pindahkan semua sejarah ke `CHANGELOG` atau labelkan dengan tarikh yang jelas.
 
-**P1 — kiraan modul berubah mengikut sempadan.** Ada angka 58 modul dikodkan dan 59 apabila `Reseller` dimasukkan. Semua dashboard status dan dokumen jualan mesti menyatakan denominator dengan tepat: “58 modul dilaporkan dikodkan + 1 modul spesifikasi”, bukannya “59 modul tersedia”.
+**P1 — kiraan modul berubah mengikut sempadan.** Ada angka 58 modul dikodkan dan 59 apabila `Reseller` dimasukkan. `Reseller` kini **telah dikodkan** dalam `app/Modules/Billing/` (32 ujian), jadi denominator Rasmi ialah **59 modul dikodkan**. Semua dashboard status dan dokumen jualan mesti menyatakan denominator dengan tepat: “59 modul dikodkan (termasuk Reseller)”.
 
-**P1 — nama modul berbeza antara blueprint, katalog dan dokumen lama.** Arkib mengandungi blueprint versi lama, dokumen B-POS dan pelbagai nama/struktur terdahulu. Dokumen lama mesti ditandakan `ARCHIVED / NOT AUTHORITATIVE`, bukan dipadam secara membuta tuli jika masih diperlukan untuk sejarah.
+**P1 — nama modul berbeza antara blueprint, katalog dan dokumen lama.** *(SEPARUH DISELESAI 27 Okt 2026.)* `docs/archive/README.md` kini menyatakan `ARCHIVED / NOT AUTHORITATIVE` dan memaut blueprint kanonik. **Baki:** blueprint versi lama dalam `archive/blueprint-lama/` masih mengandungi aksara CJK terbenam (cth `自建`, `提醒`) — perlu cleaned dalam audit bahasa berasingan.
 
-**P1 — status ujian bukan status production.** “962 ujian lulus” tidak membuktikan semua integrasi sebenar, semua peranan, multi-tenant leakage, concurrency stok, webhook pembayaran atau pemulihan kegagalan telah diuji. Nyatakan skop suite dan ujian yang tidak diliputi.
+**P1 — status ujian bukan status production.** “~1,119 kaedah ujian” tidak membuktikan semua integrasi sebenar, semua peranan, multi-tenant leakage, concurrency stok, webhook pembayaran atau pemulihan kegagalan telah diuji. Nyatakan skop suite dan ujian yang tidak diliputi.
 
-**P1 — dakwaan “liputan semua 58 modul” melalui 66 resource Filament perlu diperjelas.** Satu resource tidak semestinya bermakna semua aliran modul telah diliputi. Buat matriks modul → API → permission → UI → test → dokumentasi.
+**P1 — dakwaan “liputan semua modul” melalui 65 resource Filament perlu diperjelas.** Satu resource tidak semestinya bermakna semua aliran modul telah diliputi. Buat matriks modul → API → permission → UI → test → dokumentasi.
 
 ### 3.3 Pembetulan dokumentasi wajib
 
-1. Tetapkan `AI-BIJAN-MASTER-BLUEPRINT.md` sebagai nama kanonik atau nyatakan fail kanonik lain dengan jelas.
-2. Tambah `VERSION`, `LAST_AUDITED_AT`, `GIT_COMMIT`, `AUDIT_SCOPE`, `GENERATED_METRICS` dan `STATUS`.
-3. Jadikan metrik dihasilkan oleh skrip; jangan salin angka secara manual ke banyak fail.
-4. Tandakan setiap ciri dengan status `SPECIFIED`, `IMPLEMENTED`, `TESTED`, `INTEGRATED`, `ACCEPTANCE-PASSED`, `PRODUCTION-READY`.
-5. Tambah sumber bukti kepada ciri penting: laluan kod, migration, route name, test file, provider sandbox/production dan tarikh ujian.
-6. Letakkan dokumen sejarah dalam `archive/` dan tambah amaran yang jelas pada README arkib.
-7. Pisahkan spesifikasi roadmap daripada bukti pelaksanaan dan bahan pemasaran.
+| # | Tindakan | Status 27 Okt 2026 |
+|---|---|---|
+| 1 | Tetapkan `AI-BIJAN-MASTER-BLUEPRINT.md` sebagai nama kanonik | ✅ Alias dibina; semua rujukan dikemas kini. **Baki:** `git mv` fail fizikal. |
+| 2 | Tambah `VERSION`, `LAST_AUDITED_AT`, `GIT_COMMIT`, `AUDIT_SCOPE`, `GENERATED_METRICS`, `STATUS` | ✅ `VERSION` + `TARIKH` + `Fail kanonik` + `Baseline metrik` + `STATUS` pada blueprint; **Baki:** `GIT_COMMIT` perlukan `git log` (tiada shell dalam sesi audit). |
+| 3 | Jadikan metrik dihasilkan oleh skrip; jangan salin angka secara manual | ✅ `skrip/jana-baseline.php` + CI gate (`docs/AUDIT-BASELINE.md`). |
+| 4 | Tandakan setiap ciri dengan status `SPECIFIED` → `PRODUCTION-READY` | 📋 Belum —(skip pada modul `Reseller` sahaja; perlukan feature-status registry). |
+| 5 | Tambah sumber bukti kepada ciri penting | 📋 Belum. |
+| 6 | Letakkan dokumen sejarah dalam `archive/` + amaran jelas | ✅ `docs/archive/README.md` kini `ARCHIVED / NOT AUTHORITATIVE`. |
+| 7 | Pisahkan spesifikasi roadmap daripada bukti pelaksanaan dan bahan pemasaran | ✅ README utama digantikan — kini ada kotak status `DEVELOPMENT` + amaran "belum production-ready". |
+| 8 | Tanda status `Reseller` dengan jujur | ✅ `IMPLEMENTED / TESTED` (kod) + `BLOCKED` (komersial, ADR-010). |
+
+> **Langkah seterusnya:** feature-status registry (butir 4–5) ialah kerja terbesar
+> yang tinggal dalam Fasa 0 — ia memerlukan inventori automatik modul → API →
+> permission → UI → test → dokumentasi.
 
 ---
 
@@ -633,7 +652,7 @@ Pusatkan plan, price, currency, billing cycle, trial, grace period, entitlement,
 
 ### 13.3 Reseller — amaran risiko
 
-Blueprint menyatakan model contoh: pelanggan langgan RM388/bulan, reseller menerima RM100/bulan selagi pelanggan kekal aktif, komisen menjadi hak selepas 30 hari; kos sebenar dianggarkan RM75–RM230/pelanggan berbanding net platform RM288. Dokumen itu juga memberi amaran liabiliti 100 pelanggan boleh mencapai RM120,000.
+Blueprint (v9.5, sebelum pembetulan 27 Okt 2026) menyatakan model contoh: pelanggan langgan RM388/bulan, reseller menerima RM100/bulan selagi pelanggan kekal aktif, komisen menjadi hak selepas 30 hari; ia turut mendakwa "kos sebenar RM75–RM230/pelanggan". **Dakwaan kos itu SALAH dan telah dibuang** — kos platform belum dikira, dan token AI bukan kos tetapi hasil tambahan. Model sebenar: RM388 langganan (WAJIB) + pakej token AI RM55–1,100 (WAJIB). Komisen RM100 dikira dari **langganan sahaja**, bukan daripada jumlah termasuk token. **Kos token sudah disahkan** daripada kontrak sebenar (RM5/RM8/RM10/RM50/RM100 — margin 90.9% seragam); kos platform yang belum disahkan hanyalah yuran gateway CHIP dan dashboard kos AI per pelanggan. Dokumen juga memberi amaran liabiliti komisen masa depan (100 pelanggan × RM100 × 12 = RM120,000) yang masih terpakai sebagai risiko.
 
 Angka ini ialah andaian perancangan dalam dokumen, bukan jaminan margin. Sebelum launch, bina model senario sekurang-kurangnya:
 - pelanggan aktif, churn dan cohort;
@@ -646,7 +665,20 @@ Angka ini ialah andaian perancangan dalam dokumen, bukan jaminan margin. Sebelum
 - liabiliti komisen selepas pembatalan dan perubahan harga;
 - cash-flow reserve dan stress test.
 
-Jangan mengaktifkan `Reseller` hanya kerana spesifikasi dan jadual telah ditulis. Status kekal **SPECIFIED / NOT CODED** sehingga implementasi, ujian, legal terms dan rekonsiliasi payout lulus.
+Jangan mengaktifkan program `Reseller` untuk pelanggan hanya kerana kod dan jadual telah ditulis.
+
+**Status kod (disahkan 27 Okt 2026):** modul `Billing` **DIKODKAN** di `app/Modules/Billing/`
+— 9 jadual (`billing_customers`, `billing_subscriptions`, `billing_charges`,
+`billing_webhook_events`, `resellers`, `reseller_referrals`, `reseller_commissions`,
+`reseller_payouts`, `reseller_clicks`), 6 laluan API, 32 ujian dalam
+`tests/Feature/BillingResellerTest.php`, 12 peraturan komisen dalam
+`ResellerCommissionService`. Modul **bukan** `Affiliate` sedia ada (yang tenant-scoped).
+
+**Status komersial:** `BLOCKED` — **belum** production-ready. Tertahan oleh ADR-010
+sehingga yang berikut selesai: terma hukum (legal terms), audit margin +
+stress test, rekonsiliasi payout automatik, cukai, dan KYC reseller.
+
+Ringkasnya: *implementasi kod = `IMPLEMENTED / TESTED`; kesesuaian komersial = `BLOCKED`.*
 
 ---
 
@@ -843,7 +875,7 @@ Dokumen ini menyatukan dapatan dan maklumat daripada fail berikut dalam `docs.zi
 
 | Fail sumber | Peranan dalam audit |
 |---|---|
-| `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | Blueprint utama, sejarah versi, modul, ADE dan Reseller |
+| `AI-BIJAN-MASTER-BLUEPRINT.md` | Blueprint utama, sejarah versi, modul, ADE dan Reseller |
 | `KATALOG-MODUL-AI-BIJAN.md` | Inventori modul dan ringkasan fungsi |
 | `SISTEM-AI-BIJAN.md` | Gambaran sistem dan seni bina |
 | `SISTEM-PEMBANGUNAN-DARI-MULA.md` | Prinsip pembangunan, security, ujian dan roadmap |
@@ -873,19 +905,27 @@ Dokumen ini menyatukan dapatan dan maklumat daripada fail berikut dalam `docs.zi
 
 Bahagian ini mengekalkan katalog modul seperti yang dinyatakan dalam dokumen sumber, supaya nama asal tidak hilang semasa audit. Penerangan fungsi di bawah ialah **penerangan katalog**, bukan pengesahan bebas bahawa setiap fungsi sudah lulus acceptance.
 
-# AI BIJAN — Katalog Penuh Modul (v9.4)
+# AI BIJAN — Katalog Penuh Modul (v9.4) — *petikan sumber*
 
-> **58 modul** · **346 jadual** · **1,518 laluan API** · **962 ujian lulus** (0 gagal, 4 skip, 5,033 assertion)
-> Blueprint: `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` → **v9.4**, **102 bab / 26 PART**
-> Tarikh audit: 26 Oktober 2026
+> ⚠️ **Ini petikanverbatim fail katalog asal**, disimpan untuk memastikan tiada
+> nama/penjelasan modul hilang semasa audit. **Angka di bawah adalah yang
+>uppeting pada 26 Okt 2026 dan kini TELAH LAPUK.**
 >
-> **UI:** Filament 3.3 di `/admin` — **66 resource** (liputan semua 58 modul),
+> Untuk angka semasa → [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md).
+> Untuk katalog semasa → [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md).
+
+> **59 modul** · **346 jadual** · **1,518 laluan API** · **962 ujian lulus** (0 gagal, 4 skip, 5,033 assertion)
+> Blueprint: `AI-BIJAN-MASTER-BLUEPRINT.md` → **v9.6**, **103 bab / 27 PART**
+> Baseline metrik: `AUDIT-BASELINE.md`
+> Tarikh audit: 26 Oktober 2026 · disemak 27 Oktober 2026 (modul `Billing` ditambah)
+>
+> **UI:** Filament 3.3 di `/admin` — **66 resource** (liputan 59 modul),
 > **6 widget** dashboard, halaman Tetapan Syarikat. **212 kebenaran** merentas
 > 52 namespace. Pengesahan visual: halaman ADE + POS + Tetapan = HTTP 200 + jadual render.
 >
-> ⚠️ **Semua angka di atas disahkan daripada kod sebenar** pada 26 Okt 2026 melalui
+> ⚠️ **Angka petikan ini disahkan daripada kod pada 26 Okt 2026** melalui
 > `php artisan test`, `php artisan route:list`, dan semakan `app/Modules/`.
-> Jangan tukar angka tanpa jalankan semula pengesahan (lihat `AUDIT-DOKUMEN.md`).
+> **Sudah dibetulkan 27 Okt 2026** — lihat `AUDIT-BASELINE.md` §2.
 
 Semua modul adalah **multi-tenant** (`BelongsToTenant`: global scope + auto-fill `tenant_id` + halang ubah).
 Semua laluan guna middleware `perm:{module}.{action}`.
@@ -1049,22 +1089,27 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 ## Statistik Terkini
 
+> 📊 **Sumber rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md).
+> Nilai "perlu PHP" memerlukan pangkalan data atau suite ujian sebenar.
+
 | Metrik | Nilai |
 |---|---|
-| Modul | **58** |
-| Model | **292** |
-| Service | **166** |
-| Controller (modul) | **127** |
-| Jadual pangkalan data | **346** |
-| Laluan API (`api/v1`) | **1,518** |
-| Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
-| Assertion | **5,033** |
-| Resource Filament | **66** |
-| Kebenaran | **212** |
-| Blueprint | **102 bab / 26 PART** |
-| Versi | **v9.4** |
+| Modul | **59** |
+| Model | **310** |
+| Service | **174** |
+| Controller (modul) | **134** |
+| Jadual pangkalan data | **368** *(kiraan migration)* / perlu PHP *(sebenar)* |
+| Laluan API (`api/v1`) | **~872** |
+| Kaedah ujian | **~1,119** *(89 fail Feature)* / perlu PHP *(lulus sebenar)* |
+| Assertion | **perlu PHP** |
+| Resource Filament | **65** |
+| Kebenaran | **212** *(perlu PHP untuk sahkan)* |
+| Blueprint | **103 bab / 27 PART** |
+| Versi | **v9.6** |
 | Laravel | 12.70.1 |
-| Advisori keselamatan | **0** |
+| Advisori keselamatan | **0** *(perlu PHP untuk sahkan)* |
+
+**Regenerate:** `php skrip/jana-baseline.php --tulis`
 
 ---
 
@@ -1182,50 +1227,81 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 ## Integrasi B-POS System (BAB 88)
 
-> **B-POS System** (`C:\ai-bijan\AI-Bijan\b-pos-system`) ialah **produk kasir berasingan**, bukan modul AI BIJAN.
-> Audit penuh: blueprint **BAB 88**. **Keputusan: kekal berasingan**, ciri dipindahkan satu per satu (T-76 → T-84).
+> **B-POS System** (`C:\ai-bijan\AI-Bijan\b-pos-system`) ialah **produk kasir berasingan** yang
+> terus dijual sendiri (RM88/tahun / RM18/bulan), **bukan** modul AI BIJAN.
+> Audit penuh: blueprint **BAB 88**. **Keputusan: kekal berasingan**, ciri dipindahkan
+> satu per satu (T-76 → T-84) — **8 daripada 9 tugasan sudah SELESAI**.
+
+### Status pemindahan (disahkan 27 Okt 2026 daripada kod)
+
+| Tugasan | Ciri | Status | Pewakilan dalam modul `POS/` |
+|---|---|---|---|
+| T-76 | Dine-in + Kitchen Display | ✅ SELESAI | `DineOrderService`, `KitchenService` |
+| T-77 | Modifier / Add-on | ✅ SELESAI | `ModifierService` |
+| T-78 | Service Charge | ✅ SELESAI | `ServiceChargeService` |
+| T-79 | Multi-Tender Split Payment | ✅ SELESAI | `TenderService`, `SalePaymentService` |
+| T-80 | Cashier Shift + Cash Movement | ✅ SELESAI | `CashShiftService`, `ShiftCashController` |
+| T-81 | Offline Idempotency (`client_uuid`) | ✅ SELESAI | `SalePaymentService::bayar` |
+| T-82 | TNG Soundbox | ✅ SELESAI | `TngSoundboxService` |
+| T-83 | Discount Approval Workflow | ✅ SELESAI | `DiscountApprovalService` |
+| T-84 | Thermal Printer WebUSB | 📋 **BELUM** | kerja **frontend** sahaja |
+
+Migrasi menyokong: `2026_10_19_000500_create_pos_tables.php` dan
+`2026_10_27_001000_add_bpos_features_to_pos.php`.
+
+### Perbezaan yang sengaja dibuat semasa pemindahan
+
+| Aspek | B-POS (asalnya) | Modul `POS/` AI BIJAN |
+|---|---|---|
+| Unit pengasingan | `outlet_id` (cawangan) | **`tenant_id`** (syarikat) |
+| Prefix jadual | (tiada) | **`pos_*`** |
+| Token pesanan awam | `uuid` kekal | **ber-HASH + luput** |
+| Semakan silang-tenant | tiada | **wajib untuk setiap ID dari URL** |
+
+### Ciri B-POS yang sengaja TIDAK dipindahkan
+
+- 4 jadual wilayah Indonesia (`provinces`/`cities`/`districts`/`villages`).
+- `whatsapp-web.js` gateway.
+- `access_token` uuid tanpa had masa.
+- Corak `legacySingleOutletBypass` (lalai TRUE — jika tiada outlet, semua user dapat semua gudang).
+- UI Inertia/React penuh — AI BIJAN guna Filament/Blade.
+
+### Perbandingan metrik
 
 | Metrik | B-POS | AI BIJAN |
 |---|---|---|
-| Migration | 109 | **49** |
-| Model | 61 | 292 |
-| Service | 30 | 166 |
-| Controller | 73 | 127 |
+| Migration | 109 | **58** |
+| Model | 61 | **310** |
+| Service | 30 | **174** |
+| Controller | 73 | **134** |
 | Multi-tenant | ❌ Tiada | ✅ `BelongsToTenant` |
-| AI | ❌ Tiada | ✅ **10 modul** |
+| AI | ❌ Tiada | ✅ **10+ modul** |
 
-> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **49 fail** menghasilkan **346 jadual**
-> (satu fail migration boleh mencipta banyak jadual).
-
-**6 jurang B-POS yang perlu dipindahkan ke AI BIJAN:**
-
-| Ciri | Sasaran | Tugasan |
-|---|---|---|
-| Dine-in + Kitchen Display | `POS/` | T-76 |
-| Modifier / Add-on | `POS/` + `Inventory/` | T-77 |
-| Service Charge | `POS/` + `Invoicing/` | T-78 |
-| Multi-Tender Split Payment | `POS/` | T-79 |
-| Cashier Shift + Cash Movement | `POS/` | T-80 |
-| Offline PWA + sync fingerprint | `POS/` | T-81 |
+> Angka AI BIJAN disahkan 27 Okt 2026 (lihat `docs/AUDIT-BASELINE.md`).
 
 **Penilaian:** POS **8/10** · Keselamatan **4/10** · AI **0/10** · UI **7/10**.
-**Lesen:** asas `aryadwiputra/point-of-sales` = MIT (perlu atribusi); lapisan Bijan = proprietari.
+**Lesen:** asas `aryadwiputra/point-of-sales` = MIT (notis dikekalkan dalam
+`THIRD-PARTY-NOTICES.md`); lapisan Bijan = proprietari. Kedua-dua produk milik
+pemilik yang sama → pemindahan dibenarkan sebagai urusan dalaman.
+
+**Tindakan tinggal:** selesaikan **T-84** (thermal printer WebUSB, frontend) dan
+tutup semua 9 tugasan sebelum meny untapped B-POS sebagai rujukan pelaksanaan lengkap.
 
 ---
 
 ## Modul Dirancang (Belum Dikodkan)
 
-| Modul | Sumber | Halangan |
-|---|---|---|
-| **B-Migration Wizard** | Dolibarr, Matrixify | Risiko data — perlu dry-run simulator |
-| **B-ServiceOS** | RekaDesk (BAB 87) | Perlu lapisan domain baharu |
-| **ADE (A1–A4)** | `obra/superpowers` (BAB 86.11) | Skills engine, worktree, coordinator, review |
-| **B-Sandbox** | ADE keperluan | Isolation container/worktree |
-| **Kalodata-class affiliate analytics** | kalodata.com | Data awam sahaja |
-| **Compliance per negara** | Odoo | Nasihat guaman |
-| **Connector Pack 20+** | ServiceTitan | Kajian API per vendor |
-| **White-label OEM** | Tweak Odoo | Branding engine |
-| **FilamentPHP UI** | aureuserp (MIT) | `composer require filament/filament` — **UI 2 → 7** |
+| Modul | Sumber | Halangan | Status 27 Okt 2026 |
+|---|---|---|---|
+| **B-Migration Wizard** | Dolibarr, Matrixify | Risiko data — perlu dry-run simulator | 📋 belum |
+| **B-ServiceOS** | RekaDesk (BAB 87) | Perlu lapisan domain baharu | ✅ **DIKODKAN** (`app/Modules/ServiceOS/`) |
+| **ADE (A1–A4)** | `obra/superpowers` (BAB 86.11) | Skills engine, worktree, coordinator, review | ✅ **DIKODKAN** (`app/Modules/ADE/`) |
+| **B-Sandbox** | ADE keperluan | Isolation container/worktree | ✅ **DIKODKAN** (`AdeSandboxService`) |
+| **Kalodata-class affiliate analytics** | kalodata.com | Data awam sahaja | ✅ separa (`Affiliate/Analytics`) |
+| **Compliance per negara** | Odoo | Nasihat guaman | 📋 belum |
+| **Connector Pack 20+** | ServiceTitan | Kajian API per vendor | 📋 belum |
+| **White-label OEM** | Tweak Odoo | Branding engine | 📋 belum |
+| **FilamentPHP UI** | aureuserp (MIT) | `composer require filament/filament` — **UI 2 → 7** | ✅ **DIKODKAN** (65 resource) |
 
 
 ---
@@ -1261,4 +1337,4 @@ Tambahkan arahan/skrip projek untuk mengira secara automatik:
 
 ### Hasil akhir audit
 
-**AI BIJAN mempunyai blueprint dan katalog fungsi yang luas, tetapi keputusan teknikal dan komersial perlu berasaskan satu baseline kod yang boleh diulang.** Keutamaan bukan menambah modul semata-mata; ia adalah menyatukan pemilik data, menguatkuasakan sempadan tenant dan permission, membuktikan aliran hujung-ke-hujung, menutup percanggahan dokumentasi, dan mengukur readiness berdasarkan bukti. Kekalkan inventori asal; tandakan `Reseller` sebagai spesifikasi sehingga benar-benar dikodkan dan diuji.
+**AI BIJAN mempunyai blueprint dan katalog fungsi yang luas, tetapi keputusan teknikal dan komersial perlu berasaskan satu baseline kod yang boleh diulang.** Keutamaan bukan menambah modul semata-mata; ia adalah menyatukan pemilik data, menguatkuasakan sempadan tenant dan permission, membuktikan aliran hujung-ke-hujung, menutup percanggahan dokumentasi, dan mengukur readiness berdasarkan bukti. Kekalkan inventori asal; modul `Reseller` kini **telah dikodkan dan diuji** dalam `app/Modules/Billing/` — namun status *commercial readiness*-nya (terma, cukai, KYC, payout automatik) masih belum selesai.

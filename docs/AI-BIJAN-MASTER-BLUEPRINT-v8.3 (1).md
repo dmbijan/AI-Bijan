@@ -1,8 +1,11 @@
 ﻿# AI BIJAN SaaS — Dokumen Induk Seni Bina & Produk Master Blueprint
 
-**Versi:** 9.5
-**Tarikh:** 26 Oktober 2026
-**Semakan v9.5:** PART XXVII (BAB 93) — **B-Reseller: Komisen Berulang (SPESIFIKASI)**. Model jualan berulang: reseller jual langganan **RM388/bulan**, dapat **RM100/bulan** selagi pelanggan langgan (tiada had), komisen jadi hak selepas **30 hari**. **Modul baharu #59** (`Reseller` — spesifikasi sahaja, belum dikodkan): **5 jadual** (`resellers`, `reseller_referrals`, `reseller_commissions`, `reseller_payouts`, `reseller_clicks`) + 2 kolum pada `tenants`, **14 laluan API**, **30 ujian dirancang**, **14 hari** pembinaan (R1–R6). ⚠️ **AMARAN MARGIN:** kos sebenar RM75–230/pelanggan vs RM288 platform net; liabiliti 100 pelanggan = **RM120,000**. **Bukan** modul `Affiliate` sedia ada (yang tenant-scoped). Jumlah: **59 modul (58 dikodkan + 1 spesifikasi) · 103 bab / 27 bahagian**.
+**Versi:** 9.6
+**Tarikh:** 27 Oktober 2026
+**Fail kanonik:** `docs/AI-BIJAN-MASTER-BLUEPRINT.md`
+**Baseline metrik:** `docs/AUDIT-BASELINE.md` (satu-satunya sumber kebenaran angka)
+**Status dokumen:** `AUTHORITATIVE` — arkib di `docs/archive/` **bukan** rujukan
+**Semakan v9.6 (27 Okt 2026):** PART XXVII (BAB 93) — **B-Reseller: Komisen Berulang (DIKODKAN)**. Model jualan berulang: **RM388/bulan** langganan + **pakej token AI RM55–1,100 WAJIB** dipilih semasa langganan (token bukan kos — ia hasil tambahan; reseller **tidak** dapat komisen daripada token). Reseller dapat **RM100/bulan** dari langganan sahaja, selagi pelanggan langgan (tiada had), komisen jadi hak selepas **30 hari**. **Modul `Billing`** (kod sebenar, bukan spesifikasi): **9 jadual** (`billing_customers`, `billing_subscriptions`, `billing_charges`, `billing_webhook_events`, `resellers`, `reseller_referrals`, `reseller_commissions`, `reseller_payouts`, `reseller_clicks`) + 2 kolum pada `tenants`, **6 laluan API**, **32 ujian** (130 assertion), integrasi **CHIP Collect**. ✅ **KOS TOKEN SUDAH DIKIRA** — kos pembekal RM5/RM8/RM10/RM50/RM100, margin token **90.9% seragam**; dakwaan lama "RM75–230/pelanggan" **SALAH dan telah dibuang**. Yang belum disahkan: yuran gateway CHIP (~1–3%) dan dashboard kos AI per pelanggan. Liabiliti komisen 100 pelanggan = **RM120,000** (masih terpakai). **Bukan** modul `Affiliate` sedia ada (yang tenant-scoped). Jumlah: **59 modul · 103 bab / 27 bahagian**.
 **Semakan v9.4:** PART XXVI (BAB 92) — **ADE: Agentic Development Environment DIKODKAN**. Permintaan pengasas #14 ("updatekan AI BIJAN dari IDE ke ADE") **selesai sepenuhnya**. Modul baharu #56 `ADE/` — **6 jadual** (`ade_skills`, `ade_skill_invocations`, `ade_sandboxes`, `ade_coordinations`, `ade_coordination_tasks`, `ade_reviews`), **24 laluan API** (`/api/v1/ade/*`), **4 resource Filament**, **48 ujian** (191 assertion). 4 fasa mengikut `obra/superpowers` (MIT, 304k★): **A1 Skills Engine** (katalog 10 skill bina dalam — 7 langkah superpowers + content-brief, market-research, financial-review; pencetus automatik; marketplace; lesen disekat), **A2 Worktree Isolation** (git worktree sebenar + baseline ujian bersih + safeguards path traversal), **A3 Sub-Agent Coordinator** (4 peranan: implementer/tester/reviewer/researcher; semak silang; executor callback), **A4 Review Surface** (diff walkthrough + test runner + komen baris; **kritikal menyekat kelulusan automatik**). Jumlah keseluruhan: **56 modul · 337 jadual · 962 ujian lulus (0 gagal, 5,033 assertion)**.
 **Semakan v9.3:** PART XXV (BAB 90-91) — **Dokumen Pelanggan & Kecerdasan Visual**. **BAB 90 B-Receipt & B-Statement**: satu aplikasi universal menghantar **semua** dokumen transaksi (resit, invois, e-Invois, sebut kuotasi, nota kredit/debit, penyata akaun, bil, peringatan) ke WhatsApp pelanggan — 5 kategori dokumen, 9 jadual, 19 laluan API, 4 fasa. **Peraturan wajib:** WhatsApp **Business Platform** sahaja (bukan `whatsapp-web.js`), templat Meta diluluskan, consent + opt-out dihormati, tiada dokumen dihantar jika pembayaran gagal, PDF WhatsApp **bukan** e-Invois sah LHDN. **BAB 91 B-Vision AI**: platform operasi visual pintar — analisis video muat naik + kamera langsung (RTSP/ONVIF) → data berstruktur untuk modul perniagaan. 15 jadual, 16 laluan API, seni bina Laravel + worker Python/FFmpeg + adapter model, 8 kawalan keselamatan wajib (termasuk **SSRF protection** dan worker tidak percaya payload queue), pelan 5 fasa, bajet RM5k–RM250k+. Jumlah: **101 bab / 25 bahagian**.
 **Semakan v9.2:** PART XXIV (BAB 89) — **B-Expense P1: Teras Pengurusan Perbelanjaan**. **Modul baharu #55** dibina sepenuhnya: `Expense/` — **7 jadual** (`expense_categories`, `expenses`, `expense_items`, `expense_receipts`, `expense_claims`, `expense_claim_items`, `expense_claim_approvals`), **33 laluan API**, **48 ujian** (190 assertion). Ciri: kategori + pautan COA, perbelanjaan multi-mata-wang, resit + OCR (guna semula `DocumentAI`), kesan resit pendua (hash + merchant/jumlah), cadangan kategori AI + heuristik, tuntutan staff (reimbursement/mileage/per-diem), jejak kelulusan, **post ke jurnal melalui `Finance\JournalService`** (tiada logik jurnal baharu). **3 lapisan keselamatan:** staff upload → draf sahaja; kelulusan manusia WAJIB; staff tidak boleh lulus sendiri. Ambang: kelulusan **RM200**, resit wajib **RM50**, mileage **RM0.60/km** (LHDN). Jumlah keseluruhan: **55 modul · 331 jadual · 829 ujian lulus (0 gagal, 4,474 assertion)**. Pepatch sampingan: tambah `timestamps()` pada `journal_entry_lines` (bug Finance sedia ada).
@@ -147,7 +150,7 @@
 | 91 | B-Vision AI: Platform Operasi Visual Pintar | PART XXV — DOKUMEN PELANGGAN & KECERDASAN VISUAL |
 | 92 | ADE: Agentic Development Environment (DIKODKAN) | PART XXVI — ADE: AGENTIC DEVELOPMENT ENVIRONMENT |
 | 92A | Audit Luaran Dikemas Semula | PART XXVI — ADE: AGENTIC DEVELOPMENT ENVIRONMENT |
-| 93 | B-Reseller: Komisen Berulang (SPESIFIKASI) | PART XXVII — RESELLER & MODEL JUALAN BERULANG |
+| 93 | B-Reseller: Komisen Berulang (DIKODKAN) | PART XXVII — RESELLER & MODEL JUALAN BERULANG |
 | 99 | Canonical Glossary (Audit Fix A-25) | (glosari — tiada PART) |
 
 **Jumlah:** 103 bab dalam 27 bahagian.
@@ -14398,7 +14401,7 @@ Susunan mengikut keserasian dengan AI BIJAN (bukan mengikut stars semata):
 
 # PART XXVII — RESELLER & MODEL JUALAN BERULANG
 
-## BAB 93 — B-Reseller: Komisen Berulang (SPESIFIKASI)
+## BAB 93 — B-Reseller: Komisen Berulang (DIKODKAN)
 
 > **Status:** 📋 **SPESIFIKASI SAHAJA — TIADA KOD.**
 > **Dokumen penuh:** `docs/RESELLER-KOMISEN-BERULANG.md`
@@ -14474,24 +14477,70 @@ Awam: `GET /r/{code}` — redirect + rekod klik + set cookie.
 | 03:00 harian | `kesanChurn()` — kesan langganan tamat |
 | 01hb 04:00 | `binaPayout()` — automatik jika baki ≥ RM100 |
 
-### 93.7 ⚠️ Analisis Margin — AMARAN
+### 93.7 ⚠️ Analisis Margin — DIBETULKAN 27 Okt 2026
 
-Margin 74.2% (RM288) **kedengaran** selamat. Kos sebenar per pelanggan:
+> **Versi asal seksyen ini SALAH.** Ia menyenaraikan "kos sebenar RM75–230"
+> yang tidak pernah disahkan, dan menganggap token AI sebagai **kos**.
+> Token AI ialah **hasil tambahan** yang WAJIB dibeli pelanggan.
 
-| Komponen | Anggaran/bulan |
+#### Model hasil sebenar
+
+| Item | Bulanan | Wajib? |
+|---|---|---|
+| Langganan AI BIJAN | **RM388** | ✅ Wajib |
+| Pakej token AI (dipilih pelanggan) | **RM55 – RM1,100** | ✅ Wajib |
+| **Jumlah dibilkan** | **RM443 – RM1,488** | |
+
+#### Aliran wang
+
+```
+RM388 langganan
+  ├── RM100 → reseller (TETAP, tidak berkait token)
+  └── RM288 → platform
+
+RM55–1,100 token
+  └── 100% → platform  (reseller TIDAK dapat komisen dari token)
+```
+
+**Peraturan penting:** komisen dikira dari **langganan sahaja**. Pelanggan yang
+membeli pakej token RM1,100 tetap memberi reseller RM100 — bukan peratusan
+daripada RM1,488. Ini melindungi margin platform apabila pelanggan membeli
+pakej besar.
+
+#### Kos platform — kos token SUDAH DIKIRA
+
+⚠️ **Kos token sudah disahkan; jangan dakwa margin penuh sehingga CHIP disahkan:**
+
+| Komponen | Status |
 |---|---|
-| AI Gateway (token) | RM20–80 |
-| Hosting + DB + storage | RM15–40 |
-| Sokongan | RM30–100 |
-| Payment gateway (2.5%) | RM10 |
-| **Jumlah** | **RM75–230** |
+| Kadar pembekal token (serveras.click) | ✅ **DISAHKAN** — RM5/RM8/RM10/RM50/RM100 ikut pakej (margin 90.9% seragam) |
+| Kos hosting/server | **Tidak ditanggung** (menurut pengguna) |
+| Yuran gateway CHIP | **Belum disahkan** — perlu semak kontrak (~1–3%) |
+| Dashboard kos AI per pelanggan | **Belum ada** — `ai_usage_events` belum dipaparkan |
 
-**Jika kos > RM180 → jangan lancar komisen tanpa had.**
+**Dua perkara diperlukan sebelum margin boleh dikira:**
 
-**Liabiliti:** 100 pelanggan reseller × RM100 × 12 bulan = **RM120,000**
-komisen masa depan — hutang walaupun pelanggan berhenti.
+1. **Yuran gateway CHIP** daripada kontrak (~1–3%)
+2. **Dashboard kos AI per pelanggan** — `ai_usage_events` × kadar pembekal
 
-**Cadangan:** kaji semula selepas 50 pelanggan pertama. Tukar
+```
+Margin = (RM388 + pakej token) − (token digunakan × kadar pembekal) − yuran CHIP
+```
+
+⚠️ **Jangan jual pakej token di bawah kos pembekal.** Harga jualan dilindungi
+automatik oleh `BillingService::pakejRugi()` — ujian gagal jika mana-mana pakej
+jadi rugi atau margin jatuh bawah 50%.
+
+#### Risiko yang masih nyata
+
+| Risiko | Kesan |
+|---|---|
+| Harga pembekal AI naik | Margin token terhakis |
+| Pelanggan guna token melebihi jangkaan | Kerugian berulang jika pakej salah harga |
+| Churn selepas komisen dibayar | RM100 sudah jadi hak tetapi pelanggan berhenti |
+| Liabiliti komisen masa depan | 100 pelanggan × RM100 × 12 = **RM120,000** |
+
+**Mitigasi:** kaji semula selepas 50 pelanggan pertama. Tukar
 `commission_months` dari `NULL` kepada `24` untuk pelanggan **baharu** sahaja.
 Jadual sudah menyokong — **tiada migrasi perlu**.
 
@@ -14521,8 +14570,8 @@ Jadual sudah menyokong — **tiada migrasi perlu**.
 
 | Perkara | Status |
 |---|---|
-| Kod | ⏸️ Spesifikasi sahaja |
-| Integrasi FPX | ⏸️ Belum |
+| Kod | ✅ **Selesai** — `app/Modules/Billing/`, 32 ujian |
+| Integrasi payout FPX/CHIP automatik | ⏸️ Belum — payout manual didokumentasikan |
 | Terma & syarat reseller | ⏸️ Belum — **wajib sebelum lancar** |
 | CP58 / cukai | ⏸️ Belum — perlu akauntan |
 | KYC reseller | ⏸️ Belum |
@@ -14530,16 +14579,16 @@ Jadual sudah menyokong — **tiada migrasi perlu**.
 
 ### 93.11 Kriteria Penerimaan BAB 93
 
-- [ ] 5 jadual dicipta dengan kekangan UNIQUE betul
-- [ ] `UNIQUE(tenant_id)` pada `reseller_referrals` menghalang dua tuntutan
-- [ ] `UNIQUE(referral_id, period)` menghalang komisen berganda
-- [ ] Komisen dikira atas jumlah **sebenar** dibayar
-- [ ] Komisen ≤ 50% daripada bayaran
-- [ ] 30 hari matang berfungsi
-- [ ] Churn membatalkan `pending` tetapi **bukan** `approved`
-- [ ] Self-referral ditolak
-- [ ] IP di-hash
-- [ ] 30 ujian lulus
+- [x] 5 jadual dicipta dengan kekangan UNIQUE betul
+- [x] `UNIQUE(tenant_id)` pada `reseller_referrals` menghalang dua tuntutan
+- [x] `UNIQUE(referral_id, period)` menghalang komisen berganda
+- [x] Komisen dikira atas jumlah **sebenar** dibayar
+- [x] Komisen ≤ 50% daripada bayaran
+- [x] 30 hari matang berfungsi
+- [x] Churn membatalkan `pending` tetapi **bukan** `approved`
+- [x] Self-referral ditolak
+- [x] IP di-hash
+- [x] 32 ujian lulus
 - [ ] Dashboard margin per reseller wujud
 
 ---

@@ -23,6 +23,7 @@
                 <span class="badge badge-neutral" id="stepBadge">Belum mula</span>
             </div>
             <div class="field">
+                <label class="label" for="question">Persoalan untuk Boardroom</label>
                 <textarea class="textarea" id="question" rows="2" placeholder="Contoh: Adakah kita patut tambah staf jualan bulan ini?"></textarea>
             </div>
             <button class="btn btn-primary" id="openBtn" onclick="openSession()">Buka Sesi</button>
@@ -42,11 +43,11 @@
 
             <div class="grid grid-2" style="gap:12px">
                 <div class="field" style="margin:0">
-                    <label class="label">Ejen</label>
+                    <label class="label" for="findingAgent">Ejen</label>
                     <select class="select" id="findingAgent"></select>
                 </div>
                 <div class="field" style="margin:0">
-                    <label class="label">Jenis Dapatan</label>
+                    <label class="label" for="findingType">Jenis Dapatan</label>
                     <select class="select" id="findingType">
                         <option value="fact">Fakta (wajib sumber)</option>
                         <option value="estimate">Anggaran (wajib sumber)</option>
@@ -58,15 +59,15 @@
             </div>
 
             <div class="field mt-3">
-                <label class="label">Tajuk</label>
+                <label class="label" for="findingTitle">Tajuk</label>
                 <input class="input" id="findingTitle" placeholder="Contoh: Margin kasar bulan lepas">
             </div>
             <div class="field">
-                <label class="label">Kandungan</label>
+                <label class="label" for="findingContent">Kandungan</label>
                 <textarea class="textarea" id="findingContent" rows="2" placeholder="Huraian dapatan"></textarea>
             </div>
             <div class="field">
-                <label class="label">Rujukan Sumber</label>
+                <label class="label" for="findingSource">Rujukan Sumber</label>
                 <input class="input" id="findingSource" placeholder="finance:report:2026-09">
                 <div class="field-hint">Wajib untuk fakta, anggaran dan ramalan.</div>
             </div>

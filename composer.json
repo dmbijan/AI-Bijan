@@ -1,10 +1,14 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "dmbijan/ai-bijan",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "AI BIJAN SaaS — AI-Native Business Operating System untuk PKS Malaysia.",
+    "keywords": ["laravel", "ai", "saas", "bijan"],
     "license": "MIT",
+    "homepage": "https://github.com/dmbijan/AI-Bijan",
+    "support": {
+        "source": "https://github.com/dmbijan/AI-Bijan"
+    },
     "require": {
         "php": "^8.2",
         "barryvdh/laravel-dompdf": "^3.1",

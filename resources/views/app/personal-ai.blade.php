@@ -38,11 +38,11 @@
         </div>
         <div class="grid grid-2" style="gap:12px">
             <div class="field" style="margin:0">
-                <label class="label">Pembantu</label>
+                <label class="label" for="taskAssistant">Pembantu</label>
                 <select class="select" id="taskAssistant"></select>
             </div>
             <div class="field" style="margin:0">
-                <label class="label">Tahap Risiko</label>
+                <label class="label" for="taskRisk">Tahap Risiko</label>
                 <select class="select" id="taskRisk">
                     <option value="low">Rendah</option>
                     <option value="moderate">Sederhana</option>
@@ -52,7 +52,7 @@
             </div>
         </div>
         <div class="field mt-3">
-            <label class="label">Objektif</label>
+            <label class="label" for="taskObjective">Objektif</label>
             <input class="input" id="taskObjective" placeholder="Contoh: Semak invois tertunggak">
         </div>
         <button class="btn btn-primary" id="createTaskBtn" onclick="createTask()">Cipta Tugas</button>
@@ -77,7 +77,7 @@
                 <div><h2 class="card-title">Simpan Memori</h2></div>
             </div>
             <div class="field">
-                <label class="label">Jenis</label>
+                <label class="label" for="memType">Jenis</label>
                 <select class="select" id="memType">
                     <option value="preference">Preferensi</option>
                     <option value="context">Konteks Kerja</option>
@@ -87,11 +87,11 @@
                 </select>
             </div>
             <div class="field">
-                <label class="label">Kategori</label>
+                <label class="label" for="memCategory">Kategori</label>
                 <input class="input" id="memCategory" placeholder="laporan, jualan, kewangan">
             </div>
             <div class="field">
-                <label class="label">Kandungan</label>
+                <label class="label" for="memContent">Kandungan</label>
                 <textarea class="textarea" id="memContent" rows="2"></textarea>
             </div>
             <button class="btn btn-primary" onclick="saveMemory()">Simpan</button>

@@ -1,44 +1,53 @@
 # TODO — AI BIJAN SaaS
 
-**Dikemas kini:** 26 Oktober 2026
-**Baseline ujian:** **962 lulus / 0 gagal / 4 dilangkau (5,033 assertions)**
-**Sistem:** 58 modul · 346 jadual · 1,518 laluan API · 66 resource Filament · 212 kebenaran
+**Dikemas kini:** 27 Oktober 2026
+**Status:** `DEVELOPMENT` — belum production-ready
 
 > Fail ini menyenaraikan kerja yang **belum siap** dan **belum bermula** sahaja.
 > Kerja yang sudah siap tidak disenaraikan.
->
-> **Sahkan baseline:** `php artisan test` · `php skrip/semak-dokumen.php`
-> **Dokumen sistem lengkap:** `docs/SISTEM-AI-BIJAN.md`
->
-> ⚠️ Angka di dalam bahagian sejarah (cth "486 ujian", "314 lulus") merujuk keadaan
-> **pada masa entri itu ditulis** — bukan keadaan semasa.
+
+---
+
+## ⚠️ Cara membaca fail ini
+
+1. **Angka tidak dipinjam dari sini.** Semua angka rasmi berada di
+   [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md). Fail ini sengaja **tidak** mengulang
+   angka modul/jadual/laluan/ujian — supaya ia tidak boleh lapuk.
+2. **Sejarah telah dipindahkan** ke [`CHANGELOG.md`](CHANGELOG.md).
+3. **Entri `✅ SELESAI` dikekalkan** sebagai rekod audit — jangan delete, tetapi
+   jangan kira sebagai kerja belum siap.
+4. Struktur baharu: **satu seksyen `## P0` → `## P5`**, tanpa seksyen P1/P2
+   berulang.
+5. Fail ini mempunyai **dua bahagian**:
+   - **Bahagian A** (P0 → P5) — senarai rasmi kerja belum siap.
+   - **Bahagian B** — log per bab blueprint, menambah konteks asal.
 
 ---
 
 ## Status Ringkas
 
-> ⚠️ **Jadual ini disahkan semula 26 Oktober 2026.** Angka lama (39 modul / ~1,015 endpoint /
-> 314 ujian / blueprint v9.0) di bawah adalah **sejarah** — jangan guna sebagai status semasa.
-
-| Ukuran | Nilai semasa | Sahkan dengan |
+| Ukuran | Nilai | Sumber |
 |---|---|---|
-| Modul (`app/Modules/`) | **58** (+1 spesifikasi: `Reseller`) | `(Get-ChildItem app\Modules -Directory).Count` |
-| Jadual pangkalan data | **346** | `php skrip/semak-dokumen.php` |
-| Laluan API (`api/v1`) | **1,518** | `php artisan route:list --path=api/v1` |
-| Semua laluan | **1,795** | `php artisan route:list` |
-| Ujian | **963 lulus · 4 dilangkau · 0 gagal (5,034 assertion)** | `php artisan test` |
-| Migrasi | **49 fail** | `php skrip/semak-dokumen.php` |
-| Resource Filament | **66** (+6 widget + halaman Tetapan) | `(Get-ChildItem app\Filament\Resources -Directory).Count` |
-| Kebenaran | **212** | `skrip/sync-perm.php` |
-| Model · Service · Controller | **292 · 166 · 127** | `php skrip/semak-dokumen.php` |
+| Modul | **59** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Laluan API (`api/v1`) | **~872** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Kaedah ujian | **~1,119** (89 fail Feature) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Migration | **58 fail** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Resource Filament | **65** (+6 widget) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Model · Service · Controller | **310 · 174 · 134** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Blueprint | **v9.6 — 103 bab / 27 PART** | [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) |
 | DB | SQLite (dev) · MySQL disokong (`skrip/tukar_db.ps1`) | — |
-| AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) — ujian live sedia, hanya perlu kunci | — |
-| Blueprint | **v9.5 — 103 bab / 27 PART** | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` |
-| Advisori keselamatan | **0** | `composer audit` |
+| AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) | — |
+| Advisori keselamatan | **0** (perlu `composer audit` untuk sahkan) | — |
 | Laravel · PHP | **12.70.1 · 8.2.12** | `php artisan --version` |
-| Kawalan versi | **git + CI** (baseline `v9.5-baseline`) | `git log --oneline -1` |
 
-### Sejarah (JANGAN guna sebagai status)
+> **Angka ujian lulus, assertion sebenar, jadual sebenar dan kebenaran sebenar**
+> memerlukan PHP + pangkalan data. Jana dengan `php artisan test` dan
+> `php skrip/semak-dokumen.php`, kemudian kemas kini `AUDIT-BASELINE.md` sahaja.
+
+### Sejarah baseline
+
+Sejarah penuh (39 → 54 → 55 → 56 → 59 modul) ada dalam
+[`CHANGELOG.md`](CHANGELOG.md). Ringkasan:
 
 | Tarikh | Modul | Endpoint | Ujian | Blueprint |
 |---|---|---|---|---|
@@ -46,7 +55,15 @@
 | BAB 86-87 | 54 | ~1,300 | 781 | v9.0 |
 | BAB 89 | 55 | 1,345 | 829 | v9.2 |
 | BAB 92 | 56 | 1,460 | 962 | v9.4 |
-| **Kini** | **58** | **1,518** | **963** | **v9.5** |
+| 26 Okt 2026 | 58 | 1,518 | 962 | v9.5 |
+| **27 Okt 2026** | **59** | **~872** | **~1,119 kaedah** | **v9.6** |
+
+---
+
+# ═══ Bahagian A — Keutamaan (P0 → P5) ═══
+
+> Ini senarai **rasmi** kerja yang belum siap. Semua entri lain dalam fail ini
+> ialah konteks tambahan mengikut bab blueprint asal.
 
 ---
 
@@ -182,7 +199,7 @@ berbilang cawangan, servis Vision berasingan (Frigate + YOLO, di luar Laravel).
 |---|---|---|---|
 | T-17 | B-Document AI OCR + ekstraksi | 59 | Controller tiada (dipindah ke `document-ai/`) |
 | T-18 | Learning Signal Layer | 72 | Tiada |
-| T-19 | Design System (token, komponen) | 73-78 | Tiada — UI guna Blade biasa |
+| ~~T-19~~ | ~~Design System (token, komponen)~~ | 73-78 | ✅ **SIAP** — token + komponen dalam `public/assets/app.css` |
 | T-20 | Email Intelligence & Document Intake | 79 | Tiada |
 | T-21 | Pengambilan Pekerja (CV, temu duga) | 80 | Tiada |
 | ~~T-22~~ | ~~Observability & SLO~~ | 61 | ✅ **SIAP** — `/health`, `/ready`, `/metrics` |
@@ -227,6 +244,20 @@ tool allowlist + permission check pada setiap panggilan, bukan prompt.
 - **Tidak** mendakwa ciri yang belum dibina
 - Rujukan `vervv.io` dikekalkan sebagai belum disahkan
 
+### ~~T-19 Design System~~ ✅ SELESAI
+- Token dalam `public/assets/app.css`: warna (gelap/terang), tipografi, jarak,
+  radius, bayang, peralihan, saiz layout — mod gelap dan cerah kedua-duanya
+- Komponen: `.btn` (termasuk state `loading`/spinner), `.input`/`.select`/`.textarea`,
+  `.card`, `.badge`, `.table`, `.alert`, `.tab`, `.dialog`, `.stat`, `.toast`,
+  `.avatar`, `.empty`, `.skeleton`
+- Shell aplikasi: `layouts/app.blade.php` — sidebar boleh susut, topbar, halaman
+  `<main id="main-content">`, pautan langkau ke kandungan
+- Aksesibiliti: landmark ARIA, `aria-current` pada laluan aktif, navigasi papan
+  kekunci tab (roving `tabindex`, anak panah/Home/End), `Escape` menutup sidebar
+  mudah alih, `inert` pada sidebar tertutup, `prefers-reduced-motion` dihormati
+- Responsif: disahkan tanpa limpahan mendatar pada 390, 768 dan 1440 px
+- Ujian: `tests/Feature/AppShellUiTest.php` — 5 kes, 239 assertions
+
 ---
 
 ## Alat & dokumentasi
@@ -259,7 +290,7 @@ tool allowlist + permission check pada setiap panggilan, bukan prompt.
   - Data disahkan (✅) vs belum disahkan (⚠️) ditanda jelas
 
 ### ~~Blueprint BAB 81~~ ✅ SELESAI
-- `AI-Bijan/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` naik ke **v8.4**
+- `AI-BIJAN-MASTER-BLUEPRINT.md` naik ke **v8.4** (kemudian v9.6)
 - PART XVII — KELEBIHAN KOMPETITIF & ENJIN PERTUMBUHAN (BAB 81), 14 seksyen:
   9 kelebihan dengan status kod, rantaian silang-modul, 4 kelebihan unik,
   15 idea pesaing, idea jangan dikejar, analisis kos, skor kompetitif,
@@ -271,28 +302,55 @@ tool allowlist + permission check pada setiap panggilan, bukan prompt.
 - `skrip/semak_mysql.php` — audit migrasi untuk MySQL
 - `skrip/tukar_db.ps1` — tukar .env SQLite↔MySQL dengan sandaran
 - `skrip/tetapan_ai.ps1` — status/aktif AI_GATEWAY_LIVE
+- `skrip/semak-dokumen.php` — sahkan angka dokumentasi vs kod
 
 ---
 
 ## Urutan kerja yang disyorkan
 
+> Urutan ini disemak 27 Okt 2026. Versi lama bermula dengan `T-01` yang kini
+> sudah selesai — ia dikemas kini di bawah.
+
 ```
-T-01 (projects)  ← mula di sini, blocker
+P0  Keselamatan platform (audit induk §15, P0-01 … P0-09)
    ↓
-T-02 (migrate)   ← 1 arahan sahaja
+P0-01 Baseline repositori pada satu commit  →  AUDIT-BASELINE.md
+P0-02 Audit tenant isolation                 →  skrip/audit-tenant.php
+P0-03 Audit authorization (route↔permission) →  skrip/semak-kebenaran.php
+P0-04 Payment webhook security                →  T-09 (perlukan akaun merchant)
+P0-05 AI Gateway enforcement                  →  T-07 (perlu AI_GATEWAY_KEY)
+P0-06 Secret & PII controls
+P0-07 Backup/restore + rollback drill
+P0-08 Feature-status registry (status jujur)
+P0-09 Bersihkan status dokumen lama           →  ✅ hampir selesai (27 Okt)
    ↓
-T-04 (Inventory) → T-03 (Helpdesk) → T-05 (Manufacturing)
+P2  Infrastruktur produksi
+   T-06  SQLite → MySQL (alat sedia, pelayan belum)
+   T-07  AI Gateway live (kunci belum)
    ↓
-T-06 (MySQL)     ← sebelum integrasi luaran
+P3  Integrasi luar (T-09 … T-14) — semua perlu akaun provider
    ↓
-T-07 (AI live) → T-08 (Qdrant)
+P1  Ciri blueprint belum dikodkan (T-36 … T-52)
    ↓
-P3 integrasi → P4 CCTV → P5 ciri
+P5  Ciri blueprint belum dikodkan (T-17 … T-21, T-72 … T-75)
 ```
+
+> **Nota:** P0 dan P1 **tidak** mengikut urutan linear yang ketat — bagi
+> kesihatan data, P0-02 (tenant isolation) dan P0-03 (authorization) mesti
+> didahulukan. Rujuk audit induk §15 untuk matriks penuh.
 
 ---
 
-## P2 — BAB 82: B-Executive AI (DIIMPLEMENTASIKAN 2026-10-24)
+# ═══ Bahagian B — Log Per Blueprint BAB ═══
+
+> Seksyen di bawah dikelompokkan mengikut **bab blueprint** asal yang mencetuskan
+> kerja tersebut, bukan mengikut keutamaan. Semua status yang **belum selesai**
+> di sini juga disenaraikan dalam Bahagian A (P0–P5) di atas — seksyen ini
+> menambah **konteks asal** (bab, sebab, rujukan) yang tidak boleh hilang.
+
+---
+
+## P2 (lanjutan) — BAB 82: B-Executive AI (DIIMPLEMENTASIKAN 2026-10-24)
 
 > Blueprint v8.5 · PART XVIII · 5 modul baharu · 94 ujian · 314 lulus keseluruhan.
 
@@ -346,7 +404,7 @@ P3 integrasi → P4 CCTV → P5 ciri
 
 ---
 
-## P2 — BAB 82: Perkara Perlu Tindakan Pengguna
+## P2 (lanjutan) — BAB 82: Perkara Perlu Tindakan Pengguna
 
 ### T-32 Konfigurasi provider blast (perlu akaun)
 - [ ] SMTP/Mailgun: set `BLAST_EMAIL_MODE=smtp`, `BLAST_FROM_ADDRESS`, `BLAST_REPLY_TO` (DNS SPF/DKIM/DMARC wajib)
@@ -375,7 +433,7 @@ P3 integrasi → P4 CCTV → P5 ciri
 
 ---
 
-## P1 — BAB 83: 3 Syarat Wajib Untuk Platform Universal (BELUM DIBINA)
+## P1 (lanjutan) — BAB 83: 3 Syarat Wajib Untuk Platform Universal (BELUM DIBINA)
 
 > Blueprint v8.6 · PART XIX · Audit: `docs/AUDIT-PESAING-LANJUTAN.md` (15 pesaing baharu)
 > Skor kompetitif turun 6.3 → 5.0 kerana 3 dimensi baharu diekspose.
@@ -443,7 +501,7 @@ P3 integrasi → P4 CCTV → P5 ciri
 
 ---
 
-## P1 — BAB 84: Incorporation 200 Apps + 50 OSS (BELUM DIBINA)
+## P1 (lanjutan) — BAB 84: Incorporation 200 Apps + 50 OSS (BELUM DIBINA)
 
 > Blueprint v8.7 · PART XX · Audit: `docs/REVERSE-ENGINEERING-200-APPS-50-OSS.md`
 > 10 idea tertinggi daripada 200 apps (Zoho/Odoo/ServiceTitan/Shopify) + 50 OSS.
@@ -799,54 +857,61 @@ mesti render tanpa `SQLSTATE`/`Internal Server Error`.
 - [x] Penilaian: POS 8/10 · Keselamatan 4/10 · AI **0/10** · UI 7/10
 - [x] Peta pemindahan 13 ciri → modul AI BIJAN sasaran
 
-### T-76 📋 Dine-in + Kitchen Display → `POS/`
-- [ ] Jadual: `pos_dine_areas`, `pos_dine_tables`, `pos_dine_orders`, `pos_dine_order_items`
-- [ ] `KitchenService` — status pesanan (queued → cooking → ready → served)
-- [ ] `KitchenDisplayController` — paparan dapur masa nyata
-- [ ] Pesanan dine-in → `UnifiedOrder` (guna `Orders` sedia ada)
+### T-76 ✅ Dine-in + Kitchen Display → `POS/`
+- [x] Jadual: `pos_dine_areas`, `pos_dine_tables`, `pos_dine_orders`, `pos_dine_order_items`
+- [x] `KitchenService` — status pesanan (new → preparing → ready → served)
+- [x] `KitchenDisplayController` — paparan dapur (tiket aktif, cap masa, masa menunggu)
+- [x] Pesanan dine-in diterima → `POSSale` draf (`order_type = dine_in`) + caj perkhidmatan auto
 - **Rujukan B-POS:** `DineArea`, `DiningTable`, `DineOrder`, `KitchenService`
+- **Nota:** token awam pesanan ber-HASH + luput (B-POS guna uuid kekal — ditolak)
 
-### T-77 📋 Modifier / Add-on → `POS/` + `Inventory/`
-- [ ] Jadual: `pos_modifier_groups`, `pos_modifier_options`, `pos_product_modifiers`
-- [ ] `ModifierService` — kumpulan wajib/pilihan, min/max pilih, tambah harga
-- [ ] Modifier masuk ke `TransactionDetail` sebagai baris berasingan atau JSON
-- **Rujukan B-POS:** `ModifierGroup`, `ModifierOption`, `ModifierService` (migration `2026_10_23_000004`)
+### T-77 ✅ Modifier / Add-on → `POS/`
+- [x] Jadual: `pos_modifier_groups`, `pos_modifier_options`, `pos_product_modifiers`
+- [x] `ModifierService` — kumpulan wajib/pilihan, min/max pilih, tambah harga
+- [x] Snapshot modifier pada `pos_sale_items.modifiers` (nama + harga BEKU)
+- [x] `ModifierController` — CRUD kumpulan + lampir pada item + pemilih POS
+- **Rujukan B-POS:** `ModifierGroup`, `ModifierOption`, `ModifierService`
 
-### T-78 📋 Service Charge → `POS/` + `Invoicing/`
-- [ ] Medan `service_charge_rate` per outlet/cawangan
-- [ ] `ServiceChargeService` — 10% restoran, boleh dimatikan
-- [ ] Papar berasingan daripada cukai dalam resit
-- **Rujukan B-POS:** `ServiceChargeService` (migration `2026_10_23_000003`)
+### T-78 ✅ Service Charge → `POS/`
+- [x] `pos_sales.service_charge_rate` + `service_charge_amount`
+- [x] `ServiceChargeService` — 10% lalai, skop `dine_in` atau `all`, boleh dimatikan
+- [x] Dipapar BERASINGAN daripada cukai (diambil atas asas selepas diskaun)
+- [x] Boleh dikonfigurasi melalui `config/pos.php`
+- **Rujukan B-POS:** `ServiceChargeService`
 
-### T-79 📋 Multi-Tender Split Payment → `POS/`
-- [ ] Jadual: `pos_transaction_tenders` (transaction_id, method, amount, cash_received, reference)
-- [ ] `TransactionTenderService::normalize()` — sahkan jumlah tender = grand total
-- [ ] Sokong: tunai + kad + e-wallet + bayar kemudian dalam satu transaksi
-- **Corak B-POS:** `TransactionTender`, `TransactionTenderService` — jauh lebih bersih daripada kolum berasingan
+### T-79 ✅ Multi-Tender Split Payment → `POS/`
+- [x] Jadual: `pos_sale_tenders` (sale_id, method, amount, cash_received, change_amount)
+- [x] `TenderService::normalize()` — jumlah tender MESTI = jumlah jualan
+- [x] Sokong: tunai + (kad/ewallet/tng/credit/voucher) dalam satu transaksi
+- [x] `SalePaymentService::bayar()` — atomik: caj perkhidmatan + diskaun + tender
+- **Corak B-POS:** `TransactionTender`, `TransactionTenderService`
 
-### T-80 📋 Cashier Shift + Cash Movement → `POS/`
-- [ ] Jadual: `pos_cashier_shifts`, `pos_shift_cash_movements`
-- [ ] Buka syif (float), tutup syif (kira tunai), drop/ambil tunai
-- [ ] Kunci outlet semasa syif aktif
+### T-80 ✅ Cashier Shift + Cash Movement → `POS/`
+- [x] Jadual: `pos_shift_cash_movements` + kolum ringkasan pada `cash_shifts`
+- [x] Buka syif (float), tutup syif (kira tunai), drop/ambil/belanja tunai
+- [x] `calculateExpectedCash()` ambil kira tender tunai (cash_received − baki) + pergerakan
+- [x] Pergerakan pada syif tertutup ditolak
 - **Rujukan B-POS:** `CashierShift`, `ShiftCashMovement`, `CashierShiftService`
 
-### T-81 📋 Offline Mode PWA + Sync Fingerprint → `POS/`
-- [ ] Kolum `client_uuid` + `sync_fingerprint` pada transaksi
-- [ ] Queue IndexedDB di frontend, sync bila online
-- [ ] Idempoten: `sync_fingerprint = hash(cart + waktu + jumlah)`
-- **Corak B-POS:** `client_uuid` + `sync_fingerprint` — corak sama seperti `ServiceOS` `idempotency_key`
+### T-81 ✅ Offline — Idempotency / Sync Fingerprint → `POS/`
+- [x] Kolum `client_uuid` + `sync_fingerprint` pada `pos_sales`
+- [x] Idempoten di sisi server: `client_uuid` sama → jualan sedia ada dipulangkan
+- [ ] Queue IndexedDB + UI PWA luar talian (kerja frontend — belum bermula)
+- **Corak B-POS:** `client_uuid` + `sync_fingerprint`
 
-### T-82 📋 TNG Soundbox / Bayar Automatik → `POS/` + `Finance/`
-- [ ] `TngSoundboxService` — sahkan notifikasi bayar TnG
-- [ ] Webhook endpoint + idempotency (isu S-5 B-POS)
-- [ ] Auto-tanda transaksi lunas bila notifikasi sah masuk
-- **Rujukan B-POS:** `TngSoundboxService`, `TngNotificationController` (migration `2026_10_23_000005`)
+### T-82 ✅ TNG Soundbox / Bayar Automatik → `POS/`
+- [x] Jadual `pos_tng_notifications` — `unique(tenant_id, reference)` = idempotency webhook (isu S-5 B-POS)
+- [x] `TngSoundboxService` — padan automatik ikut jumlah sama, tetingkap 12 jam, first-come-first-served
+- [x] Tiada padanan → `unclaimed`, sokong padanan manual
+- [x] Auto-tanda jualan + tender TnG sebagai lunas bila notifikasi sah masuk
+- **Rujukan B-POS:** `TngSoundboxService`, `TngNotificationController`
 
-### T-83 📋 Discount Approval Workflow → `POS/`
-- [ ] Had diskaun per peranan (`pos.discount.max_percent`)
-- [ ] `DiscountApprovalLog` — siapa lulus, bila, berapa
-- [ ] Blok checkout jika diskaun melebihi had tanpa kelulusan
-- **Rujukan B-POS:** `DiscountApprovalLog` (migration `2026_06_22_000014`)
+### T-83 ✅ Discount Approval Workflow → `POS/`
+- [x] Had diskaun dari `config/pos.php` (`requires_approval_above` 20%, `max_percent` 50%)
+- [x] `pos_discount_approvals` — siapa minta/lulus, bila, berapa
+- [x] Blok checkout jika diskaun melebihi had tanpa kelulusan
+- [x] Pengurus tidak boleh meluluskan diskaun sendiri
+- **Rujukan B-POS:** `DiscountApprovalLog`
 
 ### T-84 📋 Thermal Printer WebUSB → `POS/` (frontend)
 - [ ] `ThermalPrintService` — ESC/POS terus dari browser
@@ -862,9 +927,14 @@ mesti render tanpa `SQLSTATE`/`Internal Server Error`.
 - ❌ `legacySingleOutletBypass` (lalai TRUE) — corak berbahaya
 - ❌ UI Inertia + React — AI BIJAN guna FilamentPHP (T-71) untuk konsistensi
 
-### 📋 Lesen & Atribusi
-- [ ] Tambah atribusi `aryadwiputra/point-of-sales` (MIT) dalam `THIRD-PARTY-NOTICES.md`
-- [ ] Pastikan lapisan proprietari Bijan (DOKU, TnG, PWA) tidak tersalin tanpa kebenaran
+### ✅ Lesen & Atribusi
+- [x] Tambah atribusi huluan `aryadwiputra/point-of-sales` (MIT) dalam `THIRD-PARTY-NOTICES.md`
+- [x] Notis MIT dikekalkan (dikehendaki oleh lesen MIT untuk perisian turunan)
+- ⚠️ **Betulan dakwaan lesen:** B-Pos System BUKAN MIT keseluruhannya — fail
+  `b-pos-system/LICENSE` meletakkan **lesen proprietari** Bijan Digital Marketing
+  pada lapisan tambahannya (DOKU/TnG/PWA), dengan notis MIT huluan dikekalkan
+  dalam bahagian NOTICE. Kedua-dua B-Pos System dan AI BIJAN milik pemilik yang
+  **sama**, jadi pemindahan adalah dibenarkan sebagai urusan dalaman.
 
 ---
 
@@ -1043,6 +1113,90 @@ mesti render tanpa `SQLSTATE`/`Internal Server Error`.
 
 ---
 
+## ✅ P1-1d SELESAI — Liputan Ujian Pengasingan Tenant + 5 Pepijat Sistem (2026-10-27)
+
+> **Baseline ujian:** 1,031 lulus / 0 gagal / 4 dilangkau (5,274 assertion) **sebelum** kerja ini.
+> **Liputan pengasingan:** 4/59 modul → **59/59 modul** (37 kelas, 170 ujian, 700+ assertion).
+> `skrip/audit-tenant.php` kini **menyekat exit** jika mana-mana modul tiada ujian pengasingan.
+> Sahkan: `php skrip/ujian-pengasingan.php` · `php artisan test` · `php skrip/audit-tenant.php`
+
+### Kenapa kerja ini dibuat
+
+`docs/AUDIT-TENANT-ISOLATION.md` §5 P1-1d: *"33 modul tiada ujian pengasingan → 'tidak bocor'
+ialah andaian, bukan bukti."* Selepas P1-1a (4 model dibetulkan), hanya **4 daripada 59 modul**
+ADA ujian pengasingan. Ujian baharu **terus menemui 5 pepijat sebenar** yang 1,031 ujian sedia
+ada tidak dapat mengesan.
+
+### Pembuktian kaedah (mutation test)
+
+`BelongsToTenant` dibuang sementara daripada `POSRegister`:
+
+| | Sebelum | Selepas |
+|---|---|---|
+| `php artisan test` (1,031 ujian) | **Hijau** — pepijat tidak dikesan | — |
+| `POSTenantIsolationTest` (baharu) | **4/5 gagal** — dikesan | **5/5 lulus** |
+
+### 5 pepijat sistem yang ditemui (semua dibetulkan)
+
+| # | Pepijat | Skala | Kesan |
+|---|---|---|---|
+| **B-01** | `$request->tenant_id` — atribut yang **tidak wujud** pada `Request`, tiada middleware mengisinya | **182 rujukan · 27 controller** | POS dll. → `TypeError` → **HTTP 500** atau senarai kosong. Skop tenant dipintas sepenuhnya |
+| **B-02** | `TenantContext::` digunakan **tanpa `use`** (diselesaikan dalam namespace controller) | **63 controller** | `Class App\Modules\<X>\Http\Controllers\TenantContext does not exist` |
+| **B-03** | Alias middleware `permission:` **tidak didaftarkan** (hanya `perm`) | **88 baris · 4 modul** (CRM, DocumentAI, HRMS, Projects) | `Target class [permission] does not exist` → **semua** laluan 4 modul gagal |
+| **B-04** | `POSRegister::sales()` / `cashShifts()` tanpa nama kolum FK | POS | Eloquent meneka `p_o_s_register_id` → `no such column` → 500 pada `/api/v1/pos/registers` |
+| **B-05** | 2 fail PHP **tidak boleh di-parse** | IndustryPacks, Marketing | `IndustryProfileService.php:63`, `SegmentService.php:51` — ralat sintaks, fail tak boleh dimuat |
+
+Pepijat skema/model lain yang **didokumenkan** (belum dibetulkan — perlu keputusan):
+
+- `marketing_campaigns.code` NOT NULL tetapi **tiada dalam `$fillable`** → `Campaign::create()` gagal.
+- `document_templates.key/name/type` NOT NULL tetapi tiada dalam `$fillable`.
+- `AssetCategory` tidak boleh tulis `useful_life_months` (NOT NULL) — hanya alias `default_useful_life_years`.
+- `assets` = skema **warisan**: kolum WAJIB (`tag`, `purchase_date`, `cost`, `useful_life_months`, `method`) tiada dalam `$fillable`.
+- **Jadual `documents` dicipta DUA kali** dengan skema berbeza (`database/migrations/2026_10_18_000003` vs `app/Modules/DocumentAI/database/migrations/2026_10_19_000040`). Model ikut `document_number`; jadual aktif guna `ulid`/`type`/`number`.
+- `ServiceOS` `service_clients` → FK `customer_id` NOT NULL-ish; `pov_baselines.metric_id` FK ke `pov_metrics`.
+
+### Fail baharu
+
+| Fail | Fungsi |
+|---|---|
+| `tests/Support/UjianPengasingan.php` | Kelas asas generik: 5 ujian teras (baca, senarai, cipta-palsu, tukar tenant_id, API) |
+| `tests/Feature/Pengasingan/*.php` | **37 kelas** — satu per modul/kumpulan modul |
+| `skrip/ujian-pengasingan.php` | Jalankan kelas pengasingan sahaja (hantar fail terus — lebih dipercayai daripada `--filter`) |
+| `skrip/betulkan-tenant-request.php` | Betulkan B-01 + B-02 (dry run lalai, sahkan sintaks sebelum tulis) |
+| `skrip/betulkan-alias-permission.php` | Betulkan B-03 |
+| `skrip/semak-sintaks.php` | `php -l` seluruh projek **dalam PHP** (gelung PowerShell memberi positif palsu) |
+| `skrip/papar-jadual.php` | Papar DDL SQLite satu/sedikit jadual — untuk semak NOT NULL/CHECK sebelum tulis fixture |
+
+### Peraturan audit yang kini **menyekat CI** (`skrip/audit-tenant.php`)
+
+Setiap modul dalam `app/Modules/` mesti memenuhi **salah satu**:
+
+1. Ada kelas `XxxIsolationTest` (nama kelas).
+2. Ada ujian isolasi yang mengimport `App\Modules\<Modul>\...`.
+3. Modul tanpa folder `Models/` (Helpdesk, Inventory, Manufacturing) → ujian isolasi
+   mengimport model teras `app/Models` yang dipetakan (lihat `$modelTeras`).
+4. Modul yang meminjam model modul lain (SalesCopilot → `Prospect`, `BlastMessage`) →
+   lihat `$modulBergantung`.
+
+### Modul yang **sengaja** tidak diuji dengan model biasa (didokumenkan dalam ujian)
+
+- `Entitlement\EntitlementGrant` & `UsageCounter` — tiada trait (reka bentuk: ditulis semasa
+  provisioning). Ujian mengesahkan **query eksplisit `where('tenant_id')` menapis dengan betul**.
+- `MediaEditor\MediaTemplate`, `WorkflowStudio\WorkflowTemplate`, `AIGateway\AiModel`,
+  `ADE\AdeSkill`, `Payroll\StatutoryRate`, `Entitlement\PlanLimit`, `SupportAccessGrant` —
+  senarai putih `config/tenant-global-models.php` (katalog/kadar global).
+- `SCM\PurchaseOrder` — ada global scope `status = approved` yang akan menyembunyikan rekod baharu.
+
+### Perangkap ujian baharu (tambah ke `## Nota kerja`)
+
+- **`TenantProvisioner` mencipta langganan percubaan untuk SETIAP tenant baharu.** Jadi
+  `Subscription::count() == 0` **tidak sah** sebagai ukuran pengasingan — cipta penanda unik
+  dan tapis padanya.
+- Daftar tenant baharu **di dalam ujian** mengubah DB: jangka baris tambahan untuk jadual yang
+  ditulis oleh provisioner.
+
+---
+
 ## Nota kerja
 
 - **JANGAN** guna `Set-Content -NoNewline` pada `routes/api.php` — pernah merosakkan fail.
@@ -1081,5 +1235,5 @@ mesti render tanpa `SQLSTATE`/`Internal Server Error`.
 - **`legacySingleOutletBypass` lalai TRUE** — jika tiada outlet, semua user dapat semua gudang. Corak berbahaya, jangan tiru.
 - **Ciri patut ditiru:** `client_uuid`+`sync_fingerprint` (offline idempotency), `TransactionTender` (multi-tender sebagai entiti berasingan), `AuditLog` snapshot before/after, batch allocation FEFO.
 - **Ciri JANGAN ditiru:** 4 jadual wilayah Indonesia (`provinces`/`cities`/`districts`/`villages`), `whatsapp-web.js` gateway, `access_token` uuid tanpa had masa.
-- **Lesen:** asas `aryadwiputra/point-of-sales` = **MIT** (perlu atribusi dalam `THIRD-PARTY-NOTICES.md`); lapisan Bijan (DOKU/TnG/PWA) = proprietari.
+- **Lesen:** huluan `aryadwiputra/point-of-sales` = **MIT** (notis dikekalkan dalam `THIRD-PARTY-NOTICES.md`); lapisan tambahan B-Pos System (DOKU/TnG/PWA) = **proprietari** Bijan Digital Marketing. Kedua-dua B-POS dan AI BIJAN milik pemilik yang sama → pemindahan dibenarkan sebagai urusan dalaman; hanya notis MIT huluan wajib dikekalkan.
 - **B-POS kekal produk berasingan** — ciri dipindahkan satu per satu (T-76 → T-84), bukan digabung.

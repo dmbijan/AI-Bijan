@@ -18,6 +18,9 @@ Route::middleware(['api', 'auth:sanctum', 'tenant'])->prefix('billing')->group(f
     Route::get('/subscription', [BillingController::class, 'langgananSemasa'])
         ->middleware('perm:entitlement.view');
 
+    // Pakej token AI — WAJIB dipilih semasa langganan
+    Route::get('/packages', [BillingController::class, 'pakej']);
+
     Route::post('/subscribe', [BillingController::class, 'langgan'])
         ->middleware('perm:entitlement.manage');
 });

@@ -19,7 +19,7 @@
 <section data-panel="items">
     <div class="card mb-4">
         <div class="row">
-            <input class="input" id="itemSearch" placeholder="Cari SKU atau nama…" style="max-width:280px" oninput="loadItems()">
+            <input class="input" id="itemSearch" type="search" placeholder="Cari SKU atau nama…" aria-label="Cari inventori" style="max-width:280px" oninput="loadItems()">
             <button class="btn" onclick="openItemDialog()">Tambah Item</button>
         </div>
     </div>

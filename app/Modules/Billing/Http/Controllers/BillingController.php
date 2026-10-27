@@ -46,13 +46,37 @@ class BillingController extends Controller
     }
 
     /**
+     * GET /api/v1/billing/packages
+     * Senarai pakej token AI — WAJIB dipilih semasa langganan.
+     */
+    public function pakej(): JsonResponse
+    {
+        $pakej = collect($this->billing->pakejToken())
+            ->map(fn ($p, $kod) => [
+                'code' => $kod,
+                'name' => $p['name'],
+                'tokens' => $p['tokens'],
+                'price' => number_format((float) $p['price'], 2, '.', ''),
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $pakej,
+            'nota' => 'Pakej token WAJIB dipilih semasa langganan — AI tidak berfungsi tanpa token.',
+        ]);
+    }
+
+    /**
      * POST /api/v1/billing/subscribe
-     * Cipta invois CHIP dan pulangkan URL checkout.
+     * Cipta invois CHIP (langganan + token) dan pulangkan URL checkout.
      */
     public function langgan(Request $request): JsonResponse
     {
         $data = $request->validate([
             'plan_code' => ['required', 'string', 'in:starter,growth,enterprise'],
+            // ⚠️ WAJIB — bukan 'nullable'. Tanpa token, AI mati.
+            'token_package' => ['required', 'string'],
             'email' => ['required', 'email'],
             'name' => ['nullable', 'string', 'max:180'],
             'phone' => ['nullable', 'string', 'max:30'],
@@ -63,6 +87,7 @@ class BillingController extends Controller
         $cas = $this->billing->ciptaInvoisLangganan(
             $this->tenantId(),
             $data['plan_code'],
+            $data['token_package'],
             [
                 'email' => $data['email'],
                 'name' => $data['name'] ?? $user?->name,
@@ -70,12 +95,19 @@ class BillingController extends Controller
             ]
         );
 
+        $pecahan = $cas->chip_payload['pecahan'] ?? [];
+
         return response()->json([
             'success' => true,
             'data' => [
                 'charge_id' => $cas->id,
                 'checkout_url' => $cas->chip_checkout_url,
                 'amount' => (string) $cas->amount,
+                'pecahan' => [
+                    'langganan' => number_format((float) ($pecahan['langganan'] ?? 0), 2, '.', ''),
+                    'token' => number_format((float) ($pecahan['token'] ?? 0), 2, '.', ''),
+                    'pakej_token' => $pecahan['pakej_token'] ?? $data['token_package'],
+                ],
                 'period' => $cas->period_key,
                 'status' => $cas->status,
             ],

@@ -62,7 +62,27 @@ class ResellerCommissionService
         }
 
         // Peraturan 4 & 3 — had dan asas bayaran sebenar
-        $bayaran = (float) $cas->amount;
+        //
+        // ⚠️ PENTING (dibetulkan 27 Okt 2026): `$cas->amount` ialah jumlah
+        // LANGGANAN + TOKEN. Komisen reseller MESTI dikira dari LANGGANAN
+        // SAHAJA. Jika dikira dari jumlah penuh, pelanggan yang membeli pakej
+        // token besar akan menyebabkan komisen melebihi 50% dan memakan
+        // margin platform.
+        $jumlahInvois = (float) $cas->amount;
+
+        $bayaranLangganan = (float) ($cas->chip_payload['pecahan']['langganan'] ?? 0);
+
+        // Fallback untuk cas lama (sebelum pecahan disimpan): guna harga pelan.
+        if ($bayaranLangganan <= 0) {
+            $bayaranLangganan = (float) config(
+                'billing.plans.' . $langganan->plan_code . '.price',
+                $jumlahInvois
+            );
+        }
+
+        // Asas komisen TIDAK boleh melebihi jumlah invois sebenar.
+        $bayaran = min($bayaranLangganan, $jumlahInvois);
+
         $nilai = (float) $reseller->kiraKomisen($bayaran);
 
         if ($nilai <= 0) {

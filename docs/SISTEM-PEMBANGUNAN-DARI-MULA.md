@@ -4,7 +4,8 @@
 >
 > **Versi:** 1.0 · **Tarikh:** 26 Oktober 2026
 > **Sasaran:** Laravel **12.70.1** · PHP **8.2.12** · Filament **3.3.53** · PHPUnit **11.5** · SQLite (dev) / MySQL 8 (prod)
-> **Blueprint induk:** `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` → **v9.5**, **103 bab / 27 PART**
+> **Blueprint:** `docs/AI-BIJAN-MASTER-BLUEPRINT.md` → **v9.6**, **103 bab / 27 PART**
+> **Baseline metrik:** `docs/AUDIT-BASELINE.md`
 > **Kaedah:** setiap angka dan perangkap dalam dokumen ini diterbitkan daripada kod sebenar
 > (`app/`, `database/migrations/`, `routes/`, `tests/`, `config/`) — bukan hasrat atau pelan.
 
@@ -88,7 +89,7 @@ yang menyediakan perniagaan lengkap untuk PKS Malaysia, dengan **satu lapisan AI
 ```
 ai-bijan-saas/
 ├── app/
-│   ├── Modules/            58 modul (domain + AI + studio)
+│   ├── Modules/            59 modul (domain + AI + studio)
 │   ├── Models/             model teras (Tenant, User, TenantUser, …)
 │   ├── Models/Concerns/    BelongsToTenant  ← trait teras
 │   ├── Support/Tenancy/    TenantContext   ← konteks teras
@@ -176,7 +177,7 @@ php artisan serve --host=127.0.0.1 --port=8145
 Buka `http://127.0.0.1:8145/admin`.
 
 **Tenant ujian dev yang dihasilkan:** `ujian@bijan.test` / `Password12345`
-(tenant "Syarikat Ujian", plan `enterprise`, 58 modul aktif, peranan `tenant_owner`).
+(tenant "Syarikat Ujian", plan `enterprise`, 59 modul aktif, peranan `tenant_owner`).
 
 ## 2.5 ⚠️ Selepas `migrate:fresh` — Urutan Wajib
 
@@ -217,10 +218,10 @@ Ini bukan cadangan. Setiap satu mengatasi kegagalan pengeluaran sebenar.
 ┌───────────────────────────────────────────────────────────────────────┐
 │ 4. UI        Filament 3.3 · /admin · 66 resource · 6 widget · 1 halaman │
 ├───────────────────────────────────────────────────────────────────────┤
-│ 3. API       routes/api.php + 58 provider · /api/v1/* · 1,518 laluan    │
+│ 3. API       routes/api.php + 59 provider · /api/v1/* · 1,518 laluan    │
 │              auth:sanctum → tenant → perm:{ns}.{aksi} → module:{key}    │
 ├───────────────────────────────────────────────────────────────────────┤
-│ 2. DOMAIN    58 modul · 166 service · 292 model · events + outbox       │
+│ 2. DOMAIN    59 modul · 166 service · 292 model · events + outbox       │
 ├───────────────────────────────────────────────────────────────────────┤
 │ 1. ASAS      TenantContext · BelongsToTenant · AuditLogger · 346 jadual │
 └───────────────────────────────────────────────────────────────────────┘
@@ -1444,7 +1445,7 @@ public const SENTIASA_LULUS = [
 |---|---|
 | Versi | Filament **3.3.53** |
 | Panel | `/admin` · guard `web` |
-| Resource | **66** (liputan 58 modul) |
+| Resource | **66** (liputan 59 modul) |
 | Widget | **6** — 4 KPI, trend 30 hari, donut saluran, 2 jadual |
 | Halaman | Tetapan Syarikat `/admin/tetapan` |
 
@@ -1768,14 +1769,14 @@ bukan e-Invois sah LHDN** — hanya salinan dokumen. e-Invois kini **jadual stak
 
 ✅ **"POS, CRM, HR, kewangan, AI dalam satu — dengan migrasi percuma"**
 
-❌ **Jangan sebut:** "ganti SAP" · "58 modul siap" · "voice interface" ·
+❌ **Jangan sebut:** "ganti SAP" · "59 modul siap" · "voice interface" ·
 "collective intelligence" · "proprietary model" · "AI urus perniagaan anda"
 
 | Dakwaan salah | Kenapa bahaya | Ganti dengan |
 |---|---|---|
 | "Ganti SAP" | Tidak benar; hilang kredibiliti | "Untuk PKS, bukan perusahaan" |
 | "AI urus perniagaan anda" | Tidak boleh dibuktikan | "AI jimatkan X jam, tambah Y prospek" |
-| "58 modul siap" | 66 resource = CRUD berfungsi, borang generik | "POS, CRM, HR, kewangan dalam satu" |
+| "59 modul siap" | 66 resource = CRUD berfungsi, borang generik | "POS, CRM, HR, kewangan dalam satu" |
 | "Voice interface" | Belum dikodkan | Jangan sebut sehingga siap |
 | "Collective intelligence" | Belum dikodkan | Jangan sebut sehingga siap |
 
@@ -1838,10 +1839,29 @@ bulan (UNIQUE) · komisen atas **jumlah sebenar dibayar** · komisen ≤ 50% bay
 snapshot bank semasa bayar · tiada self-referral · cookie 90 hari · IP di-hash ·
 tiada komisen jika menunggak.
 
-**⚠️ AMARAN MARGIN (jujur):** kos sebenar RM75–230/pelanggan (AI RM20–80 +
-hosting RM15–40 + sokongan RM30–100 + gateway RM10). Jika kos > RM180, jangan
-lancar komisen tanpa had. Liabiliti 100 pelanggan × RM100 × 12 = **RM120,000**
-komisen masa depan. Cadangan: kaji semula selepas 50 pelanggan.
+**Model hasil (dibetulkan 27 Okt 2026):**
+
+```
+Langganan RM388/bulan           WAJIB
+  → RM100 reseller (tetap)
+  → RM288 platform
+Pakej token AI RM55–1,100       WAJIB dipilih semasa langganan
+  → 100% platform (reseller tidak dapat komisen dari token)
+```
+
+**⚠️ Kos token SUDAH DIKIRA** — margin 90.9% seragam pada semua 5 pakej
+(kos pembekal RM5/RM8/RM10/RM50/RM100). Yang belum disahkan:
+
+1. **Yuran gateway CHIP** (~1–3% daripada transaksi) — semak kontrak
+2. **Dashboard kos AI per pelanggan** (`ai_usage_events`) — untuk ukur penggunaan sebenar
+
+**Amaran harga token:** jika anda jual pakej token di bawah kos pembekal, anda
+rugi pada setiap pelanggan yang menggunakan token penuh. Harga ini dilindungi
+automatik oleh `BillingService::pakejRugi()` (ujian gagal jika pakej rugi).
+
+**Risiko yang masih nyata:** harga pembekal naik · pelanggan guna melebihi
+jangkaan · churn selepas komisen dibayar · liabiliti komisen masa depan.
+Mitigasi: `RESELLER_COMMISSION_MONTHS=24` (jadual sudah sokong, tiada migrasi).
 
 **Jangan gabung dengan `Affiliate`:** `Affiliate` = untuk **pelanggan tenant** jual
 produk mereka (tenant-scoped). `Reseller` = untuk orang jual **SaaS AI BIJAN**
@@ -1917,7 +1937,7 @@ produk mereka (tenant-scoped). `Reseller` = untuk orang jual **SaaS AI BIJAN**
 | Skrip | Fungsi | Bila jalankan |
 |---|---|---|
 | `sync-perm.php` | `config/aibijan.php` → jadual `permissions` (**212**) + beri semua kepada `tenant_owner` | Selepas migrate, selepas tambah kebenaran, **pada DB produksi sebelum go-live** |
-| `cipta-tenant-ujian.php` | Pengguna + tenant ujian + plan enterprise (58 modul) | Dev sahaja, selepas `migrate:fresh` |
+| `cipta-tenant-ujian.php` | Pengguna + tenant ujian + plan enterprise (59 modul) | Dev sahaja, selepas `migrate:fresh` |
 | `semak-dokumen.php` | Banding 9 metrik dokumen vs kod; exit 1 jika bercanggah | Selepas setiap perubahan struktur / CI |
 | `jana-resource.php` | Jana resource Filament (definisi array di dalamnya) | Fasa 11 |
 | `pulih-pos.php` | Pulihkan 3 resource POS manual | **WAJIB selepas `jana-resource.php`** |
@@ -1941,7 +1961,7 @@ produk mereka (tenant-scoped). `Reseller` = untuk orang jual **SaaS AI BIJAN**
 # 23. SENARAI SEMAK PENERIMAAN
 
 ## 23.1 Struktur
-- [ ] 58 modul didaftar dalam `bootstrap/providers.php`
+- [ ] 59 modul didaftar dalam `bootstrap/providers.php`
 - [ ] Setiap modul ada prefix sendiri — tiada `api/v1/{id}` wildcard
 - [ ] 346 jadual dicipta
 - [ ] Semua model perniagaan guna `BelongsToTenant`
@@ -1986,7 +2006,7 @@ produk mereka (tenant-scoped). `Reseller` = untuk orang jual **SaaS AI BIJAN**
 
 ## 24.1 ✅ Siap & diuji
 
-- 58 modul backend · 346 jadual · 1,518 endpoint · 963 ujian
+- 59 modul backend · 346 jadual · 1,518 endpoint · 963 ujian
 - 66 resource Filament CRUD + 6 widget + halaman Tetapan
 - Pengasingan tenant 4 lapisan pada 292 model
 - AI Gateway + PromptGuard + PII redact + wallet + mod simulasi
@@ -2240,7 +2260,7 @@ Invoke-WebRequest http://127.0.0.1:8145/ready  -SkipHttpErrorCheck
 | [`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md) | Spesifikasi komisen berulang + analisis margin |
 | [`AUDIT-DOKUMEN.md`](AUDIT-DOKUMEN.md) | Laporan audit dokumentasi |
 | [`TODO.md`](TODO.md) | T-01 → T-102 (siap & belum) |
-| `../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | Blueprint induk v9.5 — **103 bab / 27 PART** |
+| `../AI-BIJAN-MASTER-BLUEPRINT.md` | Blueprint induk v9.6 — **103 bab / 27 PART** |
 | `../.github/skills/aibijan-coding/` | Skill + gotchas + peraturan keselamatan |
 | `docs/archive/README.md` | ⚠️ Arkib — **66 fail bukan rujukan semasa** |
 

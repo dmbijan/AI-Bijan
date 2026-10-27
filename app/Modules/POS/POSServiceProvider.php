@@ -8,6 +8,14 @@ use Illuminate\Support\ServiceProvider;
 use App\Modules\POS\Services\SaleService;
 use App\Modules\POS\Services\CashShiftService;
 use App\Modules\POS\Services\RegisterService;
+use App\Modules\POS\Services\TenderService;
+use App\Modules\POS\Services\ModifierService;
+use App\Modules\POS\Services\ServiceChargeService;
+use App\Modules\POS\Services\KitchenService;
+use App\Modules\POS\Services\DineOrderService;
+use App\Modules\POS\Services\TngSoundboxService;
+use App\Modules\POS\Services\DiscountApprovalService;
+use App\Modules\POS\Services\SalePaymentService;
 
 class POSServiceProvider extends ServiceProvider
 {
@@ -21,6 +29,16 @@ class POSServiceProvider extends ServiceProvider
         $this->app->bind(SaleService::class);
         $this->app->bind(CashShiftService::class);
         $this->app->bind(RegisterService::class);
+
+        // BAB 88 — ciri B-POS yang dipindahkan (T-76 → T-83)
+        $this->app->bind(TenderService::class);
+        $this->app->bind(ModifierService::class);
+        $this->app->bind(ServiceChargeService::class);
+        $this->app->bind(KitchenService::class);
+        $this->app->bind(DineOrderService::class);
+        $this->app->bind(TngSoundboxService::class);
+        $this->app->bind(DiscountApprovalService::class);
+        $this->app->bind(SalePaymentService::class);
     }
 
     /**

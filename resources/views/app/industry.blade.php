@@ -19,7 +19,7 @@
         </div>
     </div>
     <div class="row">
-        <input class="input" id="industryKey" placeholder="cth: fnb, retail, clinic, construction" style="max-width:300px">
+        <input class="input" id="industryKey" type="text" placeholder="cth: fnb, retail, clinic, construction" aria-label="Kunci industry pack" style="max-width:300px">
         <button class="btn btn-primary" onclick="recommend()">Cadangkan</button>
     </div>
     <div id="recOut" class="mt-4"></div>

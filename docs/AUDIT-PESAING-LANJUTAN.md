@@ -4,8 +4,8 @@
 **Skop:** Pesaing yang **belum pernah** diaudit dalam `PETA-PESAING-34-MODUL.md`
 (34 kategori modul, 400+ pesaing) atau `ANALISIS-KOMPETITIF.md` (5 pesaing teras).
 
-> ⚠️ **Nota (26 Okt 2026):** "34" merujuk **kategori modul** dalam peta pesaing,
-> bukan bilangan modul dalam kod. Kod kini mempunyai **58 modul** — lihat
+> ⚠️ **Nota (27 Okt 2026):** "34" merujuk **kategori modul** dalam peta pesaing,
+> bukan bilangan modul dalam kod. Kod kini mempunyai **59 modul** — lihat
 > `KATALOG-MODUL-AI-BIJAN.md`.
 **Kaedah:** Semakan laman rasmi. Semua data bertanda ✅ disahkan 24 Okt 2026.
 

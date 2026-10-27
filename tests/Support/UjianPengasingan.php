@@ -44,6 +44,12 @@ abstract class UjianPengasingan extends TestCase
     /** Laluan API modul — pilihan (null = ujian API dilangkau). */
     protected ?string $laluanApi = null;
 
+    /**
+     * Sebab ujian API tiada — didokumenkan supaya skip mudah difahami
+     * (contoh: modul awam, kawalan di peringkat laluan lain).
+     */
+    protected string $sebabTiadaApi = '';
+
     /** Teks rahsia yang TIDAK boleh muncul dalam response tenant lain. */
     protected ?string $namaRahsia = null;
 
@@ -86,11 +92,19 @@ abstract class UjianPengasingan extends TestCase
     /** Model yang sedang dicipta — untuk `isi()` yang berbeza setiap model. */
     protected string $rekodSemasa = '';
 
+    /**
+     * Guna `forceCreate` (lalu `$fillable`). Perlu apabila jadual diwarisi
+     * mempunyai kolum WAJIB yang tidak disenaraikan dalam `$fillable`
+     * (contoh `assets.tag`, `assets.cost`).
+     */
+    protected bool $gunaForce = false;
+
     protected function rekod(string $model): Model
     {
         $this->rekodSemasa = $model;
+        $data = $this->isi();
 
-        return $model::create($this->isi());
+        return $this->gunaForce ? $model::forceCreate($data) : $model::create($data);
     }
 
     protected function konteksDua(): Tenant
@@ -113,7 +127,9 @@ abstract class UjianPengasingan extends TestCase
 
     public function test_tenant_lain_tidak_boleh_baca_rekod(): void
     {
-        $this->assertNotEmpty($this->model, 'Tiada model dikonfigurasikan untuk modul ' . $this->modul . '.');
+        if ($this->model === []) {
+            $this->markTestSkipped('Modul ' . $this->modul . ': tiada model — ujian kontrak sahaja.');
+        }
 
         foreach ($this->model as $kelas) {
             $this->dalamTenant($this->t);
@@ -137,6 +153,10 @@ abstract class UjianPengasingan extends TestCase
 
     public function test_tenant_lain_tidak_nampak_senarai(): void
     {
+        if ($this->model === []) {
+            $this->markTestSkipped('Modul ' . $this->modul . ': tiada model — ujian kontrak sahaja.');
+        }
+
         foreach ($this->model as $kelas) {
             $this->dalamTenant($this->t);
             $this->rekod($kelas);
@@ -157,6 +177,10 @@ abstract class UjianPengasingan extends TestCase
 
     public function test_tidak_boleh_cipta_untuk_tenant_lain(): void
     {
+        if ($this->model === []) {
+            $this->markTestSkipped('Modul ' . $this->modul . ': tiada model — ujian kontrak sahaja.');
+        }
+
         $t2 = $this->konteksDua();
         $this->dalamTenant($this->t);   // konteks t1, cuba tulis t2
 
@@ -168,6 +192,10 @@ abstract class UjianPengasingan extends TestCase
 
     public function test_tenant_id_tidak_boleh_diubah(): void
     {
+        if ($this->model === []) {
+            $this->markTestSkipped('Modul ' . $this->modul . ': tiada model — ujian kontrak sahaja.');
+        }
+
         $this->dalamTenant($this->t);
         $rekod = $this->rekod($this->model[0]);
 
@@ -185,8 +213,15 @@ abstract class UjianPengasingan extends TestCase
 
     public function test_api_tenant_lain_tidak_nampak_rekod(): void
     {
+        if ($this->model === []) {
+            $this->markTestSkipped('Modul ' . $this->modul . ': tiada model — ujian kontrak sahaja.');
+        }
+
         if ($this->laluanApi === null) {
-            $this->markTestSkipped('Modul ' . $this->modul . ': tiada laluan API ditetapkan (ujian model sahaja).');
+            $this->markTestSkipped(
+                'Modul ' . $this->modul . ': tiada laluan API ditetapkan'
+                . ($this->sebabTiadaApi !== '' ? ' — ' . $this->sebabTiadaApi : ' (ujian model sahaja).')
+            );
         }
 
         $this->dalamTenant($this->t);

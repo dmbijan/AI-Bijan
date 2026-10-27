@@ -36,15 +36,18 @@ Aplikasi **Laravel 12 tulen** (bukan ERPNext/Frappe), multi-tenant, modular, API
 
 | Lokasi | Isi |
 |---|---|
-| `app/Modules/` | **58 modul** domain (setiap satu provider + config + routes sendiri) |
-| `app/Filament/` | **66 resource** UI admin di `/admin` |
+| `app/Modules/` | **59 modul** domain (setiap satu provider + config + routes sendiri) |
+| `app/Filament/` | **65 resource** UI admin di `/admin` |
 | `app/Support/Tenancy/` | `TenantContext` — pusat pengasingan tenant |
-| `database/migrations/` | **49 fail** → **346 jadual** |
+| `database/migrations/` | **58 fail** → **368 jadual** (kiraan migration) |
 | `routes/api.php` | Laluan API utama |
-| `docs/` | **56 dokumen** — mula dengan `README.md` |
-| `skrip/` | 19 skrip penyelenggaraan/diagnostik |
+| `docs/` | **141+ dokumen** — mula dengan `README.md` |
+| `skrip/` | 26 skrip penyelenggaraan/diagnostik |
 | `.github/skills/aibijan-coding/` | Skill pengekodan + gotchas + peraturan keselamatan |
-| `tests/` | **44 fail ujian** Feature |
+| `tests/` | **89 fail ujian** Feature (termasuk 39 ujian pengasingan tenant) |
+
+> 📊 **Angka rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md). Jalankan
+> `php skrip/jana-baseline.php` untuk jana semula.
 
 ---
 
@@ -86,7 +89,7 @@ Katalog penuh: [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md)
 
 ## Apa Yang SUDAH Siap
 
-- ✅ **58 modul** backend dengan pengasingan tenant (`BelongsToTenant`)
+- ✅ **59 modul** backend dengan pengasingan tenant (`BelongsToTenant`)
 - ✅ **UI admin Filament** — 66 resource CRUD, 6 widget, halaman Tetapan
 - ✅ **AI Gateway** dengan wallet, `PromptGuard` (anti prompt-injection), redaksi PII
 - ✅ **Pematuhan MY** — EPF/SOCSO/EIS/PCB/HRDF, e-Invois LHDN, biometrik + pagar PDPA

@@ -20,27 +20,39 @@ class CashShift extends Model
     protected $fillable = [
         'tenant_id',
         'register_id',
+        'user_id',
         'opened_by',
         'closed_by',
         'status',
         'opening_cash',
         'closing_cash',
+        'actual_cash',
         'expected_cash',
         'cash_discrepancy',
+        'cash_sales_total',
+        'non_cash_sales_total',
+        'transactions_count',
         'shift_date',
         'opened_at',
         'closed_at',
+        'locked_at',
         'notes',
+        'close_notes',
     ];
 
     protected $casts = [
         'opening_cash' => 'decimal:2',
         'closing_cash' => 'decimal:2',
+        'actual_cash' => 'decimal:2',
         'expected_cash' => 'decimal:2',
         'cash_discrepancy' => 'decimal:2',
+        'cash_sales_total' => 'decimal:2',
+        'non_cash_sales_total' => 'decimal:2',
+        'transactions_count' => 'integer',
         'shift_date' => 'date',
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
+        'locked_at' => 'datetime',
     ];
 
     /**
@@ -73,6 +85,27 @@ class CashShift extends Model
     public function sales(): HasMany
     {
         return $this->hasMany(POSSale::class, 'cash_shift_id');
+    }
+
+    /**
+     * Juruwang yang memegang syif (BAB 88 / T-80).
+     * `opened_by` ialah penyelia yang membuka; `user_id` ialah juruwang.
+     */
+    public function cashier(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'user_id');
+    }
+
+    /** Pergerakan tunai dalam syif ini (drop/expense/pickup). */
+    public function cashMovements(): HasMany
+    {
+        return $this->hasMany(POSShiftCashMovement::class, 'cash_shift_id');
+    }
+
+    /** Jumlah bersih pergerakan tunai (negatif = wang keluar laci). */
+    public function netCashMovement(): float
+    {
+        return (float) $this->cashMovements->sum(fn (POSShiftCashMovement $m) => $m->kesanPadaLaci());
     }
 
     /**

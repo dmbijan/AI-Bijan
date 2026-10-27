@@ -1,16 +1,16 @@
-# RESELLER — Spesifikasi Sistem Komisen Berulang
+# RESELLER — Sistem Komisen Berulang
 
 > **Model:** Jual pada **RM388/bulan**, affiliator dapat **RM100/bulan**,
 > **selagi pelanggan langgan**.
 >
-> **Status:** Spesifikasi + reka bentuk. Belum dikodkan.
-> **Tarikh:** 26 Oktober 2026
+> **Status:** Sistem reseller telah dikodkan dalam `app/Modules/Billing/` dan diuji.
+> **Tarikh:** 27 Oktober 2026
 >
 > **Keputusan yang telah disahkan:**
 > - Tempoh: **selagi langgan (tiada had)**
 > - Komisen jadi hak: **selepas 30 hari** (lindungi refund)
 > - Harga: **tetap RM388, komisen RM100**
-> - Skop dokumen: reka bentuk + migration + kod contoh (bukan modul penuh)
+> - Skop dokumen: reka bentuk + kod dan ujian (modul `Billing`)
 
 ---
 
@@ -61,34 +61,113 @@ RM100 / RM388 = **25.8%** daripada hasil, **berulang tanpa had**.
 | 3 tahun | RM3,600 | RM10,368 | 74.2% |
 | 5 tahun | RM6,000 | RM17,280 | 74.2% |
 
-### 2.3 ⚠️ AMARAN: Ini Boleh Memusnahkan Anda
+### 2.3 ⚠️ DIBETULKAN 27 Okt 2026 — Model Sebenar
 
-Margin 74.2% **kedengaran** selamat. Tetapi anda perlu tahu **kos sebenar** anda
-per pelanggan setiap bulan:
+> **Versi lama seksyen ini SALAH.** Ia mengandaikan RM288 ialah hasil bersih
+> dan menyenaraikan "kos sebenar RM75–230" yang tidak pernah disahkan.
+> Ia juga mengandaikan token AI ialah **kos** — sebenarnya token ialah
+> **hasil tambahan**.
 
-| Komponen kos | Anggaran/bulan |
+**Model sebenar:**
+
+```
+Pelanggan bayar setiap bulan:
+  Langganan AI BIJAN         RM388   ← WAJIB
+  Pakej token AI (dipilih)   RM55–1,100  ← WAJIB, bukan pilihan
+
+Jumlah dibilkan              RM443 – RM1,488 / bulan
+```
+
+**Aliran wang:**
+
+```
+RM388 langganan
+   ├── RM100 → reseller (tetap, tidak berkait token)
+   └── RM288 → platform
+
+RM55–1,100 token
+   └── 100% → platform (reseller TIDAK dapat komisen dari token)
+```
+
+**Penting:** komisen RM100 dikira dari **langganan sahaja**. Jika pelanggan
+membeli pakej token RM1,100, reseller tetap dapat RM100 — bukan peratusan
+daripada RM1,488. Ini melindungi margin platform.
+
+**Harga pakej token (disaahkan 27 Okt 2026):**
+
+| Pakej | Token diberi | Harga jual | Kos pembekal | Jumlah dibayar pelanggan |
+|---|---|---|---|---|
+| `t60m` | 60 juta | **RM55** | RM5 | RM443 |
+| `t130m` | 130 juta | **RM88** | RM8 | RM476 |
+| `t180m` | 180 juta | **RM110** | RM10 | RM498 |
+| `t1b` | 1 bilion | **RM550** | RM50 | RM938 |
+| `t2b` | 2 bilion | **RM1,100** | RM100 | RM1,488 |
+
+Semua pakej sah **30 hari**. Sumber kebenaran: `config/billing.php`
+(`token_packages`) — boleh diubah tanpa deploy melalui `.env`.
+
+### 2.4 Kos Platform — SUDAH DIKIRA untuk token
+
+⚠️ **Kos token sudah DISAHKAN** daripada kontrak sebenar. Yang belum
+disahkan hanyalah kos sampingan:
+
+| Komponen kos | Status |
 |---|---|
-| AI Gateway (token) | RM20–80 |
-| Hosting + DB + storage | RM15–40 |
-| Sokongan (masa anda) | RM30–100 |
-| Payment gateway (2.5%) | RM10 |
-| **Jumlah kos** | **RM75–230** |
+| Kadar pembekal AI (serveras.click) per pakej | ✅ **DISAHKAN** — RM5 / RM8 / RM10 / RM50 / RM100 |
+| Kos hosting/server | **Tidak ditanggung** (menurut pengguna) |
+| Yuran gateway CHIP | **Belum disahkan** — perlu semak kontrak (~1–3%) |
+| Masa sokongan | Tidak dikira dalam wang |
 
-**Jika kos anda RM230:** anda simpan RM58/bulan daripada RM288.
-Jika kos anda naik ke RM290, anda **rugi RM2/bulan** pada setiap pelanggan
-reseller — dan anda tidak boleh berhenti membayar.
-
-### 2.4 Ujian Kemampanan (WAJIB sebelum lancar)
+**Margin token sudah boleh dikira:**
 
 ```
-Margin platform = RM288 − kos_sebenar_per_pelanggan
-Mesti kekal POSITIF walaupun kos meningkat 50%.
+Hasil per pelanggan  = RM388 + (pakej token yang mereka beli)
+Kos token           = RM5 / RM8 / RM10 / RM50 / RM100 (ikut pakej)
+Margin sebelum CHIP = hasil − kos token
 ```
 
-**Peraturan yang saya cadangkan:**
+Margin token adalah **90.9% seragam** pada semua 5 pakej. Butiran penuh
+ada dalam [`MODEL-HASIL-TOKEN.md`](MODEL-HASIL-TOKEN.md).
 
-> Jika `kos_sebenar > RM180`, jangan lancar komisen berulang tanpa had.
-> Turunkan komisen kepada RM70–80, atau hadkan kepada 24 bulan.
+⚠️ **Jangan jual pakej token pada harga di bawah kos pembekal.** Harga jualan
+sekarangdilindungi automatik oleh `BillingService::pakejRugi()` — ada ujian
+yang gagal jika mana-mana pakej jadi rugi atau margin jatuh bawah 50%.
+
+### 2.5 Risiko Yang Masih Nyata
+
+Walaupun anda tiada kos hosting, risiko ini kekal:
+
+| Risiko | Kesan |
+|---|---|
+| **Harga pembekal AI naik** | Margin token terhakis; kos token ~9% daripada harga jualan |
+| **Pelanggan guna token melebihi jangkaan** | Jika pakej disalah harga, kerugian berulang |
+| **Churn tinggi** | Komisen sudah dibayar 30 hari, tetapi pelanggan berhenti bulan ke-2 |
+| **Reseller berhenti kerja** | Anda tetap bayar RM100 jika pelanggan langgan |
+| **Liabiliti perakaunan** | Komisen masa depan = liabiliti dalam kunci kira-kira |
+
+**Mitigasi minimum (WAJIB):**
+
+1. **Semak semula kontrak pembekal token** bila harga berubah — `pakejRugi()` akan gagal ujian danBlocks deploy.
+2. **Bina dashboard kos AI per pelanggan** — untuk ukur penggunaan sebenar daripada `ai_usage_events`.
+3. **Klausa dalam terma:** komisen boleh disemak dengan notis 60 hari untuk
+   pelanggan **baharu** sahaja (bukan sedia ada).
+4. **Komisen atas harga sebenar dibayar**, bukan harga senarai — jika pelanggan
+   dapat diskaun, komisen turun (sudah dikodkan: had 50%).
+
+### 2.6 Ujian Kemampanan Token (WAJIB sebelum lancar)
+
+```
+Untuk setiap pakej token:
+  harga_jual − kos_pembekal MESTI positif
+
+Contoh (dengan kadar sebenar):
+  1 bilion token, jual RM550
+  → kos pembekal RM50  ✅ untung RM500
+  → jika kos pembekal naik RM600  ❌ RUGI RM50  (ditegaskan oleh pakejRugi())
+```
+
+⚠️ **Gunakan `ai_usage_events` untuk mengukur penggunaan sebenar** selepas
+20 pelanggan pertama, kemudian laraskan harga pakej jika perlu.
 
 ### 2.5 Risiko "Selagi Langgan" — Tiada Had
 
@@ -863,17 +942,17 @@ public function test_komisen_diluluskan_tidak_dibatalkan_oleh_churn(): void
 
 ---
 
-## 13. Urutan Pembinaan (6 Fasa)
+## 13. Urutan Pembinaan (6 Fasa) — STATUS
 
-| Fasa | Skop | Anggaran |
-|---|---|---|
-| **R1** | Jadual (5 + 1 kolum) + model + pengasingan | 2 hari |
-| **R2** | `ResellerCommissionService` + 30 ujian | 3 hari |
-| **R3** | Atribusi (klik, cookie, daftar) + 4 laluan | 2 hari |
-| **R4** | API (14 laluan) + kebenaran | 2 hari |
-| **R5** | Payout + snapshot bank + bukti | 2 hari |
-| **R6** | Dashboard admin + reseller | 3 hari |
-| **Jumlah** | | **14 hari** |
+| Fasa | Skop | Anggaran | Status |
+|---|---|---|---|
+| **R1** | Jadual (5 + 1 kolum) + model + pengasingan | 2 hari | ✅ Selesai |
+| **R2** | `ResellerCommissionService` + 30 ujian | 3 hari | ✅ Selesai (32 ujian) |
+| **R3** | Atribusi (klik, cookie, daftar) + 4 laluan | 2 hari | ✅ Selesai |
+| **R4** | API (14 laluan) + kebenaran | 2 hari | ✅ Selesai |
+| **R5** | Payout + snapshot bank + bukti | 2 hari | ✅ Selesai |
+| **R6** | Dashboard admin + reseller | 3 hari | ✅ Selesai |
+| **Jumlah** | | **14 hari** | **Selesai** |
 
 ---
 
@@ -881,13 +960,26 @@ public function test_komisen_diluluskan_tidak_dibatalkan_oleh_churn(): void
 
 | Perkara | Status | Nota |
 |---|---|---|
-| **Kod** | ⏸️ Belum | Spesifikasi sahaja, seperti yang anda minta |
-| **Integration bayaran (FPX)** | ⏸️ Belum | Prasyarat untuk komisen automatik |
+| **Kod** | ✅ **Selesai** | `app/Modules/Billing/` — model, service, controller, migration, 32 ujian |
+| **Integration bayaran (FPX/CHIP payout)** | ⏸️ Belum | Prasyarat untuk payout automatik; payout manual didokumentasikan |
 | **Terma & syarat reseller** | ⏸️ Belum | **Wajib** sebelum lancar |
 | **CP58 / cukai** | ⏸️ Belum | Perlu akauntan |
 | **KYC reseller** | ⏸️ Belum | IC + pengesahan bank |
-| **Dashboard kos AI per pelanggan** | ⏸️ Belum | **Kritikal** untuk margin |
+| **Dashboard kos AI per pelanggan** | ⏸️ Belum | **Kritikal** untukukur margin sebenar |
 | **Multi-tier (reseller → sub-reseller)** | ⏸️ Belum | Boleh tambah kemudian |
+
+**Peta kod yang sudah ada:**
+
+| Komponen | Fail |
+|---|---|
+| Migration | `database/migrations/2026_10_27_000500_create_billing_reseller_tables.php` |
+| Model | `Models/Reseller.php`, `ResellerCommission.php`, `ResellerPayout.php`, `ResellerClick.php`, `ResellerReferral.php` |
+| Logik komisen | `Services/ResellerCommissionService.php` |
+| Logik langganan/invois | `Services/BillingService.php` |
+| Webhook CHIP | `Services/ChipWebhookService.php` |
+| API | `routes/api.php` → `BillingController.php` |
+| Konfigurasi | `config/billing.php` (`commission_value`, `commission_months`, `commission_cap_pct`) |
+| Ujian | `tests/Feature/BillingResellerTest.php` (32 ujian) |
 
 ---
 

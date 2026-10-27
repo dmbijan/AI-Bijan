@@ -9,8 +9,8 @@
 > berdasarkan kod dalam `ai-bijan-saas`. Kita **tidak** mendakwa ciri yang belum
 > dibina. Jangan jual janji "AI mengurus semuanya" — jual hasil yang boleh dibuktikan.
 >
-> ⚠️ **Jangan tukar status tanpa semak kod.** Semakan terakhir: 26 Okt 2026
-> (58 modul · 962 ujian lulus · 66 resource Filament · 1,518 endpoint).
+> ⚠️ **Jangan tukar status tanpa semak kod.** Semakan terakhir: 27 Okt 2026
+> (59 modul · 962 ujian lulus · 66 resource Filament · 1,518 endpoint).
 
 ---
 
@@ -173,7 +173,7 @@ kawalan akses dan kelulusan. Prompt guard (BAB 62) sudah dipasang.
 
 | | |
 |---|---|
-| **Status kod** | 🟡 Multi-tenant, RBAC, AI Token Wallet, subscription plan ada; white-label & reseller billing belum penuh |
+| **Status kod** | 🟡 Multi-tenant, RBAC, AI Token Wallet, subscription plan ada; **reseller billing (komisen berulang) sudah dikodkan** dalam `Billing/` — white-label & payout automatik belum penuh |
 | **BAB** | 4a, 4b, 6, 21, 22 |
 
 Infrastruktur komersial: pelan langganan SaaS yang ditetapkan Super Admin, pakej token AI

@@ -2,9 +2,13 @@
 /**
  * Sisip BAB 82 ke blueprint induk + kemas kini versi header + indeks.
  * Usage: php skrip/sisip_bab82.php
+ *
+ * Catatan 27 Okt 2026: laluan blueprint sebelum ini menunjuk ke akar repositori
+ * (`/../../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`) sedangkan fail itu berada dalam
+ * `docs/`. Scripts ini tidak pernah boleh berjalan. Laluan kini betul.
  */
 
-$blueprint = __DIR__ . '/../../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md';
+$blueprint = __DIR__ . '/../docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md';
 $teks = __DIR__ . '/../docs/bab82_teks.md';
 
 if (!is_file($blueprint)) {
@@ -13,6 +17,7 @@ if (!is_file($blueprint)) {
 }
 if (!is_file($teks)) {
     fwrite(STDERR, "FAIL: teks BAB 82 tidak dijumpai: $teks\n");
+    fwrite(STDERR, "Skrip ini tidak boleh dijalankan semula — BAB 82 sudah disisip dalam blueprint.\n");
     exit(1);
 }
 

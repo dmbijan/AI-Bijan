@@ -43,7 +43,7 @@
         <div><h2 class="card-title">Kos Komponen</h2></div>
       </div>
     <div class="row">
-        <input class="input" id="componentId" type="number" placeholder="ID komponen" style="max-width:200px">
+        <input class="input" id="componentId" type="number" placeholder="ID komponen" aria-label="ID komponen" style="max-width:200px">
         <button class="btn" onclick="loadComponent()">Lihat Komponen</button>
     </div>
     <div id="componentOut" class="mt-4"></div>

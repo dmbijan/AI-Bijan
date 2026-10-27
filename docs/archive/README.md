@@ -2,6 +2,17 @@
 
 Folder ini mengandungi dokumen yang **bukan** dokumentasi semasa AI BIJAN.
 
+| | |
+|---|---|
+| **Blueprint kanonik** | [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) (**v9.6**) |
+| **Baseline angka** | [`../AUDIT-BASELINE.md`](../AUDIT-BASELINE.md) |
+| **Audit induk** | [`../AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](../AI-BIJAN-AUDIT-INDUK-LENGKAP.md) |
+| **Status arkib** | `ARCHIVED / NOT AUTHORITATIVE` — sejak 27 Okt 2026 |
+
+> **Peraturan:** dokumen dalam folder ini **tidak boleh** menjadi sumber untuk
+> keputusan reka bentuk, pelan pelepasan atau dakwaan pemasaran. Jika ada percanggahan
+> dengan blueprint kanonik, **blueprint kanonik yang menang**.
+
 ---
 
 ## Kenapa ia di sini
@@ -47,7 +58,7 @@ Dokumen ini menerangkan **produk berasingan** (`b-pos-system`), bukan AI BIJAN.
 > Rujuk: `docs/SISTEM-AI-BIJAN.md` §3.3 (pagar) dan blueprint BAB 90.
 
 > Rujukan B-POS yang sah: `C:\ai-bijan\AI-Bijan\b-pos-system\docs\`
-> Audit integrasinya: `..\..\AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` BAB 88
+> Audit integrasinya: [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) BAB 88
 
 ---
 
@@ -61,10 +72,11 @@ Versi lama yang telah **digantikan sepenuhnya**:
 - `ecosystem-v3.0*.md`, `industry-coverage-v4.0.md`
 - `AUDIT-PELAN-INDUK.md`, `PELAN-TINDAKAN.md`, `AI-BIJAN-AUDIT-v8.md`
 
-**Angka dalam fail ini lapuk** — cth angka modul 18/34/39/53/55 (semasa: **58**),
-ujian 220/314/486/718 (semasa: **962**).
+**Angka dalam fail ini lapuk** — cth angka modul 18/34/39/53/55 (semasa: **59**),
+ujian 220/314/486/718 (semasa: **~1,119 kaedah ujian**).
 
-✅ **Guna:** `../../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` (**v9.4**)
+✅ **Guna:** [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) (**v9.6**)
+📊 **Baseline angka:** [`../AUDIT-BASELINE.md`](../AUDIT-BASELINE.md)
 
 ---
 

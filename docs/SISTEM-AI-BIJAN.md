@@ -1,8 +1,8 @@
 # SISTEM AI BIJAN — Dokumen Sistem Lengkap
 
 > **AI-Native Business Operating System** untuk PKS Malaysia → SEA → Global South
-> **Versi sistem:** v9.4 · **Blueprint induk:** `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` (102 bab / 26 PART)
-> **Tarikh:** 26 Oktober 2026 · **Setiap angka disahkan daripada kod**
+> **Versi sistem:** v9.6 · **Blueprint induk:** [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) (103 bab / 27 PART)
+> **Tarikh:** 27 Oktober 2026 · **Angka:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) (satu-satunya sumber kebenaran)
 
 ---
 
@@ -18,29 +18,35 @@ dengan **satu lapisan AI**, **satu pengasingan tenant**, dan **satu UI admin**.
 | **Pembeza** | AI yang **memahami aliran kerja** (bukan sekadar menjawab soalan) + **pematuhan Malaysia** |
 | **Bukan** | Bukan ERP generik · Bukan chatbot · Bukan himpunan modul berasingan · **Bukan ERPNext/Frappe** |
 
-### Angka Sistem (disahkan `php skrip/semak-dokumen.php`)
+### Angka Sistem (baseline disahkan 27 Okt 2026 — lihat `AUDIT-BASELINE.md`)
 
 | Metrik | Nilai |
 |---|---|
 | Modul | **59** |
-| Jadual pangkalan data | **366** |
-| Laluan API (`api/v1`) | **1,518** |
+| Jadual pangkalan data | **368** (kiraan migration — nilai sebenar perlu `php skrip/semak-dokumen.php`) |
+| Laluan API (`api/v1`) | **~872** |
 | Prefix API | **76** |
-| Ujian lulus | **1009** (4 dilangkau, **0 gagal**) |
-| Assertion | **5,190** |
-| Model | **300** |
-| Service | **170** |
-| Controller (modul) | **128** |
-| Resource Filament | **66** |
+| Kaedah ujian | **~1,119** (89 fail Feature + 3 Support + 1 Unit) |
+| Assertion | **5,370** |
+| Model | **310** |
+| Service | **174** |
+| Controller (modul) | **134** |
+| Resource Filament | **65** |
 | Widget dashboard | **6** |
 | Kebenaran | **212** |
-| Migration | **55 fail** |
+| Migration | **58 fail** |
 | Kandungan blueprint | **103 bab / 27 PART** |
 | Laravel / PHP | **12.70.1 / 8.2.12** |
 | Advisori keselamatan | **0** |
 
-> **Dikemas kini 27 Okt 2026** selepas audit pepijat: +11 jadual (model tanpa
-> migration), +13 ujian regresi.
+> **Semakan 27 Okt 2026 — angka laluan & ujian dibetulkan.** Nilai lama
+> (1,518 laluan, 1,009/962/963 ujian, 49/55 migration, 292 model, 166 service,
+> 127 controller, 66 resource) **tidak tepat** dan telah dikemas kini. Lihat
+> [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §2 untuk senarai penuh perbezaan.
+>
+> Nilai **bilangan ujian lulus**, **assertion sebenar**, **bilangan jadual sebenar**
+> dan **kebenaran sebenar** memerlukan PHP dan pangkalan data — sila sahkan dengan
+> `php artisan test` dan `php skrip/semak-dokumen.php`.
 
 ---
 
@@ -50,17 +56,19 @@ dengan **satu lapisan AI**, **satu pengasingan tenant**, dan **satu UI admin**.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  4. UI          Filament 3.3 · /admin · 66 resource · 6 widget│
+│  4. UI          Filament 3.3 · /admin · 65 resource · 6 widget│
 ├──────────────────────────────────────────────────────────────┤
-│  3. API         routes/api.php + 58 provider · /api/v1/*     │
-│                 1,518 laluan · auth:sanctum → tenant → perm:  │
+│  3. API         routes/api.php + 39 provider · /api/v1/*    │
+│                 ~872 laluan · auth:sanctum → tenant → perm:  │
 ├──────────────────────────────────────────────────────────────┤
-│  2. DOMAIN      58 modul · 166 service · 292 model           │
+│  2. DOMAIN      59 modul · 174 service · 310 model           │
 ├──────────────────────────────────────────────────────────────┤
 │  1. ASAS        TenantContext · BelongsToTenant · Audit       │
-│                 346 jadual · transactional outbox            │
+│                 368 jadual · transactional outbox            │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+> Angka di atas: [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) (27 Okt 2026).
 
 **Peraturan tidak boleh dilanggar:**
 
@@ -278,7 +286,7 @@ simulasi (`AI_GATEWAY_LIVE=false`) **tidak akan** disekat — pepijat keselamata
 |---|---|
 | Versi | Filament **3.3.53** |
 | Panel | `/admin` · guard `web` |
-| Resource | **66** (semua 58 modul) |
+| Resource | **66** (liputan 59 modul) |
 | Widget | **6** — 4 KPI, trend 30 hari, donut saluran, 2 jadual |
 | Halaman | Tetapan Syarikat (`/admin/tetapan`) |
 
@@ -317,9 +325,10 @@ KWSP/PERKESO/LHDN terkini sebelum penyerahan.
 
 ### 6.1 ✅ Siap & diuji
 
-- 58 modul backend, 346 jadual, 1,518 endpoint, 962 ujian
-- 66 resource Filament CRUD + 6 widget
-- Pengasingan tenant 4 lapisan (292 model)
+- 59 modul backend, 368 jadual, ~872 endpoint, ~1,119 kaedah ujian
+- Modul `Billing` — langganan CHIP + komisen reseller berulang (RM388/RM100/bulan)
+- 65 resource Filament CRUD + 6 widget
+- Pengasingan tenant 4 lapisan (310 model)
 - AI Gateway + PromptGuard + PII redact + wallet
 - Pematuhan gaji MY + e-Invois LHDN + biometrik PDPA
 - Transactional outbox (`ServiceOS`, `FlowAutomation`)
@@ -339,7 +348,7 @@ KWSP/PERKESO/LHDN terkini sebelum penyerahan.
 | **Integrasi bayaran (FPX)** | Tiada |
 | **Telefoni LiveSupport** | Perlu kredensial Twilio/eSIM |
 | **Renderer media** | Worker FFmpeg/Sharp luar belum |
-| **UI domain-specific** | 66 resource = CRUD generik, bukan UI direka khusus |
+| **UI domain-specific** | 65 resource = CRUD generik, bukan UI direka khusus |
 
 ### 6.3 Penilaian jujur
 

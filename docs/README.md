@@ -1,11 +1,22 @@
 # AI BIJAN — Dokumentasi Sistem
 
-> **AI-Native Business Operating System** · Blueprint **v9.5** · 26 Oktober 2026
-> **58 modul dikodkan (+1 spesifikasi: Reseller) · 346 jadual · 1,518 endpoint · 962 ujian lulus · 66 resource Filament**
+> **AI-Native Business Operating System** · Blueprint **v9.6** · 27 Oktober 2026
+> **59 modul dikodkan (termasuk `Billing` — reseller komisen berulang) · 58 migration · ~872 endpoint `api/v1` · ~1,119 kaedah ujian · 65 resource Filament**
+>
+> 📊 **Semua angka rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) — satu-satunya
+> sumber kebenaran. Jangan salin angka dari mana-mana dokumen lain.
 
 ---
 
 ## ▶ Mula Di Sini
+
+### **[`AUDIT-BASELINE.md`](AUDIT-BASELINE.md)** — Sumber Kebenaran Angka ⭐⭐
+
+**Baca ini dahulu jika anda akan membuat dakwaan tentang saiz platform.**
+Dijana automatik daripada kod (`php skrip/jana-baseline.php --tulis`), disemak
+oleh CI, dan mengandungi senarai penuh angka lama yang telah dibetulkan.
+
+---
 
 ### **[`SISTEM-PEMBANGUNAN-DARI-MULA.md`](SISTEM-PEMBANGUNAN-DARI-MULA.md)** — Satu Dokumen, Dari Mula ⭐⭐
 
@@ -16,7 +27,7 @@ antara 20 fail lain.
 |---|---|
 | §1–§4 | Ringkasan sistem · keperluan & pemasangan · **10 prinsip wajib** · seni bina 4 lapisan |
 | §5–§9 | **Teras 5 lapisan** — skema platform · pengasingan tenant (kod penuh) · RBAC & entitlemen · middleware · audit & outbox |
-| §10–§12 | Anatomi modul (templat wajib) · **peta 58 modul** · 7 corak domain berulang |
+| §10–§12 | Anatomi modul (templat wajib) · **peta 59 modul** · 7 corak domain berulang |
 | §13–§14 | AI Gateway **8 langkah** · PromptGuard/PII/wallet · otonomi 0–4 & pagar |
 | §15–§18 | Filament **7 peraturan** · ujian · penjadual & queue · keselamatan & PDPA |
 | §19–§20 | Pematuhan Malaysia · **corak jualan, harga pesaing, Reseller** |
@@ -33,7 +44,7 @@ antara 20 fail lain.
 |---|---|
 | **I — Asas** | Skop sebenar · keperluan teknikal · **6 prinsip wajib** |
 | **II — Teras** | Skema 13 jadual platform · **pengasingan tenant 4 lapis (kod penuh)** · RBAC · `ModuleGate` + alias · middleware · audit |
-| **III — Modul** | **Templat modul wajib** · **58 modul + awalan jadual** · 7 corak domain |
+| **III — Modul** | **Templat modul wajib** · **59 modul + awalan jadual** · 7 corak domain |
 | **IV — AI** | `GatewayService::call()` **8 langkah** · PromptGuard · wallet · otonomi 0–4 |
 | **V — UI** | **7 peraturan Filament** wajib |
 | **VI — Operasi** | Ujian · queue · keselamatan · PDPA · **12 fasa pembinaan** · senarai semak |
@@ -50,7 +61,7 @@ antara 20 fail lain.
 |---|---|
 | §0 | Ringkasan satu halaman + semua angka |
 | §1 | Seni bina teras — 4 lapisan, pengasingan tenant, middleware |
-| §2 | **Peta 58 modul** dengan laluan sebenar setiap satu |
+| §2 | **Peta 59 modul** dengan laluan sebenar setiap satu |
 | §3 | Lapisan AI — satu enjin, lapan muka, enam pagar |
 | §4 | UI Filament — 66 resource, kebenaran dua lapis |
 | §5 | Pematuhan Malaysia |
@@ -92,7 +103,8 @@ di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
 2. [`ANALISIS-KOMPETITIF.md`](ANALISIS-KOMPETITIF.md) — pesaing & harga
 3. [`BUSINESS-GROWTH-ENGINE.md`](BUSINESS-GROWTH-ENGINE.md) — 9 kelebihan
 4. [`CADANGAN-IMPAK-TINGGI.md`](CADANGAN-IMPAK-TINGGI.md) — keutamaan
-5. [`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md) — model jualan berulang
+5. [`MODEL-HASIL-TOKEN.md`](MODEL-HASIL-TOKEN.md) — model hasil: langganan + token AI wajib
+6. [`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md) — model jualan berulang
 
 ### 🔍 Saya nak tahu apa yang sudah/belum dibina
 1. [`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md) §6
@@ -107,13 +119,18 @@ di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
 
 | Dokumen | Isi | Dikemas kini |
 |---|---|---|
+| **[`AUDIT-BASELINE.md`](AUDIT-BASELINE.md)** | **Sumber kebenaran angka — dijana automatik daripada kod** | ✅ 27 Okt |
+| **[`AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](AI-BIJAN-AUDIT-INDUK-LENGKAP.md)** | **Audit induk — jurang, risiko, pertindihan, matriks P0–P3** | ✅ 27 Okt |
+| **[`CHANGELOG.md`](CHANGELOG.md)** | **Sejarah status platform** (v8.9 → v9.6) | ✅ 27 Okt |
+| **[`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md)** | **Blueprint induk (v9.6)** | ✅ 27 Okt |
 | **[`SISTEM-PEMBANGUNAN-DARI-MULA.md`](SISTEM-PEMBANGUNAN-DARI-MULA.md)** | **Satu dokumen: bina + operasi + jualan (27 seksyen)** | ✅ 26 Okt |
 | **[`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md)** | **Reverse engineering — bina semula dari sifar** | ✅ 26 Okt |
-| **[`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md)** | **Dokumen sistem lengkap** | ✅ 26 Okt |
-| [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md) | Katalog terperinci setiap modul | ✅ 26 Okt |
+| **[`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md)** | **Dokumen sistem lengkap** | ✅ 27 Okt |
+| [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md) | Katalog terperinci setiap modul | ✅ 27 Okt |
 | [`getting-started.md`](getting-started.md) | Setup dari sifar | ✅ 26 Okt |
 | [`BACA-SAYA.md`](BACA-SAYA.md) | Panduan pantas | ✅ 26 Okt |
-| [`AUDIT-DOKUMEN.md`](AUDIT-DOKUMEN.md) | Laporan audit dokumentasi | ✅ 26 Okt |
+| [`AUDIT-DOKUMEN.md`](AUDIT-DOKUMEN.md) | Laporan audit dokumentasi (petikan lama) | ✅ 26 Okt |
+| [`TODO.md`](TODO.md) | Kerja belum siap (P0–P5) | ✅ 27 Okt |
 
 ### AI & Automasi
 
@@ -129,7 +146,8 @@ di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
 
 | Dokumen | Isi |
 |---|---|
-| **[`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md)** | **Model komisen berulang** — RM388/ RM100/bulan · 5 jadual · 14 laluan · 30 ujian · analisis margin |
+| **[`MODEL-HASIL-TOKEN.md`](MODEL-HASIL-TOKEN.md)** | **Model hasil sebenar** — RM388 langganan + pakej token AI WAJIB (RM55–1,100) · komisen RM100 dari langganan sahaja · **kos token SUDAH DIKIRA** (margin 90.9%) |
+| **[`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md)** | **Model komisen berulang** — RM388/RM100/bulan · 12 peraturan · dikodkan dalam `Billing` (32 ujian) |
 | [`ANALISIS-KOMPETITIF.md`](ANALISIS-KOMPETITIF.md) | 5 pesaing teras + skor |
 | [`PETA-PESAING-34-MODUL.md`](PETA-PESAING-34-MODUL.md) | 400+ pesaing, 34 **kategori** |
 | [`AUDIT-PESAING-LANJUTAN.md`](AUDIT-PESAING-LANJUTAN.md) | 15 pesaing baharu |
@@ -144,7 +162,7 @@ di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
 
 | Fail | Nota |
 |---|---|
-| [`AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`](AI-BIJAN-MASTER-BLUEPRINT-v8.3%20(1).md) | **Blueprint induk v9.5** — 103 bab / 27 PART (termasuk BAB 93 Reseller) |
+| [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) | **Blueprint induk v9.6** — 103 bab / 27 PART (termasuk BAB 93 Reseller) |
 | [`cara-pasang.md`](cara-pasang.md) | Mockup Command Center + cara lekat |
 | `command-center.html` · `CommandCenter.tsx` · `dashboard.blade.php` | Mockup UI — **bukan kod produksi** |
 | `dashboard-bi.patch` · `dashboard-command-center.patch` | Patch sejarah |
@@ -164,7 +182,7 @@ di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
 dalam `.env.example`; `app/Services/Payments/` **tidak wujud**; `DineOrder`,
 `KitchenService`, `ThermalPrintService` = **0 kelas**.
 
-**Hanya guna:** `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` (v9.4).
+**Hanya guna:** [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) (v9.6).
 
 ---
 
@@ -199,4 +217,5 @@ dalam `.env.example`; `app/Services/Payments/` **tidak wujud**; `DineOrder`,
 | [`../TODO.md`](../TODO.md) | T-01 → T-92 |
 | [`../.github/skills/aibijan-coding/`](../.github/skills/aibijan-coding/) | Skill + gotchas + peraturan keselamatan |
 | [`../skrip/`](../skrip/) | 20 skrip penyelenggaraan |
-| `../../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | Blueprint induk v9.4 |
+| [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) | Blueprint induk v9.6 |
+| [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) | **Satu-satunya sumber kebenaran angka** (disahkan 27 Okt 2026) |

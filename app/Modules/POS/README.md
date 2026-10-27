@@ -10,6 +10,29 @@ AI BIJAN POS system designed for retail stores, cafes, restaurants, and service 
 
 ---
 
+## Ciri B-POS yang dipindahkan (BAB 88 · T-76 → T-83)
+
+Ciri daripada `b-pos-system/` telah dipindahkan ke dalam modul ini (bukan modul
+baharu). Lihat `docs/TODO.md` §Nota Integrasi B-POS dan `THIRD-PARTY-NOTICES.md`.
+
+| TASK | Ciri | Kelas utama | Endpoint |
+|------|------|-------------|----------|
+| T-76 | Dine-in + Kitchen Display | `DineOrderService`, `KitchenService` | `/dine/*`, `/kitchen` |
+| T-77 | Modifier / Add-on | `ModifierService` | `/modifiers` |
+| T-78 | Caj perkhidmatan | `ServiceChargeService` | (auto semasa bayar) |
+| T-79 | Tender berbilang | `TenderService`, `SalePaymentService` | `POST /sales/{id}/pay` |
+| T-80 | Pergerakan tunai syif | `CashShiftService::recordCashMovement` | `/shifts/{id}/cash`, `/close-with-summary` |
+| T-81 | Idempotency luar talian | `SalePaymentService::bayar` | `client_uuid` pada `/pay` |
+| T-82 | TNG Soundbox | `TngSoundboxService` | `/tng/notify`, `/tng/{id}/match` |
+| T-83 | Kelulusan diskaun | `DiscountApprovalService` | `/discounts` |
+| T-84 | Thermal printer WebUSB | — | 📋 belum (frontend) |
+
+**Perbezaan sengaja daripada B-POS:** `tenant_id` (bukan `outlet_id`), prefix
+jadual `pos_*`, token pesanan awam ber-HASH + luput (bukan uuid kekal), dan
+pengesahan silang-tenant bagi setiap ID yang masuk melalui URL.
+
+---
+
 ## Architecture
 
 ```
@@ -21,22 +44,47 @@ app/Modules/POS/
 │   ├── POSRegister.php             # POS register entity
 │   ├── CashShift.php               # Cash shift tracking
 │   ├── POSSale.php                 # Sales transactions
-│   ├── POSSaleItem.php             # Line items
-│   ├── POSSalePayment.php          # Multi-payment records
+│   ├── POSSaleItem.php             # Line items (+ modifier snapshot)
+│   ├── POSSalePayment.php          # Multi-payment records (legacy)
 │   ├── POSSaleDiscount.php         # Discount tracking
-│   └── POSSaleReturn.php           # Returns/refunds
+│   ├── POSSaleReturn.php           # Returns/refunds
+│   ├── POSSaleTender.php           # T-79 multi-tender
+│   ├── POSModifierGroup.php        # T-77
+│   ├── POSModifierOption.php       # T-77
+│   ├── POSDineArea.php             # T-76
+│   ├── POSDineTable.php            # T-76
+│   ├── POSDineOrder.php            # T-76
+│   ├── POSDineOrderItem.php        # T-76
+│   ├── POSShiftCashMovement.php    # T-80
+│   ├── POSTngNotification.php      # T-82
+│   └── POSDiscountApproval.php     # T-83
 ├── Services/
 │   ├── RegisterService.php         # Register CRUD operations
-│   ├── CashShiftService.php        # Shift open/close/discrepancy
-│   └── SaleService.php             # Sale lifecycle management
+│   ├── CashShiftService.php        # Shift open/close/cash movement/summary
+│   ├── SaleService.php             # Sale lifecycle management
+│   ├── SalePaymentService.php      # T-78/79/81/83 — checkout atomik
+│   ├── TenderService.php           # T-79 validation & normalisation
+│   ├── ModifierService.php         # T-77
+│   ├── ServiceChargeService.php    # T-78
+│   ├── KitchenService.php          # T-76
+│   ├── DineOrderService.php        # T-76
+│   ├── TngSoundboxService.php      # T-82
+│   └── DiscountApprovalService.php # T-83
 ├── Http/Controllers/
-│   ├── RegisterController.php      # Register API endpoints
-│   ├── SaleController.php          # Sale API endpoints
-│   └── CashShiftController.php     # Shift API endpoints
+│   ├── RegisterController.php
+│   ├── SaleController.php          # (+ pay() untuk T-79)
+│   ├── CashShiftController.php
+│   ├── ModifierController.php      # T-77
+│   ├── DineInController.php        # T-76
+│   ├── KitchenDisplayController.php# T-76
+│   ├── ShiftCashController.php     # T-80
+│   ├── TngSoundboxController.php   # T-82
+│   └── DiscountApprovalController.php # T-83
 ├── database/migrations/
-│   └── 2026_10_19_000500_create_pos_tables.php
+│   ├── 2026_10_19_000500_create_pos_tables.php
+│   └── 2026_10_27_001000_add_bpos_features_to_pos.php   # BAB 88
 └── routes/
-    └── api.php                     # Module-specific routes
+    └── api.php                     # Permission: pos.view / pos.manage
 ```
 
 ---

@@ -28,7 +28,7 @@
 **BAHAGIAN III — MODUL**
 10. Anatomi modul (templat wajib)
 11. Pendaftaran & laluan
-12. Senarai 58 modul + jadual
+12. Senarai 59 modul + jadual
 13. Corak domain berulang
 
 **BAHAGIAN IV — AI**
@@ -89,7 +89,7 @@ yang menyediakan perniagaan lengkap untuk PKS Malaysia.
 
 ```
 Satu repositori
-├── app/Modules/          58 modul (domain + AI)
+├── app/Modules/          59 modul (domain + AI)
 ├── app/Models/           42 model teras (tenant, user, stok, dokumen…)
 ├── app/Support/          Tenancy (TenantContext)
 ├── app/Http/             12 controller + 8 middleware
@@ -1725,7 +1725,7 @@ BusinessIntel · Seo · Analytics · BrainHub · ProofOfValue · ExecutiveAI · 
 
 ### 23.1 Struktur
 
-- [ ] 58 modul didaftar dalam `bootstrap/providers.php`
+- [ ] 59 modul didaftar dalam `bootstrap/providers.php`
 - [ ] Setiap modul ada prefix sendiri — tiada `api/v1/{id}` wildcard
 - [ ] 346 jadual dicipta
 - [ ] Semua model perniagaan guna `BelongsToTenant`

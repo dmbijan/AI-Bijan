@@ -48,6 +48,31 @@ return [
         'inclusive' => false,
     ],
 
+    // BAB 88 / T-78 — Service charge (caj perkhidmatan Malaysia)
+    // Dipaparkan BERASINGAN daripada cukai; biasanya pesanan makan di tempat sahaja.
+    'service_charge' => [
+        'rate' => 10.0,               // % (0 = mati)
+        'scope' => 'dine_in',         // dine_in | all
+    ],
+
+    // BAB 88 / T-82 — TNG merchant soundbox
+    'tng_soundbox' => [
+        'enabled' => false,
+        'match_window_hours' => 12,   // padan dengan jualan TnG dalam tempoh ini
+    ],
+
+    // BAB 88 / T-83 — Kelulusan diskaun
+    'discount_approval' => [
+        'requires_approval_above' => 20.0,  // % — melebihi ini perlu kelulusan pengurus
+        'max_percent' => 50.0,              // had mutlak
+    ],
+
+    // BAB 88 / T-76 — Paparan dapur
+    'kitchen_display' => [
+        'enabled' => false,          // aktifkan per tenant bila ada dapur
+        'default_prep_minutes' => 15,
+    ],
+
     // Discount settings
     'discount' => [
         'max_percentage' => 50,
