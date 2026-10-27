@@ -16,7 +16,7 @@ use Tests\Support\UjianPengasingan;
  */
 class AffiliateBlastIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'Affiliate';
+    protected string $modul = 'Affiliate,Blast';
 
     protected array $model = [
         Affiliate::class,

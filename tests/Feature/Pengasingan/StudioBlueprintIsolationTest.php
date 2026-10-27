@@ -20,7 +20,7 @@ use Tests\Support\UjianPengasingan;
  */
 class StudioBlueprintIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'AgentStudio';
+    protected string $modul = 'AgentStudio,McpStudio,MediaEditor';
 
     protected array $model = [
         AgentBlueprint::class,

@@ -150,6 +150,11 @@ class BillingController extends Controller
     {
         $reseller = Reseller::where('user_id', $request->user()->id)->first();
 
+        // T-105: pagar eksplisit — laluan ini tiada `perm:` kerana data ialah
+        // data platform per-reseller. Identiti MESTI wujud; 404 (bukan 403)
+        // supaya kewujudan reseller lain tidak boleh disiasat.
+        abort_if($request->user() === null, 403, 'Pengesahan diperlukan.');
+
         if ($reseller === null) {
             return response()->json([
                 'success' => false,
@@ -180,6 +185,10 @@ class BillingController extends Controller
      */
     public function senaraiKomisen(Request $request): JsonResponse
     {
+        // T-105: skop MESTI pengguna semasa sahaja — tiada `reseller_id` daripada
+        // permintaan. `firstOrFail()` → 404 jika bukan reseller.
+        abort_if($request->user() === null, 403, 'Pengesahan diperlukan.');
+
         $reseller = Reseller::where('user_id', $request->user()->id)->firstOrFail();
 
         $komisen = ResellerCommission::where('reseller_id', $reseller->id)

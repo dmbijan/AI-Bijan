@@ -2,13 +2,26 @@
 
 namespace App\Modules\Boardroom\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Dapatan sesi Boardroom.
+ *
+ * ⚠️ AUDIT 28 Okt 2026 (T-111): model ini **tiada** `BelongsToTenant` dan jadual
+ * `boardroom_findings` **tiada** `tenant_id` — hanya `session_id`. Laluan baca
+ * (`BoardroomSession::findings()`) selamat kerana sesi sudah ditapis tenant,
+ * tetapi sebarang query terus `BoardroomFinding::where(...)` akan merentas
+ * tenant. Kini: kolum `tenant_id` + trait (auto-isi daripada konteks).
+ */
 class BoardroomFinding extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'boardroom_findings';
 
     protected $fillable = [
+        'tenant_id',
         'session_id',
         'agent_key',
         'finding_type',

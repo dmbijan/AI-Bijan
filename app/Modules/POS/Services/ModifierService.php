@@ -51,8 +51,10 @@ class ModifierService
             ]);
         }
 
+        $bilanganPilihan = $pilihan->countBy('modifier_group_id');
+
         foreach ($kumpulan as $g) {
-            $dipilih = $pilihan->where('modifier_group_id', $g->id)->count();
+            $dipilih = $bilanganPilihan->get($g->id, 0);
 
             if ($dipilih < $g->min_select) {
                 throw ValidationException::withMessages([

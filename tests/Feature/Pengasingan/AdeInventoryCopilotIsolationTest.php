@@ -25,7 +25,7 @@ use Tests\Support\UjianPengasingan;
  */
 class AdeInventoryCopilotIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'Inventory';
+    protected string $modul = 'ADE,Blast,Inventory,Prospecting';
 
     protected array $model = [
         StockBalance::class,

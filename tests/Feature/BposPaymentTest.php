@@ -92,6 +92,91 @@ class BposPaymentTest extends TestCase
     // T-79 — MULTI-TENDER SPLIT PAYMENT
     // ===============================================================
 
+    public function test_tender_contract_preserves_rounding_keys_and_default_statuses(): void
+    {
+        $this->freezeTime();
+        $svc = app(TenderService::class);
+        $this->assertSame([], $svc->normalize([], 99, true));
+
+        foreach (TenderService::KAEDAH_SAH as $method) {
+            $row = $svc->normalize([7 => [
+                'method' => ' ' . strtoupper($method) . ' ',
+                'amount' => 1.235,
+                'reference' => 'REF',
+            ]], 1.24)[0];
+            $pending = in_array($method, ['credit', 'tng'], true);
+            $this->assertEquals($pending ? null : now(), $row['paid_at']);
+            $this->assertSame([
+                'method' => $method,
+                'amount' => 1.24,
+                'cash_received' => $method === 'cash' ? 1.24 : null,
+                'change_amount' => 0.0,
+                'payment_status' => $pending ? 'pending' : 'paid',
+                'reference' => 'REF',
+                'paid_at' => $row['paid_at'],
+            ], $row);
+        }
+    }
+
+    public function test_tender_validation_order_and_reindexed_error_keys(): void
+    {
+        try {
+            app(TenderService::class)->normalize([
+                9 => ['method' => 'card', 'amount' => 1],
+                20 => ['method' => 'tng', 'amount' => 1, 'cash_received' => 2],
+            ], 99);
+            $this->fail('Expected validation failure');
+        } catch (ValidationException $e) {
+            $this->assertSame(['tenders.1.cash_received' => ['Wang diterima hanya untuk bayaran tunai.']], $e->errors());
+        }
+    }
+
+    public function test_status_reducer_consumes_generator_and_preserves_unknown_statuses(): void
+    {
+        $consumed = 0;
+        $rows = (function () use (&$consumed) {
+            foreach (['failed', 'pending', null] as $status) {
+                $consumed++;
+                yield ['payment_status' => $status];
+            }
+        })();
+        $svc = app(TenderService::class);
+        $this->assertSame('failed', $svc->statusGabungan($rows));
+        $this->assertSame(3, $consumed);
+        $this->assertSame('unpaid', $svc->statusGabungan([]));
+        $this->assertSame('paid', $svc->statusGabungan([[], ['payment_status' => 'unknown']]));
+        $this->assertSame('pending', $svc->statusGabungan([new POSSaleTender(['payment_status' => 'pending'])]));
+    }
+
+    public function test_completed_sale_replay_is_rejected_before_uuid_lookup(): void
+    {
+        config(['pos.service_charge.rate' => 0]);
+        $svc = app(SalePaymentService::class);
+        $sale = $svc->bayar($this->jualanDraf(), [['method' => 'cash', 'amount' => 10]], 'replay-contract');
+        try {
+            $svc->bayar($sale, [], 'replay-contract');
+            $this->fail('Expected completed sale rejection');
+        } catch (ValidationException $e) {
+            $this->assertSame(['sale_id' => ['Hanya jualan draf boleh dibayar.']], $e->errors());
+        }
+        $draft = $this->jualanDraf();
+        $this->assertSame($sale->id, $svc->bayar($draft, [], 'replay-contract')->id);
+        $this->assertSame('draft', $draft->fresh()->status);
+    }
+
+    public function test_service_charge_public_contract_uses_live_global_config(): void
+    {
+        $svc = app(ServiceChargeService::class);
+        config(['pos.service_charge.rate' => 150, 'pos.service_charge.scope' => 'invalid']);
+        $this->assertSame(100.0, $svc->kadar());
+        $this->assertSame('dine_in', $svc->skop());
+        $this->assertFalse($svc->terpakai(null));
+        $this->assertSame(['amount' => 1.24, 'rate' => 100.0], $svc->kira(1.235, 'dine_in'));
+        config(['pos.service_charge.rate' => -5, 'pos.service_charge.scope' => 'all']);
+        $this->assertSame(0.0, $svc->kadar());
+        $this->assertSame(['amount' => 0.0, 'rate' => null], $svc->kira(100, 'dine_in'));
+    }
+
     public function test_tender_tunai_mengira_baki(): void
     {
         $normal = app(TenderService::class)->normalize([

@@ -19,7 +19,7 @@ use Tests\Support\UjianPengasingan;
  */
 class StudioKontenIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'ContentStudio';
+    protected string $modul = 'ContentStudio,VirtualOffice';
 
     protected array $model = [
         ContentPiece::class,

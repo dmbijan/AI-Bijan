@@ -64,11 +64,14 @@ class TenderService
         }
 
         $normal = [];
-        $bukanTunai = 0;
-
         foreach (array_values($input) as $i => $tender) {
-            $normal[] = $this->normalSatu($tender, $i, $bukanTunai);
+            $normal[] = $this->normalSatu($tender, $i);
         }
+
+        $bukanTunai = count(array_filter(
+            $normal,
+            fn (array $tender) => $tender['method'] !== POSSaleTender::METHOD_CASH
+        ));
 
         if ($bukanTunai > 1) {
             throw ValidationException::withMessages([
@@ -93,12 +96,12 @@ class TenderService
     }
 
     /**
-     * Normalkan satu tender dan tambah kiraan bukan-tunai.
+     * Normalkan satu tender tanpa mengubah keadaan pengesahan senarai.
      *
      * @param  array<string, mixed>  $tender
      * @return array<string, mixed>
      */
-    private function normalSatu(array $tender, int $i, int &$bukanTunai): array
+    private function normalSatu(array $tender, int $i): array
     {
         $kaedah = strtolower(trim((string) ($tender['method'] ?? '')));
 
@@ -131,8 +134,6 @@ class TenderService
 
             $baki = round($diterima - $amaun, 2);
         } else {
-            $bukanTunai++;
-
             if (! empty($tender['cash_received'])) {
                 throw ValidationException::withMessages([
                     "tenders.{$i}.cash_received" => 'Wang diterima hanya untuk bayaran tunai.',
@@ -158,25 +159,21 @@ class TenderService
      */
     public function statusGabungan(iterable $tenders): string
     {
-        $status = [];
+        $result = 'unpaid';
 
         foreach ($tenders as $t) {
-            $status[] = is_array($t) ? ($t['payment_status'] ?? null) : $t->payment_status;
+            $status = is_array($t) ? ($t['payment_status'] ?? null) : $t->payment_status;
+
+            if ($status === POSSaleTender::STATUS_FAILED) {
+                $result = 'failed';
+            } elseif ($status === POSSaleTender::STATUS_PENDING && $result !== 'failed') {
+                $result = 'pending';
+            } elseif ($result === 'unpaid') {
+                $result = 'paid';
+            }
         }
 
-        if ($status === []) {
-            return 'unpaid';
-        }
-
-        if (in_array(POSSaleTender::STATUS_FAILED, $status, true)) {
-            return 'failed';
-        }
-
-        if (in_array(POSSaleTender::STATUS_PENDING, $status, true)) {
-            return 'pending';
-        }
-
-        return 'paid';
+        return $result;
     }
 
     /** Label kaedah untuk resit (dari config/pos.php). */

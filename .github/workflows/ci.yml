@@ -44,6 +44,11 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
+      - name: Tiada migrasi pending (T-106)
+        # Migrasi pending menyamarkan model rosak: `audit-tenant` melaporkan
+        # "trait tanpa kolum" apabila jadual tidak wujud (kes TeamAI, 28 Okt 2026).
+        run: php artisan migrate:status | tee /dev/stderr | ! grep -q 'Pending'
+
       - name: Sahkan angka dokumen vs kod
         # Exit 1 jika modul/jadual/laluan/resource/kebenaran/model/service/controller/migration
         # dalam KATALOG-MODUL-AI-BIJAN.md atau SISTEM-AI-BIJAN.md tidak sepadan dengan kod.
@@ -61,24 +66,29 @@ jobs:
           path: baseline-ci.md
 
       - name: Periksa baseline dalam repo (baseline drifted?)
-        # Jika AUDIT-BASELINE.md tidak sepadan dengan kod, CI gagal — pemaju
-        # wajib jalankan `php skrip/jana-baseline.php --tulis` dan commit.
-        run: |
-          php skrip/jana-baseline.php --tolak=baseline-semasa.md
-          # Bandingkan jadual metrik (baris "| METRIK |" hingga baris kosong)
-          extract() { sed -n '/^| METRIK |/,/^$/p' "$1"; }
-          if ! diff -u <(extract docs/AUDIT-BASELINE.md) <(extract baseline-semasa.md); then
-            echo "::error::docs/AUDIT-BASELINE.md tidak sepadan dengan kod sebenar."
-            echo "Jalankan: php skrip/jana-baseline.php --tulis"
-            exit 1
-          fi
-          echo "Baseline sepadan dengan kod."
+        # T-104: satu penjana tempatan (`--semak`) membandingkan jadual metrik §1
+        # `docs/AUDIT-BASELINE.md` dengan kod. Format tebal/neutral dinormalkan oleh
+        # skrip sendiri, jadi tiada lagi `sed`/`diff` shell yang mudah rosak.
+        # Jika gagal: jalankan `php skrip/jana-baseline.php --tulis` dan commit.
+        run: php skrip/jana-baseline.php --semak
 
       - name: Audit pengasingan tenant
         # Exit 1 jika ada model dengan kolum tenant_id TANPA BelongsToTenant
-        # (dan tiada dalam config/tenant-global-models.php).
-        # Pepijat sebenar: CommunitySpace/Post/Reply, JournalEntryLine (Okt 2026).
+        # (dan tiada dalam config/tenant-global-models.php), atau modul tanpa
+        # ujian pengasingan. Pepijat sebenar: CommunitySpace/Post/Reply,
+        # JournalEntryLine (Okt 2026); TeamAI (28 Okt 2026, kini 60/60).
         run: php skrip/audit-tenant.php
+
+      - name: Pagar route ↔ permission
+        # T-105: setiap middleware `perm:<nama>` mesti wujud dalam jadual
+        # `permissions`, dan laluan api/v1 berautentikasi mesti ada pagar
+        # `perm:`/`platform` serta middleware `tenant`.
+        run: php skrip/semak-kebenaran.php
+
+      - name: Migrasi dijalankan tanpa fail (MESTI kosong)
+        # T-109: `migrate:status` melaporkan `Ran` untuk migrasi yang failnya
+        # sudah tiada → DB tidak boleh dibina semula dari sifar.
+        run: php skrip/jana-migrasi-hilang.php
 
       - name: Semak laluan wildcard (MESTI kosong)
         run: |
@@ -137,6 +147,20 @@ jobs:
         env:
           AI_GATEWAY_LIVE: 'false'
         run: php artisan test --without-tty
+
+  pencetak:
+    name: Ujian WebUSB POS
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Uji resit dan sambungan pencetak tanpa perkakasan
+        run: npm test
 
   keselamatan:
     name: Keselamatan Pakej

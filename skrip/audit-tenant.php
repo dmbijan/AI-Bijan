@@ -234,70 +234,57 @@ foreach ($failUjian as $f) {
 
 $adaUjianIsolasi = [];
 $tiadaUjianIsolasi = [];
-foreach ($modul as $m) {
-    // Ujian khusus untuk modul ini:
-    //   • `XxxIsolationTest`  — corak asal
-    //   • `\App\Modules\<M>\...` diimport dalam fail ujian kelas isolasi
-    $corak = '/class\s+' . preg_quote($m, '/') . '\w*IsolationTest/';
-    // ⚠️ Dalam single-quoted PHP, setiap `\\` = 1 backslash regex.
-    // Perlu 4 (`\\\\`) supaya regex menerima DUA backslash literal iaitu `App\Models\Item`.
-    $corakImport = '/use\s+App\\\\Modules\\\\' . preg_quote($m, '/') . '\\\\/';
 
-    $adaDalaman = (bool) preg_match($corak, $korpusUjian);
-    $adaImport = false;
-    $adaModelTeras = false;
+// ── Peta modul → fail yang MENGAKU menguji modul itu (`$modul = 'X';`) ──────
+// T-111 (28 Okt 2026): sebelum ini semakan `use App\Modules\<M>\` dibuat pada
+// KORPUS gabungan semua fail ujian, jadi satu fail yang import `App\Modules\POS`
+// dalam senarai pantau 'SalesCopilot' dianggap liputan untuk SEMUA modul.
+// Kini: liputan hanya dikira jika ada fail berasingan yang menetapkan
+// `$modul = '<M>'`. Modul bergabung (WorkflowVisionSupportIsolationTest dsb.)
+// menyenaraikan beberapa modul dalam `$modul` — dibaca sebagai senarai.
+$modulDiliputi = [];
+$modulPunyaApi = [];
+$modulImport = [];
+foreach ($failUjian as $f) {
+    $isi = (string) file_get_contents($f);
 
-    // Modul tanpa folder Models/ (Helpdesk, Inventory, Manufacturing, SalesCopilot)
-    // menggunakan model teras `app/Models`. Ujian pengasingan yang mengimport
-    // model tersebut DITERIMA sebagai liputan modul ini.
-    $modelTeras = [
-        'Helpdesk' => ['Ticket', 'TicketCategory', 'TicketMessage', 'SlaPolicy'],
-        'Inventory' => ['Item', 'StockBalance', 'StockLedgerEntry', 'Warehouse', 'StockMovement'],
-        'Manufacturing' => ['Bom', 'BomLine', 'WorkOrder', 'WorkOrderMaterial'],
-        'SalesCopilot' => ['Prospect', 'BlastMessage'],
-    ];
+    // Import per-modul dalam fail yang SAMA (fail bergabung).
+    if (preg_match_all('/use\s+App\\\\Modules\\\\([A-Za-z]+)\\\\/', $isi, $im) > 0) {
+        foreach ($im[1] as $mod) {
+            $modulImport[$mod] = true;
+        }
+    }
 
-    // Modul yang TIDAK memiliki model sendiri → dibaca/ditulis melalui model
-    // modul LAIN. Liputan diterima jika ujian isolasi mengimport model tersebut.
-    $modulBergantung = [
-        'SalesCopilot' => ['Prospecting' => ['Prospect'], 'Blast' => ['BlastMessage']],
-    ];
-
-    foreach ($modulBergantung[$m] ?? [] as $asalModul => $kelasSenarai) {
-        foreach ($kelasSenarai as $kelasAsal) {
-            $corakAsal = '/use\s+App\\\\Modules\\\\' . preg_quote($asalModul, '/')
-                . '\\\\Models\\\\' . preg_quote($kelasAsal, '/') . ';/';
-
-            if (preg_match($corakAsal, $korpusUjian)) {
-                $adaModelTeras = true;
-
-                break 2;
+    if (preg_match_all('/\$modul\s*=\s*([\'"])([^\'"]+)\1\s*;/', $isi, $mm) < 1) {
+        continue;
+    }
+    foreach ($mm[2] as $nama) {
+        foreach (explode(',', $nama) as $satu) {
+            $satu = trim($satu);
+            if ($satu === '') {
+                continue;
+            }
+            $modulDiliputi[$satu] = true;
+            // Ujian API sebenar = ada `laluanApi` yang bukan null.
+            if (preg_match('/\$laluanApi\s*=\s*[\'"][^\'"]+[\'"]/', $isi) === 1) {
+                $modulPunyaApi[$satu] = true;
             }
         }
     }
+}
 
-    foreach ($modelTeras[$m] ?? [] as $kelasTeras) {
-        if (preg_match('/use\s+App\\\\Models\\\\' . preg_quote($kelasTeras, '/') . ';/', $korpusUjian)) {
-            $adaModelTeras = true;
-
-            break;
-        }
-    }
-
-    foreach ($failUjian as $f) {
-        $isi = file_get_contents($f);
-        if (preg_match('/class\s+\w*IsolationTest/', $isi) && preg_match($corakImport, $isi)) {
-            $adaImport = true;
-
-            break;
-        }
-    }
-
-    if (($adaDalaman || $adaImport || $adaModelTeras) && str_contains($korpusUjian, 'test_')) {
+foreach ($modul as $m) {
+    if (isset($modulDiliputi[$m])) {
         $adaUjianIsolasi[] = $m;
-    } else {
-        $tiadaUjianIsolasi[] = $m;
+
+        continue;
     }
+
+    // Ujian BERGABUNG (satu fail meliputi beberapa modul): fail itu WAJIB
+    // menyenaraikan modulnya dalam `$modul` — sama ada `$modul = 'A,B'` atau
+    // `$modul = ['A', 'B']`. Import `use App\Modules\X\` SAHAJA tidak dikira
+    // (pepijat T-111: korpus gabungan memberi kredit kepada modul yang tiada fail).
+    $tiadaUjianIsolasi[] = $m;
 }
 
 // ---------------------------------------------------------------

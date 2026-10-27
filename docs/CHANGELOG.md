@@ -48,6 +48,61 @@ sebelum ini berselerak dalam `TODO.md`, supaya `TODO.md` boleh menjadi senarai
 
 ---
 
+## v9.6.2 — 28 Oktober 2026 (sambungan)
+
+### Keselamatan & pagar (T-105)
+
+- **`skrip/semak-kebenaran.php` ditulis semula** — sebelum ini 32 baris yang menyenaraikan
+  kebenaran tenant #1 (ID dikod keras). Kini lima semakan sebenar terhadap router:
+  `perm:` digunakan tetapi tiada dalam katalog, kebenaran mati, laluan berautentikasi
+  tanpa `perm:`, laluan tanpa middleware `tenant`, dan senarai putih
+  (`config/semak-kebenaran.php`) yang pengawalnya tidak memeriksa kebenaran.
+- **57 laluan terdedah ditemui dan ditutup:**
+  - `Assets` — 23 laluan hanya `auth`+`tenant` (padam aset, tutup penyelenggaraan)
+  - `Invoicing` — 22 laluan (rekod bayaran, hantar e-Invois LHDN, lulus sebut harga)
+  - `routes/api.php` — `GET tenant`, `POST documents`, `void`, `preview`
+  - `Billing` — `/packages`; reseller diberi pagar eksplisit
+  - `Fundamental` — `health/ready|deep`
+- **Pagar `route ↔ permission` kini hijau:** 1,384/1,419 laluan berperm, 0 tanpa pagar,
+  0 tanpa tenant. CI menjalankannya.
+
+### Pengasingan tenant (T-111)
+
+- **Audit liputan dibaiki:** `skrip/audit-tenant.php` sebelum ini memberi kredit modul
+  berdasarkan `use App\Modules\X\` dalam **korpus gabungan** ujian → "60/60 modul" tidak
+  sah. Liputan sebenar ketika itu **36/60**.
+- **12 fail bergabung diisytiharkan semula** (`$modul = 'A,B,C'`) melalui
+  `skrip/kemas-modul-bergabung.php`; `UjianPengasingan` menyokong senarai modul.
+- **5 fail pengasingan baharu** (AIGateway, Boardroom, Community, Finance, FlowAutomation,
+  PersonalAssistant, Entitlement, Invoicing, Payroll) → liputan **60/60** yang kini
+  benar, `audit-tenant` exit 0.
+- **Pepijat pengasingan sebenar:** `BoardroomFinding` tiada trait `BelongsToTenant` dan
+  jadualnya tiada `tenant_id`. Ditambah migration
+  `2026_10_28_000100_add_tenant_id_to_boardroom_findings` (backfill daripada sesi induk),
+  trait pada model, dan `tenant_id` eksplisit dalam `BoardroomOrchestrator`.
+
+### Alat & ujian
+
+- **T-104** `skrip/jana-baseline.php`: mod baharu `--semak` (dan `--semak=<fail>`),
+  satu penjana dua gaya (`tebal`/neutral), CI tidak lagi bergantung pada `sed`/`diff`.
+- **T-108** `TeamAiWorkspaceGuardTest` — 7 ujian (token, cascade, idempotensi, had
+  50 fail/64 KB/1 MB).
+- **T-110** `DocumentTest` tidak lagi menulis secara senyap ke direktori yang tiada
+  (`CONTOH_DOKUMEN_OUT`); bunyi "The system cannot find the path specified." hilang.
+- **T-109** `skrip/jana-migrasi-hilang.php` — mendedahkan **28 migrasi** yang dijalankan
+  pada DB tetapi failnya tiada (`payroll_*`, `pos_*`, `hrms_*`, `booking_*`,
+  `marketplace_*`, `sites`, `analytics_*`, …). DB tidak boleh dibina semula dari sifar
+  sehingga ini dipulihkan.
+
+### Ditemui, belum selesai
+
+- **T-113** `docs/AUDIT-BASELINE.md`, `CHANGELOG.md`, `TODO.md` dan blueprint kanonik
+  **tidak dijejak git** (`?? ai-bijan-saas/docs/…`). Jika terpadam, tiada sejarah.
+- **T-109** pemulihan 28 migrasi hilang (pemetaan sudah disediakan, `--tulis` sengaja mati).
+- 23 kebenaran katalog tidak digunakan oleh mana-mana laluan.
+
+---
+
 ## v9.6 — 27 Oktober 2026
 
 ### Dokumentasi & audit

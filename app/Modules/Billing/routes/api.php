@@ -19,13 +19,18 @@ Route::middleware(['api', 'auth:sanctum', 'tenant'])->prefix('billing')->group(f
         ->middleware('perm:entitlement.view');
 
     // Pakej token AI — WAJIB dipilih semasa langganan
-    Route::get('/packages', [BillingController::class, 'pakej']);
+    Route::get('/packages', [BillingController::class, 'pakej'])
+        ->middleware('perm:entitlement.view');
 
     Route::post('/subscribe', [BillingController::class, 'langgan'])
         ->middleware('perm:entitlement.manage');
 });
 
 // ── Reseller (platform — reseller sendiri) ─────────────────────
+// T-105: data reseller ialah data platform (bukan tenant). Laluan ini sengaja
+// TIDAK guna `tenant`/`perm:` — skop diambil daripada `auth()->id()` dalam
+// pengawal (reseller hanya nampak komisen miliknya). Setiap laluan MESTI
+// dihadkan kepada reseller sendiri; tiada parameter `id` dibenarkan di sini.
 Route::middleware(['api', 'auth:sanctum'])->prefix('reseller')->group(function () {
     Route::get('/me', [BillingController::class, 'resellerSaya']);
     Route::get('/commissions', [BillingController::class, 'senaraiKomisen']);

@@ -115,6 +115,9 @@ class BoardroomOrchestrator
         }
 
         $finding = BoardroomFinding::create([
+            // T-111: `BelongsToTenant` juga mengisi daripada TenantContext; nilai
+            // eksplisit ini memastikan pekerjaan berbaris (queue) tetap betul.
+            'tenant_id' => $session->tenant_id,
             'session_id' => $session->id,
             'agent_key' => $agentKey,
             'finding_type' => $type,

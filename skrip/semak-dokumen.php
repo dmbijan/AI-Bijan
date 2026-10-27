@@ -125,10 +125,10 @@ foreach ([$katalog, $sistem, $baseline] as $failDok) {
         'controller' => 'Controller \(modul\)',
         'migration' => 'Migration',
     ] as $kunci => $labelBaris) {
-        if (isset($dakwaan[$kunci]) || $label !== 'AUDIT-BASELINE.md') {
+        if ($label !== 'AUDIT-BASELINE.md') {
             continue;
         }
-        if (preg_match('/\|\s*' . $labelBaris . '\s*\|\s*\*\*([\d,]+)\*\*/', $teks, $m)) {
+        if (preg_match('~\|\s*' . $labelBaris . '\s*\|\s*\*\*([\d,]+)\*\*~', $teks, $m)) {
             $dakwaan[$kunci] = (int) str_replace(',', '', $m[1]);
         }
     }
@@ -230,12 +230,12 @@ if ($wildcard !== []) {
 echo str_repeat('-', 62) . PHP_EOL;
 
 if ($percanggahan === 0) {
-    echo '✅ Semua angka dalam katalog sepadan dengan kod.' . PHP_EOL;
+    echo '✅ Semua angka baseline sepadan dengan kod.' . PHP_EOL;
 } else {
-    echo "❌ {$percanggahan} percanggahan ditemui — kemas kini docs/KATALOG-MODUL-AI-BIJAN.md" . PHP_EOL;
+    echo "❌ {$percanggahan} percanggahan ditemui — jana semula docs/AUDIT-BASELINE.md" . PHP_EOL;
 }
 
 echo PHP_EOL . 'Nota: ujian diukur dengan arahan berasingan:' . PHP_EOL;
-echo '  php artisan test        # baseline disahkan 26 Okt 2026: 963 lulus, 4 dilangkau, 0 gagal' . PHP_EOL;
+echo '  php artisan test        # keputusan ujian tidak disimpulkan daripada metrik kod' . PHP_EOL;
 
 exit($percanggahan === 0 ? 0 : 1);

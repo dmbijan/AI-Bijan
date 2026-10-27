@@ -22,7 +22,7 @@ use Tests\Support\UjianPengasingan;
  */
 class DocumentAiServiceIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'DocumentAI';
+    protected string $modul = 'DocumentAI,IndustryPacks,ServiceOS';
 
     protected array $model = [
         DocumentTemplate::class,

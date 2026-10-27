@@ -16,10 +16,10 @@ Route::prefix('fundamental')->middleware(['auth:sanctum'])->group(function () {
         ->withoutMiddleware(['auth:sanctum', 'tenant']);
 
     Route::get('health/ready', [FundamentalController::class, 'ready'])
-        ->middleware('tenant');
+        ->middleware(['tenant', 'perm:fundamental.view']);
 
     Route::get('health/deep', [FundamentalController::class, 'deep'])
-        ->middleware('tenant');
+        ->middleware(['tenant', 'perm:fundamental.view']);
 
     // ---- OBSERVABILITY ----
     Route::get('logs', [FundamentalController::class, 'logs'])

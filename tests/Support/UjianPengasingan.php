@@ -35,7 +35,17 @@ abstract class UjianPengasingan extends TestCase
 
     protected $seed = true;
 
-    /** Nama folder dalam `app/Modules/` — WAJIB ditetapkan oleh subclass. */
+    /**
+     * Nama folder dalam `app/Modules/` — WAJIB ditetapkan oleh subclass.
+     *
+     * Untuk ujian BERGABUNG (satu fail meliputi beberapa modul) tulis senarai
+     * dipisah koma: `'WorkflowStudio,Vision,LiveSupport'`. `skrip/audit-tenant.php`
+     * membaca nilai ini untuk menentukan liputan — SATU-SATUNYA sumber bukti
+     * "modul X diuji" (T-111: import `use App\Modules\X\` sahaja tidak dikira).
+     *
+     * ⚠️ Jenis MESTI `string` — subclass mengisytiharkan `protected string $modul`,
+     * dan PHP melarang penyempitan jenis (`string|array` induk → `string` anak).
+     */
     protected string $modul = '';
 
     /** Model yang diuji. */
@@ -64,15 +74,23 @@ abstract class UjianPengasingan extends TestCase
     {
         parent::setUp();
 
-        if ($this->modul === '') {
+        $senaraiModul = array_filter(array_map('trim', explode(',', $this->modul)));
+
+        if ($senaraiModul === []) {
             throw new RuntimeException('Ujian pengasingan mesti menetapkan $modul.');
         }
+
+        $this->modul = implode(',', $senaraiModul);
+
+        // Slug selamat untuk e-mel: `$modul` boleh berisi senarai (`A,B,C`) —
+        // `pemilik@a,b,c.my` tidak sah dan `daftar()` akan gagal 422.
+        $slug = preg_replace('/[^a-z0-9]+/', '-', strtolower(implode('-', $senaraiModul)));
 
         $this->setUpAkses();
 
         [$this->u, $this->t] = $this->daftar(
-            'pemilik@' . strtolower($this->modul) . '.my',
-            $this->modul . ' Sdn Bhd'
+            'pemilik@' . $slug . '.my',
+            implode(' ', $senaraiModul) . ' Sdn Bhd'
         );
         $this->dalamTenant($this->t);
     }
@@ -107,11 +125,17 @@ abstract class UjianPengasingan extends TestCase
         return $this->gunaForce ? $model::forceCreate($data) : $model::create($data);
     }
 
+    /** Slug e-mel selamat daripada `$modul` (boleh berisi `A,B,C`). */
+    private function slugModul(): string
+    {
+        return preg_replace('/[^a-z0-9]+/', '-', strtolower($this->modul));
+    }
+
     protected function konteksDua(): Tenant
     {
         if ($this->t2 === null) {
             [, $this->t2] = $this->daftar(
-                't2@' . strtolower($this->modul) . '.my',
+                't2@' . $this->slugModul() . '.my',
                 $this->modul . ' Tenant Dua Sdn Bhd'
             );
         }
@@ -229,7 +253,7 @@ abstract class UjianPengasingan extends TestCase
 
         // daftar() membuat permintaan HTTP → konteks kosong (nota projek)
         [$u2, $t2] = $this->daftar(
-            'api2@' . strtolower($this->modul) . '.my',
+            'api2@' . $this->slugModul() . '.my',
             $this->modul . ' API Dua Sdn Bhd'
         );
         $this->sebagai($u2, $t2);

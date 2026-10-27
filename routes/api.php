@@ -97,7 +97,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('auth/2fa/confirm', [AuthController::class, 'twoFactorConfirm']);
     // Dalam tenant
     Route::middleware('tenant')->group(function () {
-        Route::get('tenant', [TenantController::class, 'show']);
+        // T-105: `tenant` hanya menetapkan konteks — bukan kebenaran. Setiap
+        // laluan MESTI ada pagar `perm:` (pengawal boleh mengetatkan lagi).
+        Route::get('tenant', [TenantController::class, 'show'])->middleware('perm:tenant.settings.view');
         Route::get('tenant/settings', [TenantController::class, 'settings'])->middleware('perm:tenant.settings.view');
         Route::put('tenant/settings', [TenantController::class, 'updateSettings'])->middleware('perm:tenant.settings.update');
         Route::get('members', [TenantController::class, 'members'])->middleware('perm:members.view');
@@ -114,14 +116,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('api-keys/{id}', [TenantController::class, 'revokeApiKey'])->middleware('perm:api_keys.manage')->whereNumber('id');
         Route::get('approvals', [TenantController::class, 'approvals'])->middleware('perm:approvals.view');
         Route::post('approvals/{id}/decide', [TenantController::class, 'decide'])->middleware('perm:approvals.decide')->whereNumber('id');
-        // Dokumen (kebenaran diperincikan dalam pengawal: sulit vs biasa, atau pemilik dokumen)
+        // Dokumen — BACA/papar hanya melalui pagar dalam `DocumentController`
+        // (`bolehAkses()`: dokumen sendiri ATAU `documents.view`/`documents.sensitive`).
+        // Pagar `perm:` di sini akan menghalang pekerja memuat turun slip gaji
+        // SENDIRI (ujian `DocumentTest::test_slip_gaji_hanya_pekerja_itu_dan_hr`).
         Route::get('documents/catalog', [DocumentController::class, 'catalog']);
         Route::get('documents', [DocumentController::class, 'index']);
-        Route::post('documents', [DocumentController::class, 'store']);
-        Route::post('documents/preview', [DocumentController::class, 'preview']);
         Route::get('documents/{ulid}', [DocumentController::class, 'show']);
         Route::get('documents/{ulid}/download/{format}', [DocumentController::class, 'download'])->where('format', 'pdf|docx|odt|xlsx|ods|csv|html|json');
-        Route::post('documents/{ulid}/void', [DocumentController::class, 'void']);
+
+        // TULIS — dikunci di laluan (T-105: sebelum ini `store` tiada pagar
+        // langsung, jadi sesiapa boleh mengeluarkan slip gaji).
+        Route::middleware('perm:documents.issue')->group(function () {
+            Route::post('documents', [DocumentController::class, 'store']);
+            Route::post('documents/preview', [DocumentController::class, 'preview']);
+        });
+        Route::post('documents/{ulid}/void', [DocumentController::class, 'void'])->middleware('perm:documents.void');
         // B-Inventory & Warehouse
         Route::middleware('perm:inventory.view')->group(function () {
             Route::get('inventory/warehouses', [Inv::class, 'warehouses']);
@@ -407,8 +417,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('site/forms/{id}', [FormCtrl::class, 'destroy'])->whereNumber('id');
             Route::post('site/forms/{id}/toggle-active', [FormCtrl::class, 'toggleActive'])->whereNumber('id');
         });
-        // Public form submission
-        Route::post('site/forms/{id}/submit', [FormCtrl::class, 'submit'])->whereNumber('id');
+        // Public form submission (portal awam — tiada auth; lihat config/semak-kebenaran.php)
+        Route::post('site/forms/{id}/submit', [FormCtrl::class, 'submit'])->whereNumber('id')->middleware('throttle:30,1');
         // Domains
         Route::middleware('perm:site.view')->group(function () {
             Route::get('site/domains', [DomainCtrl::class, 'index']);

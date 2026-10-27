@@ -21,7 +21,7 @@ use Tests\Support\UjianPengasingan;
  */
 class WorkflowVisionSupportIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'WorkflowStudio';
+    protected string $modul = 'LiveSupport,Vision,WorkflowStudio';
 
     protected array $model = [
         Workflow::class,

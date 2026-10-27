@@ -19,7 +19,7 @@ use Tests\Support\UjianPengasingan;
  */
 class ProspectingMediaIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'Prospecting';
+    protected string $modul = 'MediaStudio,Prospecting';
 
     protected array $model = [
         Prospect::class,

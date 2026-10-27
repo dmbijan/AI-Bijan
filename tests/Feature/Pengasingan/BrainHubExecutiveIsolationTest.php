@@ -16,7 +16,7 @@ use Tests\Support\UjianPengasingan;
  */
 class BrainHubExecutiveIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'BrainHub';
+    protected string $modul = 'BrainHub,ExecutiveAI';
 
     protected array $model = [
         Insight::class,

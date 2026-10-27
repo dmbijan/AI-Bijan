@@ -19,7 +19,7 @@ use Tests\Support\UjianPengasingan;
  */
 class SignDocsCodIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'SignDocs';
+    protected string $modul = 'Cod,SignDocs';
 
     protected array $model = [
         Document::class,

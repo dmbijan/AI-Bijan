@@ -85,8 +85,17 @@ class DocumentTest extends TestCase
     {
         [$u, $t] = $this->daftar('a@kedai-a.my', 'Kedai A');
         $this->sebagai($u, $t)->putJson('/api/v1/tenant/settings', ['settings' => ['company.legal_name' => 'AI Bijan Demo Sdn. Bhd.', 'company.reg_no' => '202501000001 (1600001-X)', 'company.sst_no' => 'W10-1808-32000001', 'company.address' => "No. 1, Jalan Bunga\n43000 Kajang, Selangor", 'company.phone' => '03-8700 0000']])->assertOk();
-        $out = storage_path('app/contoh-dokumen');
-        @mkdir($out, 0775, true);
+        // T-110: direktori output hendaklah boleh dikonfigurasi dan MESTI disahkan
+        // sebelum menulis. Di Windows tanpa kebenaran, `@mkdir` gagal senyap dan
+        // `file_put_contents` mengeluarkan "The system cannot find the path
+        // specified." — bunyi yang sebelum ini dikira "amaran" dalam laporan ujian.
+        $out = getenv('CONTOH_DOKUMEN_OUT') ?: storage_path('app/contoh-dokumen');
+        if (! is_dir($out) && ! @mkdir($out, 0775, true) && ! is_dir($out)) {
+            $this->markTestSkipped("Direktori output ujian tidak boleh dicipta: {$out}. Set CONTOH_DOKUMEN_OUT ke laluan yang boleh ditulis.");
+        }
+        if (! is_writable($out)) {
+            $this->markTestSkipped("Direktori output ujian tidak boleh ditulis: {$out}.");
+        }
         $bil = 0;
         foreach (Registry::all() as $key => $tpl) {
             foreach (['ms', 'en'] as $lang) {

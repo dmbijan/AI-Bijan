@@ -1,221 +1,220 @@
-# AI BIJAN — Dokumentasi Sistem
+<p align="center">
+  <h1>AI BIJAN SaaS</h1>
+  <p><em>Your AI Business Team, in the Room.</em></p>
+  <p><strong>AI-Native Business Operating System</strong> untuk PKS Malaysia</p>
+</p>
 
-> **AI-Native Business Operating System** · Blueprint **v9.6** · 27 Oktober 2026
-> **59 modul dikodkan (termasuk `Billing` — reseller komisen berulang) · 58 migration · ~872 endpoint `api/v1` · ~1,119 kaedah ujian · 65 resource Filament**
+<p align="center">
+  <a href="docs/SISTEM-AI-BIJAN.md"><strong>Dokumen Sistem</strong></a> ·
+  <a href="docs/AUDIT-BASELINE.md"><strong>Baseline</strong></a> ·
+  <a href="docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md"><strong>Audit</strong></a> ·
+  <a href="docs/TODO.md"><strong>TODO</strong></a>
+</p>
+
+---
+
+> ### ⚠️ Status: `DEVELOPMENT` — **belum production-ready**
 >
-> 📊 **Semua angka rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) — satu-satunya
-> sumber kebenaran. Jangan salin angka dari mana-mana dokumen lain.
+> Repositori ini **mempunyai** implementasi kod yang meluas (60 modul, ~877 laluan
+> API, ~1,119 kaedah ujian) tetapi **belum** disahkan untuk penggunaan komersial.
+> Secara khusus:
+>
+> - ❌ **Tiada integrasi luar yang aktif** — Meta/WhatsApp, CHIP/FPX, LHDN e-Invois,
+>   Google/Meta Ads dan penghantar kurier **belum** disambungkan (perlu akaun +
+>   kelulusan provider).
+> - ❌ **Belum disahkan pada MySQL** — dev berjalan pada SQLite.
+> - ❌ **Audit keselamatan belum lengkap** — belum ada penetration test, load test,
+>   atau drill backup/restore.
+> - ❌ **Pematuhan belum disahkan** — PDPA, GST, e-Invois, EPF/SOCSO belum
+>   disahkan oleh pihak berkuasa/pakar.
+>
+> Rujuk [`docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md)
+> §15–§17 untuk matriks keutamaan P0–P3 dan senarai semak pelepasan.
 
 ---
 
-## ▶ Mula Di Sini
+## Stack teknikal
 
-### **[`AUDIT-BASELINE.md`](AUDIT-BASELINE.md)** — Sumber Kebenaran Angka ⭐⭐
+| Lapisan | Teknologi |
+|---|---|
+| Backend | **Laravel 12.70.1**, **PHP 8.2.12** |
+| Pangkalan data | SQLite (dev) · MySQL 8.x (prod) |
+| Cache / Queue | Laravel database driver |
+| Frontend | Blade + Vite (tiada SPA framework berasingan) |
+| Admin panel | **Filament 3.3.53** — 65 resource, `/admin` |
+| Auth | Laravel Sanctum + `spatie/laravel-permission` |
+| AI | `AIGateway` — satu pintu masuk untuk semua model |
 
-**Baca ini dahulu jika anda akan membuat dakwaan tentang saiz platform.**
-Dijana automatik daripada kod (`php skrip/jana-baseline.php --tulis`), disemak
-oleh CI, dan mengandungi senarai penuh angka lama yang telah dibetulkan.
+Team AI Workspace menyegerakkan aset AI pasukan daripada repository GitHub. Lihat
+[`docs/TEAM-AI-WORKSPACE.md`](docs/TEAM-AI-WORKSPACE.md) untuk skop dan konfigurasi.
 
 ---
 
-### **[`SISTEM-PEMBANGUNAN-DARI-MULA.md`](SISTEM-PEMBANGUNAN-DARI-MULA.md)** — Satu Dokumen, Dari Mula ⭐⭐
+## Pasang & jalankan
 
-**Untuk BINA, KENDALIKAN dan JUAL AI BIJAN** — satu dokumen tanpa perlu melompat
-antara 20 fail lain.
+**Prasyarat:** PHP **8.2+** (ekstensi `pdo_sqlite`, `mbstring`, `openssl`, `dom`,
+`gd`, `zip`), Composer 2, Node.js 20+.
 
-| Bahagian | Isi |
-|---|---|
-| §1–§4 | Ringkasan sistem · keperluan & pemasangan · **10 prinsip wajib** · seni bina 4 lapisan |
-| §5–§9 | **Teras 5 lapisan** — skema platform · pengasingan tenant (kod penuh) · RBAC & entitlemen · middleware · audit & outbox |
-| §10–§12 | Anatomi modul (templat wajib) · **peta 59 modul** · 7 corak domain berulang |
-| §13–§14 | AI Gateway **8 langkah** · PromptGuard/PII/wallet · otonomi 0–4 & pagar |
-| §15–§18 | Filament **7 peraturan** · ujian · penjadual & queue · keselamatan & PDPA |
-| §19–§20 | Pematuhan Malaysia · **corak jualan, harga pesaing, Reseller** |
-| §21–§26 | **12 fasa pembinaan** · skrip · senarai semak penerimaan · **status jujur** · perangkap ikut kategori · arahan pengesahan |
-| §27 | Glosari + susunan bacaan mengikut peranan |
+```sh
+# 1) Pasang dependencies
+composer install
+npm install --ignore-scripts
 
-27 seksyen · semua angka disahkan `php skrip/semak-dokumen.php` + `php artisan test`
+# 2) Sediakan persekitaran
+cp .env.example .env
+php artisan key:generate
 
-### **[`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md)** — Reverse Engineering ⭐
+# 3) Pangkalan data (SQLite lalai — portable, tiada pelayan diperlukan)
+touch database/database.sqlite
+php artisan migrate --seed
 
-**Untuk BINA SEMULA AI BIJAN dari sifar.** Tiada rujukan luaran diperlukan.
+# 4) Bina frontend
+npm run build
 
-| Bahagian | Isi |
-|---|---|
-| **I — Asas** | Skop sebenar · keperluan teknikal · **6 prinsip wajib** |
-| **II — Teras** | Skema 13 jadual platform · **pengasingan tenant 4 lapis (kod penuh)** · RBAC · `ModuleGate` + alias · middleware · audit |
-| **III — Modul** | **Templat modul wajib** · **59 modul + awalan jadual** · 7 corak domain |
-| **IV — AI** | `GatewayService::call()` **8 langkah** · PromptGuard · wallet · otonomi 0–4 |
-| **V — UI** | **7 peraturan Filament** wajib |
-| **VI — Operasi** | Ujian · queue · keselamatan · PDPA · **12 fasa pembinaan** · senarai semak |
-| **Lampiran** | Perangkap ikut kategori · arahan pengesahan · glosari |
+# 5) Jalankan
+php artisan serve
+```
 
-23 bab · kod penuh `TenantContext`, `BelongsToTenant`, `ResolveTenant`,
-`RequirePermission`, `ModuleGate`, `GatewayService` · anggaran **83–118 hari kerja**
+Admin Filament: <http://localhost:8000/admin>
 
-### **[`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md)** — Dokumen Sistem Lengkap
+> **Pintasan:** `composer setup` menjalankan langkah 1–4 secara automatik.
 
-**Satu dokumen. Semua yang perlu tahu tentang sistem.**
+### Tukar ke MySQL (untuk persediaan prod)
 
-| Bahagian | Isi |
-|---|---|
-| §0 | Ringkasan satu halaman + semua angka |
-| §1 | Seni bina teras — 4 lapisan, pengasingan tenant, middleware |
-| §2 | **Peta 59 modul** dengan laluan sebenar setiap satu |
-| §3 | Lapisan AI — satu enjin, lapan muka, enam pagar |
-| §4 | UI Filament — 66 resource, kebenaran dua lapis |
-| §5 | Pematuhan Malaysia |
-| §6 | **Status jujur** — apa siap, apa belum, skor |
-| §7 | Glosari |
-| §8 | Cara sahkan dokumen ini |
-| §9 | Rujukan |
+```sh
+pwsh -File skrip/tukar_db.ps1 -Ke mysql
+php artisan migrate:fresh --seed
+php artisan test
+```
 
-> **Faham sistem** → `SISTEM-AI-BIJAN.md` · **Bina sistem** → `BLUEPRINT-SISTEM-LENGKAP.md`
-
-> 💡 **Mahu satu fail sahaja?** → [`SISTEM-PEMBANGUNAN-DARI-MULA.md`](SISTEM-PEMBANGUNAN-DARI-MULA.md)
-> menggabungkan ketiga-tiga dokumen di atas **dan** corak jualan/harga dalam 27 seksyen.
+Skrip `skrip/semak_mysql.php` telah mengaudit keserasian **58** fail migration
+terhadap MySQL (0 SQL khusus SQLite, 0 indeks melebihi 3072 bait).
 
 ---
 
-## Ikut Peranan Anda
+## Ujian & pengesahan
 
-### 👤 Saya ingin faham sistem ini
-1. [`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md) §0 → §2
-2. [`BACA-SAYA.md`](BACA-SAYA.md) — panduan pantas
+```sh
+npm test                                # ujian unit resit/WebUSB; tiada pemasangan npm diperlukan
+php artisan test                        # suite penuh PHP
+php artisan test --filter=Pengasingan    # ujian pengasingan tenant
+composer audit                          # advisori keselamatan
+php skrip/semak-dokumen.php             # bandingkan angka dokumentasi vs kod
+php skrip/audit-tenant.php              # audit pengasingan tenant
+php skrip/audit-ui.php                  # audit UI Filament
+```
 
-### 💻 Saya developer baru
-1. [`getting-started.md`](getting-started.md) — setup → log masuk
-2. [`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md) §1 — seni bina
-3. [`MODUL-AI-INTEGRASI.md`](MODUL-AI-INTEGRASI.md) — jika kerja dengan AI
-4. `../.github/skills/aibijan-coding/references/gotchas.md` — pepijat sebenar
-
-### 🏗️ Saya nak BINA sistem ini dari sifar
-1. **[`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md)** §22 — 12 fasa pembinaan
-2. [`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md) §4–§9 — teras (WAJIB dahulu)
-3. [`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md) §10 — templat modul
-4. [`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md) Lampiran A — perangkap
-
-> ⚠️ **Jangan lompat ke modul sebelum Bahagian II teras siap.** Kesilapan
-di situ tidak boleh dibaiki kemudian tanpa menulis semula setiap modul.
-
-### 📊 Saya buat keputusan perniagaan
-1. [`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md) §6 — status jujur & skor
-2. [`ANALISIS-KOMPETITIF.md`](ANALISIS-KOMPETITIF.md) — pesaing & harga
-3. [`BUSINESS-GROWTH-ENGINE.md`](BUSINESS-GROWTH-ENGINE.md) — 9 kelebihan
-4. [`CADANGAN-IMPAK-TINGGI.md`](CADANGAN-IMPAK-TINGGI.md) — keutamaan
-5. [`MODEL-HASIL-TOKEN.md`](MODEL-HASIL-TOKEN.md) — model hasil: langganan + token AI wajib
-6. [`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md) — model jualan berulang
-
-### 🔍 Saya nak tahu apa yang sudah/belum dibina
-1. [`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md) §6
-2. [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md)
-3. `../TODO.md`
+Skrip `semak-dokumen.php` turut memantau dua kelas pepijat sebenar:
+`laluan_berganda` (`api/v1/finance/finance/*`) dan `laluan_wildcard` (`api/v1/{id}`).
+Kedua-duanya mesti **0**.
 
 ---
 
-## Semua Dokumen
+## Struktur
 
-### Teras
+```
+ai-bijan-saas/
+├── app/
+│   ├── Modules/          # 60 modul mengikut subdomain (modular monolith)
+│   ├── Filament/         # 65 resource admin + 6 widget
+│   ├── Models/           # model platform & shared
+│   ├── Http/             # middleware, controller teras
+│   └── Services/         # servis teras
+├── database/
+│   ├── migrations/       # 58 fail
+│   └── seeders/
+├── routes/
+│   ├── api.php           # laluan teras + auth
+│   ├── marketing.php
+│   └── web.php
+├── skrip/                # skrip penyelenggaraan & audit
+├── tests/
+│   ├── Feature/          # 89 fail ujian (termasuk 39 ujian pengasingan tenant)
+│   ├── Support/
+│   └── Unit/
+└── docs/                 # 141+ dokumen — mula dengan README.md
+```
 
-| Dokumen | Isi | Dikemas kini |
-|---|---|---|
-| **[`AUDIT-BASELINE.md`](AUDIT-BASELINE.md)** | **Sumber kebenaran angka — dijana automatik daripada kod** | ✅ 27 Okt |
-| **[`AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](AI-BIJAN-AUDIT-INDUK-LENGKAP.md)** | **Audit induk — jurang, risiko, pertindihan, matriks P0–P3** | ✅ 27 Okt |
-| **[`CHANGELOG.md`](CHANGELOG.md)** | **Sejarah status platform** (v8.9 → v9.6) | ✅ 27 Okt |
-| **[`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md)** | **Blueprint induk (v9.6)** | ✅ 27 Okt |
-| **[`SISTEM-PEMBANGUNAN-DARI-MULA.md`](SISTEM-PEMBANGUNAN-DARI-MULA.md)** | **Satu dokumen: bina + operasi + jualan (27 seksyen)** | ✅ 26 Okt |
-| **[`BLUEPRINT-SISTEM-LENGKAP.md`](BLUEPRINT-SISTEM-LENGKAP.md)** | **Reverse engineering — bina semula dari sifar** | ✅ 26 Okt |
-| **[`SISTEM-AI-BIJAN.md`](SISTEM-AI-BIJAN.md)** | **Dokumen sistem lengkap** | ✅ 27 Okt |
-| [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md) | Katalog terperinci setiap modul | ✅ 27 Okt |
-| [`getting-started.md`](getting-started.md) | Setup dari sifar | ✅ 26 Okt |
-| [`BACA-SAYA.md`](BACA-SAYA.md) | Panduan pantas | ✅ 26 Okt |
-| [`AUDIT-DOKUMEN.md`](AUDIT-DOKUMEN.md) | Laporan audit dokumentasi (petikan lama) | ✅ 26 Okt |
-| [`TODO.md`](TODO.md) | Kerja belum siap (P0–P5) | ✅ 27 Okt |
+### Kontrak modul
 
-### AI & Automasi
+Setiap modul mengikut corak yang sama:
 
-| Dokumen | Isi |
-|---|---|
-| [`MODUL-AI-INTEGRASI.md`](MODUL-AI-INTEGRASI.md) | Peta kebergantungan AI + titik integrasi |
-| [`PROSPEK-BLAST-CLOSE.md`](PROSPEK-BLAST-CLOSE.md) | Enjin jualan: prospek → blast → close |
-| [`KAJIAN-FINDS-PROSPECT-BLAST-CLOSE.md`](KAJIAN-FINDS-PROSPECT-BLAST-CLOSE.md) | Kajian asal + status kod |
-| [`customer-side.md`](customer-side.md) | Customer Portal & Personal AI |
-| [`PELAN-VIRTUAL-OFFICE.md`](PELAN-VIRTUAL-OFFICE.md) | Pelan Virtual Office |
+```
+app/Modules/<Modul>/
+├── <Modul>ServiceProvider.php
+├── config/               # config modul
+├── Models/
+├── Services/             # logik domain
+├── Http/Controllers/
+├── database/migrations/  # prefix jadual modul
+└── routes/api.php        # didaftar oleh ServiceProvider sahaja
+```
 
-### Strategi & Kompetitif
-
-| Dokumen | Isi |
-|---|---|
-| **[`MODEL-HASIL-TOKEN.md`](MODEL-HASIL-TOKEN.md)** | **Model hasil sebenar** — RM388 langganan + pakej token AI WAJIB (RM55–1,100) · komisen RM100 dari langganan sahaja · **kos token SUDAH DIKIRA** (margin 90.9%) |
-| **[`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md)** | **Model komisen berulang** — RM388/RM100/bulan · 12 peraturan · dikodkan dalam `Billing` (32 ujian) |
-| [`ANALISIS-KOMPETITIF.md`](ANALISIS-KOMPETITIF.md) | 5 pesaing teras + skor |
-| [`PETA-PESAING-34-MODUL.md`](PETA-PESAING-34-MODUL.md) | 400+ pesaing, 34 **kategori** |
-| [`AUDIT-PESAING-LANJUTAN.md`](AUDIT-PESAING-LANJUTAN.md) | 15 pesaing baharu |
-| [`REVERSE-ENGINEERING-200-APPS-50-OSS.md`](REVERSE-ENGINEERING-200-APPS-50-OSS.md) | 200 apps + 50 OSS |
-| [`BUSINESS-GROWTH-ENGINE.md`](BUSINESS-GROWTH-ENGINE.md) | 9 kelebihan + status kod |
-| [`CADANGAN-IMPAK-TINGGI.md`](CADANGAN-IMPAK-TINGGI.md) | 15 cadangan |
-| [`competitive-analysis-report.md`](competitive-analysis-report.md) | Laporan panjang |
-| [`ai-bijan-vs-world-comparison.md`](ai-bijan-vs-world-comparison.md) | Perbandingan global |
-| [`shopify-hubspot-enhancement-strategy.md`](shopify-hubspot-enhancement-strategy.md) | Strategi Shopify/HubSpot |
-
-### Rujukan & Mockup
-
-| Fail | Nota |
-|---|---|
-| [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) | **Blueprint induk v9.6** — 103 bab / 27 PART (termasuk BAB 93 Reseller) |
-| [`cara-pasang.md`](cara-pasang.md) | Mockup Command Center + cara lekat |
-| `command-center.html` · `CommandCenter.tsx` · `dashboard.blade.php` | Mockup UI — **bukan kod produksi** |
-| `dashboard-bi.patch` · `dashboard-command-center.patch` | Patch sejarah |
-| `dashboard.blade (1).php` | ⚠️ Duplikasi — calon dibuang |
+> ⚠️ **Jangan** daftar laluan modul dalam `routes/api.php` — itu menyebabkan
+> prefix berganda. Modul mendaftarkan laluannya sendiri melalui ServiceProvider.
 
 ---
 
-## `archive/` — Jangan Guna Sebagai Rujukan Semasa
+## Prinsip seni bina
 
-| Folder | Bilangan | Isi |
-|---|---|---|
-| `archive/features/` | 28 fail | **Dokumen B-POS System** — bukan AI BIJAN |
-| `archive/` (akar) | 7 fail | **Dokumen B-POS System** — `configuration.md` (DOKU), dll. |
-| `archive/blueprint-lama/` | 28 fail | Blueprint v2.x–v8.x yang digantikan |
-
-**Bukti dokumen B-POS bukan AI BIJAN:** `DOKU_CLIENT_ID`/`point_of_sales` = **0**
-dalam `.env.example`; `app/Services/Payments/` **tidak wujud**; `DineOrder`,
-`KitchenService`, `ThermalPrintService` = **0 kelas**.
-
-**Hanya guna:** [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) (v9.6).
-
----
-
-## Peraturan Dokumentasi
-
-1. **Sahkan angka dulu.**
-   ```powershell
-   php skrip/semak-dokumen.php     # membandingkan katalog vs kod
-   php artisan test
-   php artisan route:list --path=api/v1 | Measure-Object -Line
-   ```
-
-2. **Jangan tandakan ✅ untuk ciri belum dikodkan.**
-   ✅ siap & diuji · 🟢 kebanyakannya · 🟡 separa · ⏸️ placeholder · ⛔ tiada
-
-3. **Sebut BAB + versi blueprint** untuk setiap ciri.
-
-4. **Bezakan spesifikasi vs pelaksanaan.** BAB 90-91 (B-Receipt, B-Vision) =
-   **spesifikasi sahaja, tiada kod**.
-
-5. **Setiap dokumen mesti ada tarikh kemas kini** di bahagian atas.
-
-6. **Dokumen yang mendakwa lebih daripada kod** → keputusan salah dengan yakin.
-   **Dokumen yang mendakwa kurang** → pasukan bina semula perkara yang wujud.
+1. **Laravel standalone** — tiada dependency wajib ERPNext/Frappe.
+2. **Multi-tenant** — pengasingan data melalui `BelongsToTenant` (global scope +
+   auto-fill `tenant_id` + halang ubah). `tenant_id` sahaja **bukan** bukti
+   keselamatan — setiap laluan wajib `middleware('tenant')` + `perm:`.
+3. **Hierarki 4 tahap** — Master → Super → White-label → Customer Admin.
+4. **Satu AI Gateway** — semua panggilan model mesti melalui
+   `AIGateway\Services\GatewayService`. Modul **dilarang** memanggil provider AI
+   secara terus. `PromptGuard` berjalan sebagai langkah 0.
+5. **Harga ber-basis pangkalan data** — jangan hardcode harga.
+6. **Audit trail wajib** — untuk setiap tindakan kewangan, stok, akses dan AI.
+7. **Malaysia-first** — MYR, `Asia/Kuala_Lumpur`, dwibahasa BM/EN.
 
 ---
 
-## Rujukan Luar `docs/`
+## Modul (59)
 
-| Lokasi | Isi |
+| Kategori | Modul |
 |---|---|
-| [`../TODO.md`](../TODO.md) | T-01 → T-92 |
-| [`../.github/skills/aibijan-coding/`](../.github/skills/aibijan-coding/) | Skill + gotchas + peraturan keselamatan |
-| [`../skrip/`](../skrip/) | 20 skrip penyelenggaraan |
-| [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) | Blueprint induk v9.6 |
-| [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) | **Satu-satunya sumber kebenaran angka** (disahkan 27 Okt 2026) |
+| **Teras platform** | `Entitlement`, `Fundamental`, `IndustryPacks` |
+| **Jualan & saluran** | `CRM`, `Orders`, `POS`, `Omnichannel`, `Marketplace`, `Site`, `Booking`, `Cod`, `Logistics`, `Fleet` |
+| **Katalog & stok** | `Inventory`, `Manufacturing`, `SCM`, `Loyalty`, `Affiliate` |
+| **Kewangan** | `Invoicing`, `Finance`, `Expense`, `Payroll`, `COGS`, `Billing` |
+| **Orang & operasi** | `HRMS`, `Projects`, `Assets`, `ServiceOS` |
+| **Pemasaran** | `Marketing`, `Blast`, `ContentStudio`, `MediaStudio`, `MediaEditor`, `Seo`, `Link`, `SalesCopilot`, `Prospecting`, `ProofOfValue` |
+| **AI & ejen** | `AIGateway`, `AIAgents`, `AgentStudio`, `Boardroom`, `PersonalAssistant`, `ExecutiveAI`, `BusinessIntel`, `BrainHub`, `McpStudio`, `FlowAutomation`, `WorkflowStudio`, `ADE` |
+| **Lain-lain** | `Analytics`, `DocumentAI`, `SignDocs`, `Helpdesk`, `LiveSupport`, `Community`, `VirtualOffice` |
+
+---
+
+## Dokumentasi
+
+| Fail | Kandungan |
+|---|---|
+| [`docs/README.md`](docs/README.md) | Indeks penuh dokumentasi |
+| [`docs/AUDIT-BASELINE.md`](docs/AUDIT-BASELINE.md) | **Satu-satunya sumber kebenaran angka** |
+| [`docs/SISTEM-AI-BIJAN.md`](docs/SISTEM-AI-BIJAN.md) | Dokumen sistem lengkap |
+| [`docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md) | Audit induk — jurang, risiko, pelan P0–P3 |
+| [`docs/AI-BIJAN-MASTER-BLUEPRINT.md`](docs/AI-BIJAN-MASTER-BLUEPRINT.md) | Blueprint induk (v9.6) |
+| [`docs/KATALOG-MODUL-AI-BIJAN.md`](docs/KATALOG-MODUL-AI-BIJAN.md) | Katalog terperinci setiap modul |
+| [`docs/TODO.md`](docs/TODO.md) | Kerja belum siap (P0–P5) |
+| [`docs/AGENTS.md`](docs/AGENTS.md) | Garis panduan untuk ejen kod |
+| [`docs/archive/`](docs/archive/) | Arkib — **bukan** rujukan authoritative |
+
+---
+
+## Lesen
+
+Hak cipta © Bijan Digital Marketing.
+Notis lesen komponen pihak ketiga tersedia dalam
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+---
+
+## Menyumbang
+
+Projek ini milik **Bijan Digital Marketing**. Untuk isu keselamatan dalam AI BIJAN
+(report vulnerability), gunakan[e-mel proprietari](mailto:security@ai-bijan.my) —
+**jangan** buka isu GitHub awam.
+
+Panduan ejen kod: [`docs/AGENTS.md`](docs/AGENTS.md) ·
+skill: [`.github/skills/aibijan-coding/`](.github/skills/aibijan-coding/)

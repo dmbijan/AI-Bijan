@@ -128,6 +128,30 @@ class BposOperationTest extends TestCase
         ]);
     }
 
+    public function test_modifier_selection_deduplicates_ids_and_preserves_snapshot_contract(): void
+    {
+        $item = $this->item();
+        $group = $this->kumpulanModifier(min: 2, max: 2, harga: 2.50);
+        $this->lampir($group, $item);
+        $first = $group->options()->first();
+        $second = POSModifierOption::create([
+            'modifier_group_id' => $group->id,
+            'name' => 'Extra',
+            'price' => 1.25,
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        $svc = app(ModifierService::class);
+        $result = $svc->resolve($item, [(string) $second->id, 0, $first->id, $second->id]);
+        $this->assertSame($svc->resolve($item, [$first->id, $second->id]), $result);
+        $this->assertSame(3.75, $result['total']);
+        $this->assertSame(sha1($first->id . ',' . $second->id), $result['key']);
+        $this->assertSame([
+            ['option_id' => $second->id, 'group' => 'Saiz', 'name' => 'Extra', 'price' => 1.25],
+            ['option_id' => $first->id, 'group' => 'Saiz', 'name' => 'Besar', 'price' => 2.50],
+        ], $result['modifiers']);
+    }
+
     public function test_modifier_diambil_dengan_harga_snapshot(): void
     {
         $item = $this->item();

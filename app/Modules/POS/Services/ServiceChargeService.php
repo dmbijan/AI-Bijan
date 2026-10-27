@@ -10,8 +10,8 @@ namespace App\Modules\POS\Services;
  * MAKAN DI TEMPAT sahaja, dan ia mesti dipaparkan BERASINGAN daripada cukai
  * dalam resit (bukan digabung ke dalam `tax_amount`).
  *
- * Kadar & skop datang daripada `config/pos.php` (boleh ditimpa per tenant
- * melalui tetapan tenant).
+ * Kadar & skop dibaca daripada konfigurasi global `config/pos.php`.
+ * Servis ini tidak membaca tetapan tenant.
  */
 class ServiceChargeService
 {
@@ -19,7 +19,7 @@ class ServiceChargeService
 
     public const SKOP_SEMUA = 'all';
 
-    /** Kadar caj perkhidmatan untuk tenant (0 = tiada caj). */
+    /** Kadar caj perkhidmatan global (0 = tiada caj). */
     public function kadar(): float
     {
         $kadar = (float) config('pos.service_charge.rate', 0);

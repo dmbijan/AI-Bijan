@@ -105,6 +105,17 @@
     </div>
 </section>
 
+<div class="card mb-4">
+    <h2 class="card-title">Pencetak resit ESC/POS USB</h2>
+    <p class="text-sm">Chrome/Edge desktop, HTTPS/localhost. Hanya pencetak USB kelas 7 dengan protokol ESC/POS. Sahkan model sebelum sambung; bukan semua pencetak USB serasi.</p>
+    <div class="row">
+        <button type="button" class="btn btn-sm" id="printerConnect">Sambung pencetak</button>
+        <button type="button" class="btn btn-sm" id="printerDisconnect">Putus sambungan</button>
+        <select class="select" id="receiptWidth" aria-label="Lebar resit"><option value="32">58 mm / 32 aksara</option><option value="48">80 mm / 48 aksara</option></select>
+    </div>
+    <p id="printerStatus" role="status" aria-live="polite">Pencetak belum disambung.</p>
+</div>
+
 <section data-panel="sales" hidden>
     <div class="card mb-4">
         <div class="row-between">
@@ -840,7 +851,8 @@ function saleActions(s) {
                `<button class="btn btn-sm" onclick="cancelSale(${s.id})">Batal</button>`;
     }
     if (s.status === 'completed') {
-        return `<button class="btn btn-sm btn-danger" onclick="openRefund(${s.id}, ${Number(s.total_amount) || 0})">Pulangan</button>`;
+        return `<button class="btn btn-sm" onclick="printPosReceipt(${s.id})">Cetak resit USB</button> ` +
+               `<button class="btn btn-sm btn-danger" onclick="openRefund(${s.id}, ${Number(s.total_amount) || 0})">Pulangan</button>`;
     }
     return '—';
 }
@@ -1143,6 +1155,40 @@ async function rejectDiscount(id) {
 
 // ---------- Init ----------
 loadAll();
+</script>
+<script type="module">
+import { ThermalPrinter } from '{{ asset('js/pos-printer.js') }}';
+const printer = new ThermalPrinter();
+const status = document.getElementById('printerStatus');
+const connect = document.getElementById('printerConnect');
+const disconnect = document.getElementById('printerDisconnect');
+let printing = false;
+const report = message => { status.textContent = message; };
+connect.disabled = !printer.supported;
+if (!printer.supported) report('WebUSB tidak tersedia. Gunakan Chrome/Edge desktop melalui HTTPS atau localhost.');
+connect.addEventListener('click', async () => {
+    connect.disabled = true;
+    try { await printer.connect(); report('Pencetak disambung. Cetak melalui tab Jualan.'); }
+    catch (e) { report('Tidak disambung: ' + e.message + ' Semak izin USB, pemacu OS dan keserasian ESC/POS.'); }
+    finally { connect.disabled = !printer.supported; }
+});
+disconnect.addEventListener('click', async () => {
+    if (printer.busy || printing) return;
+    await printer.disconnect(); report('Pencetak diputuskan.');
+});
+navigator.usb?.addEventListener('disconnect', () => { if (!printer.device) report('Pencetak diputuskan. Sambung semula untuk mencetak.'); });
+window.printPosReceipt = async id => {
+    if (printing || printer.busy) return;
+    if (!printer.device?.opened) { report('Sambungkan pencetak dahulu.'); return; }
+    printing = true;
+    connect.disabled = disconnect.disabled = true;
+    try {
+        const sale = await App.api.get(`/api/v1/pos/sales/${id}`);
+        await printer.print(sale, Number(document.getElementById('receiptWidth').value));
+        report('Data dihantar ke USB. Semak resit fizikal; penghantaran bukan pengesahan cetakan.');
+    } catch (e) { report(e.message); }
+    finally { printing = false; connect.disabled = !printer.supported; disconnect.disabled = false; }
+};
 </script>
 
 

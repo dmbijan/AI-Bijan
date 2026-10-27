@@ -19,7 +19,7 @@ use Tests\Support\UjianPengasingan;
  */
 class CogsIntelIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'COGS';
+    protected string $modul = 'BusinessIntel,COGS';
 
     protected array $model = [
         ProductCost::class,

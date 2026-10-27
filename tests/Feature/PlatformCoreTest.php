@@ -141,7 +141,14 @@ class PlatformCoreTest extends TestCase
             $this->postJson('/api/v1/auth/login', ['email' => 'baru@kedai-a.my', 'password' => $cuba])->assertStatus(422);
         }
         $staf = User::where('email', 'staf@kedai-a.my')->first();
-        $this->sebagai($staf, $ta)->getJson('/api/v1/tenant')->assertOk();
+        // T-105 (28 Okt 2026): `GET /api/v1/tenant` kini berpagar
+        // `perm:tenant.settings.view` — respons mengandungi pelan, status langganan dan
+        // had penggunaan (data komersial). `staff` tidak memegang kebenaran itu
+        // (lihat `config/aibijan.php` → `roles.staff`), jadi 403 ialah tingkah laku
+        // yang betul. Sebelum ini laluan itu hanya memerlukan `auth` + `tenant`.
+        $this->sebagai($staf, $ta)->getJson('/api/v1/tenant')->assertForbidden();
+        // Pemilik tetap boleh membaca butiran tenantnya sendiri.
+        $this->sebagai($ua, $ta)->getJson('/api/v1/tenant')->assertOk();
         $this->sebagai($staf, $ta)->getJson('/api/v1/members')->assertForbidden();
         $this->sebagai($staf, $ta)->postJson('/api/v1/members/invite', ['email' => 'x@y.my', 'roles' => ['tenant_owner']])->assertForbidden();
         $this->sebagai($staf, $ta)->getJson('/api/v1/audit')->assertForbidden();

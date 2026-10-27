@@ -56,7 +56,7 @@ class SaleService
     public function getSale(int $saleId, int $tenantId): ?POSSale
     {
         return POSSale::forTenant($tenantId)
-            ->with(['register', 'cashier', 'customer', 'items', 'payments', 'discounts'])
+            ->with(['register', 'cashier', 'customer', 'items', 'payments', 'discounts', 'tenders'])
             ->find($saleId);
     }
 

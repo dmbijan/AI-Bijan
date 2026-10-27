@@ -1230,7 +1230,8 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 > **B-POS System** (`C:\ai-bijan\AI-Bijan\b-pos-system`) ialah **produk kasir berasingan** yang
 > terus dijual sendiri (RM88/tahun / RM18/bulan), **bukan** modul AI BIJAN.
 > Audit penuh: blueprint **BAB 88**. **Keputusan: kekal berasingan**, ciri dipindahkan
-> satu per satu (T-76 → T-84) — **8 daripada 9 tugasan sudah SELESAI**.
+> satu per satu (T-76 → T-84) — **9 daripada 9 tugasan perisian SELESAI**.
+> T-84 disahkan melalui ujian perisian pada 28 Okt 2026; cetakan fizikal masih memerlukan perkakasan serasi.
 
 ### Status pemindahan (disahkan 27 Okt 2026 daripada kod)
 
@@ -1244,7 +1245,16 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 | T-81 | Offline Idempotency (`client_uuid`) | ✅ SELESAI | `SalePaymentService::bayar` |
 | T-82 | TNG Soundbox | ✅ SELESAI | `TngSoundboxService` |
 | T-83 | Discount Approval Workflow | ✅ SELESAI | `DiscountApprovalService` |
-| T-84 | Thermal Printer WebUSB | 📋 **BELUM** | kerja **frontend** sahaja |
+| T-84 | Thermal Printer WebUSB | ✅ **SELESAI (perisian)** | `public/js/pos-printer.js`, UI POS; ujian perkakasan belum dilakukan |
+
+#### T-84 — penggunaan dan had
+
+- Dalam POS, klik **Sambung pencetak**, pilih peranti melalui dialog izin USB, kemudian **Jualan → Cetak resit USB** bagi jualan selesai. Tiada permintaan izin atau cetakan automatik selepas pembayaran.
+- Memerlukan Chrome/Edge desktop, HTTPS atau localhost dan pencetak **ESC/POS USB kelas 7** dengan satu antara muka bulk OUT. Peranti vendor-specific, Bluetooth, rangkaian, protokol proprietari dan antara muka berbilang tidak disokong. Pemacu OS boleh menghalang tuntutan antara muka; jangan gantikan pemacu tanpa panduan pengeluar.
+- Pilih 58 mm (32 aksara) atau 80 mm (48 aksara). Teks ASCII; aksara bukan ASCII diganti `?`. Tiada arahan pemotong atau laci tunai. Amaun, item, modifier dan tender datang daripada endpoint jualan sedia ada yang terikat tenant; bukan pengiraan troli.
+- Pemindahan gagal/separa memutuskan sambungan tanpa cubaan semula automatik. Semak kertas sebelum sambung dan cetak semula bagi mengelakkan resit pendua. USB berjaya bukan bukti kertas dicetak.
+- Validasi: `node --test tests/pos-printer.test.mjs` (6 lulus); `php artisan test --compact --filter=POS` (59 lulus, 192 assertions); `php artisan view:cache` berjaya.
+- Penerimaan perkakasan masih wajib: sahkan model ESC/POS, izin dibatal, sambung/putus, resit 58/80 mm, modifier, split tender, baki, kertas habis dan cabut USB semasa cetak. **Tiada pencetak fizikal tersedia semasa validasi ini.**
 
 Migrasi menyokong: `2026_10_19_000500_create_pos_tables.php` dan
 `2026_10_27_001000_add_bpos_features_to_pos.php`.

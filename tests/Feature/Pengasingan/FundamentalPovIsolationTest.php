@@ -18,7 +18,7 @@ use Tests\Support\UjianPengasingan;
  */
 class FundamentalPovIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'Fundamental';
+    protected string $modul = 'Fundamental,ProofOfValue';
 
     protected array $model = [
         HealthCheck::class,

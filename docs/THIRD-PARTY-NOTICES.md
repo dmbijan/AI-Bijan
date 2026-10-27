@@ -59,6 +59,41 @@ bukan disalin terus (lihat `docs/TODO.md` §Nota Integrasi B-POS). Perbezaan
 utama: `tenant_id` (bukan `outlet_id`), penamaan Bahasa Melayu, token awam
 ber-HASH + luput, dan pengesahan silang-tenant bagi setiap ID.
 
+### Penyelenggaraan serasi kontrak (2026-10-28)
+
+Sumber sedia ada telah diperiksa. Perubahan ini **bukan clean-room**, bukan
+bukti asal-usul bebas, dan tidak menghapuskan kewajipan notis di atas.
+Tiada sumber luar disalin atau dinyahkompil semasa perubahan ini.
+
+- `TenderService`: normalisasi satu tender tidak lagi mengubah pembilang
+  melalui rujukan; pengesahan senarai dikira daripada hasil normalisasi.
+  Penggabungan status kini menggunakan ruang tetap, bukan menyimpan semua
+  status. Iterable tetap dihabiskan, termasuk selepas status `failed`.
+- `ModifierService`: bilangan pilihan setiap kumpulan dikira sekali, bukan
+  menapis semua pilihan berulang kali bagi setiap kumpulan. Susunan snapshot
+  sedia ada sengaja dikekalkan, termasuk tingkah laku pembanding Laravel.
+- `ServiceChargeService`: dokumentasi diperbetulkan sahaja. Kontrak awam
+  `kadar/skop/terpakai/kira`, kunci `amount/rate`, dan konfigurasi global kekal.
+- `DineOrderService`, `KitchenService`, `SalePaymentService`, bahagian pindahan
+  `CashShiftService`, `TngSoundboxService`, dan `DiscountApprovalService`
+  dikekalkan. Aliran transaksi, cap masa, pertanyaan dan pengesahannya sudah
+  terasing; pengekstrakan/penamaan semula sahaja tidak membuktikan penggantian
+  substantif. Perubahan replay, penguncian, pemadanan atau skop konfigurasi
+  akan mengubah tingkah laku yang pengguna memilih untuk kekalkan.
+
+Ini penambahbaikan dalaman terhad pada dua servis, **bukan penggantian penuh
+kesemua sembilan servis**. Skema, laluan, format respons, pembundaran dan
+pengesahan tidak diubah. Jualan selesai masih ditolak sebelum carian UUID;
+jualan draf dengan UUID jualan selesai masih mengembalikan jualan terdahulu.
+
+Enam ujian pencirian ditambah dahulu dalam `BposPaymentTest` dan
+`BposOperationTest`, lalu diluluskan terhadap implementasi sebelum perubahan:
+normalisasi tender (enam kaedah, kunci, pembundaran, masa), keutamaan ralat,
+iterable/status tidak dikenali, kedua-dua laluan replay, konfigurasi caj
+langsung, dan deduplikasi/susunan/snapshot modifier. Ujian sedia ada meliputi
+operasi POS serta pengasingan tenant; ini bukan bukti menyeluruh untuk
+perlumbaan serentak atau semua keadaan pangkalan data produksi.
+
 ---
 
 ## 2. Komponen lain

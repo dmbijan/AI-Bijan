@@ -17,7 +17,7 @@ use Tests\Support\UjianPengasingan;
  */
 class FleetAgentIsolationTest extends UjianPengasingan
 {
-    protected string $modul = 'Fleet';
+    protected string $modul = 'AIAgents,Fleet';
 
     protected array $model = [
         FleetVehicle::class,
