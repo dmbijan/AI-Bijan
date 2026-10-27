@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\PageService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class PageController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected PageService $pageService;
 
     public function __construct(PageService $pageService)
@@ -21,7 +34,7 @@ class PageController extends Controller
      */
     public function index(Request $request, int $siteId): JsonResponse
     {
-        $pages = $this->pageService->getPages($siteId, $request->tenant_id);
+        $pages = $this->pageService->getPages($siteId, $this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -34,7 +47,7 @@ class PageController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -54,7 +67,7 @@ class PageController extends Controller
      */
     public function getBySlug(Request $request, int $siteId, string $slug): JsonResponse
     {
-        $page = $this->pageService->getPageBySlug($slug, $siteId, $request->tenant_id);
+        $page = $this->pageService->getPageBySlug($slug, $siteId, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -87,7 +100,7 @@ class PageController extends Controller
             'published_at' => 'nullable|date',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
         $validated['site_id'] = $siteId;
 
         $page = $this->pageService->createPage($validated);
@@ -104,7 +117,7 @@ class PageController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -140,7 +153,7 @@ class PageController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -162,7 +175,7 @@ class PageController extends Controller
      */
     public function publish(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -185,7 +198,7 @@ class PageController extends Controller
      */
     public function unpublish(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([
@@ -208,7 +221,7 @@ class PageController extends Controller
      */
     public function duplicate(Request $request, int $id): JsonResponse
     {
-        $page = $this->pageService->getPageById($id, $request->tenant_id);
+        $page = $this->pageService->getPageById($id, $this->tenantId());
 
         if (!$page) {
             return response()->json([

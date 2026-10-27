@@ -2,6 +2,8 @@
 
 namespace App\Modules\Booking\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Booking\Services\ServiceCatalogService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class ServiceController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected ServiceCatalogService $serviceCatalogService;
 
     public function __construct(ServiceCatalogService $serviceCatalogService)
@@ -23,7 +36,7 @@ class ServiceController extends Controller
     {
         $filters = $request->only(['category', 'active', 'provider_id']);
 
-        return response()->json($this->serviceCatalogService->listServices($request->tenant_id, $filters));
+        return response()->json($this->serviceCatalogService->listServices($this->tenantId(), $filters));
     }
 
     /**
@@ -31,7 +44,7 @@ class ServiceController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $service = $this->serviceCatalogService->getService($id, $request->tenant_id);
+        $service = $this->serviceCatalogService->getService($id, $this->tenantId());
 
         if (!$service) {
             return response()->json(['message' => 'Service not found.'], 404);
@@ -63,7 +76,7 @@ class ServiceController extends Controller
         try {
             $service = $this->serviceCatalogService->createService(
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -93,7 +106,7 @@ class ServiceController extends Controller
             'cancellation_policy' => 'nullable|string',
         ]);
 
-        $result = $this->serviceCatalogService->updateService($id, $validated, $request->tenant_id);
+        $result = $this->serviceCatalogService->updateService($id, $validated, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Service not found.'], 404);
@@ -108,7 +121,7 @@ class ServiceController extends Controller
     public function destroy(Request $request, int $id)
     {
         try {
-            $success = $this->serviceCatalogService->deleteService($id, $request->tenant_id);
+            $success = $this->serviceCatalogService->deleteService($id, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Service not found.'], 404);
@@ -125,7 +138,7 @@ class ServiceController extends Controller
      */
     public function toggleActive(Request $request, int $id)
     {
-        $result = $this->serviceCatalogService->toggleActive($id, $request->tenant_id);
+        $result = $this->serviceCatalogService->toggleActive($id, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Service not found.'], 404);

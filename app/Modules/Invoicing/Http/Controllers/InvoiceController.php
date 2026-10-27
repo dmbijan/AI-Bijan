@@ -2,6 +2,8 @@
 
 namespace App\Modules\Invoicing\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Invoicing\Models\Invoice;
 use App\Modules\Invoicing\Services\InvoiceService;
@@ -11,6 +13,17 @@ use Illuminate\Http\JsonResponse;
 
 class InvoiceController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected InvoiceService $invoiceService;
     protected EInvoisService $eInvoisService;
 

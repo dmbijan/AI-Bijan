@@ -2,6 +2,8 @@
 
 namespace App\Modules\Payroll\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Payroll\Models\OvertimeRecord;
 use App\Modules\Payroll\Services\OvertimeCalculator;
@@ -18,12 +20,23 @@ use Illuminate\Http\Request;
  */
 class OvertimeController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     /**
      * List overtime records for current tenant.
      */
     public function index(Request $request)
     {
-        $query = OvertimeRecord::where('tenant_id', $request->tenant_id)
+        $query = OvertimeRecord::where('tenant_id', $this->tenantId())
             ->with(['employee'])
             ->orderBy('date', 'desc');
 
@@ -57,7 +70,7 @@ class OvertimeController extends Controller
         ]);
 
         // Verify employee belongs to tenant
-        $employee = \App\Modules\Payroll\Models\Employee::where('tenant_id', $request->tenant_id)
+        $employee = \App\Modules\Payroll\Models\Employee::where('tenant_id', $this->tenantId())
             ->findOrFail($validated['employee_id']);
 
         // Calculate OT pay immediately
@@ -69,7 +82,7 @@ class OvertimeController extends Controller
         );
 
         $overtime = OvertimeRecord::create([
-            'tenant_id' => $request->tenant_id,
+            'tenant_id' => $this->tenantId(),
             'employee_id' => $validated['employee_id'],
             'date' => $validated['date'],
             'day_type' => $validated['day_type'],
@@ -93,7 +106,7 @@ class OvertimeController extends Controller
      */
     public function approve(Request $request, int $overtimeId)
     {
-        $overtime = OvertimeRecord::where('tenant_id', $request->tenant_id)
+        $overtime = OvertimeRecord::where('tenant_id', $this->tenantId())
             ->findOrFail($overtimeId);
 
         if ($overtime->status !== 'pending') {
@@ -121,7 +134,7 @@ class OvertimeController extends Controller
      */
     public function reject(Request $request, int $overtimeId)
     {
-        $overtime = OvertimeRecord::where('tenant_id', $request->tenant_id)
+        $overtime = OvertimeRecord::where('tenant_id', $this->tenantId())
             ->findOrFail($overtimeId);
 
         if ($overtime->status !== 'pending') {

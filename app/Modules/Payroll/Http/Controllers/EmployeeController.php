@@ -2,6 +2,8 @@
 
 namespace App\Modules\Payroll\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Payroll\Models\Employee;
 use Illuminate\Http\Request;
@@ -13,12 +15,23 @@ use Illuminate\Http\Request;
  */
 class EmployeeController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     /**
      * List all employees for current tenant.
      */
     public function index(Request $request)
     {
-        $query = Employee::where('tenant_id', $request->tenant_id)
+        $query = Employee::where('tenant_id', $this->tenantId())
             ->orderBy('name');
 
         if ($request->active_only) {
@@ -50,7 +63,7 @@ class EmployeeController extends Controller
 
         $employee = Employee::create([
             ...$validated,
-            'tenant_id' => $request->tenant_id,
+            'tenant_id' => $this->tenantId(),
             'is_active' => true,
         ]);
 
@@ -65,7 +78,7 @@ class EmployeeController extends Controller
      */
     public function show(Request $request, int $employeeId)
     {
-        $employee = Employee::where('tenant_id', $request->tenant_id)
+        $employee = Employee::where('tenant_id', $this->tenantId())
             ->findOrFail($employeeId);
 
         return response()->json($employee);
@@ -76,7 +89,7 @@ class EmployeeController extends Controller
      */
     public function update(Request $request, int $employeeId)
     {
-        $employee = Employee::where('tenant_id', $request->tenant_id)
+        $employee = Employee::where('tenant_id', $this->tenantId())
             ->findOrFail($employeeId);
 
         $validated = $request->validate([
@@ -105,7 +118,7 @@ class EmployeeController extends Controller
      */
     public function deactivate(Request $request, int $employeeId)
     {
-        $employee = Employee::where('tenant_id', $request->tenant_id)
+        $employee = Employee::where('tenant_id', $this->tenantId())
             ->findOrFail($employeeId);
 
         $employee->update([

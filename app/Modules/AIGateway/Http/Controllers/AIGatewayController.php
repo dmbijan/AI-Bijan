@@ -2,6 +2,8 @@
 
 namespace App\Modules\AIGateway\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\AIGateway\Services\GatewayService;
 use App\Modules\AIGateway\Services\ModelCatalogService;

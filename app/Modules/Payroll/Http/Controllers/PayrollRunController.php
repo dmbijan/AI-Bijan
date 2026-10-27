@@ -2,6 +2,8 @@
 
 namespace App\Modules\Payroll\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Payroll\Models\Employee;
 use App\Modules\Payroll\Models\PayrollRun;
@@ -20,6 +22,17 @@ use Illuminate\Http\Request;
  */
 class PayrollRunController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $payrollService;
 
     public function __construct(PayrollRunService $payrollService)
@@ -64,7 +77,7 @@ class PayrollRunController extends Controller
         try {
             // Create and process in one step
             $payrollRun = $this->payrollService->createAndProcess([
-                'tenant_id' => $request->tenant_id,
+                'tenant_id' => $this->tenantId(),
                 'name' => $validated['name'] ?? null,
                 'period_start' => $validated['period_start'],
                 'period_end' => $validated['period_end'],

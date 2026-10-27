@@ -2,6 +2,8 @@
 
 namespace App\Modules\PersonalAssistant\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\PersonalAssistant\Models\PersonalTask;
 use App\Modules\PersonalAssistant\Models\MemoryItem;

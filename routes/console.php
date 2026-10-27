@@ -305,3 +305,34 @@ Schedule::call(function () {
 
     Log::info('BusinessIntel snapshot harian', ['count' => $count]);
 })->dailyAt('04:00')->name('business-intel-daily')->withoutOverlapping();
+
+// ---------------------------------------------------------------
+// B-Billing — komisen reseller berulang (27 Okt 2026)
+// ---------------------------------------------------------------
+// ⚠️ Pekerjaan ini berjalan PLATFORM-WIDE (bukan per tenant) — jangan
+// gunakan TenantContext. Semua query dalam ResellerCommissionService
+// menggunakan withoutGlobalScope('tenant') secara eksplisit.
+
+// 02:00 — sahkan komisen yang sudah matang (earned_at + 30 hari)
+Schedule::call(function () {
+    $n = app(\App\Modules\Billing\Services\ResellerCommissionService::class)
+        ->maturekanKomisen();
+
+    Log::info('Komisen reseller dimatangkan', ['bilangan' => $n]);
+})->dailyAt('02:00')->name('reseller-mature')->withoutOverlapping();
+
+// 03:00 — kesan churn (langganan tamat/batal → komisen pending dibalikkan)
+Schedule::call(function () {
+    $n = app(\App\Modules\Billing\Services\ResellerCommissionService::class)
+        ->kesanChurn();
+
+    Log::info('Churn reseller dikesan', ['komisen_dibalikkan' => $n]);
+})->dailyAt('03:00')->name('reseller-churn')->withoutOverlapping();
+
+// 1hb 04:00 — bina payout automatik jika baki >= RM100
+Schedule::call(function () {
+    $payout = app(\App\Modules\Billing\Services\ResellerCommissionService::class)
+        ->binaPayout();
+
+    Log::info('Payout reseller dibina', ['bilangan' => count($payout)]);
+})->monthlyOn(1, '04:00')->name('reseller-payout')->withoutOverlapping();

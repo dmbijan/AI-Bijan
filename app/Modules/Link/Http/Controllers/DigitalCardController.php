@@ -2,6 +2,8 @@
 
 namespace App\Modules\Link\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Link\Services\DigitalCardService;
 use App\Modules\Link\Models\DigitalCard;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class DigitalCardController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(DigitalCardService $service)
@@ -22,7 +35,7 @@ class DigitalCardController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'template', 'search']);
-        $cards = $this->service->getCards($request->tenant_id, $filters);
+        $cards = $this->service->getCards($this->tenantId(), $filters);
 
         return response()->json([
             'success' => true,
@@ -55,7 +68,7 @@ class DigitalCardController extends Controller
         ]);
 
         $card = $this->service->createCard(array_merge($validated, [
-            'tenant_id' => $request->tenant_id,
+            'tenant_id' => $this->tenantId(),
         ]));
 
         return response()->json([

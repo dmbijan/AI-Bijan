@@ -2,6 +2,8 @@
 
 namespace App\Modules\IndustryPacks\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\IndustryPacks\Models\IndustryProfile;
 use App\Modules\IndustryPacks\Services\IndustryProfileService;
@@ -11,6 +13,17 @@ use Illuminate\Http\JsonResponse;
 
 class IndustryPackController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $profileService;
     protected $dashboardService;
 
@@ -85,7 +98,7 @@ class IndustryPackController extends Controller
 
         try {
             $result = $this->profileService->applyIndustryPack(
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->industry_key
             );
 
@@ -130,7 +143,7 @@ class IndustryPackController extends Controller
 
         try {
             $result = $this->profileService->changeIndustryPack(
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->industry_key
             );
 
@@ -208,7 +221,7 @@ class IndustryPackController extends Controller
 
         try {
             $result = $this->dashboardService->customizeDashboard(
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->industry_key,
                 $request->widgets
             );
@@ -234,7 +247,7 @@ class IndustryPackController extends Controller
 
         try {
             $result = $this->dashboardService->resetToDefault(
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->industry_key
             );
 

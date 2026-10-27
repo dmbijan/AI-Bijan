@@ -2,6 +2,8 @@
 
 namespace App\Modules\Booking\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Booking\Services\AppointmentService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class AppointmentController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected AppointmentService $appointmentService;
 
     public function __construct(AppointmentService $appointmentService)
@@ -23,7 +36,7 @@ class AppointmentController extends Controller
     {
         $filters = $request->only(['status', 'provider_id', 'start_date', 'end_date', 'search']);
 
-        return response()->json($this->appointmentService->listAppointments($request->tenant_id, $filters));
+        return response()->json($this->appointmentService->listAppointments($this->tenantId(), $filters));
     }
 
     /**
@@ -31,7 +44,7 @@ class AppointmentController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $appointment = $this->appointmentService->getAppointment($id, $request->tenant_id);
+        $appointment = $this->appointmentService->getAppointment($id, $this->tenantId());
 
         if (!$appointment) {
             return response()->json(['message' => 'Appointment not found.'], 404);
@@ -59,7 +72,7 @@ class AppointmentController extends Controller
         try {
             $appointment = $this->appointmentService->createAppointment(
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -87,7 +100,7 @@ class AppointmentController extends Controller
         ]);
 
         try {
-            $appointment = $this->appointmentService->updateAppointment($id, $validated, $request->tenant_id);
+            $appointment = $this->appointmentService->updateAppointment($id, $validated, $this->tenantId());
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -105,7 +118,7 @@ class AppointmentController extends Controller
     public function confirm(Request $request, int $id)
     {
         try {
-            $appointment = $this->appointmentService->confirmAppointment($id, $request->tenant_id);
+            $appointment = $this->appointmentService->confirmAppointment($id, $this->tenantId());
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -123,7 +136,7 @@ class AppointmentController extends Controller
     public function start(Request $request, int $id)
     {
         try {
-            $appointment = $this->appointmentService->startAppointment($id, $request->tenant_id);
+            $appointment = $this->appointmentService->startAppointment($id, $this->tenantId());
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -141,7 +154,7 @@ class AppointmentController extends Controller
     public function complete(Request $request, int $id)
     {
         try {
-            $appointment = $this->appointmentService->completeAppointment($id, $request->tenant_id);
+            $appointment = $this->appointmentService->completeAppointment($id, $this->tenantId());
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -166,7 +179,7 @@ class AppointmentController extends Controller
             $appointment = $this->appointmentService->cancelAppointment(
                 $id,
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -186,7 +199,7 @@ class AppointmentController extends Controller
     public function markNoShow(Request $request, int $id)
     {
         try {
-            $appointment = $this->appointmentService->markNoShow($id, $request->tenant_id);
+            $appointment = $this->appointmentService->markNoShow($id, $this->tenantId());
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -213,7 +226,7 @@ class AppointmentController extends Controller
             $appointment = $this->appointmentService->rescheduleAppointment(
                 $id,
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -233,7 +246,7 @@ class AppointmentController extends Controller
     public function summary(Request $request)
     {
         return response()->json($this->appointmentService->getSummary(
-            $request->tenant_id,
+            $this->tenantId(),
             $request->input('start_date'),
             $request->input('end_date')
         ));

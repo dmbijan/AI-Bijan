@@ -2,12 +2,25 @@
 
 namespace App\Modules\COGS\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\COGS\Services\CostCalculationService;
 use Illuminate\Http\Request;
 
 class CostCalculationController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $costCalculationService;
 
     public function __construct(CostCalculationService $costCalculationService)

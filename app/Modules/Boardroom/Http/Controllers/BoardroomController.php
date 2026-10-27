@@ -2,6 +2,8 @@
 
 namespace App\Modules\Boardroom\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Boardroom\Models\BoardroomSession;
 use App\Modules\Boardroom\Models\BoardroomFinding;

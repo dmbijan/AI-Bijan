@@ -60,7 +60,7 @@ class IndustryProfileService
             return [
                 'success' => true,
                 'profile' => $profile,
-                'message' => "Industry pack '{$industry['name]}' applied successfully.",
+                'message' => "Industry pack '{$industry['name']}' applied successfully.",
             ];
         } catch (\Exception $e) {
             DB::rollBack();

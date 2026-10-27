@@ -2,6 +2,8 @@
 
 namespace App\Modules\POS\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\POS\Services\RegisterService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class RegisterController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected RegisterService $registerService;
 
     public function __construct(RegisterService $registerService)
@@ -21,7 +34,7 @@ class RegisterController extends Controller
      */
     public function index(Request $request)
     {
-        return response()->json($this->registerService->listRegisters($request->tenant_id));
+        return response()->json($this->registerService->listRegisters($this->tenantId()));
     }
 
     /**
@@ -29,7 +42,7 @@ class RegisterController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $register = $this->registerService->getRegister($id, $request->tenant_id);
+        $register = $this->registerService->getRegister($id, $this->tenantId());
 
         if (!$register) {
             return response()->json(['message' => 'Register not found.'], 404);
@@ -53,7 +66,7 @@ class RegisterController extends Controller
         try {
             $register = $this->registerService->createRegister(
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -75,7 +88,7 @@ class RegisterController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $result = $this->registerService->updateRegister($id, $validated, $request->tenant_id);
+        $result = $this->registerService->updateRegister($id, $validated, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Register not found.'], 404);
@@ -90,7 +103,7 @@ class RegisterController extends Controller
     public function destroy(Request $request, int $id)
     {
         try {
-            $success = $this->registerService->deleteRegister($id, $request->tenant_id);
+            $success = $this->registerService->deleteRegister($id, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Register not found.'], 404);
@@ -107,7 +120,7 @@ class RegisterController extends Controller
      */
     public function toggleActive(Request $request, int $id)
     {
-        $result = $this->registerService->toggleActive($id, $request->tenant_id);
+        $result = $this->registerService->toggleActive($id, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Register not found.'], 404);
@@ -123,7 +136,7 @@ class RegisterController extends Controller
     {
         $summary = $this->registerService->getRegisterSalesSummary(
             $id,
-            $request->tenant_id,
+            $this->tenantId(),
             $request->input('start_date'),
             $request->input('end_date')
         );

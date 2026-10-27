@@ -2,6 +2,8 @@
 
 namespace App\Modules\Affiliate\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Affiliate\Services\ReferralService;
 use App\Modules\Affiliate\Models\ReferralCode;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class ReferralController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(ReferralService $service)
@@ -23,7 +36,7 @@ class ReferralController extends Controller
     {
         $filters = $request->only(['status', 'type']);
         
-        $query = ReferralCode::where('tenant_id', $request->tenant_id);
+        $query = ReferralCode::where('tenant_id', $this->tenantId());
         
         if ($request->has('affiliate_id')) {
             $query->where('affiliate_id', $request->affiliate_id);
@@ -70,7 +83,7 @@ class ReferralController extends Controller
 
         $code = $this->service->createCustomCode(
             $validated['affiliate_id'],
-            $request->tenant_id,
+            $this->tenantId(),
             $validated + ['url' => null]
         );
 
@@ -153,7 +166,7 @@ class ReferralController extends Controller
     public function trackClick(Request $request, string $code)
     {
         try {
-            $click = $this->service->trackClick($code, $request->tenant_id, [
+            $click = $this->service->trackClick($code, $this->tenantId(), [
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'referrer_url' => $request->header('referer'),
@@ -216,7 +229,7 @@ class ReferralController extends Controller
     public function getAffiliateReferrals(Request $request, int $affiliateId)
     {
         $filters = $request->only(['status', 'type']);
-        $referrals = $this->service->getAffiliateReferrals($affiliateId, $request->tenant_id, $filters);
+        $referrals = $this->service->getAffiliateReferrals($affiliateId, $this->tenantId(), $filters);
 
         return response()->json([
             'success' => true,

@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\ThemeService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class ThemeController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected ThemeService $themeService;
 
     public function __construct(ThemeService $themeService)
@@ -21,7 +34,7 @@ class ThemeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $themes = $this->themeService->getThemes($request->tenant_id);
+        $themes = $this->themeService->getThemes($this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -34,7 +47,7 @@ class ThemeController extends Controller
      */
     public function getActive(Request $request, int $siteId): JsonResponse
     {
-        $theme = $this->themeService->getActiveTheme($siteId, $request->tenant_id);
+        $theme = $this->themeService->getActiveTheme($siteId, $this->tenantId());
 
         if (!$theme) {
             return response()->json([
@@ -65,7 +78,7 @@ class ThemeController extends Controller
             'site_id' => 'nullable|integer',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
 
         $theme = $this->themeService->createTheme($validated);
 
@@ -81,7 +94,7 @@ class ThemeController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $theme = $this->themeService->getThemes($request->tenant_id)->firstWhere('id', $id);
+        $theme = $this->themeService->getThemes($this->tenantId())->firstWhere('id', $id);
 
         if (!$theme) {
             return response()->json([
@@ -114,7 +127,7 @@ class ThemeController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $theme = $this->themeService->getThemes($request->tenant_id)->firstWhere('id', $id);
+        $theme = $this->themeService->getThemes($this->tenantId())->firstWhere('id', $id);
 
         if (!$theme) {
             return response()->json([
@@ -143,7 +156,7 @@ class ThemeController extends Controller
         $theme = $this->themeService->activateTheme(
             $id,
             $validated['site_id'],
-            $request->tenant_id
+            $this->tenantId()
         );
 
         if (!$theme) {
@@ -172,7 +185,7 @@ class ThemeController extends Controller
 
         $result = $this->themeService->applyThemeSettings(
             $validated['site_id'],
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['settings']
         );
 

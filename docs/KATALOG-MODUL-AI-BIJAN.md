@@ -1,6 +1,6 @@
 # AI BIJAN — Katalog Penuh Modul (v9.4)
 
-> **58 modul** · **357 jadual** · **1,382 laluan API** · **963 ujian lulus** (0 gagal, 4 skip, 5,034 assertion)
+> **59 modul** · **366 jadual** · **1,387 laluan API** · **1,059 ujian lulus** (0 gagal, 4 skip, 5,370 assertion)
 >
 > ⚠️ **Pembetulan 26 Okt 2026:** kiraan lama **1,518** adalah SALAH — ia termasuk
 > **154 laluan berganda** (`api/v1/finance/finance/*` dsb.) akibat 5 modul mendaftar
@@ -182,12 +182,12 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 | Metrik | Nilai |
 |---|---|
-| Modul | **58** |
-| Model | **292** |
-| Service | **166** |
-| Controller (modul) | **127** |
+| Modul | **59** |
+| Model | **300** |
+| Service | **170** |
+| Controller (modul) | **128** |
 | Jadual pangkalan data | **346** |
-| Laluan API (`api/v1`) | **1,382** |
+| Laluan API (`api/v1`) | **1,387** |
 | Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
 | Assertion | **5,033** |
 | Resource Filament | **66** |
@@ -271,7 +271,7 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 | Modul | Ringkasan | Jadual | Laluan | Fasa |
 |---|---|---|---|---|
-| **B-Receipt & B-Statement** | Hantar **semua** dokumen transaksi (resit, invois, e-Invois, sebut harga, nota kredit/debit, penyata akaun, bil, peringatan) ke WhatsApp pelanggan. Satu enjin untuk **58 modul**. **WhatsApp Business Platform sahaja** — templat Meta, consent, opt-out. | 9 | 19 | P1–P4 |
+| **B-Receipt & B-Statement** | Hantar **semua** dokumen transaksi (resit, invois, e-Invois, sebut harga, nota kredit/debit, penyata akaun, bil, peringatan) ke WhatsApp pelanggan. Satu enjin untuk **59 modul**. **WhatsApp Business Platform sahaja** — templat Meta, consent, opt-out. | 9 | 19 | P1–P4 |
 | **B-Vision AI** | Platform operasi visual: analisis video muat naik + kamera langsung (RTSP/ONVIF) → data berstruktur untuk modul. Laravel + worker Python/FFmpeg + adapter model. **8 kawalan keselamatan** termasuk SSRF protection. | 15 | 16 | 5 fasa |
 
 **Keputusan belum selesai:** B-Vision — self-hosted computer vision vs gabungan self-hosted + API cloud (mempengaruhi kos, privasi, skalabiliti, harga).
@@ -318,14 +318,14 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 | Metrik | B-POS | AI BIJAN |
 |---|---|---|
-| Migration | 109 | **54** |
+| Migration | 109 | **55** |
 | Model | 61 | 292 |
 | Service | 30 | 166 |
 | Controller | 73 | 127 |
 | Multi-tenant | ❌ Tiada | ✅ `BelongsToTenant` |
 | AI | ❌ Tiada | ✅ **10 modul** |
 
-> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **53 fail** menghasilkan **357 jadual**
+> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **53 fail** menghasilkan **366 jadual**
 > (satu fail migration boleh mencipta banyak jadual).
 
 **6 jurang B-POS yang perlu dipindahkan ke AI BIJAN:**

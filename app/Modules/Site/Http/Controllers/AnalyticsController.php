@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\AnalyticsService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class AnalyticsController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected AnalyticsService $analyticsService;
 
     public function __construct(AnalyticsService $analyticsService)
@@ -21,7 +34,7 @@ class AnalyticsController extends Controller
      */
     public function getPageViews(Request $request, int $siteId): JsonResponse
     {
-        $stats = $this->analyticsService->getPageViews($siteId, $request->tenant_id, [
+        $stats = $this->analyticsService->getPageViews($siteId, $this->tenantId(), [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
         ]);
@@ -37,7 +50,7 @@ class AnalyticsController extends Controller
      */
     public function getTrafficStats(Request $request, int $siteId): JsonResponse
     {
-        $stats = $this->analyticsService->getTrafficStats($siteId, $request->tenant_id, [
+        $stats = $this->analyticsService->getTrafficStats($siteId, $this->tenantId(), [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
         ]);
@@ -53,7 +66,7 @@ class AnalyticsController extends Controller
      */
     public function getFormStats(Request $request, int $siteId): JsonResponse
     {
-        $stats = $this->analyticsService->getFormStats($siteId, $request->tenant_id);
+        $stats = $this->analyticsService->getFormStats($siteId, $this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -67,7 +80,7 @@ class AnalyticsController extends Controller
     public function getTopPages(Request $request, int $siteId): JsonResponse
     {
         $limit = $request->input('limit', 10);
-        $pages = $this->analyticsService->getTopPages($siteId, $request->tenant_id, $limit);
+        $pages = $this->analyticsService->getTopPages($siteId, $this->tenantId(), $limit);
         
         return response()->json([
             'success' => true,
@@ -81,7 +94,7 @@ class AnalyticsController extends Controller
     public function getTopPosts(Request $request, int $siteId): JsonResponse
     {
         $limit = $request->input('limit', 10);
-        $posts = $this->analyticsService->getTopPosts($siteId, $request->tenant_id, $limit);
+        $posts = $this->analyticsService->getTopPosts($siteId, $this->tenantId(), $limit);
         
         return response()->json([
             'success' => true,
@@ -94,7 +107,7 @@ class AnalyticsController extends Controller
      */
     public function getConversionRate(Request $request, int $siteId): JsonResponse
     {
-        $rate = $this->analyticsService->getConversionRate($siteId, $request->tenant_id, [
+        $rate = $this->analyticsService->getConversionRate($siteId, $this->tenantId(), [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
         ]);
@@ -112,7 +125,7 @@ class AnalyticsController extends Controller
      */
     public function getVisitorLocations(Request $request, int $siteId): JsonResponse
     {
-        $locations = $this->analyticsService->getVisitorLocations($siteId, $request->tenant_id, [
+        $locations = $this->analyticsService->getVisitorLocations($siteId, $this->tenantId(), [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
         ]);
@@ -128,7 +141,7 @@ class AnalyticsController extends Controller
      */
     public function getReferrers(Request $request, int $siteId): JsonResponse
     {
-        $referrers = $this->analyticsService->getReferrers($siteId, $request->tenant_id, [
+        $referrers = $this->analyticsService->getReferrers($siteId, $this->tenantId(), [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
         ]);
@@ -144,9 +157,9 @@ class AnalyticsController extends Controller
      */
     public function dashboard(Request $request, int $siteId): JsonResponse
     {
-        $pageViews = $this->analyticsService->getPageViews($siteId, $request->tenant_id);
-        $trafficStats = $this->analyticsService->getTrafficStats($siteId, $request->tenant_id);
-        $formStats = $this->analyticsService->getFormStats($siteId, $request->tenant_id);
+        $pageViews = $this->analyticsService->getPageViews($siteId, $this->tenantId());
+        $trafficStats = $this->analyticsService->getTrafficStats($siteId, $this->tenantId());
+        $formStats = $this->analyticsService->getFormStats($siteId, $this->tenantId());
 
         return response()->json([
             'success' => true,

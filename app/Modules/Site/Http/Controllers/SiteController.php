@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\SiteService;
 use App\Modules\Site\Models\Site;
@@ -10,6 +12,17 @@ use Illuminate\Http\JsonResponse;
 
 class SiteController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected SiteService $siteService;
 
     public function __construct(SiteService $siteService)
@@ -22,7 +35,7 @@ class SiteController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $sites = $this->siteService->getSites($request->tenant_id);
+        $sites = $this->siteService->getSites($this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -35,7 +48,7 @@ class SiteController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -55,7 +68,7 @@ class SiteController extends Controller
      */
     public function getBySlug(Request $request, string $slug): JsonResponse
     {
-        $site = $this->siteService->getSiteBySlug($slug, $request->tenant_id);
+        $site = $this->siteService->getSiteBySlug($slug, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -91,7 +104,7 @@ class SiteController extends Controller
             'timezone' => 'nullable|string|max:100',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
 
         $site = $this->siteService->createSite($validated);
 
@@ -107,7 +120,7 @@ class SiteController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -146,7 +159,7 @@ class SiteController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -168,7 +181,7 @@ class SiteController extends Controller
      */
     public function toggleLive(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -191,7 +204,7 @@ class SiteController extends Controller
      */
     public function toggleMaintenance(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([
@@ -214,7 +227,7 @@ class SiteController extends Controller
      */
     public function setPrimaryDomain(Request $request, int $id): JsonResponse
     {
-        $site = $this->siteService->getSiteById($id, $request->tenant_id);
+        $site = $this->siteService->getSiteById($id, $this->tenantId());
 
         if (!$site) {
             return response()->json([

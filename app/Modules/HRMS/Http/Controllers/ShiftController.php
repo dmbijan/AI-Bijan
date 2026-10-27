@@ -2,6 +2,8 @@
 
 namespace App\Modules\HRMS\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\HRMS\Models\Shift;
 use Illuminate\Http\Request;
@@ -11,6 +13,17 @@ use Illuminate\Support\Facades\Validator;
 
 class ShiftController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     /**
      * List all shifts.
      */

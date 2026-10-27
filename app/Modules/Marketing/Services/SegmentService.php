@@ -48,7 +48,7 @@ class SegmentService
             
             // Calculate initial count for dynamic segments
             if ($data['type'] === 'dynamic' && !empty($data['criteria'])) {
-                $count = $this->calculateSegmentCount($tenantId: $data['tenant_id'], criteria: $data['criteria']);
+                $count = $this->calculateSegmentCount($data['tenant_id'], $data['criteria']);
                 $segment->update(['count' => $count]);
             }
 

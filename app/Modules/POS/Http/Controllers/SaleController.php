@@ -2,6 +2,8 @@
 
 namespace App\Modules\POS\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\POS\Services\SaleService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class SaleController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected SaleService $saleService;
 
     public function __construct(SaleService $saleService)
@@ -23,7 +36,7 @@ class SaleController extends Controller
     {
         $filters = $request->only(['status', 'register_id', 'user_id', 'start_date', 'end_date', 'search']);
 
-        return response()->json($this->saleService->listSales($request->tenant_id, $filters));
+        return response()->json($this->saleService->listSales($this->tenantId(), $filters));
     }
 
     /**
@@ -31,7 +44,7 @@ class SaleController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $sale = $this->saleService->getSale($id, $request->tenant_id);
+        $sale = $this->saleService->getSale($id, $this->tenantId());
 
         if (!$sale) {
             return response()->json(['message' => 'Sale not found.'], 404);
@@ -54,7 +67,7 @@ class SaleController extends Controller
         try {
             $sale = $this->saleService->createDraft(
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $validated['register_id'],
                 $request->user()->id
             );
@@ -82,7 +95,7 @@ class SaleController extends Controller
         ]);
 
         try {
-            $item = $this->saleService->addItem($saleId, $validated, $request->tenant_id);
+            $item = $this->saleService->addItem($saleId, $validated, $this->tenantId());
             return response()->json($item, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -101,7 +114,7 @@ class SaleController extends Controller
             'discount_amount' => 'nullable|numeric|min:0',
         ]);
 
-        $result = $this->saleService->updateItem($itemId, $validated, $request->tenant_id);
+        $result = $this->saleService->updateItem($itemId, $validated, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Item not found.'], 404);
@@ -116,7 +129,7 @@ class SaleController extends Controller
     public function removeItem(Request $request, int $itemId)
     {
         try {
-            $success = $this->saleService->removeItem($itemId, $request->tenant_id);
+            $success = $this->saleService->removeItem($itemId, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Item not found.'], 404);
@@ -143,7 +156,7 @@ class SaleController extends Controller
         ]);
 
         try {
-            $sale = $this->saleService->completeSale($saleId, $validated, $request->tenant_id);
+            $sale = $this->saleService->completeSale($saleId, $validated, $this->tenantId());
             return response()->json($sale, 200);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -156,7 +169,7 @@ class SaleController extends Controller
     public function cancel(Request $request, int $saleId)
     {
         try {
-            $success = $this->saleService->cancelSale($saleId, $request->tenant_id);
+            $success = $this->saleService->cancelSale($saleId, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Sale not found or cannot be cancelled.'], 404);
@@ -179,7 +192,7 @@ class SaleController extends Controller
         ]);
 
         try {
-            $return = $this->saleService->refundSale($saleId, $validated, $request->tenant_id, $request->user()->id);
+            $return = $this->saleService->refundSale($saleId, $validated, $this->tenantId(), $request->user()->id);
             return response()->json($return, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -192,7 +205,7 @@ class SaleController extends Controller
     public function summary(Request $request)
     {
         return response()->json($this->saleService->getSummary(
-            $request->tenant_id,
+            $this->tenantId(),
             $request->input('start_date'),
             $request->input('end_date')
         ));

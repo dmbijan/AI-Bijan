@@ -2,6 +2,8 @@
 
 namespace App\Modules\Affiliate\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Affiliate\Services\CommissionService;
 use App\Modules\Affiliate\Models\AffiliatePayout;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class PayoutController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(CommissionService $service)
@@ -21,7 +34,7 @@ class PayoutController extends Controller
      */
     public function index(Request $request)
     {
-        $query = AffiliatePayout::where('tenant_id', $request->tenant_id)
+        $query = AffiliatePayout::where('tenant_id', $this->tenantId())
             ->with(['affiliate']);
 
         if ($request->has('affiliate_id')) {
@@ -116,7 +129,7 @@ class PayoutController extends Controller
         try {
             $payout = $this->service->processPayout(
                 $validated['affiliate_id'],
-                $request->tenant_id,
+                $this->tenantId(),
                 array_filter($validated, fn($k) => !in_array($k, ['affiliate_id']), ARRAY_FILTER_USE_KEY)
             );
 
@@ -138,7 +151,7 @@ class PayoutController extends Controller
      */
     public function getSummary(Request $request, int $affiliateId)
     {
-        $summary = $this->service->getPayoutSummary($affiliateId, $request->tenant_id);
+        $summary = $this->service->getPayoutSummary($affiliateId, $this->tenantId());
 
         return response()->json([
             'success' => true,

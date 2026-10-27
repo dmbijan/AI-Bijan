@@ -16,6 +16,7 @@ return [
     App\Modules\COGS\COGSServiceProvider::class,
     App\Modules\CRM\CRMServiceProvider::class,
     App\Modules\Cod\CodServiceProvider::class,
+    App\Modules\Billing\BillingServiceProvider::class,
     App\Modules\Community\CommunityServiceProvider::class,
     App\Modules\ContentStudio\ContentStudioServiceProvider::class,
     App\Modules\DocumentAI\DocumentAIServiceProvider::class,

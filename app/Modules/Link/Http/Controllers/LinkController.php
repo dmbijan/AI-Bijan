@@ -2,6 +2,8 @@
 
 namespace App\Modules\Link\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Link\Services\LinkService;
 use App\Modules\Link\Models\LinkPage;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class LinkController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(LinkService $service)
@@ -22,7 +35,7 @@ class LinkController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'search']);
-        $links = $this->service->getLinkPages($request->tenant_id, $filters);
+        $links = $this->service->getLinkPages($this->tenantId(), $filters);
 
         return response()->json([
             'success' => true,
@@ -53,7 +66,7 @@ class LinkController extends Controller
         ]);
 
         $validated['short_code'] = LinkService::generateShortCode();
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
         $validated['status'] = 'active';
         $validated['views_count'] = 0;
         $validated['unique_views_count'] = 0;
@@ -123,7 +136,7 @@ class LinkController extends Controller
     public function trackClick(string $code, Request $request)
     {
         try {
-            $click = $this->service->trackClick($code, $request->tenant_id, [
+            $click = $this->service->trackClick($code, $this->tenantId(), [
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'referrer_url' => $request->header('referer'),
@@ -158,7 +171,7 @@ class LinkController extends Controller
      */
     public function getAnalytics(Request $request)
     {
-        $analytics = $this->service->getLinkAnalytics($request->tenant_id);
+        $analytics = $this->service->getLinkAnalytics($this->tenantId());
 
         return response()->json([
             'success' => true,

@@ -2,12 +2,25 @@
 
 namespace App\Modules\Affiliate\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Affiliate\Services\AffiliateAnalyticsService;
 use Illuminate\Http\Request;
 
 class AffiliateAnalyticsController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(AffiliateAnalyticsService $service)
@@ -28,7 +41,7 @@ class AffiliateAnalyticsController extends Controller
             $dateRange['end'] = $request->date_to;
         }
 
-        $overview = $this->service->getProgramOverview($request->tenant_id, $dateRange);
+        $overview = $this->service->getProgramOverview($this->tenantId(), $dateRange);
 
         return response()->json([
             'success' => true,
@@ -42,7 +55,7 @@ class AffiliateAnalyticsController extends Controller
     public function getTopAffiliates(Request $request)
     {
         $affiliates = $this->service->getTopAffiliates(
-            $request->tenant_id,
+            $this->tenantId(),
             $request->get('limit', 10),
             $request->only(['tier'])
         );
@@ -66,7 +79,7 @@ class AffiliateAnalyticsController extends Controller
             $dateRange['end'] = $request->date_to;
         }
 
-        $funnel = $this->service->getConversionFunnel($request->tenant_id, $dateRange);
+        $funnel = $this->service->getConversionFunnel($this->tenantId(), $dateRange);
 
         return response()->json([
             'success' => true,
@@ -86,7 +99,7 @@ class AffiliateAnalyticsController extends Controller
         ]);
 
         $trends = $this->service->getCommissionTrends(
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['period'] ?? 'monthly',
             array_filter($validated, fn($k) => in_array($k, ['date_from', 'date_to']), ARRAY_FILTER_USE_KEY)
         );
@@ -110,7 +123,7 @@ class AffiliateAnalyticsController extends Controller
             $dateRange['end'] = $request->date_to;
         }
 
-        $report = $this->service->getPayoutReport($request->tenant_id, $dateRange);
+        $report = $this->service->getPayoutReport($this->tenantId(), $dateRange);
 
         return response()->json([
             'success' => true,
@@ -131,7 +144,7 @@ class AffiliateAnalyticsController extends Controller
             $dateRange['end'] = $request->date_to;
         }
 
-        $roi = $this->service->getROI($request->tenant_id, $dateRange);
+        $roi = $this->service->getROI($this->tenantId(), $dateRange);
 
         return response()->json([
             'success' => true,
@@ -150,7 +163,7 @@ class AffiliateAnalyticsController extends Controller
         ]);
 
         $comparison = $this->service->getPerformanceComparison(
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['affiliate_ids']
         );
 

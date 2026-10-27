@@ -2,6 +2,8 @@
 
 namespace App\Modules\Loyalty\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Modules\Loyalty\Services\RewardService;
 use App\Modules\Loyalty\Models\Reward;
 use Illuminate\Http\JsonResponse;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class RewardController
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected RewardService $rewardService;
 
     public function __construct(RewardService $rewardService)

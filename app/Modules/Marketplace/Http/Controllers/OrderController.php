@@ -2,6 +2,8 @@
 
 namespace App\Modules\Marketplace\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Marketplace\Services\OrderService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class OrderController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected OrderService $orderService;
 
     public function __construct(OrderService $orderService)

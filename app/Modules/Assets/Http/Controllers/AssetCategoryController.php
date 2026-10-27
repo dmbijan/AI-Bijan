@@ -2,6 +2,8 @@
 
 namespace App\Modules\Assets\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Assets\Models\AssetCategory;
 use Illuminate\Http\Request;
@@ -9,12 +11,23 @@ use Illuminate\Support\Facades\DB;
 
 class AssetCategoryController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     /**
      * List all asset categories for the tenant.
      */
     public function index(Request $request)
     {
-        $query = AssetCategory::forTenant($request->tenant_id);
+        $query = AssetCategory::forTenant($this->tenantId());
 
         if ($request->boolean('active_only')) {
             $query->active();
@@ -28,7 +41,7 @@ class AssetCategoryController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $category = AssetCategory::forTenant($request->tenant_id)->find($id);
+        $category = AssetCategory::forTenant($this->tenantId())->find($id);
 
         if (!$category) {
             return response()->json(['message' => 'Category not found.'], 404);
@@ -43,7 +56,7 @@ class AssetCategoryController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:asset_categories,name,tenant_id,' . $request->tenant_id,
+            'name' => 'required|string|max:255|unique:asset_categories,name,tenant_id,' . $this->tenantId(),
             'description' => 'nullable|string',
             'default_purchase_price' => 'nullable|numeric|min:0',
             'default_useful_life_years' => 'nullable|integer|min:1|max:50',
@@ -51,7 +64,7 @@ class AssetCategoryController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
         $validated['code'] = AssetCategory::generateCode($validated['name']);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
@@ -65,14 +78,14 @@ class AssetCategoryController extends Controller
      */
     public function update(Request $request, int $id)
     {
-        $category = AssetCategory::forTenant($request->tenant_id)->find($id);
+        $category = AssetCategory::forTenant($this->tenantId())->find($id);
 
         if (!$category) {
             return response()->json(['message' => 'Category not found.'], 404);
         }
 
         $validated = $request->validate([
-            'name' => 'sometimes|string|max:255|unique:asset_categories,name,' . $id . ',id,tenant_id,' . $request->tenant_id,
+            'name' => 'sometimes|string|max:255|unique:asset_categories,name,' . $id . ',id,tenant_id,' . $this->tenantId(),
             'description' => 'nullable|string',
             'default_purchase_price' => 'nullable|numeric|min:0',
             'default_useful_life_years' => 'nullable|integer|min:1|max:50',
@@ -90,7 +103,7 @@ class AssetCategoryController extends Controller
      */
     public function destroy(Request $request, int $id)
     {
-        $category = AssetCategory::forTenant($request->tenant_id)->find($id);
+        $category = AssetCategory::forTenant($this->tenantId())->find($id);
 
         if (!$category) {
             return response()->json(['message' => 'Category not found.'], 404);

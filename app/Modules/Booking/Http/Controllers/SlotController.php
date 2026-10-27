@@ -2,6 +2,8 @@
 
 namespace App\Modules\Booking\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Booking\Services\SlotService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class SlotController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected SlotService $slotService;
 
     public function __construct(SlotService $slotService)
@@ -28,7 +41,7 @@ class SlotController extends Controller
         ]);
 
         $slots = $this->slotService->getAvailableSlots(
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['service_id'],
             $validated['provider_id'],
             $validated['date']
@@ -52,7 +65,7 @@ class SlotController extends Controller
 
         try {
             $slots = $this->slotService->generateSlots(
-                $request->tenant_id,
+                $this->tenantId(),
                 $validated['service_id'],
                 $validated['provider_id'],
                 $validated['date'],
@@ -72,7 +85,7 @@ class SlotController extends Controller
     public function book(Request $request, int $id)
     {
         try {
-            $slot = $this->slotService->bookSlot($id, $request->tenant_id);
+            $slot = $this->slotService->bookSlot($id, $this->tenantId());
 
             if (!$slot) {
                 return response()->json(['message' => 'Slot not found.'], 404);
@@ -89,7 +102,7 @@ class SlotController extends Controller
      */
     public function cancel(Request $request, int $id)
     {
-        $slot = $this->slotService->cancelSlot($id, $request->tenant_id);
+        $slot = $this->slotService->cancelSlot($id, $this->tenantId());
 
         if (!$slot) {
             return response()->json(['message' => 'Slot not found.'], 404);
@@ -103,7 +116,7 @@ class SlotController extends Controller
      */
     public function block(Request $request, int $id)
     {
-        $slot = $this->slotService->blockSlot($id, $request->tenant_id);
+        $slot = $this->slotService->blockSlot($id, $this->tenantId());
 
         if (!$slot) {
             return response()->json(['message' => 'Slot not found.'], 404);
@@ -124,7 +137,7 @@ class SlotController extends Controller
         ]);
 
         $slots = $this->slotService->getSlotsByDateRange(
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['start_date'],
             $validated['end_date'],
             $validated['provider_id'] ?? null

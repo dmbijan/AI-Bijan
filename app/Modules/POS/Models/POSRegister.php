@@ -32,10 +32,14 @@ class POSRegister extends Model
 
     /**
      * Get the cash shifts for this register.
+     *
+     * ⚠️ 27 Okt 2026: `register_id` MESTI dinyatakan. Tanpanya Eloquent meneka
+     * `p_o_s_register_id` (dari nama kelas `POSRegister`) → SQL error
+     * "no such column" → 500 pada `/api/v1/pos/registers`.
      */
     public function cashShifts(): HasMany
     {
-        return $this->hasMany(CashShift::class);
+        return $this->hasMany(CashShift::class, 'register_id');
     }
 
     /**
@@ -43,7 +47,7 @@ class POSRegister extends Model
      */
     public function sales(): HasMany
     {
-        return $this->hasMany(POSsale::class);
+        return $this->hasMany(POSSale::class, 'register_id');
     }
 
     /**

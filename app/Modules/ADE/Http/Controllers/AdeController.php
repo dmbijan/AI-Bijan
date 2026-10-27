@@ -2,6 +2,8 @@
 
 namespace App\Modules\ADE\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\ADE\Services\AdeOrchestrator;
 use Illuminate\Http\JsonResponse;

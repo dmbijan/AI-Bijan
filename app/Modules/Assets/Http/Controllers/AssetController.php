@@ -2,6 +2,8 @@
 
 namespace App\Modules\Assets\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Assets\Services\AssetService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class AssetController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected AssetService $assetService;
 
     public function __construct(AssetService $assetService)
@@ -24,7 +37,7 @@ class AssetController extends Controller
         $filters = $request->only(['status', 'category_id', 'search', 'location']);
 
         return response()->json($this->assetService->listAssets(
-            $request->tenant_id,
+            $this->tenantId(),
             $filters
         ));
     }
@@ -34,7 +47,7 @@ class AssetController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $asset = $this->assetService->getAsset($id, $request->tenant_id);
+        $asset = $this->assetService->getAsset($id, $this->tenantId());
 
         if (!$asset) {
             return response()->json(['message' => 'Asset not found.'], 404);
@@ -68,7 +81,7 @@ class AssetController extends Controller
         ]);
 
         try {
-            $asset = $this->assetService->createAsset($validated, $request->tenant_id, $request->user()->id);
+            $asset = $this->assetService->createAsset($validated, $this->tenantId(), $request->user()->id);
             return response()->json($asset, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -101,7 +114,7 @@ class AssetController extends Controller
         ]);
 
         try {
-            $asset = $this->assetService->updateAsset($id, $validated, $request->tenant_id);
+            $asset = $this->assetService->updateAsset($id, $validated, $this->tenantId());
 
             if (!$asset) {
                 return response()->json(['message' => 'Asset not found.'], 404);
@@ -119,7 +132,7 @@ class AssetController extends Controller
     public function destroy(Request $request, int $id)
     {
         try {
-            $success = $this->assetService->deleteAsset($id, $request->tenant_id);
+            $success = $this->assetService->deleteAsset($id, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Asset not found.'], 404);
@@ -146,7 +159,7 @@ class AssetController extends Controller
                 $id,
                 $validated['user_id'],
                 $validated['location'],
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -169,7 +182,7 @@ class AssetController extends Controller
             $transfer = $this->assetService->unassignAsset(
                 $id,
                 $validated['location'],
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -193,7 +206,7 @@ class AssetController extends Controller
             $document = $this->assetService->uploadDocument(
                 $id,
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -208,7 +221,7 @@ class AssetController extends Controller
      */
     public function summary(Request $request)
     {
-        return response()->json($this->assetService->getSummary($request->tenant_id));
+        return response()->json($this->assetService->getSummary($this->tenantId()));
     }
 
     /**

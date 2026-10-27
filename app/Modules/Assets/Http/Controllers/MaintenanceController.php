@@ -2,6 +2,8 @@
 
 namespace App\Modules\Assets\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Assets\Services\MaintenanceService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Validation\ValidationException;
 
 class MaintenanceController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected MaintenanceService $maintenanceService;
 
     public function __construct(MaintenanceService $maintenanceService)
@@ -24,7 +37,7 @@ class MaintenanceController extends Controller
         $filters = $request->only(['status', 'type', 'priority', 'asset_id', 'assigned_to', 'search']);
 
         return response()->json($this->maintenanceService->listRequests(
-            $request->tenant_id,
+            $this->tenantId(),
             $filters
         ));
     }
@@ -34,7 +47,7 @@ class MaintenanceController extends Controller
      */
     public function show(Request $request, int $id)
     {
-        $request = $this->maintenanceService->getRequest($id, $request->tenant_id);
+        $request = $this->maintenanceService->getRequest($id, $this->tenantId());
 
         if (!$request) {
             return response()->json(['message' => 'Maintenance request not found.'], 404);
@@ -62,7 +75,7 @@ class MaintenanceController extends Controller
         try {
             $maintenanceRequest = $this->maintenanceService->createRequest(
                 $validated,
-                $request->tenant_id,
+                $this->tenantId(),
                 $request->user()->id
             );
 
@@ -91,7 +104,7 @@ class MaintenanceController extends Controller
             'vendor_id' => 'nullable|exists:crm_clients,id',
         ]);
 
-        $result = $this->maintenanceService->updateRequest($id, $validated, $request->tenant_id);
+        $result = $this->maintenanceService->updateRequest($id, $validated, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Maintenance request not found.'], 404);
@@ -106,7 +119,7 @@ class MaintenanceController extends Controller
     public function destroy(Request $request, int $id)
     {
         try {
-            $success = $this->maintenanceService->deleteRequest($id, $request->tenant_id);
+            $success = $this->maintenanceService->deleteRequest($id, $this->tenantId());
 
             if (!$success) {
                 return response()->json(['message' => 'Maintenance request not found.'], 404);
@@ -131,7 +144,7 @@ class MaintenanceController extends Controller
         ]);
 
         try {
-            $part = $this->maintenanceService->addPart($id, $validated, $request->tenant_id);
+            $part = $this->maintenanceService->addPart($id, $validated, $this->tenantId());
             return response()->json($part, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -143,7 +156,7 @@ class MaintenanceController extends Controller
      */
     public function removePart(Request $request, int $partId)
     {
-        $success = $this->maintenanceService->removePart($partId, $request->tenant_id);
+        $success = $this->maintenanceService->removePart($partId, $this->tenantId());
 
         if (!$success) {
             return response()->json(['message' => 'Part not found.'], 404);
@@ -163,7 +176,7 @@ class MaintenanceController extends Controller
             'downtime_hours' => 'nullable|numeric|min:0',
         ]);
 
-        $result = $this->maintenanceService->completeRequest($id, $validated, $request->tenant_id);
+        $result = $this->maintenanceService->completeRequest($id, $validated, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Maintenance request not found.'], 404);
@@ -177,7 +190,7 @@ class MaintenanceController extends Controller
      */
     public function cancel(Request $request, int $id)
     {
-        $result = $this->maintenanceService->cancelRequest($id, $request->tenant_id);
+        $result = $this->maintenanceService->cancelRequest($id, $this->tenantId());
 
         if (!$result) {
             return response()->json(['message' => 'Maintenance request not found.'], 404);
@@ -198,7 +211,7 @@ class MaintenanceController extends Controller
         $result = $this->maintenanceService->assignTechnician(
             $id,
             $validated['technician_id'],
-            $request->tenant_id
+            $this->tenantId()
         );
 
         if (!$result) {
@@ -213,7 +226,7 @@ class MaintenanceController extends Controller
      */
     public function summary(Request $request)
     {
-        return response()->json($this->maintenanceService->getSummary($request->tenant_id));
+        return response()->json($this->maintenanceService->getSummary($this->tenantId()));
     }
 
     /**
@@ -224,7 +237,7 @@ class MaintenanceController extends Controller
         $daysAhead = $request->input('days_ahead', 30);
 
         return response()->json($this->maintenanceService->getUpcomingPreventive(
-            $request->tenant_id,
+            $this->tenantId(),
             $daysAhead
         ));
     }
@@ -236,7 +249,7 @@ class MaintenanceController extends Controller
     {
         return response()->json($this->maintenanceService->getAssetHistory(
             $assetId,
-            $request->tenant_id
+            $this->tenantId()
         ));
     }
 }

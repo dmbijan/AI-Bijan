@@ -2,12 +2,25 @@
 
 namespace App\Modules\Loyalty\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Modules\Loyalty\Services\LoyaltyAnalyticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class LoyaltyAnalyticsController
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected LoyaltyAnalyticsService $analyticsService;
 
     public function __construct(LoyaltyAnalyticsService $analyticsService)

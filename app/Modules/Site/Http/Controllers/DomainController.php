@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\DomainService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class DomainController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected DomainService $domainService;
 
     public function __construct(DomainService $domainService)
@@ -21,7 +34,7 @@ class DomainController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $domains = $this->domainService->getDomains($request->tenant_id);
+        $domains = $this->domainService->getDomains($this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -47,7 +60,7 @@ class DomainController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -82,7 +95,7 @@ class DomainController extends Controller
             ], 422);
         }
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
 
         $domain = $this->domainService->createDomain($validated);
 
@@ -98,7 +111,7 @@ class DomainController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -128,7 +141,7 @@ class DomainController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -155,9 +168,9 @@ class DomainController extends Controller
         ]);
 
         $domain = $this->domainService->setPrimaryDomain(
-            $this->domainService->getDomainById($id, $request->tenant_id),
+            $this->domainService->getDomainById($id, $this->tenantId()),
             $validated['site_id'],
-            $request->tenant_id
+            $this->tenantId()
         );
 
         if (!$domain) {
@@ -179,7 +192,7 @@ class DomainController extends Controller
      */
     public function enableSsl(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -202,7 +215,7 @@ class DomainController extends Controller
      */
     public function verifySsl(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -225,7 +238,7 @@ class DomainController extends Controller
      */
     public function verify(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -248,7 +261,7 @@ class DomainController extends Controller
      */
     public function generateVerificationCode(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([
@@ -274,7 +287,7 @@ class DomainController extends Controller
      */
     public function checkDns(Request $request, int $id): JsonResponse
     {
-        $domain = $this->domainService->getDomainById($id, $request->tenant_id);
+        $domain = $this->domainService->getDomainById($id, $this->tenantId());
 
         if (!$domain) {
             return response()->json([

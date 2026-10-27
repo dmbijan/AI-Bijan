@@ -2,6 +2,8 @@
 
 namespace App\Modules\Affiliate\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Affiliate\Services\CommissionService;
 use App\Modules\Affiliate\Models\Commission;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class CommissionController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(CommissionService $service)
@@ -22,7 +35,7 @@ class CommissionController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'type', 'affiliate_id', 'date_from', 'date_to']);
-        $commissions = $this->service->getCommissions($request->tenant_id, $filters);
+        $commissions = $this->service->getCommissions($this->tenantId(), $filters);
 
         return response()->json([
             'success' => true,
@@ -96,7 +109,7 @@ class CommissionController extends Controller
         ]);
 
         $count = Commission::whereIn('id', $validated['ids'])
-            ->where('tenant_id', $request->tenant_id)
+            ->where('tenant_id', $this->tenantId())
             ->where('status', 'pending')
             ->update(['status' => 'approved']);
 
@@ -125,7 +138,7 @@ class CommissionController extends Controller
         ]);
 
         $commission = $this->service->createCommission(
-            $request->tenant_id,
+            $this->tenantId(),
             $validated['affiliate_id'],
             $validated['referral_code_id'] ?? 0,
             $validated['base_value'],

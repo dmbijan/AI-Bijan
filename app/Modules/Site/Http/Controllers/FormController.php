@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\FormService;
 use App\Modules\Site\Models\Form;
@@ -10,6 +12,17 @@ use Illuminate\Http\JsonResponse;
 
 class FormController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected FormService $formService;
 
     public function __construct(FormService $formService)
@@ -22,7 +35,7 @@ class FormController extends Controller
      */
     public function index(Request $request, int $siteId): JsonResponse
     {
-        $forms = $this->formService->getForms($siteId, $request->tenant_id);
+        $forms = $this->formService->getForms($siteId, $this->tenantId());
         
         return response()->json([
             'success' => true,
@@ -35,7 +48,7 @@ class FormController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $form = $this->formService->getFormById($id, $request->tenant_id);
+        $form = $this->formService->getFormById($id, $this->tenantId());
 
         if (!$form) {
             return response()->json([
@@ -67,7 +80,7 @@ class FormController extends Controller
             'notification_email' => 'nullable|array',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
         $validated['site_id'] = $siteId;
 
         $form = $this->formService->createForm($validated);
@@ -84,7 +97,7 @@ class FormController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $form = $this->formService->getFormById($id, $request->tenant_id);
+        $form = $this->formService->getFormById($id, $this->tenantId());
 
         if (!$form) {
             return response()->json([
@@ -119,7 +132,7 @@ class FormController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $form = $this->formService->getFormById($id, $request->tenant_id);
+        $form = $this->formService->getFormById($id, $this->tenantId());
 
         if (!$form) {
             return response()->json([
@@ -141,7 +154,7 @@ class FormController extends Controller
      */
     public function toggleActive(Request $request, int $id): JsonResponse
     {
-        $form = $this->formService->getFormById($id, $request->tenant_id);
+        $form = $this->formService->getFormById($id, $this->tenantId());
 
         if (!$form) {
             return response()->json([
@@ -164,7 +177,7 @@ class FormController extends Controller
      */
     public function submissions(Request $request, int $id): JsonResponse
     {
-        $form = $this->formService->getFormById($id, $request->tenant_id);
+        $form = $this->formService->getFormById($id, $this->tenantId());
 
         if (!$form) {
             return response()->json([

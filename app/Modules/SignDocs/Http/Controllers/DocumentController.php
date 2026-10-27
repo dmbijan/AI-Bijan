@@ -2,6 +2,8 @@
 
 namespace App\Modules\SignDocs\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\SignDocs\Services\DocumentService;
 use App\Modules\SignDocs\Services\TemplateService;
@@ -11,6 +13,17 @@ use Illuminate\Http\Request;
 
 class DocumentController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$request->tenant_id` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $documentService;
     protected $templateService;
 

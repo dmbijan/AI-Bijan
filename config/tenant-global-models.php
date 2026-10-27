@@ -59,6 +59,18 @@ return [
         // sokongan MUSTAHIL. Query eksplisit: where('tenant_id', $tenant->id).
         \App\Models\SupportAccessGrant::class,
 
+        // ── B-Billing / Reseller (27 Okt 2026) ─────────────────────
+        // Rujukan reseller: `tenant_id` ialah SUBJEK rujukan, bukan pemilik
+        // rekod. Dibaca oleh cron platform (kematangan komisen, churn, payout)
+        // yang berjalan TANPA TenantContext — tiada tenant "semasa".
+        // Setiap query MESTI eksplisit: where('tenant_id', $id).
+        \App\Modules\Billing\Models\ResellerReferral::class,
+
+        // Komisen reseller: sama seperti di atas, dibaca platform-wide oleh
+        // cron. Trait akan menyembunyikan SEMUA komisen semasa cron berjalan
+        // (konteks kosong → tenant_id = 0) → payout tidak pernah terbina.
+        \App\Modules\Billing\Models\ResellerCommission::class,
+
     ],
 
 ];

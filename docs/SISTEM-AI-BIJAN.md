@@ -22,19 +22,19 @@ dengan **satu lapisan AI**, **satu pengasingan tenant**, dan **satu UI admin**.
 
 | Metrik | Nilai |
 |---|---|
-| Modul | **58** |
-| Jadual pangkalan data | **357** |
+| Modul | **59** |
+| Jadual pangkalan data | **366** |
 | Laluan API (`api/v1`) | **1,518** |
 | Prefix API | **76** |
 | Ujian lulus | **1009** (4 dilangkau, **0 gagal**) |
 | Assertion | **5,190** |
-| Model | **292** |
-| Service | **166** |
-| Controller (modul) | **127** |
+| Model | **300** |
+| Service | **170** |
+| Controller (modul) | **128** |
 | Resource Filament | **66** |
 | Widget dashboard | **6** |
 | Kebenaran | **212** |
-| Migration | **54 fail** |
+| Migration | **55 fail** |
 | Kandungan blueprint | **103 bab / 27 PART** |
 | Laravel / PHP | **12.70.1 / 8.2.12** |
 | Advisori keselamatan | **0** |

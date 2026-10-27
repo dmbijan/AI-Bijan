@@ -2,6 +2,8 @@
 
 namespace App\Modules\Site\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Site\Services\PostService;
 use Illuminate\Http\Request;
@@ -9,6 +11,17 @@ use Illuminate\Http\JsonResponse;
 
 class PostController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected PostService $postService;
 
     public function __construct(PostService $postService)
@@ -21,7 +34,7 @@ class PostController extends Controller
      */
     public function index(Request $request, int $siteId): JsonResponse
     {
-        $posts = $this->postService->getPosts($siteId, $request->tenant_id, [
+        $posts = $this->postService->getPosts($siteId, $this->tenantId(), [
             'status' => $request->input('status'),
             'tag' => $request->input('tag'),
             'author_id' => $request->input('author_id'),
@@ -38,7 +51,7 @@ class PostController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $post = $this->postService->getPostById($id, $request->tenant_id);
+        $post = $this->postService->getPostById($id, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -61,7 +74,7 @@ class PostController extends Controller
      */
     public function getBySlug(Request $request, int $siteId, string $slug): JsonResponse
     {
-        $post = $this->postService->getPostBySlug($slug, $siteId, $request->tenant_id);
+        $post = $this->postService->getPostBySlug($slug, $siteId, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -98,7 +111,7 @@ class PostController extends Controller
             'tags' => 'nullable|array',
         ]);
 
-        $validated['tenant_id'] = $request->tenant_id;
+        $validated['tenant_id'] = $this->tenantId();
         $validated['site_id'] = $siteId;
 
         $post = $this->postService->createPost($validated);
@@ -115,7 +128,7 @@ class PostController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $post = $this->postService->getPostById($id, $request->tenant_id);
+        $post = $this->postService->getPostById($id, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -152,7 +165,7 @@ class PostController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $post = $this->postService->getPostById($id, $request->tenant_id);
+        $post = $this->postService->getPostById($id, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -174,7 +187,7 @@ class PostController extends Controller
      */
     public function publish(Request $request, int $id): JsonResponse
     {
-        $post = $this->postService->getPostById($id, $request->tenant_id);
+        $post = $this->postService->getPostById($id, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -201,7 +214,7 @@ class PostController extends Controller
             'published_at' => 'required|date',
         ]);
 
-        $post = $this->postService->getPostById($id, $request->tenant_id);
+        $post = $this->postService->getPostById($id, $this->tenantId());
 
         if (!$post) {
             return response()->json([
@@ -225,7 +238,7 @@ class PostController extends Controller
     public function recent(Request $request, int $siteId): JsonResponse
     {
         $limit = $request->input('limit', 5);
-        $posts = $this->postService->getRecentPosts($siteId, $request->tenant_id, $limit);
+        $posts = $this->postService->getRecentPosts($siteId, $this->tenantId(), $limit);
         
         return response()->json([
             'success' => true,

@@ -2,6 +2,8 @@
 
 namespace App\Modules\Affiliate\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
+
 use App\Http\Controllers\Controller;
 use App\Modules\Affiliate\Services\AffiliateService;
 use App\Modules\Affiliate\Models\Affiliate;
@@ -9,6 +11,17 @@ use Illuminate\Http\Request;
 
 class AffiliateController extends Controller
 {
+
+    /**
+     * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
+     *
+     * ⚠️ 27 Okt 2026: kod lama guna `$this->tenantId()` yang sentiasa
+     * `null` (Request tiada atribut itu) → HTTP 500 atau senarai kosong.
+     */
+    private function tenantId(): int
+    {
+        return (int) app(TenantContext::class)->id();
+    }
     protected $service;
 
     public function __construct(AffiliateService $service)
@@ -22,7 +35,7 @@ class AffiliateController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'tier', 'search']);
-        $affiliates = $this->service->getAffiliates($request->tenant_id, $filters);
+        $affiliates = $this->service->getAffiliates($this->tenantId(), $filters);
 
         return response()->json([
             'success' => true,
@@ -48,7 +61,7 @@ class AffiliateController extends Controller
         ]);
 
         $affiliate = $this->service->createApplication($validated + [
-            'tenant_id' => $request->tenant_id,
+            'tenant_id' => $this->tenantId(),
         ]);
 
         return response()->json([
@@ -183,7 +196,7 @@ class AffiliateController extends Controller
      */
     public function stats(Request $request)
     {
-        $stats = $this->service->getAffiliateStats($request->tenant_id);
+        $stats = $this->service->getAffiliateStats($this->tenantId());
 
         return response()->json([
             'success' => true,
@@ -196,7 +209,7 @@ class AffiliateController extends Controller
      */
     public function evaluateTiers(Request $request)
     {
-        $results = $this->service->bulkEvaluateTiers($request->tenant_id);
+        $results = $this->service->bulkEvaluateTiers($this->tenantId());
 
         return response()->json([
             'success' => true,
