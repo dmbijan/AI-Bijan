@@ -25,7 +25,7 @@ class LeaveController extends Controller
      */
     public function leaveTypes(): JsonResponse
     {
-        $leaveTypes = $this->leaveService->getLeaveTypes(Auth::tenant()->id);
+        $leaveTypes = $this->leaveService->getLeaveTypes(app(\App\Support\Tenancy\TenantContext::class)->id());
 
         return response()->json([
             'success' => true,
@@ -55,7 +55,7 @@ class LeaveController extends Controller
         }
 
         try {
-            $leaveType = $this->leaveService->createLeaveType($request->all(), Auth::tenant()->id);
+            $leaveType = $this->leaveService->createLeaveType($request->all(), app(\App\Support\Tenancy\TenantContext::class)->id());
 
             return response()->json([
                 'success' => true,
@@ -94,7 +94,7 @@ class LeaveController extends Controller
         }
 
         try {
-            $request = $this->leaveService->submitRequest($request->all(), Auth::tenant()->id);
+            $request = $this->leaveService->submitRequest($request->all(), app(\App\Support\Tenancy\TenantContext::class)->id());
 
             return response()->json([
                 'success' => true,
@@ -116,7 +116,7 @@ class LeaveController extends Controller
     {
         $leaveRequest = LeaveRequest::where('id', $id)
             ->whereHas('employee', function ($query) {
-                $query->where('tenant_id', Auth::tenant()->id);
+                $query->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id());
             })
             ->first();
 
@@ -162,7 +162,7 @@ class LeaveController extends Controller
 
         $leaveRequest = LeaveRequest::where('id', $id)
             ->whereHas('employee', function ($query) {
-                $query->where('tenant_id', Auth::tenant()->id);
+                $query->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id());
             })
             ->first();
 
@@ -197,7 +197,7 @@ class LeaveController extends Controller
     {
         $leaveRequest = LeaveRequest::where('id', $id)
             ->whereHas('employee', function ($query) {
-                $query->where('tenant_id', Auth::tenant()->id);
+                $query->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id());
             })
             ->first();
 
@@ -294,7 +294,7 @@ class LeaveController extends Controller
     public function getPending(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
-        $requests = $this->leaveService->getPendingRequests(Auth::tenant()->id, $limit);
+        $requests = $this->leaveService->getPendingRequests(app(\App\Support\Tenancy\TenantContext::class)->id(), $limit);
 
         return response()->json([
             'success' => true,
@@ -333,7 +333,7 @@ class LeaveController extends Controller
         ]);
 
         $count = $this->leaveService->autoApproveBelowThreshold(
-            Auth::tenant()->id,
+            app(\App\Support\Tenancy\TenantContext::class)->id(),
             $request->threshold_days ?? 2
         );
 

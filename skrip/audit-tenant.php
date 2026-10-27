@@ -272,6 +272,23 @@ foreach ($semua as $m) {
 }
 
 // ---------------------------------------------------------------
+// 4c. Kaedah tidak wujud — Auth::tenant(), ::query()->tenant()
+// ---------------------------------------------------------------
+// Pepijat sebenar 27 Okt 2026: 35 panggilan `Auth::tenant()->id` dan
+// `Employee::query()->tenant()->...` dalam Payroll + HRMS. Kedua-duanya
+// TIDAK WUJUD → setiap endpoint tersebut pulang HTTP 500.
+$kaedahHantu = [];
+
+foreach (glob(__DIR__ . '/../app/Modules/*/{Http,Services}/*.php', GLOB_BRACE) as $f) {
+    $kod = file_get_contents($f);
+    $nama = basename($f);
+
+    if (preg_match_all('/Auth::tenant\(\)|auth\(\)->tenant\(\)|::query\(\)->tenant\(\)|->tenant\(\)->(payrollRuns|payrollDetails)\(\)/', $kod, $m)) {
+        $kaedahHantu[] = $nama . ' (' . count($m[0]) . '×) ' . $m[0][0];
+    }
+}
+
+// ---------------------------------------------------------------
 // 5. Laporkan
 // ---------------------------------------------------------------
 echo str_repeat('=', 66) . PHP_EOL;
@@ -295,7 +312,17 @@ printf("Integriti skema:\n");
 printf("  %s FK rosak .................. %d\n", $fkRosak === [] ? '✅' : '❌', count($fkRosak));
 printf("  %s SoftDeletes tanpa kolum ... %d\n", $softDeletesRosak === [] ? '✅' : '❌', count($softDeletesRosak));
 printf("  %s \$fillable ≠ kolum DB ...... %d\n", $takSefasa === [] ? '✅' : '❌', count($takSefasa));
+printf("  %s kaedah tidak wujud ....... %d\n", $kaedahHantu === [] ? '✅' : '❌', count($kaedahHantu));
 echo PHP_EOL;
+
+if ($kaedahHantu !== []) {
+    echo "❌ KAEDAH TIDAK WUJUD (endpoint akan pulang HTTP 500):" . PHP_EOL;
+    foreach ($kaedahHantu as $r) {
+        echo '   • ' . $r . PHP_EOL;
+    }
+    echo PHP_EOL . '   Ganti: app(\\App\\Support\\Tenancy\\TenantContext::class)->id()' . PHP_EOL;
+    echo '   atau query model terus (PayrollRun::query()).' . PHP_EOL . PHP_EOL;
+}
 
 if ($takSefasa !== []) {
     echo "❌ MODEL TIDAK SEFASA DENGAN JADUAL (create() akan gagal):" . PHP_EOL;
@@ -365,7 +392,7 @@ if ($terperinci && $tiadaUjianIsolasi !== []) {
     echo PHP_EOL;
 }
 
-$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak) + count($takSefasa);
+$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak) + count($takSefasa) + count($kaedahHantu);
 
 echo str_repeat('-', 66) . PHP_EOL;
 if ($gagal === 0) {

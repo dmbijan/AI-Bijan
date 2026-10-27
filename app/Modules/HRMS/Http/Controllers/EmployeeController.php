@@ -28,7 +28,7 @@ class EmployeeController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = $request->only(['status', 'department_id', 'employment_type', 'search']);
-        $employees = $this->employeeService->listEmployees(Auth::tenant()->id, $filters);
+        $employees = $this->employeeService->listEmployees(app(\App\Support\Tenancy\TenantContext::class)->id(), $filters);
 
         return response()->json([
             'success' => true,
@@ -41,7 +41,7 @@ class EmployeeController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $employee = $this->employeeService->getEmployee(Auth::tenant()->id, $id);
+        $employee = $this->employeeService->getEmployee(app(\App\Support\Tenancy\TenantContext::class)->id(), $id);
 
         if (!$employee) {
             return response()->json([
@@ -101,7 +101,7 @@ class EmployeeController extends Controller
         }
 
         try {
-            $employee = $this->employeeService->create($request->all(), Auth::tenant()->id);
+            $employee = $this->employeeService->create($request->all(), app(\App\Support\Tenancy\TenantContext::class)->id());
 
             return response()->json([
                 'success' => true,
@@ -122,7 +122,7 @@ class EmployeeController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $employee = Employee::where('tenant_id', Auth::tenant()->id)->find($id);
+        $employee = Employee::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$employee) {
             return response()->json([
@@ -193,7 +193,7 @@ class EmployeeController extends Controller
      */
     public function terminate(Request $request, int $id): JsonResponse
     {
-        $employee = Employee::where('tenant_id', Auth::tenant()->id)->find($id);
+        $employee = Employee::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$employee) {
             return response()->json([
@@ -236,7 +236,7 @@ class EmployeeController extends Controller
      */
     public function assignShift(Request $request, int $id): JsonResponse
     {
-        $employee = Employee::where('tenant_id', Auth::tenant()->id)->find($id);
+        $employee = Employee::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$employee) {
             return response()->json([
@@ -307,7 +307,7 @@ class EmployeeController extends Controller
      */
     public function getExpiringContracts(): JsonResponse
     {
-        $employees = $this->employeeService->getExpiringContracts(Auth::tenant()->id);
+        $employees = $this->employeeService->getExpiringContracts(app(\App\Support\Tenancy\TenantContext::class)->id());
 
         return response()->json([
             'success' => true,
@@ -320,7 +320,7 @@ class EmployeeController extends Controller
      */
     public function getProbationers(): JsonResponse
     {
-        $employees = $this->employeeService->getProbationers(Auth::tenant()->id);
+        $employees = $this->employeeService->getProbationers(app(\App\Support\Tenancy\TenantContext::class)->id());
 
         return response()->json([
             'success' => true,
@@ -341,7 +341,7 @@ class EmployeeController extends Controller
         ]);
 
         try {
-            $result = $this->employeeService->bulkImport($request->records, Auth::tenant()->id);
+            $result = $this->employeeService->bulkImport($request->records, app(\App\Support\Tenancy\TenantContext::class)->id());
 
             return response()->json([
                 'success' => true,

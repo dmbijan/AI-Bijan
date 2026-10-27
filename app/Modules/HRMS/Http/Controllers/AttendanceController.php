@@ -94,7 +94,7 @@ class AttendanceController extends Controller
         ]);
 
         $records = $this->attendanceService->getAttendanceRecords(
-            Auth::tenant()->id,
+            app(\App\Support\Tenancy\TenantContext::class)->id(),
             $request->start_date,
             $request->end_date,
             $request->department_id

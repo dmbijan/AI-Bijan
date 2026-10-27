@@ -12,6 +12,10 @@ class StatutoryRate extends Model
     protected $fillable = [
         'tenant_id',
         'year',
+        // ⚠️ 27 Okt 2026: kolum `type` ADA dalam DB tetapi TIADA dalam
+        // `$fillable` → MassAssignmentException setiap kali cipta kadar
+        // statutori. Ditambah.
+        'type',
         'epf_employee_rate',
         'epf_employer_base_rate',
         'epf_employer_reduced_rate',

@@ -4,6 +4,8 @@ namespace App\Modules\Payroll\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Payroll\Models\Employee;
+use App\Modules\Payroll\Models\PayrollRun;
+use App\Modules\Payroll\Models\PayrollRunDetail;
 use App\Modules\Payroll\Services\PayrollRunService;
 use Illuminate\Http\Request;
 
@@ -30,7 +32,7 @@ class PayrollRunController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Employee::query()->tenant()->payrollRuns()
+        $query = PayrollRun::query()
             ->with(['createdBy', 'approvedBy'])
             ->orderBy('period_end', 'desc');
 
@@ -88,7 +90,7 @@ class PayrollRunController extends Controller
      */
     public function show(Request $request, int $runId)
     {
-        $payrollRun = Employee::query()->tenant()->payrollRuns()
+        $payrollRun = PayrollRun::query()
             ->with(['details.employee', 'createdBy', 'approvedBy'])
             ->findOrFail($runId);
 
@@ -102,7 +104,7 @@ class PayrollRunController extends Controller
      */
     public function approve(Request $request, int $runId)
     {
-        $payrollRun = Employee::query()->tenant()->payrollRuns()
+        $payrollRun = PayrollRun::query()
             ->findOrFail($runId);
 
         try {
@@ -131,7 +133,7 @@ class PayrollRunController extends Controller
      */
     public function finalize(Request $request, int $runId)
     {
-        $payrollRun = Employee::query()->tenant()->payrollRuns()
+        $payrollRun = PayrollRun::query()
             ->findOrFail($runId);
 
         try {
@@ -157,7 +159,7 @@ class PayrollRunController extends Controller
      */
     public function payslip(Request $request, int $detailId)
     {
-        $detail = Employee::query()->tenant()->payrollDetails()
+        $detail = PayrollRunDetail::query()
             ->with(['employee', 'payrollRun'])
             ->findOrFail($detailId);
 

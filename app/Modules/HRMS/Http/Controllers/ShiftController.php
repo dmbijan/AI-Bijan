@@ -16,7 +16,7 @@ class ShiftController extends Controller
      */
     public function index(): JsonResponse
     {
-        $shifts = Shift::where('tenant_id', Auth::tenant()->id)
+        $shifts = Shift::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())
             ->with(['employeeShifts.employee'])
             ->orderBy('name')
             ->get();
@@ -32,7 +32,7 @@ class ShiftController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $shift = Shift::where('tenant_id', Auth::tenant()->id)->find($id);
+        $shift = Shift::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$shift) {
             return response()->json([
@@ -75,7 +75,7 @@ class ShiftController extends Controller
 
         try {
             $data = $request->all();
-            $data['tenant_id'] = Auth::tenant()->id;
+            $data['tenant_id'] = app(\App\Support\Tenancy\TenantContext::class)->id();
 
             // Default working hours if not provided
             if (!isset($data['working_hours'])) {
@@ -108,7 +108,7 @@ class ShiftController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $shift = Shift::where('tenant_id', Auth::tenant()->id)->find($id);
+        $shift = Shift::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$shift) {
             return response()->json([
@@ -160,7 +160,7 @@ class ShiftController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $shift = Shift::where('tenant_id', Auth::tenant()->id)->find($id);
+        $shift = Shift::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$shift) {
             return response()->json([
@@ -198,7 +198,7 @@ class ShiftController extends Controller
      */
     public function toggleStatus(int $id): JsonResponse
     {
-        $shift = Shift::where('tenant_id', Auth::tenant()->id)->find($id);
+        $shift = Shift::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$shift) {
             return response()->json([

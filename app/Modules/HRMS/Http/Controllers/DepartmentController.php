@@ -24,7 +24,7 @@ class DepartmentController extends Controller
      */
     public function index(): JsonResponse
     {
-        $departments = Department::where('tenant_id', Auth::tenant()->id)
+        $departments = Department::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())
             ->with(['manager', 'children'])
             ->orderBy('name')
             ->get();
@@ -40,7 +40,7 @@ class DepartmentController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $department = Department::where('tenant_id', Auth::tenant()->id)
+        $department = Department::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())
             ->with(['manager', 'children', 'employees.user'])
             ->find($id);
 
@@ -80,7 +80,7 @@ class DepartmentController extends Controller
 
         try {
             $data = $request->all();
-            $data['tenant_id'] = Auth::tenant()->id;
+            $data['tenant_id'] = app(\App\Support\Tenancy\TenantContext::class)->id();
 
             $department = Department::create($data);
 
@@ -103,7 +103,7 @@ class DepartmentController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $department = Department::where('tenant_id', Auth::tenant()->id)->find($id);
+        $department = Department::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$department) {
             return response()->json([
@@ -150,7 +150,7 @@ class DepartmentController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $department = Department::where('tenant_id', Auth::tenant()->id)->find($id);
+        $department = Department::where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())->find($id);
 
         if (!$department) {
             return response()->json([
@@ -188,7 +188,7 @@ class DepartmentController extends Controller
      */
     public function statistics(): JsonResponse
     {
-        $stats = $this->employeeService->getDepartmentStats(Auth::tenant()->id());
+        $stats = $this->employeeService->getDepartmentStats(app(\App\Support\Tenancy\TenantContext::class)->id());
 
         return response()->json([
             'success' => true,
