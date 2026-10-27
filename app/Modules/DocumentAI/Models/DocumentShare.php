@@ -2,11 +2,14 @@
 
 namespace App\Modules\DocumentAI\Models;
 
-use Illuminate\Database\Eloquent\Model;
+
+use App\Models\Concerns\BelongsToTenant;use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DocumentShare extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'document_shares';
     
     protected $fillable = [

@@ -128,7 +128,8 @@ class SupplierController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $supplier = DB::table('suppliers')
+        // ⚠️ 27 Okt 2026: guna model ber-skop tenant (bukan DB::table + find).
+        $supplier = Supplier::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->first();
@@ -162,7 +163,7 @@ class SupplierController extends Controller
         ]);
         
         try {
-            $updated = $this->supplierService->updateSupplier(\App\Modules\SCM\Models\Supplier::find($id), $validated);
+            $updated = $this->supplierService->updateSupplier($supplier, $validated);
             return response()->json($updated);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -175,9 +176,13 @@ class SupplierController extends Controller
      */
     public function approve($id, Request $request)
     {
-        $supplier = \App\Modules\SCM\Models\Supplier::find($id);
+        // ⚠️ 27 Okt 2026: skop tenant dalam query, bukan semakan selepas find().
+        $supplier = Supplier::query()
+            ->where('id', $id)
+            ->where('tenant_id', $this->tenantId())
+            ->first();
         
-        if (! $supplier || $supplier->tenant_id !== $this->tenantId()) {
+        if (! $supplier) {
             return response()->json(['message' => 'Supplier not found'], 404);
         }
         

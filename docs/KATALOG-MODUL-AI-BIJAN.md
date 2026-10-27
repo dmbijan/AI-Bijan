@@ -1,6 +1,6 @@
 # AI BIJAN — Katalog Penuh Modul (v9.4)
 
-> **58 modul** · **346 jadual** · **1,382 laluan API** · **963 ujian lulus** (0 gagal, 4 skip, 5,034 assertion)
+> **58 modul** · **357 jadual** · **1,382 laluan API** · **963 ujian lulus** (0 gagal, 4 skip, 5,034 assertion)
 >
 > ⚠️ **Pembetulan 26 Okt 2026:** kiraan lama **1,518** adalah SALAH — ia termasuk
 > **154 laluan berganda** (`api/v1/finance/finance/*` dsb.) akibat 5 modul mendaftar
@@ -318,14 +318,14 @@ Semua laluan guna middleware `perm:{module}.{action}`.
 
 | Metrik | B-POS | AI BIJAN |
 |---|---|---|
-| Migration | 109 | **52** |
+| Migration | 109 | **54** |
 | Model | 61 | 292 |
 | Service | 30 | 166 |
 | Controller | 73 | 127 |
 | Multi-tenant | ❌ Tiada | ✅ `BelongsToTenant` |
 | AI | ❌ Tiada | ✅ **10 modul** |
 
-> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **52 fail** menghasilkan **346 jadual**
+> ⚠️ Angka AI BIJAN disahkan 26 Okt 2026. Migration **53 fail** menghasilkan **357 jadual**
 > (satu fail migration boleh mencipta banyak jadual).
 
 **6 jurang B-POS yang perlu dipindahkan ke AI BIJAN:**

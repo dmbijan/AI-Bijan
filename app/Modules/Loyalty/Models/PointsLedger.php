@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use App\Modules\Loyalty\Models\Member;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,7 +10,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PointsLedger extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
+
+    /**
+     * ⚠️ 27 Okt 2026: `$table` WAJIB — jadual sebenar `loyalty_points_ledger`,
+     * bukan `points_ledgers`. Tanpanya → 500 "no such table".
+     * Trait `BelongsToTenant` juga HILANG sebelum ini.
+     */
+    protected $table = 'loyalty_points_ledger';
 
     protected $fillable = [
         'tenant_id',

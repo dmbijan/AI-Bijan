@@ -2,13 +2,14 @@
 
 namespace App\Modules\Assets\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
+use App\Models\Concerns\BelongsToTenant;use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AssetTransfer extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected $table = 'asset_transfers';
 

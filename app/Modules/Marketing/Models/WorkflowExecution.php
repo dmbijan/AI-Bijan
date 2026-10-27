@@ -2,11 +2,20 @@
 
 namespace App\Modules\Marketing\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Pelaksanaan aliran kerja pemasaran.
+ *
+ * ⚠️ 27 Okt 2026: `$fillable` ada `tenant_id` tetapi kolum tiada dalam DB →
+ * tiada skop tenant. Kolum ditambah oleh migrasi 2026_10_27_000400;
+ * trait dipasang di sini.
+ */
 class WorkflowExecution extends Model
 {
+    use BelongsToTenant;
     protected $table = 'marketing_workflow_executions';
 
     protected $fillable = [

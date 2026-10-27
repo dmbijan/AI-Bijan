@@ -117,7 +117,9 @@ class JournalController extends Controller
      */
     public function post($id, Request $request)
     {
-        $entry = DB::table('journal_entries')
+        // ⚠️ 27 Okt 2026: guna model ber-skop tenant — `find($id)` selepas
+        // `DB::table()` memintas global scope tenant (risiko IDOR).
+        $entry = JournalEntry::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->first();
@@ -127,7 +129,7 @@ class JournalController extends Controller
         }
         
         try {
-            $posted = $this->journalService->postJournalEntry(\App\Modules\Finance\Models\JournalEntry::find($id));
+            $posted = $this->journalService->postJournalEntry($entry);
             return response()->json($posted->load(['lines.account', 'approver']));
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -140,9 +142,12 @@ class JournalController extends Controller
      */
     public function cancel($id, Request $request)
     {
-        $entry = \App\Modules\Finance\Models\JournalEntry::find($id);
+        $entry = JournalEntry::query()
+            ->where('id', $id)
+            ->where('tenant_id', $this->tenantId())
+            ->first();
         
-        if (! $entry || $entry->tenant_id !== $this->tenantId()) {
+        if (! $entry) {
             return response()->json(['message' => 'Journal entry not found'], 404);
         }
         

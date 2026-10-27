@@ -65,7 +65,8 @@ class PurchaseOrderController extends Controller
      */
     public function show($id, Request $request)
     {
-        $po = DB::table('purchase_orders')
+        // ⚠️ 27 Okt 2026: DB::table()->with() tidak sah → Eloquent.
+        $po = PurchaseOrder::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->with(['lines', 'supplier', 'approver', 'grns'])
@@ -121,7 +122,9 @@ class PurchaseOrderController extends Controller
      */
     public function submit($id, Request $request)
     {
-        $po = DB::table('purchase_orders')
+        // ⚠️ 27 Okt 2026: guna model ber-skop tenant — laluan `find($id)` selepas
+        // `DB::table()` memintas global scope tenant (risiko IDOR).
+        $po = PurchaseOrder::query()
             ->where('id', $id)
             ->where('tenant_id', $this->tenantId())
             ->first();
@@ -131,7 +134,7 @@ class PurchaseOrderController extends Controller
         }
         
         try {
-            $submitted = $this->poService->submitForApproval(\App\Modules\SCM\Models\PurchaseOrder::find($id));
+            $submitted = $this->poService->submitForApproval($po);
             return response()->json($submitted);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -144,9 +147,9 @@ class PurchaseOrderController extends Controller
      */
     public function approve($id, Request $request)
     {
-        $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
+        $po = $this->cariPo($id);
         
-        if (! $po || $po->tenant_id !== $this->tenantId() || $po->status !== 'pending_approval') {
+        if (! $po || $po->status !== 'pending_approval') {
             return response()->json(['message' => 'Invalid PO for approval'], 400);
         }
         
@@ -164,9 +167,9 @@ class PurchaseOrderController extends Controller
      */
     public function send($id, Request $request)
     {
-        $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
+        $po = $this->cariPo($id);
         
-        if (! $po || $po->tenant_id !== $this->tenantId() || $po->status !== 'approved') {
+        if (! $po || $po->status !== 'approved') {
             return response()->json(['message' => 'Invalid PO for sending'], 400);
         }
         
@@ -184,9 +187,9 @@ class PurchaseOrderController extends Controller
      */
     public function receive($id, Request $request)
     {
-        $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
+        $po = $this->cariPo($id);
         
-        if (! $po || $po->tenant_id !== $this->tenantId()) {
+        if (! $po) {
             return response()->json(['message' => 'PO not found'], 404);
         }
         
@@ -211,9 +214,9 @@ class PurchaseOrderController extends Controller
      */
     public function cancel($id, Request $request)
     {
-        $po = \App\Modules\SCM\Models\PurchaseOrder::find($id);
+        $po = $this->cariPo($id);
         
-        if (! $po || $po->tenant_id !== $this->tenantId()) {
+        if (! $po) {
             return response()->json(['message' => 'PO not found'], 404);
         }
         
@@ -223,5 +226,17 @@ class PurchaseOrderController extends Controller
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Cari PO dalam skop tenant semasa — SATU tempat, elak percanggahan.
+     * ⚠️ Jangan guna ::find() tanpa skop — ia memintas pengasingan tenant.
+     */
+    private function cariPo($id): ?PurchaseOrder
+    {
+        return PurchaseOrder::query()
+            ->where('id', $id)
+            ->where('tenant_id', $this->tenantId())
+            ->first();
     }
 }

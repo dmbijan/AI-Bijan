@@ -114,6 +114,62 @@ foreach ($fail as $f) {
 }
 
 // ---------------------------------------------------------------
+// 1b. Kesesuaian model ↔ jadual ($fillable vs kolum sebenar)
+// ---------------------------------------------------------------
+// Pepijat sebenar 27 Okt 2026: `Quotation::$fillable` ada 16 kolum yang TIADA
+// dalam jadual (customer_name, issue_date, grand_total, …) → setiap
+// `create()` meletup dengan MassAssignmentException / "no such column".
+// `DebitNote` pula guna original_amount/additional_amount sedangkan kolum
+// sebenar cuma `amount`.
+//
+// Semakan ini mencari kolum $fillable yang tidak wujud dalam DB.
+$takSefasa = [];   // ['pendek','jadual','kolum'=>[...]]
+
+foreach ($semua as $m) {
+    try {
+        $contoh = new $m['kelas']();
+        $fillable = $contoh->getFillable();
+    } catch (Throwable $e) {
+        continue;
+    }
+
+    if ($fillable === []) {
+        continue;   // guna $guarded, bukan $fillable — langkau
+    }
+
+    try {
+        $kolumDb = array_map(
+            fn ($k) => $k->name,
+            DB::select('select name from pragma_table_info(?)', [$m['jadual']])
+        );
+    } catch (Throwable $e) {
+        // MySQL
+        try {
+            $kolumDb = DB::table('information_schema.columns')
+                ->where('table_schema', DB::getDatabaseName())
+                ->where('table_name', $m['jadual'])
+                ->pluck('column_name')->all();
+        } catch (Throwable $e2) {
+            continue;   // jadual tiada — dilaporkan oleh semakan lain
+        }
+    }
+
+    if ($kolumDb === []) {
+        continue;
+    }
+
+    $hilang = array_values(array_diff($fillable, $kolumDb));
+
+    if ($hilang !== []) {
+        $takSefasa[] = [
+            'pendek' => $m['pendek'],
+            'jadual' => $m['jadual'],
+            'kolum' => $hilang,
+        ];
+    }
+}
+
+// ---------------------------------------------------------------
 // 2. Senarai putih (sengaja tanpa trait)
 // ---------------------------------------------------------------
 $putihFail = __DIR__ . '/../config/tenant-global-models.php';
@@ -238,7 +294,24 @@ echo PHP_EOL;
 printf("Integriti skema:\n");
 printf("  %s FK rosak .................. %d\n", $fkRosak === [] ? '✅' : '❌', count($fkRosak));
 printf("  %s SoftDeletes tanpa kolum ... %d\n", $softDeletesRosak === [] ? '✅' : '❌', count($softDeletesRosak));
+printf("  %s \$fillable ≠ kolum DB ...... %d\n", $takSefasa === [] ? '✅' : '❌', count($takSefasa));
 echo PHP_EOL;
+
+if ($takSefasa !== []) {
+    echo "❌ MODEL TIDAK SEFASA DENGAN JADUAL (create() akan gagal):" . PHP_EOL;
+    foreach (array_slice($takSefasa, 0, 20) as $r) {
+        printf(
+            "   • %-28s %-30s hilang: %s\n",
+            $r['pendek'],
+            $r['jadual'],
+            implode(', ', array_slice($r['kolum'], 0, 6)) . (count($r['kolum']) > 6 ? ' …' : '')
+        );
+    }
+    if (count($takSefasa) > 20) {
+        echo '   … dan ' . (count($takSefasa) - 20) . ' lagi' . PHP_EOL;
+    }
+    echo PHP_EOL;
+}
 
 if ($fkRosak !== []) {
     echo "❌ FK MERUJUK JADUAL TIDAK WUJUD (INSERT akan gagal):" . PHP_EOL;
@@ -292,7 +365,7 @@ if ($terperinci && $tiadaUjianIsolasi !== []) {
     echo PHP_EOL;
 }
 
-$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak);
+$gagal = count($bocor) + count($tanpaKolom) + count($fkRosak) + count($softDeletesRosak) + count($takSefasa);
 
 echo str_repeat('-', 66) . PHP_EOL;
 if ($gagal === 0) {

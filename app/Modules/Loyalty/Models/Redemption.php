@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use App\Modules\Loyalty\Models\Member;
 use App\Modules\Loyalty\Models\Reward;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,7 +11,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Redemption extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
+
+    /**
+     * ⚠️ 27 Okt 2026: `$table` WAJIB — jadual sebenar `loyalty_redemptions`.
+     * Trait `BelongsToTenant` juga HILANG sebelum ini.
+     */
+    protected $table = 'loyalty_redemptions';
 
     protected $fillable = [
         'tenant_id',

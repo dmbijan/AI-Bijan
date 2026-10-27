@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use App\Modules\Loyalty\Models\Member;
 use App\Modules\Loyalty\Models\PointsLedger;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,7 +12,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Tier extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
+
+    /**
+     * ⚠️ 27 Okt 2026: `$table` WAJIB — nama jadual ialah `loyalty_tiers`,
+     * bukan `tiers`. Tanpanya Eloquent meneka `tiers` → 500
+     * "no such table: tiers". Trait `BelongsToTenant` juga HILANG sebelum ini,
+     * menyebabkan tiada pengasingan tenant pada tahap data.
+     */
+    protected $table = 'loyalty_tiers';
 
     protected $fillable = [
         'tenant_id',

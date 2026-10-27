@@ -1,0 +1,42 @@
+P1-1c: 36 model tidak sefasa dengan jadual — dibetulkan
+
+Ditemui oleh semakan baharu dalam `skrip/audit-tenant.php`:
+banding `$fillable` model dengan kolum sebenar `pragma_table_info`.
+Ia menyumbang exit code CI (merah jika ada percanggahan).
+
+36 model menyenaraikan kolum dalam `$fillable` yang TIADA dalam jadual.
+Kesan: `Model::create([...])` meletup dengan MassAssignmentException atau
+"no such column: X" — CIRI ITU TIDAK BOLEH DIGUNAKAN walaupun route wujud
+dan UI memaparkannya. Modul terjejas:
+
+- Affiliate (4 model): affiliates, affiliate_commissions,
+  affiliate_referrals, affiliate_referral_codes
+- Analytics (2): dashboard_widgets, analytics_reports
+- Assets (3): assets (18 kolum hilang), asset_categories,
+  depreciation_schedule (tenant_id hilang!)
+- BrainHub (3): brainhub_forecasts (13 kolum), insights, recommendations
+- COGS (1): cogs_cost_components
+- DocumentAI (5): documents (31 kolum!), extraction_history, shares,
+  templates, versions
+- Loyalty (5): members, points_ledger, redemptions, rewards, tiers
+- Marketing (7): campaigns, contacts, deal_activities, lead_scores,
+  segments, sequence_executions, vouchers, workflow_executions
+- Omnichannel (1): omnichannel_messages
+- Projects (4): projects, project_members, tasks, timesheets
+
+PEMBETULAN
+- Migration 2026_10_27_000400: tambah semua kolum hilang sebagai nullable
+  (atau default selamat). Semua kolum wang decimal(15,2), peratusan
+  decimal(5,2) mengikut konvensyen projek. Idempoten (semak hasColumn).
+- 4 model mendapat `tenant_id` baharu (DepreciationSchedule, DealActivity,
+  SequenceExecution, WorkflowExecution) kini menggunakan BelongsToTenant —
+  sebelum ini $fillable menyenaraikan tenant_id tetapi kolum tidak wujud,
+  jadi model itu tiada skop tenant DAN tidak boleh dicipta.
+
+ALAT
+- skrip/audit-tenant.php: semakan ke-4 — `$fillable` != kolum DB.
+  Output: 0 model bocor, 0 FK rosak, 0 SoftDeletes rosak,
+  0 $fillable tidak sefasa.
+
+Ujian: 1,010 lulus (dari 997), 4 dilangkau, 0 gagal (5,191 assertion).
+Migration: 52 -> 53.
