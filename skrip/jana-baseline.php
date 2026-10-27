@@ -35,7 +35,9 @@ foreach ($argv as $a) {
 
 // ── 1. Kumpul kebenaran ─────────────────────────────────────────────────
 
-$root = __DIR__ . '/..';
+// Akar repositori — MESTI ditakrifkan SEBELUM `$kira` (closure `static` tidak
+// mewarisi skop induk; pernah menyebabkan "Undefined variable $root").
+$root = dirname(__DIR__);
 
 $modul = count(glob($root . '/app/Modules/*', GLOB_ONLYDIR));
 
@@ -46,7 +48,7 @@ $resourceFilament = count(glob($root . '/app/Filament/Resources/*', GLOB_ONLYDIR
 $widgetFilament = count(glob($root . '/app/Filament/Widgets/*.php'));
 
 // Kira fail mengikut subfolder modul (recursive — modul boleh nest)
-$kira = static function (string $sub): int {
+$kira = static function (string $sub) use ($root): int {
     $n = 0;
     $it = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root . '/app/Modules', FilesystemIterator::SKIP_DOTS)

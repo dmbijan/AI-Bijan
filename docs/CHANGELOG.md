@@ -9,6 +9,45 @@ sebelum ini berselerak dalam `TODO.md`, supaya `TODO.md` boleh menjadi senarai
 
 ---
 
+## v9.6.1 — 28 Oktober 2026
+
+### Kerja berbukti kod (bukan dokumen)
+
+- **`skrip/jana-baseline.php` dibaiki** — skrip ini **ranap** sejak dicipta
+  (`Undefined variable $root`: `$root` ditakrifkan selepas closure `static` yang
+  menggunakannya, dan closure `static` tidak mewarisi skop induk). Kini berjalan
+  semula dan menghasilkan 60 modul / 56 migration / 312 model / 179 servis /
+  135 controller / 66 resource / 1,136 kaedah ujian / 1,419 laluan `api/v1` /
+  379 jadual / 212 kebenaran.
+- **Migrasi `2026_10_27_000100_create_team_ai_workspace_tables` dijalankan** pada
+  DB dev (status `Pending` → `Ran`). Sebelum ini `team_ai_repositories` dan
+  `team_ai_assets` **tidak wujud**, jadi setiap `TeamAiRepository::create()`
+  gagal dan `audit-tenant` melaporkan kedua-dua model sebagai "trait tanpa kolum".
+- **`tests/Feature/Pengasingan/TeamAiTenantIsolationTest.php` ditambah** —
+  liputan pengasingan tenant kini **60/60 modul** (sebelum ini 59/60).
+  `php skrip/audit-tenant.php` → exit 0, `0 trait tanpa kolum`, `0 bocor`.
+  5/5 ujian lulus (21 assertion); `TeamAiWorkspaceTest` 4/4 masih lulus.
+
+### Dokumen
+
+- **`AUDIT-BASELINE.md`** — §1 dijana semula (angka v9.6 digantikan); §1.1/§1.2
+  dikemas kini; §5.1 ditambah: `skrip/semak-kebenaran.php` **bukan** audit
+  `route↔permission` (32 baris, tenant #1 dikod keras) dan langkah CI
+  `Periksa baseline dalam repo` membandingkan format berbeza → sentiasa gagal.
+- **`TODO.md`** — ringkasan metrik dikemas kini; seksyen baharu
+  **"Kerja sesi 28 Okt 2026"** dengan 9 entri bernombor (T-104 … T-112) yang
+  setiap satunya dijejak kepada bukti output; `Nota kerja` ditambah 3 perangkap
+  (migrasi pending menyamarkan model rosak, output `artisan test` pada PowerShell,
+  keperluan DB untuk `jana-baseline`).
+
+### Isu terbuka (tidak diselesaikan)
+
+- T-104 CI masih gagal (format `diff` baseline belum diseragamkan).
+- T-105 pagar `route ↔ permission` belum wujud.
+- T-109 migration 58 → 56 perlu disahkan (risiko DB produksi tidak boleh dibina semula).
+
+---
+
 ## v9.6 — 27 Oktober 2026
 
 ### Dokumentasi & audit

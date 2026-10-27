@@ -1,6 +1,6 @@
 # TODO — AI BIJAN SaaS
 
-**Dikemas kini:** 27 Oktober 2026
+**Dikemas kini:** 28 Oktober 2026
 **Status:** `DEVELOPMENT` — belum production-ready
 
 > Fail ini menyenaraikan kerja yang **belum siap** dan **belum bermula** sahaja.
@@ -28,12 +28,14 @@
 
 | Ukuran | Nilai | Sumber |
 |---|---|---|
-| Modul | **59** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Laluan API (`api/v1`) | **~872** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Kaedah ujian | **~1,119** (89 fail Feature) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Migration | **58 fail** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Resource Filament | **65** (+6 widget) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Model · Service · Controller | **310 · 174 · 134** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Modul | **60** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Laluan API (`api/v1`) | **1,419** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Kaedah ujian | **1,136** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Migration | **56 fail** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Resource Filament | **66** (+6 widget) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Model · Service · Controller | **312 · 179 · 135** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Jadual DB · Kebenaran | **379 · 212** | `php skrip/jana-baseline.php` |
+| Liputan ujian pengasingan | **60/60 modul** | `php skrip/audit-tenant.php` |
 | Blueprint | **v9.6 — 103 bab / 27 PART** | [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) |
 | DB | SQLite (dev) · MySQL disokong (`skrip/tukar_db.ps1`) | — |
 | AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) | — |
@@ -56,7 +58,8 @@ Sejarah penuh (39 → 54 → 55 → 56 → 59 modul) ada dalam
 | BAB 89 | 55 | 1,345 | 829 | v9.2 |
 | BAB 92 | 56 | 1,460 | 962 | v9.4 |
 | 26 Okt 2026 | 58 | 1,518 | 962 | v9.5 |
-| **27 Okt 2026** | **59** | **~872** | **~1,119 kaedah** | **v9.6** |
+| 27 Okt 2026 | 59 | ~872 | ~1,119 kaedah | v9.6 |
+| **28 Okt 2026** | **60** | **1,419** | **1,136 kaedah** | v9.6 |
 
 ---
 
@@ -64,6 +67,117 @@ Sejarah penuh (39 → 54 → 55 → 56 → 59 modul) ada dalam
 
 > Ini senarai **rasmi** kerja yang belum siap. Semua entri lain dalam fail ini
 > ialah konteks tambahan mengikut bab blueprint asal.
+
+---
+
+## 📋 Kerja sesi 28 Okt 2026 — semua disahkan dengan menjalankan kod
+
+> Senarai ini disusun selepas menjalankan `php artisan test`, `php skrip/audit-tenant.php`,
+> `php skrip/jana-baseline.php`, `php artisan migrate:status` dan `php artisan --version`
+> pada working tree semasa. Setiap entri ada **bukti** (output atau laluan fail).
+> Susunan = urutan kerja yang disyorkan untuk minggu ini.
+
+### T-104 🔴 CI sentiasa gagal — `jana-baseline` ranap + format `diff` tidak sepadan
+**Bukti:** `php skrip/jana-baseline.php` → `ErrorException: Undefined variable $root` (baris 52).
+Punca: `$root` ditakrifkan **selepas** closure `static function` menggunakannya; closure
+`static` juga tidak mewarisi skop induk. Skrip kedua: langkah CI `Periksa baseline dalam
+repo` membandingkan `docs/AUDIT-BASELINE.md` (label `NILAI`, nilai tanpa `**`) dengan
+output `--tolak` (label `**NILAI**`, nilai `**…**`) → `diff` **sentiasa** gagal.
+- [x] Baiki skrip: `$root = dirname(__DIR__);` sebelum `$kira` + `use ($root)`
+      → kini mencetak 60 modul / 1,419 laluan / 379 jadual / 212 kebenaran
+- [ ] **Keputusan:** tambah `jumlah_format(@$baris, bool $tebal)` supaya `--tulis`/CI guna
+      **satu** format; CI banding baris metrik sahaja
+- [ ] Tambah ujian skrip: jalankan `--tolak` ke fail sementara dan sahkan `diff` lulus
+- **Siap apabila:** `php skrip/jana-baseline.php --tolak=x.md` → baris metrik **identik**
+  dengan §1 `AUDIT-BASELINE.md`; job CI `struktur` hijau
+
+### T-105 🔴 Pagar `route ↔ permission` tiada (P0-03 audit induk)
+**Bukti:** `skrip/semak-kebenaran.php` hanyalah skrip 32 baris yang menyenaraikan kebenaran
+tenant #1 (ID dikod keras). Ia **tidak** membandingkan middleware `perm:*` pada setiap
+laluan dengan jadual `permissions`, dan tidak mengesan laluan yang **tiada** middleware.
+- [ ] Tulis semula: kumpul `Route::getRoutes()` → middleware `perm:<nama>` → banding
+      dengan `permissions` (2 arah: *digunakan tetapi tiada dalam DB* → 403/500 pada
+      produksi; *ada dalam DB tetapi tiada laluan* → kebenaran mati)
+- [ ] Senaraikan laluan `api/v1` yang **tiada** `auth`/`perm` (kecuali senarai putih awam)
+- [ ] Exit 1 jika ada percanggahan; tambah ke CI `struktur`
+- **Siap apabila:** `php skrip/semak-kebenaran.php` exit 0 + laporan 0 laluan tanpa pagar
+
+### T-106 🟠 Pangkalan data dev tertinggal 1 migrasi (sudah dibaiki hari ini)
+**Bukti:** `php artisan migrate:status` → `2026_10_27_000100_create_team_ai_workspace_tables`
+**Pending**; `audit-tenant` melaporkan `TeamAiAsset`, `TeamAiRepository` sebagai
+"trait tanpa kolum" (sebenarnya jadual tidak wujud). Sudah dijalankan
+`php artisan migrate --force` → 0 pending.
+- [x] `php artisan migrate` dijalankan
+- [ ] Tambah prasyarat: `php artisan migrate:status` **wajib** 0 pending sebelum ujian —
+      kegagalan senyap ini menyembunyikan dua model rosak
+
+### T-107 ✅ Liputan ujian pengasingan 59/60 → 60/60 — TeamAI
+- [x] `tests/Feature/Pengasingan/TeamAiTenantIsolationTest.php` — 2 model
+      (`TeamAiRepository`, `TeamAiAsset`), laluan `/api/v1/team-ai/repositories`,
+      rahsia `rahsia-team-ai`; **5/5 lulus, 21 assertion**
+- [x] `php skrip/audit-tenant.php` → exit 0, `0 trait tanpa kolum`,
+      `ada ujian pengasingan 60`, `60/60 modul`
+- [x] `TeamAiWorkspaceTest` masih lulus (4/4) selepas migrasi dijalankan
+
+---
+
+### T-108 🟢 Susulan TeamAI — modul terbaharu, liputan ujian paling nipis
+**Bukti:** `app/Modules/TeamAI/` hanya ada 1 controller (3 laluan) + 1 servis;
+`TeamAiWorkspaceTest` = 4 ujian untuk ciri yang didokumenkan dalam `docs/TEAM-AI-WORKSPACE.md`.
+- [ ] Ujian `saveRepository` **tanpa** token vs **dengan** token (token mesti terenkripsi
+      dan **tidak pernah** dipulangkan oleh API)
+- [ ] Ujian `deleteRepository` **cascade** — aset anak turut dipadam (FK `cascadeOnDelete`)
+- [ ] Ujian idempotensi sync: `last_commit_sha` / `last_synced_at` dikemas kini; sync
+      kedua tidak menduplikasi aset (unique `team_ai_repository_id + path`)
+- [ ] Ujian had: 50 fail / 64 KB / 1 MB — sync terhenti **tanpa** menulis separuh
+- [ ] `docs/TEAM-AI-WORKSPACE.md` §"Current boundaries" (scheduled sync, webhooks,
+      audit history, multi-provider) ditukar kepada entri `TODO` bernombor supaya boleh dijejak
+
+### T-109 🟡 Baseline v9.6 lapuk — 8 metrik berubah
+**Bukti:** keluaran `php skrip/jana-baseline.php` 28 Okt vs `AUDIT-BASELINE.md` v9.6:
+
+| Metrik | v9.6 | Sebenar | Punca |
+|---|---:|---:|---|
+| Modul | 59 | **60** | `TeamAI` ditambah |
+| Laluan `api/v1` | 872 | **1,419** | kini dikira daripada router, bukan anggaran |
+| Model | 310 | **312** | TeamAI |
+| Service | 174 | **179** | TeamAI + lain |
+| Controller | 134 | **135** | `TeamAiWorkspaceController` |
+| Resource Filament | 65 | **66** | — |
+| Kaedah ujian | 1,119 | **1,136** | ujian baharu |
+| Migration | 58 | **56** | fail migration digabung/dipindah |
+
+- [x] Angka §1 `AUDIT-BASELINE.md` dan ringkasan `TODO.md` dikemas kini 28 Okt
+- [ ] **Sahkan migration 58 → 56**: 2 fail tiada di `database/migrations/` tetapi
+      jadualnya wujud (379 jadual). Semak git history — jika fail dipadam tanpa `down()`,
+      DB produksi tidak boleh dibina semula dari sifar
+- [ ] Dokumen lain (`SISTEM-AI-BIJAN.md`, `KATALOG-MODUL-AI-BIJAN.md`, `docs/README.md`,
+      `AGENTS.md`) **merujuk** baseline, jangan salin angka
+- [ ] Jalankan `php skrip/semak-dokumen.php` dan betulkan percanggahan katalog
+
+### T-110 🟡 Kegagalan sedia ada semasa suite dijalankan
+**Bukti:** output `php artisan test` mengandungi `The system cannot find the path specified.`
+dua kali pada Windows (ujian yang mengakses laluan/shell luar platform). Tiada kegagalan
+PHPUnit setakat ini, tetapi ujian tersebut tidak sah pada Windows.
+- [ ] Kenal pasti ujian tersebut dan jadikannya platform-neutral
+- [ ] Rekod jumlah lulus/gagal/dilangkau sebenar ke `AUDIT-BASELINE.md` §1.2
+
+### T-111 🟢 Ujian API pengasingan belum berjalan untuk semua modul
+**Bukti:** `tests/Feature/Pengasingan/` = 35 fail; banyak menetapkan `laluanApi = null`
+→ ujian #5 (`test_api_tenant_lain_tidak_nampak_rekod`) **dilangkau**.
+- [ ] Senaraikan modul dengan `laluanApi = null` + sebab, kurangkan satu demi satu
+- [ ] Sasaran: ≥ 80% modul ada ujian API pengasingan sebenar (IDOR), bukan ujian model sahaja
+
+### T-112 🟡 Kerja menunggu **akaun/kunci luaran** (tidak boleh disiapkan oleh kod)
+| ID | Perkara | Apa yang tersekat |
+|---|---|---|
+| T-06 | SQLite → MySQL | `mysqld` XAMPP tidak berjalan; `migrate:fresh --seed` belum diuji pada MySQL |
+| T-07 | AI Gateway live | `AI_GATEWAY_KEY` belum diisi pemilik |
+| T-09 … T-14 | Payment, WhatsApp, Ads, LHDN, Kurier, Gmail | perlu akaun/kelulusan provider |
+| T-32 | Provider blast (SMTP/Twilio/Meta/HeyGen) | perlu kredensial + lesen MCMC (SMS) |
+
+> **Nota:** T-112 **bukan** kerja kod. Jangan mula T-36 … T-52 sebelum P0 (T-104, T-105)
+> hijau — menambah modul di atas pagar keselamatan yang tiada menggandakan hutang audit.
 
 ---
 
@@ -308,20 +422,21 @@ tool allowlist + permission check pada setiap panggilan, bukan prompt.
 
 ## Urutan kerja yang disyorkan
 
-> Urutan ini disemak 27 Okt 2026. Versi lama bermula dengan `T-01` yang kini
-> sudah selesai — ia dikemas kini di bawah.
+> Urutan ini disemak **28 Okt 2026**. Versi lama bermula dengan `T-01` yang kini
+> sudah selesai, dan menganggap `skrip/semak-kebenaran.php` sudah menjadi audit —
+> ia belum (T-105). Entri P0 hari ini: **T-104** (CI), **T-105** (kebenaran), **T-109** (angka).
 
 ```
 P0  Keselamatan platform (audit induk §15, P0-01 … P0-09)
    ↓
-P0-01 Baseline repositori pada satu commit  →  AUDIT-BASELINE.md
-P0-02 Audit tenant isolation                 →  skrip/audit-tenant.php
-P0-03 Audit authorization (route↔permission) →  skrip/semak-kebenaran.php
+P0-01 Baseline repositori pada satu commit  →  AUDIT-BASELINE.md  ⚠️ T-104 (CI gagal)
+P0-02 Audit tenant isolation                 →  skrip/audit-tenant.php  ✅ 60/60 (T-107)
+P0-03 Audit authorization (route↔permission) →  T-105 (skrip masih 32 baris, bukan audit)
 P0-04 Payment webhook security                →  T-09 (perlukan akaun merchant)
 P0-05 AI Gateway enforcement                  →  T-07 (perlu AI_GATEWAY_KEY)
 P0-06 Secret & PII controls
 P0-07 Backup/restore + rollback drill
-P0-08 Feature-status registry (status jujur)
+P0-08 Feature-status registry (status jujur)  →  T-109 (baseline lapuk)
 P0-09 Bersihkan status dokumen lama           →  ✅ hampir selesai (27 Okt)
    ↓
 P2  Infrastruktur produksi
@@ -1225,6 +1340,15 @@ Setiap modul dalam `app/Modules/` mesti memenuhi **salah satu**:
 - **Ujian pengasingan tenant** perlu `withoutGlobalScopes()` — global scope menapis ikut konteks semasa.
 - **`dalamTenant($t2)` WAJIB** sebelum cipta rekod untuk `$t2`, walaupun `tenant_id` dihantar eksplisit.
 - **Cipta rekod SEBELUM `$this->sebagai()`** dalam ujian API — konteks dikosongkan selepas HTTP request.
+- **Migrasi pending menyamarkan model rosak** — `skrip/audit-tenant.php` melaporkan model sebagai
+  "trait tanpa kolum" apabila jadualnya tidak wujud (kes TeamAI, 28 Okt 2026). Semak
+  `php artisan migrate:status` dahulu sebelum mempercayai audit skema.
+- **`php artisan test` pada PowerShell** menyembunyikan output (`Select-Object -Last` menunggu
+  proses keluar; suite ~8 min). Tulis ke fail: `php artisan test > $env:TEMP\suite.txt 2>&1`,
+  kemudian baca fail itu.
+- **`skrip/jana-baseline.php`** mesti dijalankan dari akar repo; ia memerlukan DB (jadual +
+  kebenaran). Jika DB kosong, lajur `Jadual DB sebenar`/`Kebenaran` dikecualikan → baseline
+  akan "berbeza" tanpa sebab yang jelas.
 
 ---
 

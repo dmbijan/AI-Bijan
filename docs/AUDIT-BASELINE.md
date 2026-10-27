@@ -1,6 +1,6 @@
 # AUDIT-BASELINE — AI BIJAN SaaS
 
-**Tarikh pengesahan:** 27 Oktober 2026
+**Tarikh pengesahan:** 28 Oktober 2026
 **Skop:** repositori `ai-bijan-saas` pada working tree semasa
 **Kaedah:** kiraan statik daripada sistem fail (bmodul, migration, model, service,
 controller, resource Filament, widget, laluan, kaedah ujian). Didokumentasikan dalam
@@ -17,46 +17,53 @@ controller, resource Filament, widget, laluan, kaedah ujian). Didokumentasikan d
 ## 1. Baseline disahkan
 
 > **Dijana automatik** oleh `php skrip/jana-baseline.php --tulis`.
-> Tarikh penjanaan: 2026-10-27
+> Tarikh penjanaan: 2026-10-28
 > Jangan tulis angka di sini secara manual — jalankan skrip.
 > CI akan gagal jika seksyen ini tidak sepadan dengan kod sebenar.
+>
+> **Nota 28 Okt 2026:** skrip ini **tidak boleh dijalankan sama sekali** sebelum
+> hari ini (`Undefined variable $root` — `$root` ditakrifkan selepas closure
+> `static` menggunakannya, dan closure `static` tidak mewarisi skop induk).
+> Angka v9.6 di bawah digantikan dengan keluaran skrip yang kini berfungsi.
+> Punca angka laluan melonjak: `Laluan api/v1` kini dikira daripada router
+> Laravel sebenar (872 → 1,419), bukan anggaran manual.
 
 | METRIK | NILAI | CARA DIUKUR |
 |---|---:|---|
-| Modul | **59** | direktori di `app/Modules/` |
-| Migration | **58** | fail di `database/migrations/` |
-| Model | **310** | `app/Modules/**/Models/*.php` |
-| Service | **174** | `app/Modules/**/Services/*.php` |
-| Controller (modul) | **134** | `app/Modules/**/Http/Controllers/*.php` |
-| Resource Filament | **65** | direktori di `app/Filament/Resources/` |
+| Modul | **60** | direktori di `app/Modules/` |
+| Migration | **56** | fail di `database/migrations/` |
+| Model | **312** | `app/Modules/**/Models/*.php` |
+| Service | **179** | `app/Modules/**/Services/*.php` |
+| Controller (modul) | **135** | `app/Modules/**/Http/Controllers/*.php` |
+| Resource Filament | **66** | direktori di `app/Filament/Resources/` |
 | Widget dashboard | **6** | `app/Filament/Widgets/*.php` |
-| Kaedah ujian | **1,119** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
-| Laluan `api/v1` | **872** | router Laravel (`php artisan route:list`) |
+| Kaedah ujian | **1,136** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
+| Laluan `api/v1` | **1,419** | router Laravel (`php artisan route:list`) |
+| Jadual DB sebenar | **379** | `sqlite_master` / `SHOW TABLES` |
+| Kebenaran | **212** | jadual `permissions` |
 
 ### 1.1 Angka tambahan (kiraan statik manual)
 
-Nilai ini dikira semasa audit 27 Okt 2026 dan **tidak** dijana oleh skrip:
+Nilai ini dikira semasa audit 27 Okt 2026. Angka yang boleh dijana semula kini
+berada dalam §1 (skrip sudah diperbaiki 28 Okt 2026):
 
 | Metrik | Nilai | Cara diukur |
 |---|---:|---|
-| Fail ujian | **93** | fail `.php` di `tests/` (89 Feature + 3 Support + 1 Unit) |
+| Fail ujian | **94** | fail `.php` di `tests/` (90 Feature + 3 Support + 1 Unit) |
 | Laluan `routes/marketing.php` | **100** | `routes/marketing.php` |
 | Laluan web | **6** | `routes/web.php` |
-| **Jumlah laluan (semua)** | **~978** | — |
+| Liputan ujian pengasingan | **60/60 modul** | `php skrip/audit-tenant.php` (exit 0) |
 
-### 1.2 Angka yang TIDAK disahkan (perlu diukur dengan PHP)
-
-Nilai berikut memerlukan pangkalan data dan suite ujian sebenar. PHP tidak
-tersedia dalam mesin audit ini, jadi ia **tidak** dimasukkan ke dalam baseline:
+### 1.2 Angka yang TIDAK disahkan (perlu suite ujian sebenar)
 
 | Metrik | Cara mengukur | Arahan |
 |---|---|---|
-| Jadual DB sebenar | `sqlite_master` | `php skrip/semak-dokumen.php` |
 | Ujian lulus / gagal / skip | PHPUnit | `php artisan test` |
 | Bilangan assertion | PHPUnit | `php artisan test` |
-| Kebenaran (permission) sebenar | jadual `permissions` | `php skrip/semak-perm-db.php` |
 | Advisori Composer | Packagist | `composer audit` |
 | Versi Laravel / PHP sebenar | — | `php artisan --version` |
+
+> Versi yang disahkan 28 Okt 2026 pada mesin dev: **Laravel 12.70.1 · PHP 8.2.12**.
 
 ---
 
@@ -138,7 +145,18 @@ Ia **tidak** membuktikan:
 - pengasingan tenant sempurna pada semua laluan, queue, cache dan fail;
 - concurrency stok, idempotency webhook, atau pemulihan kegagalan;
 - pematuhan PDPA, GST, e-Invois, EPF/SOCSO;
-- UI lengkap untuk setiap modul (T-19 "Design System" masih `Tiada`).
+- UI lengkap untuk setiap modul (T-19 "Design System" `✅ SIAP`; T-35 UI 5 modul
+  BAB 82 masih belum).
+
+### 5.1 Skrip kecil / tersasar (semakan dokumentasi vs kod)
+
+`§4` sebelum 28 Okt 2026 merujuk skrip yang **tidak** melakukan pengesahan pukal:
+
+| Rujukan | Realiti (28 Okt 2026) |
+|---|---|
+| `skrip/semak-kebenaran.php` | **Bukan audit** — skrip 32 baris yang menyenaraikan kebenaran **tenant #1 sahaja** (ID dikod keras). Tidak membandingkan laluan `perm:` dengan jadual `permissions`. Tiada sebarang pagar `route↔permission` (T-105) |
+| `.github/workflows/ci.yml` | **Wujud (6.7 KB)** dan menjalankan `semak-dokumen`, `jana-baseline`, `audit-tenant`, semakan wildcard/prefix, `composer audit` |
+| Langkah CI `Periksa baseline dalam repo` | **Salah**: jana-baseline menulis dengan label `jadual | **nilai** |`, `AUDIT-BASELINE.md` guna `jadual | nilai |` → `diff` sentiasa berbeza → **CI gagal walaupun baseline betul** (T-104) |
 
 Rujuk `docs/AI-BIJAN-AUDIT-INDUK-LENGKAP.md` §15–§17 untuk matriks P0–P3 dan
 senarai semak pelepasan.
@@ -155,3 +173,9 @@ php skrip/jana-baseline.php --tulis    # kemas kini §1 dalam fail ini
 CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) menjalankan skrip ini dan
 **gagal** jika §1 tidak sepadan dengan kod — ini menutup litar semakan
 dokumentasi secara manual.
+
+> ⚠️ **28 Okt 2026:** langkah CI ini **belum pernah lulus**. Skrip ini sebelum hari
+> ini ranap (`Undefined variable $root`), dan selepas dibaiki label `| **NILAI** |`
+> yang dijana tidak sepadan dengan jadual dokumen → `diff` sentiasa gagal.
+> Sehingga T-104 siap, sahkan secara manual:
+> `php skrip/jana-baseline.php` (cetak) vs jadual §1 fail ini.
