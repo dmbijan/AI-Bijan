@@ -2,6 +2,7 @@
 
 namespace App\Modules\COGS\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\COGS\Services\MarginAnalysisService;
 use Illuminate\Http\Request;

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Analytics\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Analytics\Services\ReportService;
 use Illuminate\Http\Request;

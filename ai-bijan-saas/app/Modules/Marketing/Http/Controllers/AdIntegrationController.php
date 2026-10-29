@@ -2,6 +2,7 @@
 
 namespace App\Modules\Marketing\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Marketing\Services\AdIntegrationService;
 use Illuminate\Http\Request;

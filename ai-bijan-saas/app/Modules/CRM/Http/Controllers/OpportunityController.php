@@ -2,6 +2,7 @@
 
 namespace App\Modules\CRM\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\CRM\Models\Opportunity;
 use App\Modules\CRM\Services\OpportunityService;

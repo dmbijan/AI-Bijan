@@ -2,6 +2,7 @@
 
 namespace App\Modules\SignDocs\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\SignDocs\Services\DocumentService;
 use App\Modules\SignDocs\Services\TemplateService;

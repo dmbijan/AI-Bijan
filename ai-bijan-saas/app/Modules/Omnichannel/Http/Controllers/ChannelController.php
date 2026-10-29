@@ -2,6 +2,7 @@
 
 namespace App\Modules\Omnichannel\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Omnichannel\Services\ChannelService;
 use Illuminate\Http\Request;

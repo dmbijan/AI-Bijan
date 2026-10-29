@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Modules\Loyalty\Services\PointsService;
 use App\Modules\Loyalty\Models\Member;
 use Illuminate\Http\JsonResponse;

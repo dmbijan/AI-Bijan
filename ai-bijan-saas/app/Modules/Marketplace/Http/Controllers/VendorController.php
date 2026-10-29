@@ -2,6 +2,7 @@
 
 namespace App\Modules\Marketplace\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Marketplace\Services\VendorService;
 use Illuminate\Http\Request;

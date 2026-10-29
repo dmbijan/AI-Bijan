@@ -2,6 +2,7 @@
 
 namespace App\Modules\Omnichannel\Services;
 
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 

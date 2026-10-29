@@ -2,6 +2,7 @@
 
 namespace App\Modules\Logistics\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Logistics\Services\ShipmentService;
 use Illuminate\Http\Request;

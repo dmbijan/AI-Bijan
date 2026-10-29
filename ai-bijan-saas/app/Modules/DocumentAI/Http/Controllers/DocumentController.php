@@ -2,6 +2,7 @@
 
 namespace App\Modules\DocumentAI\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\DocumentAI\Models\Document;
 use App\Modules\DocumentAI\Services\DocumentOCRService;

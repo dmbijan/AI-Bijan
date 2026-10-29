@@ -2,6 +2,7 @@
 
 namespace App\Modules\BrainHub\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\BrainHub\Services\InsightService;
 use Illuminate\Http\Request;

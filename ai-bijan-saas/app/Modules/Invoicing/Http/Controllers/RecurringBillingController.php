@@ -2,6 +2,7 @@
 
 namespace App\Modules\Invoicing\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Http\Controllers\Controller;
 use App\Modules\Invoicing\Models\RecurringBilling;
 use App\Modules\Invoicing\Services\RecurringBillingService;

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Modules\Loyalty\Services\LoyaltyAnalyticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

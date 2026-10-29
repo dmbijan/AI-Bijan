@@ -2,6 +2,7 @@
 
 namespace App\Modules\Loyalty\Http\Controllers;
 
+use App\Support\Tenancy\TenantContext;
 use App\Modules\Loyalty\Services\TierService;
 use App\Modules\Loyalty\Models\Tier;
 use Illuminate\Http\JsonResponse;

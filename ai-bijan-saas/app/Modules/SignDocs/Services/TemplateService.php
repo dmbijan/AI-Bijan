@@ -2,6 +2,7 @@
 
 namespace App\Modules\SignDocs\Services;
 
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 class TemplateService
