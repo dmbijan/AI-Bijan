@@ -33,7 +33,7 @@ class SaleController extends Controller
     {
         $sale = $this->saleService->getSale($id, $request->tenant_id);
 
-        if (!$sale) {
+        if (! $sale) {
             return response()->json(['message' => 'Sale not found.'], 404);
         }
 
@@ -48,7 +48,7 @@ class SaleController extends Controller
         $validated = $request->validate([
             'register_id' => 'required|exists:pos_registers,id',
             'notes' => 'nullable|string',
-            'customer_id' => 'nullable|exists:crm_clients,id',
+            'customer_id' => 'nullable|exists:customers,id',
         ]);
 
         try {
@@ -71,7 +71,7 @@ class SaleController extends Controller
     public function addItem(Request $request, int $saleId)
     {
         $validated = $request->validate([
-            'product_id' => 'nullable|exists:inventory_products,id',
+            'product_id' => 'nullable|exists:items,id',
             'product_name' => 'required|string|max:255',
             'product_sku' => 'nullable|string|max:255',
             'quantity' => 'required|integer|min:1',
@@ -83,6 +83,7 @@ class SaleController extends Controller
 
         try {
             $item = $this->saleService->addItem($saleId, $validated, $request->tenant_id);
+
             return response()->json($item, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -103,7 +104,7 @@ class SaleController extends Controller
 
         $result = $this->saleService->updateItem($itemId, $validated, $request->tenant_id);
 
-        if (!$result) {
+        if (! $result) {
             return response()->json(['message' => 'Item not found.'], 404);
         }
 
@@ -118,7 +119,7 @@ class SaleController extends Controller
         try {
             $success = $this->saleService->removeItem($itemId, $request->tenant_id);
 
-            if (!$success) {
+            if (! $success) {
                 return response()->json(['message' => 'Item not found.'], 404);
             }
 
@@ -144,7 +145,40 @@ class SaleController extends Controller
 
         try {
             $sale = $this->saleService->completeSale($saleId, $validated, $request->tenant_id);
+
             return response()->json($sale, 200);
+        } catch (ValidationException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * Checkout satu jalan. Hantar header Idempotency-Key supaya segerak luar talian tak jadi pendua.
+     */
+    public function checkout(Request $request)
+    {
+        $validated = $request->validate([
+            'register_id' => 'required|exists:pos_registers,id',
+            'customer_id' => 'nullable|exists:customers,id',
+            'notes' => 'nullable|string',
+            'sold_at' => 'nullable|date|before_or_equal:now|after:-30 days',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'nullable|exists:items,id',
+            'items.*.product_name' => 'required|string|max:255',
+            'items.*.product_sku' => 'nullable|string|max:255',
+            'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'payments' => 'required|array|min:1',
+            'payments.*.method' => 'required|in:cash,card,ewallet,credit,voucher,split',
+            'payments.*.amount' => 'required|numeric|min:0',
+            'payments.*.reference' => 'nullable|string',
+            'payments.*.details' => 'nullable|array',
+        ]);
+
+        try {
+            $sale = $this->saleService->checkout($validated, $request->tenant_id, $request->user()->id);
+
+            return response()->json($sale, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -158,7 +192,7 @@ class SaleController extends Controller
         try {
             $success = $this->saleService->cancelSale($saleId, $request->tenant_id);
 
-            if (!$success) {
+            if (! $success) {
                 return response()->json(['message' => 'Sale not found or cannot be cancelled.'], 404);
             }
 
@@ -180,6 +214,7 @@ class SaleController extends Controller
 
         try {
             $return = $this->saleService->refundSale($saleId, $validated, $request->tenant_id, $request->user()->id);
+
             return response()->json($return, 201);
         } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

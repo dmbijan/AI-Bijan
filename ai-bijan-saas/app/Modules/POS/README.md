@@ -90,7 +90,7 @@ Sales transactions linked to register and shift.
 | sale_no | VARCHAR(50) | Unique sale number (SALE-YYYY-NNNNNN) |
 | register_id | BIGINT UNSIGNED | FK → pos_registers |
 | cash_shift_id | BIGINT UNSIGNED | FK → cash_shifts |
-| customer_id | BIGINT UNSIGNED | FK → crm_clients (optional) |
+| customer_id | BIGINT UNSIGNED | FK → customers (optional) |
 | user_id | BIGINT UNSIGNED | Cashier/operator |
 | status | ENUM | draft, completed, cancelled, refunded, partially_refunded |
 | subtotal | DECIMAL(15,2) | Sum of line items before discount/tax |
@@ -112,7 +112,7 @@ Line items within a sale.
 |--------|------|-------------|
 | id | BIGINT UNSIGNED | Primary key |
 | sale_id | BIGINT UNSIGNED | FK → pos_sales |
-| product_id | BIGINT UNSIGNED | FK → inventory_products (nullable) |
+| product_id | BIGINT UNSIGNED | FK → items (nullable) |
 | product_name | VARCHAR(255) | Product name snapshot |
 | product_sku | VARCHAR(100) | SKU snapshot |
 | quantity | INT | Quantity sold |
@@ -339,7 +339,7 @@ Base URL: `/api/v1/pos/`
 
 When a sale is completed:
 - Stock levels are automatically deducted
-- Products must exist in `inventory_products` table
+- Products must exist in `items` table
 - If product deleted/unavailable, sale still processes (manual entry)
 
 ### CRM Integration

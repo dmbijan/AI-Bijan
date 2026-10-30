@@ -230,6 +230,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('pos/shifts/open', [CashShiftController::class, 'open']);
             Route::post('pos/shifts/{id}/close', [CashShiftController::class, 'close'])->whereNumber('id');
             Route::post('pos/shifts/{id}/lock', [CashShiftController::class, 'lock'])->whereNumber('id');
+            Route::post('pos/sales/checkout', [SaleController::class, 'checkout'])->middleware('idempotent');
             Route::post('pos/sales/draft', [SaleController::class, 'storeDraft']);
             Route::post('pos/sales/{saleId}/items', [SaleController::class, 'addItem'])->whereNumber('saleId');
             Route::put('pos/sales/items/{itemId}', [SaleController::class, 'updateItem'])->whereNumber('itemId');

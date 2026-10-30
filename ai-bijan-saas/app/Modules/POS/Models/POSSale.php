@@ -3,7 +3,8 @@
 namespace App\Modules\POS\Models;
 
 use App\Models\Concerns\BelongsToTenant;
-
+use App\Models\User;
+use App\Modules\CRM\Models\Customer;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class POSSale extends Model
 {
     use BelongsToTenant;
-
     use HasFactory;
 
     protected $table = 'pos_sales';
@@ -68,7 +68,7 @@ class POSSale extends Model
      */
     public function customer(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\CRM\Models\Client::class, 'customer_id');
+        return $this->belongsTo(Customer::class, 'customer_id');
     }
 
     /**
@@ -76,7 +76,7 @@ class POSSale extends Model
      */
     public function cashier(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     /**
@@ -138,6 +138,7 @@ class POSSale extends Model
         if ($endDate) {
             $query->where('sale_date', '<=', $endDate);
         }
+
         return $query;
     }
 
@@ -153,7 +154,7 @@ class POSSale extends Model
 
         $number = $lastNo ? intval(substr($lastNo, -6)) + 1 : 1;
 
-        return 'SALE-' . $year . '-' . str_pad($number, 6, '0', STR_PAD_LEFT);
+        return 'SALE-'.$year.'-'.str_pad($number, 6, '0', STR_PAD_LEFT);
     }
 
     /**

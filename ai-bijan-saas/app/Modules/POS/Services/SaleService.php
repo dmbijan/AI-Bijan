@@ -2,10 +2,12 @@
 
 namespace App\Modules\POS\Services;
 
+use App\Modules\POS\Models\CashShift;
 use App\Modules\POS\Models\POSSale;
 use App\Modules\POS\Models\POSSaleItem;
 use App\Modules\POS\Models\POSSalePayment;
-use App\Modules\POS\Models\POSSaleDiscount;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -14,7 +16,7 @@ class SaleService
     /**
      * List sales with filters.
      */
-    public function listSales(int $tenantId, array $filters = []): \Illuminate\Pagination\LengthAwarePaginator
+    public function listSales(int $tenantId, array $filters = []): LengthAwarePaginator
     {
         $query = POSSale::forTenant($tenantId)
             ->with(['register', 'cashier', 'customer', 'items']);
@@ -32,18 +34,18 @@ class SaleService
         }
 
         if (isset($filters['start_date'])) {
-            $query->where('sale_date', '>=', $filters['start_date']);
+            $query->whereDate('sale_date', '>=', $filters['start_date']);
         }
 
         if (isset($filters['end_date'])) {
-            $query->where('sale_date', '<=', $filters['end_date']);
+            $query->whereDate('sale_date', '<=', $filters['end_date']);
         }
 
         if (isset($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('sale_no', 'like', "%{$search}%")
-                  ->orWhereHas('customer', fn($q2) => $q2->where('name', 'like', "%{$search}%"));
+                    ->orWhereHas('customer', fn ($q2) => $q2->where('name', 'like', "%{$search}%"));
             });
         }
 
@@ -93,7 +95,7 @@ class SaleService
     {
         $sale = $this->getSale($saleId, $tenantId);
 
-        if (!$sale || $sale->status !== 'draft') {
+        if (! $sale || $sale->status !== 'draft') {
             throw ValidationException::withMessages([
                 'sale_id' => ['Cannot add items to a non-draft sale.'],
             ]);
@@ -140,16 +142,18 @@ class SaleService
     {
         $item = POSSaleItem::find($itemId);
 
-        if (!$item) {
+        if (! $item) {
             return false;
         }
 
         $sale = $this->getSale($item->sale_id, $item->sale->tenant_id);
+        $deleted = $item->delete();
+
         if ($sale && $sale->status === 'draft') {
             $this->recalculateSale($sale);
         }
 
-        return $item->delete();
+        return $deleted;
     }
 
     /**
@@ -159,7 +163,7 @@ class SaleService
     {
         $item = POSSaleItem::find($itemId);
 
-        if (!$item) {
+        if (! $item) {
             return null;
         }
 
@@ -186,7 +190,7 @@ class SaleService
     {
         $sale = $this->getSale($saleId, $tenantId);
 
-        if (!$sale || $sale->status !== 'draft') {
+        if (! $sale || $sale->status !== 'draft') {
             throw ValidationException::withMessages([
                 'sale_id' => ['Sale not found or not in draft status.'],
             ]);
@@ -224,8 +228,8 @@ class SaleService
             $sale->change_amount = $sale->calculateChange();
 
             // Auto-set cash shift if register has open shift
-            if (!$sale->cash_shift_id) {
-                $openShift = \App\Modules\POS\Models\CashShift::forTenant($sale->tenant_id)
+            if (! $sale->cash_shift_id) {
+                $openShift = CashShift::forTenant($sale->tenant_id)
                     ->where('register_id', $sale->register_id)
                     ->where('status', 'open')
                     ->first();
@@ -245,9 +249,35 @@ class SaleService
             }
 
             // Fire event
-            event(new \Illuminate\Events\Called('SaleCompleted', $sale));
+            event('pos.sale.completed', [$sale]);
 
             return $sale;
+        });
+    }
+
+    /**
+     * Checkout satu jalan: draf + item + selesai dalam satu transaksi.
+     * Dipakai kaunter (termasuk segerak jualan luar talian); `sold_at` = masa jualan asal di peranti.
+     */
+    public function checkout(array $data, int $tenantId, int $userId): POSSale
+    {
+        return DB::transaction(function () use ($data, $tenantId, $userId) {
+            $sale = $this->createDraft($data, $tenantId, (int) $data['register_id'], $userId);
+
+            foreach ($data['items'] as $item) {
+                $this->addItem($sale->id, $item, $tenantId);
+            }
+
+            $sale = $this->completeSale($sale->id, $data, $tenantId);
+
+            if (! empty($data['sold_at'])) {
+                $soldAt = Carbon::parse($data['sold_at']);
+                $sale->completed_at = $soldAt;
+                $sale->sale_date = $soldAt->format('Y-m-d');
+                $sale->save();
+            }
+
+            return $sale->fresh(['items', 'payments']);
         });
     }
 
@@ -258,7 +288,7 @@ class SaleService
     {
         $sale = $this->getSale($saleId, $tenantId);
 
-        if (!$sale || $sale->status !== 'draft') {
+        if (! $sale || $sale->status !== 'draft') {
             return false;
         }
 
@@ -272,7 +302,7 @@ class SaleService
     {
         $sale = $this->getSale($saleId, $tenantId);
 
-        if (!$sale || $sale->status !== 'completed') {
+        if (! $sale || $sale->status !== 'completed') {
             throw ValidationException::withMessages([
                 'sale_id' => ['Only completed sales can be refunded.'],
             ]);
@@ -303,9 +333,9 @@ class SaleService
      */
     protected function recalculateSale(POSSale $sale): void
     {
-        $items = $sale->items;
-        
-        $subtotal = $items->sum(fn($item) => $item->quantity * $item->unit_price);
+        $items = $sale->items()->get(); // baca semula; relasi yang dimuat awal tak ada item baharu
+
+        $subtotal = $items->sum(fn ($item) => $item->quantity * $item->unit_price);
         $totalDiscount = $items->sum('discount_amount');
         $totalTax = $items->sum('tax_amount');
         $totalAmount = $subtotal - $totalDiscount + $totalTax;
@@ -335,10 +365,10 @@ class SaleService
         $query = POSSale::forTenant($tenantId)->where('status', 'completed');
 
         if ($startDate) {
-            $query->where('sale_date', '>=', $startDate);
+            $query->whereDate('sale_date', '>=', $startDate);
         }
         if ($endDate) {
-            $query->where('sale_date', '<=', $endDate);
+            $query->whereDate('sale_date', '<=', $endDate);
         }
 
         $sales = $query->get();
@@ -352,13 +382,13 @@ class SaleService
             'by_payment_method' => POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
                 ->where('pos_sales.tenant_id', $tenantId)
                 ->where('pos_sales.status', 'completed')
-                ->when($startDate, fn($q) => $q->where('pos_sales.sale_date', '>=', $startDate))
-                ->when($endDate, fn($q) => $q->where('pos_sales.sale_date', '<=', $endDate))
+                ->when($startDate, fn ($q) => $q->where('pos_sales.sale_date', '>=', $startDate))
+                ->when($endDate, fn ($q) => $q->where('pos_sales.sale_date', '<=', $endDate))
                 ->selectRaw('pos_sale_payments.payment_method, sum(pos_sale_payments.amount) as total')
                 ->groupBy('payment_method')
                 ->pluck('total', 'payment_method'),
             'daily_breakdown' => $sales->groupBy('sale_date')
-                ->map(fn($day) => [
+                ->map(fn ($day) => [
                     'count' => $day->count(),
                     'revenue' => $day->sum('total_amount'),
                 ]),

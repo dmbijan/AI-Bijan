@@ -3,7 +3,6 @@
 namespace App\Modules\POS\Models;
 
 use App\Models\Concerns\BelongsToTenant;
-
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class POSRegister extends Model
 {
     use BelongsToTenant;
-
     use HasFactory;
 
     protected $table = 'pos_registers';
@@ -35,7 +33,7 @@ class POSRegister extends Model
      */
     public function cashShifts(): HasMany
     {
-        return $this->hasMany(CashShift::class);
+        return $this->hasMany(CashShift::class, 'register_id');
     }
 
     /**
@@ -43,7 +41,7 @@ class POSRegister extends Model
      */
     public function sales(): HasMany
     {
-        return $this->hasMany(POSsale::class);
+        return $this->hasMany(POSSale::class, 'register_id');
     }
 
     /**
@@ -52,14 +50,14 @@ class POSRegister extends Model
     public static function generateCode(): string
     {
         $lastCode = static::orderBy('code', 'desc')->value('code');
-        
-        if (!$lastCode) {
+
+        if (! $lastCode) {
             return 'POS-REG-001';
         }
-        
+
         $number = intval(substr($lastCode, -3)) + 1;
-        
-        return 'POS-REG-' . str_pad($number, 3, '0', STR_PAD_LEFT);
+
+        return 'POS-REG-'.str_pad($number, 3, '0', STR_PAD_LEFT);
     }
 
     /**

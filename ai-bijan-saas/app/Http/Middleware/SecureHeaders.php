@@ -35,7 +35,7 @@ class SecureHeaders
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=(self), usb=()');
+        $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=(self), usb=(self)');
         $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin');
         $response->headers->set('Cross-Origin-Resource-Policy', 'same-origin');
 
@@ -94,23 +94,23 @@ class SecureHeaders
         $evalSrc = (bool) ($cfg['allow_unsafe_eval'] ?? true) ? " 'unsafe-eval'" : '';
         $inlineSrc = (bool) ($cfg['allow_unsafe_inline_scripts'] ?? true) ? " 'unsafe-inline'" : '';
 
-        $scriptSrc = "script-src 'self'" . ($gunaNonce ? " 'nonce-{$nonce}'" : '') . $evalSrc . $inlineSrc;
+        $scriptSrc = "script-src 'self'".($gunaNonce ? " 'nonce-{$nonce}'" : '').$evalSrc.$inlineSrc;
         $scriptSrc .= $this->tambahan($cfg['script_extra'] ?? '');
 
         $directives = [
             "default-src 'self'",
             $scriptSrc,
-            "style-src 'self' 'unsafe-inline'" . $this->tambahan($cfg['style_extra'] ?? ''),
-            "img-src 'self' data: blob: https:" . $this->tambahan($cfg['img_extra'] ?? ''),
-            "font-src 'self' data:" . $this->tambahan($cfg['font_extra'] ?? ''),
-            "connect-src 'self'" . $this->tambahan($cfg['connect_extra'] ?? ''),
+            "style-src 'self' 'unsafe-inline'".$this->tambahan($cfg['style_extra'] ?? ''),
+            "img-src 'self' data: blob: https:".$this->tambahan($cfg['img_extra'] ?? ''),
+            "font-src 'self' data:".$this->tambahan($cfg['font_extra'] ?? ''),
+            "connect-src 'self'".$this->tambahan($cfg['connect_extra'] ?? ''),
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",
             "object-src 'none'",
             "manifest-src 'self'",
             "worker-src 'self' blob:",
-            "upgrade-insecure-requests",
+            'upgrade-insecure-requests',
         ];
 
         return implode('; ', array_filter($directives));
@@ -123,6 +123,6 @@ class SecureHeaders
     {
         $nilai = trim($nilai);
 
-        return $nilai === '' ? '' : ' ' . $nilai;
+        return $nilai === '' ? '' : ' '.$nilai;
     }
 }

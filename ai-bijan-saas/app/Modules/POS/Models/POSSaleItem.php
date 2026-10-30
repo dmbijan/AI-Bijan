@@ -2,6 +2,7 @@
 
 namespace App\Modules\POS\Models;
 
+use App\Models\Item;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -47,6 +48,6 @@ class POSSaleItem extends Model
      */
     public function product(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\Inventory\Models\Product::class, 'product_id');
+        return $this->belongsTo(Item::class, 'product_id');
     }
 }

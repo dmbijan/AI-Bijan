@@ -9,6 +9,7 @@
         <p class="page-desc">Kaunter jualan, syif tunai dan ringkasan harian.</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="badge badge-warning" id="offBadge" onclick="segerakSekarang()" hidden></button>
         <select class="input" id="regSel" style="min-width:160px" aria-label="Pilih kaunter"></select>
         <button class="btn btn-sm" onclick="loadAll()">Muat Semula</button>
     </div>
@@ -91,6 +92,21 @@
             </div>
         </div>
     </div>
+    <div class="card mb-4">
+        <div class="card-header"><div><h2 class="card-title">Printer Resit (USB)</h2><p class="card-subtitle" id="prtStatus">Belum disambung</p></div></div>
+        <div class="grid grid-3" style="gap:12px;align-items:end">
+            <div class="field" style="margin:0">
+                <label class="label">Saiz kertas</label>
+                <select class="input" id="prtSaiz"><option value="80">80mm</option><option value="58">58mm</option></select>
+            </div>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="prtAuto"> Cetak automatik lepas bayar</label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="prtLaci"> Buka laci tunai</label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="sambungPrinter()">Sambung Printer</button>
+            <button class="btn" onclick="ujiPrinter()">Cetak Ujian</button>
+        </div>
+    </div>
     <div class="grid grid-3" id="regGrid">
         <div class="skeleton" style="height:120px"></div>
     </div>
@@ -130,9 +146,10 @@
 <div class="pos-overlay" id="rcptOverlay" hidden>
     <div class="pos-dialog" role="dialog" aria-modal="true" aria-label="Resit">
         <div class="pos-receipt" id="rcptBody"></div>
-        <div style="display:flex;gap:8px;margin-top:14px">
-            <button class="btn btn-block" onclick="printReceipt()">Cetak</button>
-            <button class="btn btn-primary btn-block" onclick="closeReceipt()">Jualan Baharu</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
+            <button class="btn btn-block" onclick="cetakThermal()" id="btnThermal">Cetak Thermal</button>
+            <button class="btn btn-block" onclick="printReceipt()">Cetak (Pelayar)</button>
+            <button class="btn btn-primary btn-block" style="grid-column:1/-1" onclick="closeReceipt()">Jualan Baharu</button>
         </div>
     </div>
 </div>
@@ -184,6 +201,7 @@
 @endpush
 
 @push('scripts')
+<script src="{{ asset('assets/pos-kaunter.js') }}"></script>
 <script>
 // ---- state ----
 const cart = [];          // {item_id, name, sku, price, qty}
@@ -200,8 +218,10 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
 });
 
 async function loadAll() {
-    const ok = await App.loadSession();
+    const ok = navigator.onLine ? await App.loadSession() : true;
     if (!ok) { location.href = '/login'; return; }
+    kemasLencana();
+    segerakSekarang(true);
     await loadRegisters();
     await Promise.all([loadCatalog(), loadSummary(), loadSales()]);
 }
@@ -229,8 +249,15 @@ async function loadCatalog(search = '') {
             sku: it.sku,
             price: Number(it.sell_price ?? it.price ?? it.unit_price ?? 0),
         }));
+        if (!search) PosLuarTalian.simpanKatalog(window._catalog);
         renderCatalog();
     } catch (e) {
+        if (PosLuarTalian.ralatRangkaian(e)) {
+            const q = search.toLowerCase();
+            window._catalog = PosLuarTalian.katalog().filter(p => !q || (p.name + ' ' + (p.sku ?? '')).toLowerCase().includes(q));
+            renderCatalog();
+            return;
+        }
         App.$('#prodGrid').innerHTML = `<div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div>`;
     }
 }
@@ -297,8 +324,9 @@ function renderCart() {
 async function loadRegisters() {
     try {
         const r = await App.api.get('/api/v1/pos/registers');
-        registers = r.data?.data ?? r.data ?? [];
-    } catch { registers = []; }
+        registers = Array.isArray(r) ? r : (r.data?.data ?? r.data ?? []);
+        PosLuarTalian.simpanKaunter(registers);
+    } catch { registers = PosLuarTalian.kaunter(); }
 
     const sel = App.$('#regSel');
     const active = registers.filter(g => g.is_active);
@@ -383,26 +411,26 @@ async function confirmPay() {
     const btn = App.$('#btnConfirmPay');
     btn.disabled = true; btn.textContent = 'Memproses…';
     try {
-        const regId = Number(App.$('#regSel').value);
-        // 1) draf
-        const draft = await App.api.post('/api/v1/pos/sales/draft', { register_id: regId });
-        const saleId = draft.data?.id ?? draft.id;
-        // 2) item satu demi satu
-        for (const l of cart) {
-            await App.api.post(`/api/v1/pos/sales/${saleId}/items`, {
-                product_name: l.name, product_sku: l.sku ?? null,
-                quantity: l.qty, unit_price: l.price,
-            });
-        }
-        // 3) selesai + bayaran
-        const done = await App.api.post(`/api/v1/pos/sales/${saleId}/complete`, {
+        const clientId = PosLuarTalian.uuid();
+        const payload = {
+            register_id: Number(App.$('#regSel').value),
+            sold_at: new Date().toISOString(),
+            items: cart.map(l => ({ product_id: l.item_id ?? null, product_name: l.name, product_sku: l.sku ?? null, quantity: l.qty, unit_price: l.price })),
             payments: [{ method: payMethod, amount: total }],
-        });
-        showReceipt(done.data ?? done, total);
+        };
+        const r = await PosLuarTalian.hantar(payload, clientId);
+        if (r.luarTalian) {
+            PosLuarTalian.tambah({ client_id: clientId, payload, total });
+            showReceipt({ sale_no: 'LT-' + clientId.slice(0, 8).toUpperCase(), luarTalian: true }, total);
+            App.toast('Tiada talian: jualan disimpan dalam peranti, akan disegerak', 'warning');
+        } else {
+            showReceipt(r.sale, total);
+            App.toast('Jualan selesai', 'success');
+            loadSummary(); loadSales();
+        }
         closePay();
         clearCart();
-        loadSummary(); loadSales();
-        App.toast('Jualan selesai', 'success');
+        kemasLencana();
     } catch (e) {
         App.toast(e.message || 'Gagal memproses jualan', 'error');
     } finally {
@@ -412,8 +440,9 @@ async function confirmPay() {
 
 // ---- resit ----
 let _lastReceipt = '';
+let _lastData = null;
 function showReceipt(sale, total) {
-    const no = sale.sale_number ?? sale.number ?? ('#' + (sale.id ?? ''));
+    const no = sale.sale_no ?? sale.sale_number ?? ('#' + (sale.id ?? ''));
     const regName = App.$('#regSel').selectedOptions[0]?.textContent ?? '';
     const lines = cart.map(l => `${l.qty} x ${l.name}\n   ${App.rupiah(l.price)}  =  ${App.rupiah(l.price * l.qty)}`).join('\n');
     const tender = parseFloat(App.$('#payTender').value || '0');
@@ -430,7 +459,14 @@ Bayaran       ${payMethod.toUpperCase()}` +
 (payMethod === 'cash' ? `\nTunai         ${App.rupiah(tender)}\nBaki          ${App.rupiah(Math.max(0, tender - total))}` : '') +
 `\n------------------------------
    Terima kasih! Datang lagi.`;
+    if (sale.luarTalian) _lastReceipt = '      ** LUAR TALIAN **\n' + _lastReceipt;
+    _lastData = {
+        kaunter: regName, no, tarikh: new Date().toLocaleString('ms-MY'), luarTalian: !!sale.luarTalian,
+        baris: cart.map(l => ({ nama: l.name, qty: l.qty, harga: l.price })),
+        jumlah: total, cara: payMethod, tunai: tender, baki: payMethod === 'cash' ? Math.max(0, tender - total) : 0,
+    };
     App.$('#rcptBody').textContent = _lastReceipt;
+    if (PosPrinter.tetapan().autoCetak) cetakThermal(true);
     App.$('#rcptOverlay').hidden = false;
 }
 function closeReceipt() { App.$('#rcptOverlay').hidden = true; }
@@ -444,11 +480,11 @@ function printReceipt() {
 // ---- ringkasan + sejarah ----
 async function loadSummary() {
     try {
-        const r = await App.api.get('/api/v1/pos/sales/summary');
-        const d = r.data ?? {};
-        App.$('#sSales').textContent = App.rupiah(d.total_amount ?? 0);
-        App.$('#sCount').textContent = App.number(d.count ?? 0);
-        App.$('#sAvg').textContent = App.rupiah(d.average ?? 0);
+        const hari = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD waktu peranti
+        const d = await App.api.get(`/api/v1/pos/sales/summary?start_date=${hari}&end_date=${hari}`) ?? {};
+        App.$('#sSales').textContent = App.rupiah(d.total_revenue ?? 0);
+        App.$('#sCount').textContent = App.number(d.total_sales ?? 0);
+        App.$('#sAvg').textContent = App.rupiah(d.avg_transaction ?? 0);
     } catch { App.$('#sSales').textContent = '—'; }
 }
 async function loadSales() {
@@ -457,10 +493,10 @@ async function loadSales() {
         const rows = r.data?.data ?? r.data ?? [];
         App.$('#saleTable').innerHTML = rows.length ? rows.map(s => `
             <tr>
-                <td class="mono text-xs">${App.escapeHtml(s.sale_number ?? s.number ?? '—')}</td>
+                <td class="mono text-xs">${App.escapeHtml(s.sale_no ?? s.sale_number ?? '—')}</td>
                 <td class="text-xs">${App.date(s.created_at)}</td>
                 <td class="text-xs">${App.escapeHtml(s.register?.name ?? '—')}</td>
-                <td class="table-num">${App.rupiah(s.total ?? s.grand_total ?? 0)}</td>
+                <td class="table-num">${App.rupiah(s.total_amount ?? s.total ?? 0)}</td>
                 <td><span class="badge badge-${s.status === 'completed' ? 'success' : s.status === 'cancelled' ? 'danger' : 'warning'}">${App.escapeHtml(s.status ?? '—')}</span></td>
             </tr>
         `).join('') : '<tr><td colspan="5"><div class="empty"><div class="empty-title">Tiada jualan</div><div class="empty-text">Jualan akan muncul di sini.</div></div></td></tr>';
@@ -469,6 +505,59 @@ async function loadSales() {
     }
 }
 
+// ---- luar talian ----
+function kemasLencana() {
+    const n = PosLuarTalian.giliran().length;
+    const b = App.$('#offBadge');
+    if (!navigator.onLine) { b.hidden = false; b.textContent = `Luar talian${n ? ' · ' + n + ' menunggu' : ''}`; }
+    else if (n) { b.hidden = false; b.textContent = `${n} jualan belum segerak · Segerak`; }
+    else b.hidden = true;
+}
+let _menyegerak = false;
+async function segerakSekarang(senyap = false) {
+    if (_menyegerak || !navigator.onLine || !PosLuarTalian.giliran().length) { kemasLencana(); return; }
+    _menyegerak = true;
+    try {
+        const n = await PosLuarTalian.segerak();
+        if (n) { App.toast(`${n} jualan luar talian disegerak`, 'success'); loadSummary(); loadSales(); }
+        const gagal = PosLuarTalian.giliran().filter(j => j.ralat);
+        if (gagal.length && !senyap) App.toast(`${gagal.length} jualan ditolak pelayan: ${gagal[0].ralat}`, 'error');
+    } finally { _menyegerak = false; kemasLencana(); }
+}
+window.addEventListener('online', () => segerakSekarang());
+window.addEventListener('offline', kemasLencana);
+setInterval(() => segerakSekarang(true), 30000);
+
+// ---- printer thermal ----
+function muatTetapanPrinter() {
+    const t = PosPrinter.tetapan();
+    App.$('#prtSaiz').value = t.saiz; App.$('#prtAuto').checked = t.autoCetak; App.$('#prtLaci').checked = t.bukaLaci;
+    if (!PosPrinter.sokong()) { App.$('#prtStatus').textContent = 'Pelayar ini tak sokong USB. Guna Chrome (desktop/Android).'; App.$('#btnThermal').hidden = true; return; }
+    PosPrinter.diingat()
+        .then(d => { App.$('#prtStatus').textContent = d ? `Disambung: ${d.productName || 'Printer USB'}` : 'Belum disambung'; })
+        .catch(() => { App.$('#prtStatus').textContent = 'USB disekat oleh pelayar/tetapan keselamatan.'; });
+}
+['prtSaiz', 'prtAuto', 'prtLaci'].forEach(id => App.$('#' + id).addEventListener('change', () =>
+    PosPrinter.simpan({ saiz: App.$('#prtSaiz').value, autoCetak: App.$('#prtAuto').checked, bukaLaci: App.$('#prtLaci').checked })));
+async function sambungPrinter() {
+    try { await PosPrinter.sambung(); App.toast('Printer disambung', 'success'); muatTetapanPrinter(); }
+    catch (e) { if (e.name !== 'NotFoundError') App.toast(e.message, 'error'); }
+}
+async function ujiPrinter() {
+    const t = PosPrinter.tetapan();
+    try {
+        await PosPrinter.cetak(PosPrinter.binaResit({ no: 'UJIAN', tarikh: new Date().toLocaleString('ms-MY'), baris: [{ nama: 'Cetak ujian', qty: 1, harga: 0 }], jumlah: 0, cara: 'cash', tunai: 0, baki: 0 }, { saiz: t.saiz }));
+        App.toast('Cetak ujian dihantar', 'success');
+    } catch (e) { App.toast(e.message, 'error'); }
+}
+async function cetakThermal(auto = false) {
+    if (!_lastData) return;
+    const t = PosPrinter.tetapan();
+    try { await PosPrinter.cetak(PosPrinter.binaResit(_lastData, { saiz: t.saiz, bukaLaci: t.bukaLaci && _lastData.cara === 'cash' })); }
+    catch (e) { if (!auto) App.toast(e.message, 'error'); }
+}
+
+muatTetapanPrinter();
 loadAll();
 </script>
 @endpush
