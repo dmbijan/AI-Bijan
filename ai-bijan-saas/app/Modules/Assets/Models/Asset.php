@@ -71,7 +71,7 @@ class Asset extends Model
      */
     public function vendor(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\CRM\Models\Client::class, 'vendor_id');
+        return $this->belongsTo(\App\Modules\SCM\Models\Supplier::class, 'vendor_id');
     }
 
     /**
