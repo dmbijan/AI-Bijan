@@ -61,6 +61,7 @@
                 try {
                     const r = await this.hantar(j.payload, j.client_id);
                     if (r.luarTalian) break; // masih tiada talian: cuba lagi kemudian
+                    if (j.order_id) await App.api.post(`/api/v1/pos/table-orders/${j.order_id}/close`, { sale_id: r.sale.id }).catch(() => {});
                     this.buang(j.client_id);
                     berjaya++;
                 } catch (e) {
@@ -128,6 +129,23 @@
         return p.bait();
     }
 
+    /** Tiket dapur: huruf besar, tanpa harga. p = {meja, masa, pelanggan, items:[{nama,qty,nota}], nota} */
+    function binaTiketDapur(p, { saiz = '80' } = {}) {
+        const L = lebarKertas(saiz), w = new Penulis(L);
+        const besar = on => { w.b.push(GS, 0x21, on ? 0x11 : 0x00); return w; };
+        w.tengah(); besar(true).tebal().teks(p.meja); besar(false).tebal(false);
+        w.teks(p.masa);
+        if (p.pelanggan) w.teks(p.pelanggan);
+        w.tengah(false).garis();
+        for (const i of p.items) {
+            besar(true).teks(`${i.qty} x ${i.nama}`); besar(false);
+            if (i.nota) w.teks(`   >> ${i.nota}`);
+        }
+        if (p.nota) { w.garis(); for (const s of balut(p.nota, L)) w.teks(s); }
+        w.suap().potong();
+        return w.bait();
+    }
+
     // ---------- WebUSB ----------
     async function bukaPeranti(dev) {
         if (!dev.opened) await dev.open();
@@ -164,6 +182,7 @@
             for (let i = 0; i < bait.length; i += 512) await dev.transferOut(ep, bait.slice(i, i + 512)); // cebisan: printer murah tak tercekik
         },
         binaResit,
+        binaTiketDapur,
     };
 
     window.PosLuarTalian = LuarTalian;

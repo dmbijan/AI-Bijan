@@ -42,6 +42,7 @@
                 <h2 class="card-title">Troli</h2>
                 <button class="btn btn-sm btn-ghost" onclick="clearCart()" id="btnClear" hidden>Kosongkan</button>
             </div>
+            <div class="text-xs" id="mejaNote" hidden style="margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:var(--bg-subtle)"></div>
             <div class="pos-cart-lines" id="cartLines">
                 <div class="empty"><div class="empty-text">Tekan produk untuk tambah ke troli.</div></div>
             </div>
@@ -212,6 +213,7 @@
 const cart = [];          // {item_id, name, sku, price, qty}
 let registers = [];
 let payMethod = 'cash';
+let pesananMeja = null;   // {order_id, meja} bila troli datang dari Meja & Dapur
 
 // ---- tab switch ----
 document.querySelectorAll('[data-tab]').forEach(tab => {
@@ -227,6 +229,7 @@ async function loadAll() {
     if (!ok) { location.href = '/login'; return; }
     kemasLencana();
     segerakSekarang(true);
+    ambilPesananMeja();
     await loadRegisters();
     await Promise.all([loadCatalog(), loadSummary(), loadSales()]);
 }
@@ -293,7 +296,12 @@ function changeQty(idx, delta) {
     renderCart();
 }
 function removeLine(idx) { cart.splice(idx, 1); renderCart(); }
-function clearCart() { cart.length = 0; renderCart(); }
+function clearCart() {
+    cart.length = 0;
+    pesananMeja = null;
+    App.$('#mejaNote').hidden = true;
+    renderCart();
+}
 
 function cartTotal() { return cart.reduce((s, l) => s + l.price * l.qty, 0); }
 function cartCount() { return cart.reduce((s, l) => s + l.qty, 0); }
@@ -425,13 +433,15 @@ async function confirmPay() {
             items: cart.map(l => ({ product_id: l.item_id ?? null, product_name: l.name, product_sku: l.sku ?? null, quantity: l.qty, unit_price: l.price })),
             payments: [{ method: payMethod, amount: total, reference: App.$('#payRef').value.trim() || null }],
         };
+        if (pesananMeja) payload.notes = `Pesanan ${pesananMeja.meja ?? 'meja'}`;
         const r = await PosLuarTalian.hantar(payload, clientId);
         if (r.luarTalian) {
-            PosLuarTalian.tambah({ client_id: clientId, payload, total });
+            PosLuarTalian.tambah({ client_id: clientId, payload, total, order_id: pesananMeja?.order_id ?? null });
             showReceipt({ sale_no: 'LT-' + clientId.slice(0, 8).toUpperCase(), luarTalian: true }, total);
             App.toast('Tiada talian: jualan disimpan dalam peranti, akan disegerak', 'warning');
         } else {
             showReceipt(r.sale, total);
+            if (pesananMeja) await App.api.post(`/api/v1/pos/table-orders/${pesananMeja.order_id}/close`, { sale_id: r.sale.id }).catch(() => {});
             App.toast('Jualan selesai', 'success');
             loadSummary(); loadSales();
         }
@@ -510,6 +520,19 @@ async function loadSales() {
     } catch (e) {
         App.$('#saleTable').innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div></td></tr>`;
     }
+}
+
+// ---- pesanan meja → troli ----
+function ambilPesananMeja() {
+    let p = null;
+    try { p = JSON.parse(sessionStorage.getItem('aib-pos-pesanan-meja') || 'null'); sessionStorage.removeItem('aib-pos-pesanan-meja'); } catch {}
+    if (!p) return;
+    cart.length = 0;
+    p.items.forEach(l => cart.push(l));
+    pesananMeja = { order_id: p.order_id, meja: p.meja };
+    App.$('#mejaNote').textContent = `Bil ${p.meja ?? 'meja'} — selesai bayar akan tutup pesanan meja.`;
+    App.$('#mejaNote').hidden = false;
+    renderCart();
 }
 
 // ---- luar talian ----

@@ -27,6 +27,7 @@ class AppController extends Controller
             'ai-gateway'      => 'ai-gateway',
             'pejabat'         => 'pejabat',
             'pos'             => 'pos',
+            'pos-meja'        => 'pos-meja',
             'crm'             => 'crm',
             'invoicing'       => 'invoicing',
             'marketplace'     => 'marketplace',

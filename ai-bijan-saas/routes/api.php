@@ -86,6 +86,12 @@ Route::prefix('public/{slug}/helpdesk')->middleware('throttle:30,1')->where(['sl
     Route::post('tickets/{token}/reply', [HelpdeskController::class, 'publicReply'])->middleware('throttle:10,10');
     Route::get('articles', [HelpdeskController::class, 'publicArticles']);
 });
+// Menu meja QR (awam, token meja, had kadar)
+Route::prefix('public/meja/{token}')->middleware('throttle:60,1')->where(['token' => '[a-z0-9]{24}'])->group(function () {
+    Route::get('/', [\App\Modules\POS\Http\Controllers\PublicTableController::class, 'show']);
+    Route::post('pesanan', [\App\Modules\POS\Http\Controllers\PublicTableController::class, 'store'])->middleware('throttle:10,5');
+    Route::get('pesanan/{publicId}', [\App\Modules\POS\Http\Controllers\PublicTableController::class, 'order']);
+});
 // Webhook Vision Service (BAB 56C) — HMAC sahkan dalam controller, tiada sesi pengguna
 Route::post('vision/ingest/{cameraId}', [\App\Modules\Vision\Http\Controllers\VisionController::class, 'ingest'])
     ->middleware('throttle:120,1')->whereNumber('cameraId');
@@ -220,6 +226,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('pos/sales/{id}', [SaleController::class, 'show'])->whereNumber('id');
             Route::get('pos/sales/summary', [SaleController::class, 'summary']);
             Route::get('pos/shifts/summary', [CashShiftController::class, 'summary']);
+            Route::get('pos/tables', [\App\Modules\POS\Http\Controllers\TableController::class, 'index']);
+            Route::get('pos/table-orders', [\App\Modules\POS\Http\Controllers\TableController::class, 'orders']);
         });
         Route::middleware('perm:pos.manage')->group(function () {
             Route::post('pos/registers', [RegisterController::class, 'store']);
@@ -230,6 +238,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('pos/shifts/open', [CashShiftController::class, 'open']);
             Route::post('pos/shifts/{id}/close', [CashShiftController::class, 'close'])->whereNumber('id');
             Route::post('pos/shifts/{id}/lock', [CashShiftController::class, 'lock'])->whereNumber('id');
+            Route::post('pos/tables', [\App\Modules\POS\Http\Controllers\TableController::class, 'store']);
+            Route::put('pos/tables/{id}', [\App\Modules\POS\Http\Controllers\TableController::class, 'update'])->whereNumber('id');
+            Route::post('pos/tables/{id}/token', [\App\Modules\POS\Http\Controllers\TableController::class, 'regenerateToken'])->whereNumber('id');
+            Route::post('pos/table-orders/{id}/status', [\App\Modules\POS\Http\Controllers\TableController::class, 'setStatus'])->whereNumber('id');
+            Route::post('pos/table-orders/{id}/close', [\App\Modules\POS\Http\Controllers\TableController::class, 'close'])->whereNumber('id');
             Route::post('pos/sales/checkout', [SaleController::class, 'checkout'])->middleware('idempotent');
             Route::post('pos/sales/draft', [SaleController::class, 'storeDraft']);
             Route::post('pos/sales/{saleId}/items', [SaleController::class, 'addItem'])->whereNumber('saleId');

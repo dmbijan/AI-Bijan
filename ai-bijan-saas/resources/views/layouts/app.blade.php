@@ -35,6 +35,7 @@
                     ],
                     'Jualan & Pelanggan' => [
                         ['POS', '/app/pos', '▤'],
+                        ['Meja & Dapur', '/app/pos-meja', '▦'],
                         ['CRM', '/app/crm', '◍'],
                         ['Invois', '/app/invoicing', '▦'],
                         ['Marketplace', '/app/marketplace', '▧'],
