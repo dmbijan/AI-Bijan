@@ -7,8 +7,10 @@ use App\Http\Controllers\Controller;
 use App\Modules\Invoicing\Models\Invoice;
 use App\Modules\Invoicing\Services\InvoiceService;
 use App\Modules\Invoicing\Services\EInvoisService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class InvoiceController extends Controller
 {
@@ -250,9 +252,11 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Download invoice PDF (placeholder for future implementation)
+     * Download invoice PDF.
+     *
+     * Query param `inline=1` renders in the browser instead of forcing a download.
      */
-    public function downloadPdf(Request $request, Invoice $invoice): JsonResponse
+    public function downloadPdf(Request $request, Invoice $invoice): SymfonyResponse
     {
         if ($invoice->tenant_id !== app(TenantContext::class)->id()) {
             return response()->json([
@@ -261,10 +265,15 @@ class InvoiceController extends Controller
             ], 403);
         }
 
-        // TODO: Implement PDF generation using DomPDF or similar
-        return response()->json([
-            'success' => true,
-            'message' => 'PDF generation coming soon',
-        ]);
+        $invoice->load(['customer', 'items']);
+
+        $pdf = Pdf::loadView('invoicing::pdf.invoice', ['invoice' => $invoice])
+            ->setPaper('a4');
+
+        $filename = 'invoice-' . $invoice->invoice_number . '.pdf';
+
+        return $request->boolean('inline')
+            ? $pdf->stream($filename)
+            : $pdf->download($filename);
     }
 }
