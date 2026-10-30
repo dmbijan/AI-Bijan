@@ -136,7 +136,7 @@ class SaleController extends Controller
     {
         $validated = $request->validate([
             'payments' => 'required|array|min:1',
-            'payments.*.method' => 'required|in:cash,card,ewallet,credit,voucher,split',
+            'payments.*.method' => 'required|in:cash,card,ewallet,duitnow,credit,voucher,split',
             'payments.*.amount' => 'required|numeric|min:0',
             'payments.*.reference' => 'nullable|string',
             'payments.*.details' => 'nullable|array',
@@ -169,7 +169,7 @@ class SaleController extends Controller
             'items.*.quantity' => 'required|numeric|min:0.001',
             'items.*.unit_price' => 'required|numeric|min:0',
             'payments' => 'required|array|min:1',
-            'payments.*.method' => 'required|in:cash,card,ewallet,credit,voucher,split',
+            'payments.*.method' => 'required|in:cash,card,ewallet,duitnow,credit,voucher,split',
             'payments.*.amount' => 'required|numeric|min:0',
             'payments.*.reference' => 'nullable|string',
             'payments.*.details' => 'nullable|array',

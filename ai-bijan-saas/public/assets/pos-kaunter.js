@@ -121,7 +121,7 @@
             p.teks(kiriKanan(`  ${b.qty} x ${wang(b.harga)}`, wang(b.qty * b.harga), L));
         }
         p.garis().tebal().teks(kiriKanan('JUMLAH', `RM ${wang(r.jumlah)}`, L)).tebal(false);
-        p.teks(kiriKanan(String(r.cara).toUpperCase(), wang(r.cara === 'cash' ? r.tunai : r.jumlah), L));
+        p.teks(kiriKanan(r.cara === 'duitnow' ? 'DUITNOW QR' : String(r.cara).toUpperCase(), wang(r.cara === 'cash' ? r.tunai : r.jumlah), L));
         if (r.baki > 0) p.teks(kiriKanan('Baki', wang(r.baki), L));
         p.garis().tengah().teks('Terima kasih! Datang lagi.').tengah(false).suap().potong();
         if (bukaLaci) p.laci();

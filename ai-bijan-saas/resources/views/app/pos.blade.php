@@ -128,6 +128,7 @@
             <div class="pos-methods" id="payMethods">
                 <button type="button" class="pos-method is-active" data-method="cash">Tunai</button>
                 <button type="button" class="pos-method" data-method="card">Kad</button>
+                <button type="button" class="pos-method" data-method="duitnow">DuitNow QR</button>
                 <button type="button" class="pos-method" data-method="ewallet">E-Wallet</button>
                 <button type="button" class="pos-method" data-method="credit">Kredit</button>
             </div>
@@ -136,6 +137,10 @@
             <label class="label">Tunai diterima</label>
             <input class="input" id="payTender" inputmode="decimal" placeholder="0.00">
             <div class="pos-quick" id="quickCash"></div>
+        </div>
+        <div class="field" id="refField" hidden>
+            <label class="label">No. rujukan transaksi (pilihan)</label>
+            <input class="input" id="payRef" placeholder="Dari notifikasi bank / app">
         </div>
         <div class="pos-total-row pos-total-grand" id="changeRow" hidden><span>Baki</span><span id="payChange">RM 0.00</span></div>
         <button class="btn btn-primary btn-block btn-lg" id="btnConfirmPay" onclick="confirmPay()">Sahkan &amp; Resit</button>
@@ -370,6 +375,7 @@ function openPay() {
     App.$('#payGrand').textContent = App.rupiah(cartTotal());
     setMethod('cash');
     App.$('#payTender').value = '';
+    App.$('#payRef').value = '';
     renderQuickCash();
     updateChange();
     App.$('#payOverlay').hidden = false;
@@ -383,6 +389,7 @@ function setMethod(m) {
     document.querySelectorAll('#payMethods .pos-method').forEach(b =>
         b.classList.toggle('is-active', b.dataset.method === m));
     App.$('#tenderField').hidden = m !== 'cash';
+    App.$('#refField').hidden = !['duitnow', 'card', 'ewallet'].includes(m);
     updateChange();
 }
 function renderQuickCash() {
@@ -416,7 +423,7 @@ async function confirmPay() {
             register_id: Number(App.$('#regSel').value),
             sold_at: new Date().toISOString(),
             items: cart.map(l => ({ product_id: l.item_id ?? null, product_name: l.name, product_sku: l.sku ?? null, quantity: l.qty, unit_price: l.price })),
-            payments: [{ method: payMethod, amount: total }],
+            payments: [{ method: payMethod, amount: total, reference: App.$('#payRef').value.trim() || null }],
         };
         const r = await PosLuarTalian.hantar(payload, clientId);
         if (r.luarTalian) {
@@ -455,7 +462,7 @@ ${new Date().toLocaleString('ms-MY')}
 ${lines}
 ------------------------------
 JUMLAH        ${App.rupiah(total)}
-Bayaran       ${payMethod.toUpperCase()}` +
+Bayaran       ${payMethod === 'duitnow' ? 'DUITNOW QR' : payMethod.toUpperCase()}` +
 (payMethod === 'cash' ? `\nTunai         ${App.rupiah(tender)}\nBaki          ${App.rupiah(Math.max(0, tender - total))}` : '') +
 `\n------------------------------
    Terima kasih! Datang lagi.`;

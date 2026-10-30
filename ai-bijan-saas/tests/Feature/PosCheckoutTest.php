@@ -115,6 +115,19 @@ class PosCheckoutTest extends TestCase
     }
 
     #[Test]
+    public function bayaran_duitnow_dengan_rujukan_disimpan(): void
+    {
+        [$u, $t, $reg] = $this->sedia();
+
+        $r = $this->sebagai($u, $t)->postJson('/api/v1/pos/sales/checkout', $this->payload($reg->id, [
+            'payments' => [['method' => 'duitnow', 'amount' => 55, 'reference' => 'DN20261030123']],
+        ]))->assertCreated();
+
+        $this->assertSame('duitnow', $r->json('payments.0.payment_method'));
+        $this->assertSame('DN20261030123', $r->json('payments.0.reference_number'));
+    }
+
+    #[Test]
     public function masa_jualan_masa_depan_ditolak(): void
     {
         [$u, $t, $reg] = $this->sedia();
