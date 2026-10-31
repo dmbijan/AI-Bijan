@@ -106,11 +106,22 @@ class SaleService
             $discountPct = $data['discount_percentage'] ?? 0;
             $discountAmt = $data['discount_amount'] ?? 0;
             $taxRate = $data['tax_rate'] ?? 0;
+            $taxCode = null;
+            // FIN-010: kod SST menentukan kadar ikut tarikh jualan (mengatasi tax_rate).
+            if (! empty($data['tax_code'])) {
+                try {
+                    $kod = app(\App\Modules\Finance\Services\TaxService::class)->kod($data['tax_code'], optional($sale->sale_date)->toDateString());
+                } catch (\RuntimeException $e) {
+                    throw ValidationException::withMessages(['tax_code' => [$e->getMessage()]]);
+                }
+                $taxRate = (float) $kod->rate;
+                $taxCode = $kod->code;
+            }
 
             $lineSubtotal = $unitPrice * $quantity;
             $lineDiscount = max($discountAmt, $lineSubtotal * ($discountPct / 100));
             $lineTaxable = $lineSubtotal - $lineDiscount;
-            $lineTax = $lineTaxable * ($taxRate / 100);
+            $lineTax = round($lineTaxable * ($taxRate / 100), 2);
             $lineTotal = $lineTaxable + $lineTax;
 
             $item = POSSaleItem::create([
@@ -123,6 +134,7 @@ class SaleService
                 'discount_percentage' => $discountPct,
                 'discount_amount' => $lineDiscount,
                 'tax_amount' => $lineTax,
+                'tax_code' => $taxCode,
                 'line_total' => $lineTotal,
             ]);
 
@@ -322,6 +334,32 @@ class SaleService
     /**
      * Get POS summary statistics.
      */
+    /**
+     * Jumlah bayaran ikut kaedah. Kasa v9.5 menyimpan bayaran dalam `pos_sale_tenders`;
+     * jualan lama (completeSale) dalam `pos_sale_payments`. Gabung kedua-duanya.
+     */
+    protected function ikutKaedah(int $tenantId, ?string $startDate, ?string $endDate): array
+    {
+        $sumber = [
+            ['pos_sale_tenders', 'method'],
+            ['pos_sale_payments', 'payment_method'],
+        ];
+        $hasil = [];
+        foreach ($sumber as [$jadual, $lajur]) {
+            \Illuminate\Support\Facades\DB::table($jadual)->join('pos_sales', "{$jadual}.sale_id", '=', 'pos_sales.id')
+                ->where('pos_sales.tenant_id', $tenantId)->where('pos_sales.status', 'completed')
+                ->when($startDate, fn ($q) => $q->whereDate('pos_sales.sale_date', '>=', $startDate))
+                ->when($endDate, fn ($q) => $q->whereDate('pos_sales.sale_date', '<=', $endDate))
+                ->selectRaw("{$jadual}.{$lajur} as kaedah, sum({$jadual}.amount) as jumlah")
+                ->groupBy("{$jadual}.{$lajur}")->get()
+                ->each(function ($r) use (&$hasil) {
+                    $hasil[$r->kaedah] = round(($hasil[$r->kaedah] ?? 0) + (float) $r->jumlah, 2);
+                });
+        }
+
+        return $hasil;
+    }
+
     public function getSummary(int $tenantId, ?string $startDate = null, ?string $endDate = null): array
     {
         $query = POSSale::forTenant($tenantId)->where('status', 'completed');
@@ -341,14 +379,7 @@ class SaleService
             'total_discounts' => $sales->sum('discount_amount'),
             'total_tax' => $sales->sum('tax_amount'),
             'avg_transaction' => $sales->count() > 0 ? $sales->sum('total_amount') / $sales->count() : 0,
-            'by_payment_method' => POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
-                ->where('pos_sales.tenant_id', $tenantId)
-                ->where('pos_sales.status', 'completed')
-                ->when($startDate, fn($q) => $q->whereDate('pos_sales.sale_date', '>=', $startDate))
-                ->when($endDate, fn($q) => $q->whereDate('pos_sales.sale_date', '<=', $endDate))
-                ->selectRaw('pos_sale_payments.payment_method, sum(pos_sale_payments.amount) as total')
-                ->groupBy('pos_sale_payments.payment_method')
-                ->pluck('total', 'payment_method'),
+            'by_payment_method' => $this->ikutKaedah($tenantId, $startDate, $endDate),
             'daily_breakdown' => $sales->groupBy('sale_date')
                 ->map(fn($day) => [
                     'count' => $day->count(),

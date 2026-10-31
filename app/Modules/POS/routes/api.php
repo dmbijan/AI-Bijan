@@ -37,6 +37,8 @@ Route::middleware('perm:pos.view')->group(function () {
     Route::get('/sales', [SaleController::class, 'index']);
     Route::get('/sales/summary', [SaleController::class, 'summary']);
     Route::get('/stock-exceptions', [SaleController::class, 'stockExceptions']);
+    Route::get('/payment-gateway', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'show']);
+    Route::get('/sales/{id}/resit-whatsapp', [SaleController::class, 'resitWhatsApp'])->whereNumber('id');
     Route::get('/sales/{id}', [SaleController::class, 'show'])->whereNumber('id');
 
     // T-77 Modifier
@@ -86,6 +88,7 @@ Route::middleware('perm:pos.manage')->group(function () {
 
     // T-79 Multi-tender checkout
     Route::post('/sales/checkout', [SaleController::class, 'checkout']);
+    Route::post('/sales/{id}/pautan-bayar', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'pautanJualan'])->whereNumber('id');
     Route::post('/stock-exceptions/{itemId}/resolve', [SaleController::class, 'resolveStockException'])->whereNumber('itemId');
     Route::post('/sales/{saleId}/pay', [SaleController::class, 'pay'])->whereNumber('saleId');
 
@@ -115,3 +118,7 @@ Route::middleware('perm:pos.manage')->group(function () {
     Route::post('/discounts/{id}/reject', [DiscountApprovalController::class, 'reject'])->whereNumber('id');
 });
 
+// ── Bayaran online kedai: sambung akaun CHIP (tetapan syarikat) ─────
+Route::middleware('perm:tenant.settings.update')->group(function () {
+    Route::put('/payment-gateway', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'update']);
+});

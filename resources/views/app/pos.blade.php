@@ -245,6 +245,19 @@
     </div>
     <div class="card mb-4">
         <div class="card-header">
+            <div><h2 class="card-title">Bayaran Online (CHIP)</h2><p class="card-subtitle">Sambung akaun CHIP kedai anda: pelanggan bayar FPX/kad/DuitNow melalui pautan, duit terus ke akaun kedai.</p></div>
+            <span class="badge" id="chipStatus">—</span>
+        </div>
+        <div class="grid grid-3" style="gap:12px;align-items:end">
+            <div class="field" style="margin:0"><label class="label" for="chipBrand">Brand ID</label><input class="input mono" id="chipBrand" autocomplete="off"></div>
+            <div class="field" style="margin:0"><label class="label" for="chipKey">Secret key</label><input class="input mono" id="chipKey" type="password" autocomplete="new-password" placeholder="Tidak dipaparkan selepas disimpan"></div>
+            <button class="btn btn-primary" id="chipSave" onclick="simpanChip()">Sahkan &amp; simpan</button>
+        </div>
+        <p class="text-xs text-muted mt-2">Kunci disulitkan dan tidak pernah dipaparkan semula. Dapatkan di portal CHIP → Developers.</p>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
             <div><h2 class="card-title">Semakan Stok</h2><p class="card-subtitle">Jualan yang stoknya tak dapat dipotong. Jualan tetap sah; betulkan stok di Inventori, kemudian tanda disemak.</p></div>
             <button class="btn btn-sm" onclick="loadStockExceptions()">Muat Semula</button>
         </div>
@@ -482,7 +495,7 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
         const name = tab.dataset.tab;
         if (name === 'sales') loadSales();
         if (name === 'shifts') { loadShiftSummary(); loadShifts(); }
-        if (name === 'registers') { renderRegisters(); loadStockExceptions(); }
+        if (name === 'registers') { renderRegisters(); loadStockExceptions(); loadChip(); }
         if (name === 'kitchen') loadKitchen();
         if (name === 'discounts') loadDiscounts();
     });
@@ -870,6 +883,45 @@ async function bayarKasa() {
     kemasLencana();
 }
 
+// ---------- Bayaran online CHIP kedai ----------
+async function loadChip() {
+    try {
+        const g = (await App.api.get('/api/v1/pos/payment-gateway')).data;
+        const b = App.$('#chipStatus');
+        b.textContent = g ? `Disambung (${g.kunci})` : 'Belum disambung';
+        b.className = 'badge badge-' + (g ? 'success' : 'neutral');
+        if (g) App.$('#chipBrand').value = g.brand_id;
+    } catch { /* tiada akses tetapan */ }
+}
+async function simpanChip() {
+    const brand_id = App.$('#chipBrand').value.trim(), api_key = App.$('#chipKey').value.trim();
+    if (!brand_id || !api_key) { App.toast('Isi Brand ID dan secret key.', 'error'); return; }
+    await App.withLoading(App.$('#chipSave'), async () => {
+        try { await App.api.put('/api/v1/pos/payment-gateway', { brand_id, api_key }); App.$('#chipKey').value = ''; App.toast('Akaun CHIP disahkan & disambung', 'success'); loadChip(); }
+        catch (e) { App.toast(e.message, 'error'); }
+    });
+}
+async function pautanBayar(id) {
+    try {
+        const l = (await App.api.post(`/api/v1/pos/sales/${id}/pautan-bayar`, {})).data;
+        const telefon = prompt(`Pautan bayar ${App.rupiah(l.jumlah)} sedia:\n${l.url}\n\nHantar ke WhatsApp pelanggan? Masukkan nombor (kosong = pilih kenalan), atau Batal untuk salin sahaja.`, '');
+        if (telefon === null) { try { await navigator.clipboard.writeText(l.url); App.toast('Pautan disalin', 'success'); } catch {} return; }
+        const teks = `Assalamualaikum / Hai, ini pautan bayaran ${App.rupiah(l.jumlah)}:\n${l.url}\nBoleh bayar guna FPX, kad atau DuitNow. Terima kasih!`;
+        const r = await App.api.post('/api/v1/ai-agents/whatsapp-pautan', { teks, telefon });
+        window.open(r.url, '_blank', 'noopener');
+    } catch (e) { App.toast(e.message, 'error'); }
+}
+
+// ---------- Resit WhatsApp (pautan wa.me; pengguna sendiri tekan Hantar) ----------
+async function resitWhatsApp(id) {
+    const telefon = prompt('Nombor WhatsApp pelanggan (kosongkan untuk pilih kenalan):', '');
+    if (telefon === null) return;
+    try {
+        const r = await App.api.get(`/api/v1/pos/sales/${id}/resit-whatsapp?telefon=${encodeURIComponent(telefon)}`);
+        window.open(r.url, '_blank', 'noopener');
+    } catch (e) { App.toast(e.message, 'error'); }
+}
+
 // ---------- Luar talian ----------
 function kemasLencana() {
     const n = PosLuarTalian.giliran().length;
@@ -931,10 +983,12 @@ async function loadSales() {
 function saleActions(s) {
     if (s.status === 'draft') {
         return `<button class="btn btn-sm btn-primary" onclick="openPayForSale(${s.id}, ${Number(s.total_amount) || 0})">Bayar</button> ` +
+               `<button class="btn btn-sm" onclick="pautanBayar(${s.id})">Pautan bayar</button> ` +
                `<button class="btn btn-sm" onclick="cancelSale(${s.id})">Batal</button>`;
     }
     if (s.status === 'completed') {
         return `<button class="btn btn-sm" onclick="printPosReceipt(${s.id})">Cetak resit USB</button> ` +
+               `<button class="btn btn-sm" onclick="resitWhatsApp(${s.id})">WhatsApp</button> ` +
                `<button class="btn btn-sm btn-danger" onclick="openRefund(${s.id}, ${Number(s.total_amount) || 0})">Pulangan</button>`;
     }
     return '—';

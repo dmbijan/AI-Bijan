@@ -22,6 +22,7 @@ class POSSaleItem extends Model
         'discount_percentage',
         'discount_amount',
         'tax_amount',
+        'tax_code',
         'line_total',
         // BAB 88 / T-77 — snapshot modifier pada baris
         'modifiers',

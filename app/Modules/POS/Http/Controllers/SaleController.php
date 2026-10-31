@@ -53,6 +53,23 @@ class SaleController extends Controller
         return response()->json($sale);
     }
 
+    /** Pautan wa.me dengan resit siap ditaip (Fasa 1.5a). Pengguna sendiri tekan Hantar di WhatsApp. */
+    public function resitWhatsApp(Request $request, int $id)
+    {
+        $d = $request->validate(['telefon' => 'nullable|string|max:30']);
+        $sale = \App\Modules\POS\Models\POSSale::forTenant($this->tenantId())->with('items')->find($id);
+        if (! $sale || $sale->status !== 'completed') {
+            return response()->json(['message' => 'Jualan selesai tidak dijumpai.'], 404);
+        }
+        $teks = \App\Support\WhatsApp\PautanWhatsApp::teksResit($sale, app(TenantContext::class)->tenant()->name);
+        $nombor = \App\Support\WhatsApp\PautanWhatsApp::nombor($d['telefon'] ?? null);
+        if (! empty($d['telefon']) && ! $nombor) {
+            return response()->json(['message' => 'Nombor telefon tidak sah.'], 422);
+        }
+
+        return response()->json(['url' => \App\Support\WhatsApp\PautanWhatsApp::url($nombor, $teks), 'teks' => $teks, 'nombor' => $nombor]);
+    }
+
     /**
      * Create a draft sale.
      */
@@ -95,6 +112,7 @@ class SaleController extends Controller
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
             'discount_amount' => 'nullable|numeric|min:0',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
+            'tax_code' => 'nullable|string|max:10',
         ]);
 
         try {

@@ -86,6 +86,9 @@ Route::prefix('public/{slug}/helpdesk')->middleware('throttle:30,1')->where(['sl
     Route::post('tickets/{token}/reply', [HelpdeskController::class, 'publicReply'])->middleware('throttle:10,10');
     Route::get('articles', [HelpdeskController::class, 'publicArticles']);
 });
+// Callback CHIP untuk bayaran pelanggan kedai (awam; tandatangan disahkan dengan kunci awam CHIP kedai)
+Route::post('webhooks/chip-kedai/{ulid}', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'callback'])
+    ->middleware('throttle:120,1')->where('ulid', '[0-9A-Za-z]{26}');
 // Menu meja QR (awam, token meja, had kadar)
 Route::prefix('public/meja/{token}')->middleware('throttle:60,1')->where(['token' => '[a-z0-9]{24}'])->group(function () {
     Route::get('/', [\App\Modules\POS\Http\Controllers\PublicDineController::class, 'show']);
@@ -1033,6 +1036,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // List available agents (view)
         Route::prefix('ai-agents')->middleware('perm:ai_agents.view')->group(function () {
             Route::get('/list', [AIAgentCtrl::class, 'listAgents']);
+            Route::get('/tools', [AIAgentCtrl::class, 'tools']);
             Route::get('/{agentKey}', [AIAgentCtrl::class, 'getAgent']);
             Route::get('/tenant/list', [AIAgentCtrl::class, 'listTenantAgents']);
             Route::get('/{agentKey}/stats', [AIAgentCtrl::class, 'getAgentStats']);
@@ -1058,6 +1062,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('ai-agents')->middleware('perm:ai_agents.execute')->group(function () {
             Route::post('/execute/task', [AIAgentCtrl::class, 'executeTask']);
             Route::post('/execute/tool', [AIAgentCtrl::class, 'executeTool']);
+            Route::post('/tools/run', [AIAgentCtrl::class, 'runTool']);
+            Route::post('/tanya', [AIAgentCtrl::class, 'tanya']);
+            Route::post('/whatsapp-pautan', [AIAgentCtrl::class, 'pautanWhatsApp']);
             Route::post('/invoke', [AIAgentCtrl::class, 'invokeAgent']);
         });
         // ============================================            // B-Personal AI Assistant (BAB 17)            // ============================================

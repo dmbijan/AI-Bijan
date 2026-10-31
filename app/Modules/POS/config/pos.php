@@ -9,6 +9,7 @@ return [
         'credit' => 'Akaun Kredit',
         'voucher' => 'Voucher/Gift Card',
         'duitnow' => 'DuitNow QR',
+        'online' => 'Bayaran Online (CHIP)',
         'split' => 'Pembayaran Berpisah',
     ],
 

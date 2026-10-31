@@ -85,12 +85,11 @@ class Customer extends Model
      */
     public static function generateCustomerCode(): string
     {
-        $year = date('Y');
-        $lastNumber = static::whereYear('created_at', $year)
-            ->max('id');
-        $number = ($lastNumber ?? 0) + 1;
-        
-        return sprintf('CUST-%s-%04d', $year, $number);
+        // customer_code unik secara GLOBAL, tetapi id dikira dalam skop tenant: dulu pelanggan pertama
+        // setiap syarikat dapat CUST-YYYY-0001 dan syarikat kedua gagal (500). Sertakan id tenant + siri berkunci.
+        $tid = app(\App\Support\Tenancy\TenantContext::class)->id();
+
+        return \App\Support\NumberSeries::next('customer', 'C'.$tid);
     }
 
     /**
