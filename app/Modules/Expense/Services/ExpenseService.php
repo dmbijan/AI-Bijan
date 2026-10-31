@@ -948,7 +948,7 @@ class ExpenseService
 
         $perbelanjaan = Expense::query()
             ->where('tenant_id', $tenantId)
-            ->whereBetween('expense_date', [$dari, $hingga]);
+            ->whereDate('expense_date', '>=', $dari)->whereDate('expense_date', '<=', $hingga);
 
         $total = (clone $perbelanjaan)->whereIn('status', [
             Expense::STATUS_APPROVED,
@@ -966,7 +966,7 @@ class ExpenseService
             ->where('expenses.tenant_id', $tenantId)
             ->whereNull('expenses.deleted_at')
             ->where('expense_categories.tenant_id', $tenantId)
-            ->whereBetween('expenses.expense_date', [$dari, $hingga])
+            ->whereDate('expenses.expense_date', '>=', $dari)->whereDate('expenses.expense_date', '<=', $hingga)
             ->whereIn('expenses.status', [Expense::STATUS_APPROVED, Expense::STATUS_POSTED, Expense::STATUS_PAID])
             ->join('expense_categories', 'expenses.expense_category_id', '=', 'expense_categories.id')
             ->selectRaw('expense_categories.name as nama, SUM(expenses.amount_myr) as jumlah, COUNT(expenses.id) as bilangan')

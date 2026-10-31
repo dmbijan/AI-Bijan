@@ -97,7 +97,7 @@ class POSSale extends Model
      */
     public function customer(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\CRM\Models\Client::class, 'customer_id');
+        return $this->belongsTo(\App\Modules\CRM\Models\Customer::class, 'customer_id');
     }
 
     /**

@@ -32,11 +32,11 @@ class SaleService
         }
 
         if (isset($filters['start_date'])) {
-            $query->where('sale_date', '>=', $filters['start_date']);
+            $query->whereDate('sale_date', '>=', $filters['start_date']);
         }
 
         if (isset($filters['end_date'])) {
-            $query->where('sale_date', '<=', $filters['end_date']);
+            $query->whereDate('sale_date', '<=', $filters['end_date']);
         }
 
         if (isset($filters['search'])) {
@@ -145,11 +145,13 @@ class SaleService
         }
 
         $sale = $this->getSale($item->sale_id, $item->sale->tenant_id);
+        $deleted = $item->delete();
+
         if ($sale && $sale->status === 'draft') {
             $this->recalculateSale($sale);
         }
 
-        return $item->delete();
+        return $deleted;
     }
 
     /**
@@ -245,7 +247,7 @@ class SaleService
             }
 
             // Fire event
-            event(new \Illuminate\Events\Called('SaleCompleted', $sale));
+            event('pos.sale.completed', [$sale]);
 
             return $sale;
         });
@@ -303,7 +305,7 @@ class SaleService
      */
     protected function recalculateSale(POSSale $sale): void
     {
-        $items = $sale->items;
+        $items = $sale->items()->get(); // baca semula; relasi yang dimuat awal tak ada item baharu
         
         $subtotal = $items->sum(fn($item) => $item->quantity * $item->unit_price);
         $totalDiscount = $items->sum('discount_amount');
@@ -335,10 +337,10 @@ class SaleService
         $query = POSSale::forTenant($tenantId)->where('status', 'completed');
 
         if ($startDate) {
-            $query->where('sale_date', '>=', $startDate);
+            $query->whereDate('sale_date', '>=', $startDate);
         }
         if ($endDate) {
-            $query->where('sale_date', '<=', $endDate);
+            $query->whereDate('sale_date', '<=', $endDate);
         }
 
         $sales = $query->get();
@@ -352,10 +354,10 @@ class SaleService
             'by_payment_method' => POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
                 ->where('pos_sales.tenant_id', $tenantId)
                 ->where('pos_sales.status', 'completed')
-                ->when($startDate, fn($q) => $q->where('pos_sales.sale_date', '>=', $startDate))
-                ->when($endDate, fn($q) => $q->where('pos_sales.sale_date', '<=', $endDate))
+                ->when($startDate, fn($q) => $q->whereDate('pos_sales.sale_date', '>=', $startDate))
+                ->when($endDate, fn($q) => $q->whereDate('pos_sales.sale_date', '<=', $endDate))
                 ->selectRaw('pos_sale_payments.payment_method, sum(pos_sale_payments.amount) as total')
-                ->groupBy('payment_method')
+                ->groupBy('pos_sale_payments.payment_method')
                 ->pluck('total', 'payment_method'),
             'daily_breakdown' => $sales->groupBy('sale_date')
                 ->map(fn($day) => [

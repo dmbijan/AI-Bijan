@@ -69,7 +69,7 @@ class MaintenanceController extends Controller
             'description' => 'required|string',
             'scheduled_date' => 'nullable|date',
             'estimated_cost' => 'nullable|numeric|min:0',
-            'vendor_id' => 'nullable|exists:crm_clients,id',
+            'vendor_id' => 'nullable|exists:suppliers,id',
         ]);
 
         try {
@@ -101,7 +101,7 @@ class MaintenanceController extends Controller
             'actual_cost' => 'nullable|numeric|min:0',
             'downtime_hours' => 'nullable|numeric|min:0',
             'resolution' => 'nullable|string',
-            'vendor_id' => 'nullable|exists:crm_clients,id',
+            'vendor_id' => 'nullable|exists:suppliers,id',
         ]);
 
         $result = $this->maintenanceService->updateRequest($id, $validated, $this->tenantId());

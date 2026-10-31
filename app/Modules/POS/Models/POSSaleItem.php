@@ -52,6 +52,6 @@ class POSSaleItem extends Model
      */
     public function product(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\Inventory\Models\Product::class, 'product_id');
+        return $this->belongsTo(\App\Models\Item::class, 'product_id');
     }
 }
