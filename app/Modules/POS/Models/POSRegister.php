@@ -23,6 +23,7 @@ class POSRegister extends Model
         'description',
         'location',
         'is_active',
+        'warehouse_id',
         'created_by',
     ];
 

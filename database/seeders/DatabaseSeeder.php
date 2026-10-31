@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
         
         // Plan percubaan — semua modul tersedia semasa tempoh percubaan.
         // (Harga pelan berbayar ditetapkan oleh pemilik platform / Super Admin.)
-        Plan::updateOrCreate(['code' => 'percubaan'], [
+        Plan::firstOrCreate(['code' => 'percubaan'], [ // jangan tulis ganti suntingan Super Admin
             'name' => 'Percubaan 14 hari',
             'max_users' => 5,
             'max_locations' => 1,

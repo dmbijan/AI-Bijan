@@ -21,29 +21,48 @@ class BillingService
 {
     public function __construct(private ChipService $chip) {}
 
-    /** Harga langganan — dibaca dari config, bukan hardcode tersebar. */
+    /**
+     * Harga langganan bulanan — dibaca dari jadual `plans` (diurus Super Admin).
+     * Sandaran: `billing.plans` config untuk pemasangan yang belum ada plan dalam DB.
+     */
     public function hargaBulanan(string $planCode): float
     {
-        $harga = config("billing.plans.{$planCode}.price");
+        $plan = \App\Models\Plan::query()->where('code', $planCode)->where('is_active', true)->first();
+        if ($plan) {
+            return (float) $plan->price_monthly;
+        }
 
+        $harga = config("billing.plans.{$planCode}.price");
         if ($harga === null) {
-            throw new RuntimeException("Pelan '{$planCode}' tiada dalam config billing.plans.");
+            throw new RuntimeException("Pelan '{$planCode}' tiada atau tidak aktif.");
         }
 
         return (float) $harga;
     }
 
     /**
-     * Pakej token AI yang tersedia.
+     * Pakej token AI yang tersedia — dari jadual `token_packages` (diurus Super Admin).
      *
      * ⚠️ Token WAJIB dipilih semasa langganan — ia bukan pilihan. Tanpa token,
      * ciri AI tidak berfungsi, jadi menjual langganan sahaja bermakna pelanggan
      * membayar untuk sistem yang sebahagian besarnya mati.
      *
-     * @return array<string, array{name:string, tokens:int, price:float}>
+     * @return array<string, array{name:string, tokens:int, price:float, kos_pembekal:float, validity_days:int}>
      */
     public function pakejToken(): array
     {
+        $db = \App\Models\TokenPackage::query()->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
+        if ($db->isNotEmpty()) {
+            return $db->mapWithKeys(fn ($p) => [$p->code => [
+                'name' => $p->name,
+                'tokens' => (int) $p->tokens,
+                'price' => (float) $p->price,
+                'kos_pembekal' => (float) ($p->supplier_cost ?? 0),
+                'harga_beli_tokens' => $p->usage_limit,
+                'validity_days' => (int) $p->validity_days,
+            ]])->all();
+        }
+
         return (array) config('billing.token_packages', []);
     }
 
@@ -52,7 +71,7 @@ class BillingService
      */
     public function hargaToken(string $pakejCode): float
     {
-        $pakej = config("billing.token_packages.{$pakejCode}");
+        $pakej = $this->pakejToken()[$pakejCode] ?? null;
 
         if ($pakej === null) {
             throw new RuntimeException("Pakej token '{$pakejCode}' tiada.");
@@ -147,7 +166,7 @@ class BillingService
     {
         $langganan = $this->hargaBulanan($planCode);
         $token = $this->hargaToken($pakejToken);
-        $pakej = config("billing.token_packages.{$pakejToken}");
+        $pakej = $this->pakejToken()[$pakejToken] ?? [];
         $kosToken = (float) ($pakej['kos_pembekal'] ?? 0);
         $komisen = $adaReseller ? (float) $this->komisenUntuk($planCode) : 0.0;
 

@@ -26,7 +26,7 @@ class PayrollServiceProvider extends ServiceProvider
         
         // Load routes
         if (file_exists(__DIR__ . '/routes/api.php')) {
-            Route::middleware('api')->prefix('api/v1/payroll')->group(__DIR__ . '/routes/api.php');
+            Route::middleware(['api', 'auth:sanctum', 'tenant'])->prefix('api/v1/payroll')->group(__DIR__ . '/routes/api.php');
         }
         
         // Register service provider bindings

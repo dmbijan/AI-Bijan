@@ -74,10 +74,8 @@ class ResellerCommissionService
 
         // Fallback untuk cas lama (sebelum pecahan disimpan): guna harga pelan.
         if ($bayaranLangganan <= 0) {
-            $bayaranLangganan = (float) config(
-                'billing.plans.' . $langganan->plan_code . '.price',
-                $jumlahInvois
-            );
+            $bayaranLangganan = (float) (\App\Models\Plan::query()->where('code', $langganan->plan_code)->value('price_monthly')
+                ?? config('billing.plans.' . $langganan->plan_code . '.price', $jumlahInvois));
         }
 
         // Asas komisen TIDAK boleh melebihi jumlah invois sebenar.

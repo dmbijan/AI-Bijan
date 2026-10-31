@@ -26,6 +26,7 @@
         <p class="page-desc">Kasa pantas, kaunter, syif tunai, paparan dapur dan kelulusan diskaun.</p>
     </div>
     <div class="row">
+        <button class="badge badge-warning" id="offBadge" onclick="segerakSekarang()" hidden></button>
         <select class="select" id="registerPicker" aria-label="Pilih daftar kasar" style="width:auto;min-width:180px" onchange="onRegisterChange()"></select>
         <button class="btn btn-sm" onclick="loadAll()">Muat Semula</button>
     </div>
@@ -242,6 +243,16 @@
             </div>
         </div>
     </div>
+    <div class="card mb-4">
+        <div class="card-header">
+            <div><h2 class="card-title">Semakan Stok</h2><p class="card-subtitle">Jualan yang stoknya tak dapat dipotong. Jualan tetap sah; betulkan stok di Inventori, kemudian tanda disemak.</p></div>
+            <button class="btn btn-sm" onclick="loadStockExceptions()">Muat Semula</button>
+        </div>
+        <div class="table-wrap"><table class="table">
+            <thead><tr><th>No. Jualan</th><th>Barang</th><th class="table-num">Kuantiti</th><th>Sebab</th><th></th></tr></thead>
+            <tbody id="stockExTable"><tr><td colspan="5"><div class="empty"><div class="empty-text">Memuat…</div></div></td></tr></tbody>
+        </table></div>
+    </div>
     <div class="grid grid-3" id="regGrid">
         <div class="skeleton" style="height:120px"></div>
     </div>
@@ -318,6 +329,7 @@
                     <option value="tng">TNG</option>
                     <option value="credit">Kredit</option>
                     <option value="voucher">Voucher</option>
+                    <option value="duitnow">DuitNow QR</option>
                 </select>
             </div>
 
@@ -344,6 +356,7 @@
                             <option value="ewallet">E-Wallet</option>
                             <option value="tng">TNG</option>
                             <option value="voucher">Voucher</option>
+                            <option value="duitnow">DuitNow QR</option>
                         </select>
                     </div>
                     <div class="field" style="margin:0">
@@ -378,6 +391,11 @@
             <div class="field">
                 <label class="label" for="editRegLocation">Lokasi</label>
                 <input class="input" id="editRegLocation">
+            </div>
+            <div class="field">
+                <label class="label" for="editRegWarehouse">Gudang stok</label>
+                <select class="select" id="editRegWarehouse"></select>
+                <p class="text-xs text-muted" style="margin-top:4px">Jualan kaunter ini potong stok dari gudang ini. Kosong = gudang aktif pertama.</p>
             </div>
             <div id="regError" class="alert alert-danger" hidden></div>
         </div>
@@ -442,6 +460,7 @@
 @endsection
 
 @push('scripts')
+<script src="{{ asset('assets/pos-luar-talian.js') }}?v={{ @filemtime(public_path('assets/pos-luar-talian.js')) }}"></script>
 <script>
 const POS = {
     registers: [], products: [], cart: [], registerId: null, shift: null,
@@ -463,15 +482,17 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
         const name = tab.dataset.tab;
         if (name === 'sales') loadSales();
         if (name === 'shifts') { loadShiftSummary(); loadShifts(); }
-        if (name === 'registers') renderRegisters();
+        if (name === 'registers') { renderRegisters(); loadStockExceptions(); }
         if (name === 'kitchen') loadKitchen();
         if (name === 'discounts') loadDiscounts();
     });
 });
 
 async function loadAll() {
-    const ok = await App.loadSession();
+    const ok = navigator.onLine ? await App.loadSession() : true;
     if (!ok) { location.href = '/login'; return; }
+    kemasLencana();
+    segerakSekarang(true);
     await loadRegisters();
     await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits()]);
     await loadCurrentShift();
@@ -506,9 +527,11 @@ async function loadRegisters() {
     try {
         const r = await App.api.get('/api/v1/pos/registers');
         POS.registers = rows(r);
+        PosLuarTalian.simpanKaunter(POS.registers);
         fillRegisterSelects();
         renderRegisters();
     } catch (e) {
+        if (PosLuarTalian.ralatRangkaian(e)) { POS.registers = PosLuarTalian.kaunter(); fillRegisterSelects(); renderRegisters(); return; }
         App.toast('Gagal muat kaunter: ' + e.message, 'error');
     }
 }
@@ -576,8 +599,15 @@ async function loadProducts() {
     try {
         const r = await App.api.get('/api/v1/inventory/items?per_page=60' + (q ? `&search=${encodeURIComponent(q)}` : ''));
         POS.products = rows(r);
+        if (!q) PosLuarTalian.simpanKatalog(POS.products);
         renderProducts();
     } catch (e) {
+        if (PosLuarTalian.ralatRangkaian(e)) {
+            const cari = q.toLowerCase();
+            POS.products = PosLuarTalian.katalog().filter(p => !cari || (p.name + ' ' + (p.sku ?? '')).toLowerCase().includes(cari));
+            renderProducts();
+            return;
+        }
         App.$('#prodGrid').innerHTML = `<div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div>`;
     }
 }
@@ -782,6 +812,7 @@ async function confirmPay() {
     const isCart = POS.payTarget.mode === 'cart';
     await App.withLoading(App.$('#payConfirmBtn'), async () => {
         try {
+            if (isCart) { await bayarKasa(); return; }
             let due = POS.payDue;
             let targetId = POS.payTarget.id;
             if (isCart) {
@@ -809,6 +840,58 @@ async function confirmPay() {
         }
     });
 }
+
+// Kasa: satu panggilan checkout. Tiada talian → simpan dalam peranti, segerak kemudian.
+async function bayarKasa() {
+    const due = cartTotals().total;
+    const built = buildTenders(round2(due));
+    if (built.error) { showPayError(built.error); return; }
+    const payload = {
+        register_id: POS.registerId,
+        notes: App.$('#saleNote').value.trim() || null,
+        sold_at: new Date().toISOString(),
+        client_uuid: PosLuarTalian.uuid(),
+        items: POS.cart.map(l => ({
+            product_id: l.product_id, product_name: l.product_name, product_sku: l.product_sku,
+            quantity: l.quantity, unit_price: l.unit_price, discount_percentage: POS.saleDiscount || 0,
+        })),
+        tenders: built.tenders,
+    };
+    const r = await PosLuarTalian.hantar(payload);
+    if (r.luarTalian) {
+        PosLuarTalian.tambah({ payload, total: due });
+        App.toast('Tiada talian: jualan disimpan dalam peranti, akan disegerak', 'warning');
+    } else {
+        App.toast('Bayaran berjaya — ' + (r.sale.sale_no ?? '') + ' · baki ' + App.rupiah(r.sale.change_amount ?? 0), 'success');
+        loadSales(); loadSummary(); loadShiftSummary();
+    }
+    closePayDialog();
+    clearCart();
+    kemasLencana();
+}
+
+// ---------- Luar talian ----------
+function kemasLencana() {
+    const n = PosLuarTalian.giliran().length;
+    const b = App.$('#offBadge');
+    if (!navigator.onLine) { b.hidden = false; b.textContent = `Luar talian${n ? ' · ' + n + ' menunggu' : ''}`; }
+    else if (n) { b.hidden = false; b.textContent = `${n} jualan belum segerak · Segerak`; }
+    else b.hidden = true;
+}
+let _menyegerak = false;
+async function segerakSekarang(senyap = false) {
+    if (_menyegerak || !navigator.onLine || !PosLuarTalian.giliran().length) { kemasLencana(); return; }
+    _menyegerak = true;
+    try {
+        const n = await PosLuarTalian.segerak();
+        if (n) { App.toast(`${n} jualan luar talian disegerak`, 'success'); loadSales(); loadSummary(); }
+        const gagal = PosLuarTalian.giliran().filter(j => j.ralat);
+        if (gagal.length && !senyap) App.toast(`${gagal.length} jualan ditolak pelayan: ${gagal[0].ralat}`, 'error');
+    } finally { _menyegerak = false; kemasLencana(); }
+}
+window.addEventListener('online', () => segerakSekarang());
+window.addEventListener('offline', kemasLencana);
+setInterval(() => segerakSekarang(true), 30000);
 
 // ---------- Jualan ----------
 let salesTimer = null;
@@ -1038,6 +1121,12 @@ function openRegDialog(id) {
     App.$('#editRegLocation').value = g.location ?? '';
     App.$('#regError').hidden = true;
     App.$('#regDialog').hidden = false;
+    App.$('#editRegWarehouse').innerHTML = '<option value="">(Gudang aktif pertama)</option>';
+    App.api.get('/api/v1/inventory/warehouses').then(r => {
+        App.$('#editRegWarehouse').innerHTML = '<option value="">(Gudang aktif pertama)</option>' +
+            rows(r).map(w => `<option value="${w.id}">${App.escapeHtml(w.name)} (${App.escapeHtml(w.code ?? '')})</option>`).join('');
+        App.$('#editRegWarehouse').value = g.warehouse_id ? String(g.warehouse_id) : '';
+    }).catch(() => {});
 }
 function closeRegDialog() { App.$('#regDialog').hidden = true; }
 
@@ -1047,11 +1136,35 @@ async function saveRegister() {
     if (!name) { const el = App.$('#regError'); el.textContent = 'Nama diperlukan.'; el.hidden = false; return; }
     await App.withLoading(App.$('#regSaveBtn'), async () => {
         try {
-            await App.api.put(`/api/v1/pos/registers/${id}`, { name, location: App.$('#editRegLocation').value.trim() || null });
+            await App.api.put(`/api/v1/pos/registers/${id}`, {
+                name, location: App.$('#editRegLocation').value.trim() || null,
+                warehouse_id: Number(App.$('#editRegWarehouse').value) || null,
+            });
             App.toast('Kaunter dikemas kini', 'success');
             closeRegDialog(); loadRegisters();
         } catch (e) { const el = App.$('#regError'); el.textContent = e.message; el.hidden = false; }
     });
+}
+
+// ---------- Semakan stok ----------
+const SEBAB_STOK = { insufficient: 'Stok tak cukup', no_warehouse: 'Tiada gudang' };
+async function loadStockExceptions() {
+    try {
+        const r = await App.api.get('/api/v1/pos/stock-exceptions');
+        const list = rows(r);
+        App.$('#stockExTable').innerHTML = list.length ? list.map(x => `
+            <tr>
+                <td class="mono text-xs">${App.escapeHtml(x.sale_no ?? '—')}</td>
+                <td>${App.escapeHtml(x.product_name)}</td>
+                <td class="table-num">${Number(x.quantity)}</td>
+                <td class="text-xs"><span class="badge badge-warning">${SEBAB_STOK[x.stock_status] ?? x.stock_status}</span> ${App.escapeHtml(x.stock_note ?? '')}</td>
+                <td><button class="btn btn-sm" onclick="resolveStockException(${x.id})">Tanda disemak</button></td>
+            </tr>`).join('') : '<tr><td colspan="5"><div class="empty"><div class="empty-text">Tiada isu stok. Semua jualan dah potong stok.</div></div></td></tr>';
+    } catch (e) { App.$('#stockExTable').innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div></td></tr>`; }
+}
+async function resolveStockException(id) {
+    try { await App.api.post(`/api/v1/pos/stock-exceptions/${id}/resolve`); loadStockExceptions(); }
+    catch (e) { App.toast(e.message, 'error'); }
 }
 
 // ---------- Paparan Dapur (KDS) ----------

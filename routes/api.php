@@ -86,6 +86,12 @@ Route::prefix('public/{slug}/helpdesk')->middleware('throttle:30,1')->where(['sl
     Route::post('tickets/{token}/reply', [HelpdeskController::class, 'publicReply'])->middleware('throttle:10,10');
     Route::get('articles', [HelpdeskController::class, 'publicArticles']);
 });
+// Menu meja QR (awam, token meja, had kadar)
+Route::prefix('public/meja/{token}')->middleware('throttle:60,1')->where(['token' => '[a-z0-9]{24}'])->group(function () {
+    Route::get('/', [\App\Modules\POS\Http\Controllers\PublicDineController::class, 'show']);
+    Route::post('pesanan', [\App\Modules\POS\Http\Controllers\PublicDineController::class, 'store'])->middleware('throttle:10,5');
+    Route::get('pesanan/{akses}', [\App\Modules\POS\Http\Controllers\PublicDineController::class, 'order'])->where('akses', '[A-Za-z0-9]{40}');
+});
 // Webhook Vision Service (BAB 56C) — HMAC sahkan dalam controller, tiada sesi pengguna
 Route::post('vision/ingest/{cameraId}', [\App\Modules\Vision\Http\Controllers\VisionController::class, 'ingest'])
     ->middleware('throttle:120,1')->whereNumber('cameraId');
@@ -1554,4 +1560,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('support-access/{grant}', [PlatformController::class, 'revokeSupport'])->whereNumber('grant');
             Route::get('plans', [PlatformController::class, 'plans']);
             Route::post('plans', [PlatformController::class, 'savePlan']);
-            Route::put('plans/{id}', [PlatformController::class, 'savePlan'])->whereNumber('id');        });    });});
+            Route::put('plans/{id}', [PlatformController::class, 'savePlan'])->whereNumber('id');
+            Route::get('token-packages', [PlatformController::class, 'tokenPackages']);
+            Route::post('token-packages', [PlatformController::class, 'saveTokenPackage']);
+            Route::put('token-packages/{id}', [PlatformController::class, 'saveTokenPackage'])->whereNumber('id');        });    });});

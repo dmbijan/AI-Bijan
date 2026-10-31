@@ -56,7 +56,7 @@ class DineInController extends Controller
                 'required',
                 Rule::exists('pos_dine_areas', 'id')->where('tenant_id', $this->tenantId()),
             ],
-            'name' => 'required|string|max:60',
+            'name' => ['required', 'string', 'max:60', Rule::unique('pos_dine_tables', 'name')->where('tenant_id', $this->tenantId())],
             'code' => 'nullable|string|max:30',
             'seats' => 'nullable|integer|min:1|max:50',
         ]);
@@ -64,6 +64,23 @@ class DineInController extends Controller
         $meja = POSDineTable::create($data + ['tenant_id' => $this->tenantId(), 'status' => 'free', 'is_active' => true]);
 
         return response()->json(['data' => $meja], 201);
+    }
+
+    /** Senarai meja (dengan token QR) untuk skrin staf. */
+    public function tables()
+    {
+        return response()->json(['data' => POSDineTable::with('area:id,name')
+            ->withCount(['orders as open_orders' => fn ($q) => $q->whereIn('status', [POSDineOrder::STATUS_SUBMITTED, POSDineOrder::STATUS_ACCEPTED])])
+            ->orderBy('name')->get()]);
+    }
+
+    /** Jana token QR baharu (QR lama terus tak boleh dipakai). */
+    public function regenerateQr(int $id)
+    {
+        $meja = POSDineTable::findOrFail($id);
+        $meja->update(['qr_token' => POSDineTable::tokenBaharu()]);
+
+        return response()->json(['data' => $meja]);
     }
 
     // ── Pesanan ───────────────────────────────────────────────────

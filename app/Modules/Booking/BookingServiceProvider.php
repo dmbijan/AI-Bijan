@@ -11,7 +11,7 @@ class BookingServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if (file_exists(__DIR__ . '/routes/api.php')) {
-            Route::middleware('api')->prefix('api/v1/booking')->group(__DIR__ . '/routes/api.php');
+            Route::middleware(['api', 'auth:sanctum', 'tenant'])->prefix('api/v1/booking')->group(__DIR__ . '/routes/api.php');
         }
         $this->loadMigrationsFrom(__DIR__ . '/database/migrations');
 

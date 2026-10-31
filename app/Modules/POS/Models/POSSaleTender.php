@@ -27,6 +27,8 @@ class POSSaleTender extends Model
     public const METHOD_CREDIT = 'credit';
     public const METHOD_VOUCHER = 'voucher';
 
+    public const METHOD_DUITNOW = 'duitnow';
+
     public const STATUS_PAID = 'paid';
     public const STATUS_PENDING = 'pending';
     public const STATUS_FAILED = 'failed';

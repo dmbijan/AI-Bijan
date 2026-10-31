@@ -60,6 +60,7 @@ class RegisterController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'location' => 'nullable|string|max:255',
+            'warehouse_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('warehouses', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
             'is_active' => 'boolean',
         ]);
 
@@ -85,6 +86,7 @@ class RegisterController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'location' => 'nullable|string|max:255',
+            'warehouse_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('warehouses', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
             'is_active' => 'boolean',
         ]);
 

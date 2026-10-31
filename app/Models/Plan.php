@@ -10,7 +10,7 @@ class Plan extends Model
         'code', 'name', 'name_bm', 'description', 'tier',
         'max_users', 'max_locations', 'storage_mb', 'ai_credits_monthly',
         'modules', 'price_monthly', 'price_yearly', 'currency', 'trial_days',
-        'is_public', 'features', 'sort_order', 'is_active',
+        'is_public', 'features', 'sort_order', 'is_active', 'token_required',
     ];
 
     protected $casts = [
@@ -18,6 +18,7 @@ class Plan extends Model
         'features' => 'array',
         'is_active' => 'boolean',
         'is_public' => 'boolean',
+        'token_required' => 'boolean',
         'price_monthly' => 'decimal:2',
         'price_yearly' => 'decimal:2',
         'max_users' => 'integer',
@@ -27,4 +28,10 @@ class Plan extends Model
         'trial_days' => 'integer',
         'sort_order' => 'integer',
     ];
+
+    /** Had pakej (pengguna, token AI, storan, SMS, WhatsApp...). */
+    public function limits(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Modules\Entitlement\Models\PlanLimit::class);
+    }
 }

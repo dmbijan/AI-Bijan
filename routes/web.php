@@ -14,6 +14,9 @@ Route::get('/metrics', [HealthController::class, 'metrics'])->middleware('thrott
 Route::view('/login', 'auth.login')->name('login');
 Route::view('/register', 'auth.register');
 
+// Menu meja QR untuk pelanggan (awam)
+Route::view('/meja/{token}', 'pos.menu-meja')->where('token', '[a-z0-9]{24}');
+
 Route::prefix('app')->group(function () {
     Route::get('/', [AppController::class, 'dashboard'])->name('app.dashboard');
     Route::get('/{module}', [AppController::class, 'module'])->name('app.module');

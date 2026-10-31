@@ -105,6 +105,8 @@ const App = (() => {
         try {
             const me = await api.get('/api/v1/auth/me');
             state.user = me.user ?? null;
+            const navAdmin = document.getElementById('navSuperAdmin');
+            if (navAdmin) navAdmin.hidden = !state.user?.platform_admin;
             state.tenants = me.tenants ?? [];
             if (state.tenants.length && !state.tenant) {
                 const saved = getPreference('aibijan-tenant');

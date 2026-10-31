@@ -8,6 +8,7 @@ return [
         'ewallet' => 'E-Wallet (Touch \'n Go, GrabPay, etc)',
         'credit' => 'Akaun Kredit',
         'voucher' => 'Voucher/Gift Card',
+        'duitnow' => 'DuitNow QR',
         'split' => 'Pembayaran Berpisah',
     ],
 
