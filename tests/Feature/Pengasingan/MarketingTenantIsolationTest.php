@@ -44,9 +44,6 @@ class MarketingTenantIsolationTest extends UjianPengasingan
             ];
         }
 
-        static $n = 0;
-        $n++;
-
         // `marketing_campaigns.code` NOT NULL tetapi TIDAK dalam `$fillable`
         // model Campaign → perlu `forceCreate` (gunaForce) untuk cipta rekod.
         return [
