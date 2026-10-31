@@ -29,6 +29,7 @@ class TenderService
         POSSaleTender::METHOD_TNG,
         POSSaleTender::METHOD_CREDIT,
         POSSaleTender::METHOD_VOUCHER,
+        POSSaleTender::METHOD_DUITNOW,
     ];
 
     /** Status lalai: tunai/kad/e-wallet/voucher = paid; kredit & TnG = pending. */
@@ -38,6 +39,7 @@ class TenderService
         POSSaleTender::METHOD_EWALLET => POSSaleTender::STATUS_PAID,
         POSSaleTender::METHOD_CREDIT => POSSaleTender::STATUS_PENDING,
         POSSaleTender::METHOD_VOUCHER => POSSaleTender::STATUS_PAID,
+        POSSaleTender::METHOD_DUITNOW => POSSaleTender::STATUS_PAID,
         POSSaleTender::METHOD_TNG => POSSaleTender::STATUS_PENDING,
     ];
 

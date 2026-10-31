@@ -44,6 +44,7 @@ Route::middleware('perm:pos.view')->group(function () {
 
     // T-76 Dine-in & Kitchen Display
     Route::get('/dine/areas', [DineInController::class, 'areas']);
+    Route::get('/dine/tables', [DineInController::class, 'tables']);
     Route::get('/dine/orders', [DineInController::class, 'orders']);
     Route::get('/kitchen', [KitchenDisplayController::class, 'index']);
 
@@ -83,6 +84,7 @@ Route::middleware('perm:pos.manage')->group(function () {
     Route::post('/sales/{saleId}/refund', [SaleController::class, 'refund'])->whereNumber('saleId');
 
     // T-79 Multi-tender checkout
+    Route::post('/sales/checkout', [SaleController::class, 'checkout']);
     Route::post('/sales/{saleId}/pay', [SaleController::class, 'pay'])->whereNumber('saleId');
 
     // T-77 Modifier
@@ -93,6 +95,7 @@ Route::middleware('perm:pos.manage')->group(function () {
     // T-76 Dine-in
     Route::post('/dine/areas', [DineInController::class, 'storeArea']);
     Route::post('/dine/tables', [DineInController::class, 'storeTable']);
+    Route::post('/dine/tables/{id}/qr', [DineInController::class, 'regenerateQr'])->whereNumber('id');
     Route::post('/dine/orders', [DineInController::class, 'store']);
     Route::post('/dine/orders/{id}/accept', [DineInController::class, 'accept'])->whereNumber('id');
     Route::post('/dine/orders/{id}/reject', [DineInController::class, 'reject'])->whereNumber('id');

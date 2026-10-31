@@ -44,6 +44,7 @@
                     ],
                     'Jualan & Pelanggan' => [
                         ['POS', '/app/pos', '▤'],
+                        ['Meja & Pesanan', '/app/pos-meja', '▦'],
                         ['Prospek', '/app/prospects', '◎'],
                         ['CRM', '/app/crm', '◍'],
                         ['Invois', '/app/invoicing', '▦'],

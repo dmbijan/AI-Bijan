@@ -61,7 +61,7 @@ class SaleController extends Controller
         $validated = $request->validate([
             'register_id' => 'required|exists:pos_registers,id',
             'notes' => 'nullable|string',
-            'customer_id' => 'nullable|exists:crm_clients,id',
+            'customer_id' => 'nullable|exists:customers,id',
         ]);
 
         try {
@@ -174,11 +174,66 @@ class SaleController extends Controller
      * (T-78), memeriksa kelulusan diskaun (T-83) dan menyokong idempotency
      * luar talian (T-81) melalui `client_uuid`.
      */
+    /**
+     * Checkout satu jalan: draf + item + bayar dalam satu transaksi.
+     * Dipakai kasa, termasuk segerak jualan luar talian: `client_uuid` sama → jualan sedia ada dipulangkan
+     * (tiada pendua); `sold_at` = masa jualan asal di peranti.
+     */
+    public function checkout(Request $request)
+    {
+        $v = $request->validate([
+            'register_id' => 'required|integer|exists:pos_registers,id',
+            'notes' => 'nullable|string|max:1000',
+            'sold_at' => 'nullable|date|before_or_equal:now|after:-30 days',
+            'items' => 'required|array|min:1|max:200',
+            'items.*.product_id' => 'nullable|integer|exists:items,id',
+            'items.*.product_name' => 'required|string|max:255',
+            'items.*.product_sku' => 'nullable|string|max:255',
+            'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'tenders' => 'required|array|min:1|max:2',
+            'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher,duitnow',
+            'tenders.*.amount' => 'required|numeric|min:0.01',
+            'tenders.*.cash_received' => 'nullable|numeric|min:0',
+            'tenders.*.reference' => 'nullable|string|max:255',
+            'client_uuid' => 'nullable|uuid',
+        ]);
+        $tenantId = $this->tenantId();
+
+        if (! empty($v['client_uuid'])) {
+            $sedia = \App\Modules\POS\Models\POSSale::forTenant($tenantId)->where('client_uuid', $v['client_uuid'])->where('status', 'completed')->first();
+            if ($sedia) {
+                return response()->json(['message' => 'Jualan sudah direkod.', 'data' => $sedia->load('items', 'tenders')]);
+            }
+        }
+
+        try {
+            $sale = \Illuminate\Support\Facades\DB::transaction(function () use ($v, $tenantId, $request) {
+                $sale = $this->saleService->createDraft(['notes' => $v['notes'] ?? null], $tenantId, (int) $v['register_id'], $request->user()->id);
+                foreach ($v['items'] as $item) {
+                    $this->saleService->addItem($sale->id, $item, $tenantId);
+                }
+                $sale = app(\App\Modules\POS\Services\SalePaymentService::class)->bayar($sale->fresh(), $v['tenders'], $v['client_uuid'] ?? null);
+                if (! empty($v['sold_at'])) {
+                    $masa = \Illuminate\Support\Carbon::parse($v['sold_at']);
+                    $sale->forceFill(['completed_at' => $masa, 'sale_date' => $masa->format('Y-m-d')])->save();
+                }
+
+                return $sale;
+            });
+        } catch (ValidationException $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+        }
+
+        return response()->json(['message' => 'Jualan selesai.', 'data' => $sale->fresh(['items', 'tenders'])], 201);
+    }
+
     public function pay(Request $request, int $saleId)
     {
         $validated = $request->validate([
             'tenders' => 'required|array|min:1|max:2',
-            'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher',
+            'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher,duitnow',
             'tenders.*.amount' => 'required|numeric|min:0.01',
             'tenders.*.cash_received' => 'nullable|numeric|min:0',
             'tenders.*.reference' => 'nullable|string|max:255',

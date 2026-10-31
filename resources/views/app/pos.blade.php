@@ -26,6 +26,7 @@
         <p class="page-desc">Kasa pantas, kaunter, syif tunai, paparan dapur dan kelulusan diskaun.</p>
     </div>
     <div class="row">
+        <button class="badge badge-warning" id="offBadge" onclick="segerakSekarang()" hidden></button>
         <select class="select" id="registerPicker" aria-label="Pilih daftar kasar" style="width:auto;min-width:180px" onchange="onRegisterChange()"></select>
         <button class="btn btn-sm" onclick="loadAll()">Muat Semula</button>
     </div>
@@ -318,6 +319,7 @@
                     <option value="tng">TNG</option>
                     <option value="credit">Kredit</option>
                     <option value="voucher">Voucher</option>
+                    <option value="duitnow">DuitNow QR</option>
                 </select>
             </div>
 
@@ -344,6 +346,7 @@
                             <option value="ewallet">E-Wallet</option>
                             <option value="tng">TNG</option>
                             <option value="voucher">Voucher</option>
+                            <option value="duitnow">DuitNow QR</option>
                         </select>
                     </div>
                     <div class="field" style="margin:0">
@@ -442,6 +445,7 @@
 @endsection
 
 @push('scripts')
+<script src="{{ asset('assets/pos-luar-talian.js') }}?v={{ @filemtime(public_path('assets/pos-luar-talian.js')) }}"></script>
 <script>
 const POS = {
     registers: [], products: [], cart: [], registerId: null, shift: null,
@@ -470,8 +474,10 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
 });
 
 async function loadAll() {
-    const ok = await App.loadSession();
+    const ok = navigator.onLine ? await App.loadSession() : true;
     if (!ok) { location.href = '/login'; return; }
+    kemasLencana();
+    segerakSekarang(true);
     await loadRegisters();
     await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits()]);
     await loadCurrentShift();
@@ -506,9 +512,11 @@ async function loadRegisters() {
     try {
         const r = await App.api.get('/api/v1/pos/registers');
         POS.registers = rows(r);
+        PosLuarTalian.simpanKaunter(POS.registers);
         fillRegisterSelects();
         renderRegisters();
     } catch (e) {
+        if (PosLuarTalian.ralatRangkaian(e)) { POS.registers = PosLuarTalian.kaunter(); fillRegisterSelects(); renderRegisters(); return; }
         App.toast('Gagal muat kaunter: ' + e.message, 'error');
     }
 }
@@ -576,8 +584,15 @@ async function loadProducts() {
     try {
         const r = await App.api.get('/api/v1/inventory/items?per_page=60' + (q ? `&search=${encodeURIComponent(q)}` : ''));
         POS.products = rows(r);
+        if (!q) PosLuarTalian.simpanKatalog(POS.products);
         renderProducts();
     } catch (e) {
+        if (PosLuarTalian.ralatRangkaian(e)) {
+            const cari = q.toLowerCase();
+            POS.products = PosLuarTalian.katalog().filter(p => !cari || (p.name + ' ' + (p.sku ?? '')).toLowerCase().includes(cari));
+            renderProducts();
+            return;
+        }
         App.$('#prodGrid').innerHTML = `<div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div>`;
     }
 }
@@ -782,6 +797,7 @@ async function confirmPay() {
     const isCart = POS.payTarget.mode === 'cart';
     await App.withLoading(App.$('#payConfirmBtn'), async () => {
         try {
+            if (isCart) { await bayarKasa(); return; }
             let due = POS.payDue;
             let targetId = POS.payTarget.id;
             if (isCart) {
@@ -809,6 +825,58 @@ async function confirmPay() {
         }
     });
 }
+
+// Kasa: satu panggilan checkout. Tiada talian → simpan dalam peranti, segerak kemudian.
+async function bayarKasa() {
+    const due = cartTotals().total;
+    const built = buildTenders(round2(due));
+    if (built.error) { showPayError(built.error); return; }
+    const payload = {
+        register_id: POS.registerId,
+        notes: App.$('#saleNote').value.trim() || null,
+        sold_at: new Date().toISOString(),
+        client_uuid: PosLuarTalian.uuid(),
+        items: POS.cart.map(l => ({
+            product_id: l.product_id, product_name: l.product_name, product_sku: l.product_sku,
+            quantity: l.quantity, unit_price: l.unit_price, discount_percentage: POS.saleDiscount || 0,
+        })),
+        tenders: built.tenders,
+    };
+    const r = await PosLuarTalian.hantar(payload);
+    if (r.luarTalian) {
+        PosLuarTalian.tambah({ payload, total: due });
+        App.toast('Tiada talian: jualan disimpan dalam peranti, akan disegerak', 'warning');
+    } else {
+        App.toast('Bayaran berjaya — ' + (r.sale.sale_no ?? '') + ' · baki ' + App.rupiah(r.sale.change_amount ?? 0), 'success');
+        loadSales(); loadSummary(); loadShiftSummary();
+    }
+    closePayDialog();
+    clearCart();
+    kemasLencana();
+}
+
+// ---------- Luar talian ----------
+function kemasLencana() {
+    const n = PosLuarTalian.giliran().length;
+    const b = App.$('#offBadge');
+    if (!navigator.onLine) { b.hidden = false; b.textContent = `Luar talian${n ? ' · ' + n + ' menunggu' : ''}`; }
+    else if (n) { b.hidden = false; b.textContent = `${n} jualan belum segerak · Segerak`; }
+    else b.hidden = true;
+}
+let _menyegerak = false;
+async function segerakSekarang(senyap = false) {
+    if (_menyegerak || !navigator.onLine || !PosLuarTalian.giliran().length) { kemasLencana(); return; }
+    _menyegerak = true;
+    try {
+        const n = await PosLuarTalian.segerak();
+        if (n) { App.toast(`${n} jualan luar talian disegerak`, 'success'); loadSales(); loadSummary(); }
+        const gagal = PosLuarTalian.giliran().filter(j => j.ralat);
+        if (gagal.length && !senyap) App.toast(`${gagal.length} jualan ditolak pelayan: ${gagal[0].ralat}`, 'error');
+    } finally { _menyegerak = false; kemasLencana(); }
+}
+window.addEventListener('online', () => segerakSekarang());
+window.addEventListener('offline', kemasLencana);
+setInterval(() => segerakSekarang(true), 30000);
 
 // ---------- Jualan ----------
 let salesTimer = null;
