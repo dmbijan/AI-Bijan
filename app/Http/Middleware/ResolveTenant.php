@@ -33,12 +33,23 @@ class ResolveTenant
         abort_unless($grant, 403, 'Tiada akses sokongan yang sah untuk syarikat ini.');
         abort_unless($request->isMethod('GET'), 403, 'Akses sokongan adalah baca sahaja.');
         $this->ctx()->set($tenant, null, self::KEBENARAN_SOKONGAN);
+        $this->tetapkanTenantRequest($request, $tenant);
         app(AuditLogger::class)->log('support.access', $tenant, null, ['path' => $request->path(), 'grant' => $grant->id]);
         try {
             return $next($request);
         } finally {
             $this->ctx()->clear();
         }
+    }
+
+    /**
+     * Banyak controller modul membaca `$request->tenant_id`. Tulis ganti dengan tenant yang disahkan supaya
+     * nilainya sentiasa betul dan klien tak boleh hantar tenant_id syarikat lain dalam body/query.
+     */
+    private function tetapkanTenantRequest(Request $request, Tenant $tenant): void
+    {
+        $request->merge(['tenant_id' => $tenant->id]);
+        $request->query->set('tenant_id', $tenant->id);
     }
 
     public function handle(Request $request, Closure $next)
@@ -56,6 +67,7 @@ class ResolveTenant
         $tenant = Tenant::find($m->tenant_id);
         abort_unless($tenant && $tenant->isUsable(), 403, 'Akaun syarikat digantung atau dibatalkan.');
         $this->ctx()->set($tenant, $m);
+        $this->tetapkanTenantRequest($request, $tenant);
         try {
             return $next($request);
         } finally {

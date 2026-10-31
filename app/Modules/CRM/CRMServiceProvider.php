@@ -25,7 +25,7 @@ class CRMServiceProvider extends ServiceProvider
     {
         $this->loadMigrationsFrom(__DIR__ . '/database/migrations');
         if (file_exists(__DIR__ . '/routes/api.php')) {
-            Route::middleware('api')->prefix('api/v1/crm')->group(__DIR__ . '/routes/api.php');
+            Route::middleware(['api', 'auth:sanctum', 'tenant'])->prefix('api/v1/crm')->group(__DIR__ . '/routes/api.php');
         }
     }
 }
