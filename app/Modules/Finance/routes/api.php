@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Finance\Http\Controllers\BankReconciliationController as Bank;
+use App\Modules\Finance\Http\Controllers\BudgetController as Budget;
 use App\Modules\Finance\Http\Controllers\CashManagementController as Cash;
 use App\Modules\Finance\Http\Controllers\ChartOfAccountsController as Coa;
 use App\Modules\Finance\Http\Controllers\FinancialReportController as Report;
@@ -45,6 +46,9 @@ Route::middleware('perm:finance.view')->group(function () {
     Route::get('/tax-settings', [Tax::class, 'settings']);
     Route::post('/tax/calculate', [Tax::class, 'calculate']);
     Route::get('/tax/period', [Tax::class, 'period']);
+
+    // FIN-005 Bajet
+    Route::get('/budgets', [Budget::class, 'index']);
 });
 
 Route::middleware('perm:finance.manage')->group(function () {
@@ -69,12 +73,16 @@ Route::middleware('perm:finance.manage')->group(function () {
     Route::post('/tax-codes', [Tax::class, 'storeCode']);
     Route::put('/tax-codes/{id}', [Tax::class, 'updateCode'])->whereNumber('id');
     Route::put('/tax-settings', [Tax::class, 'updateSettings']);
+
+    Route::post('/budgets', [Budget::class, 'store']);
+    Route::put('/budgets/{id}/lines', [Budget::class, 'setLines'])->whereNumber('id');
 });
 
 Route::middleware('perm:finance.approve')->group(function () {
     Route::post('/journal-entries/{id}/post', [Journal::class, 'post']);
     Route::post('/journal-entries/{id}/cancel', [Journal::class, 'cancel']);
     Route::post('/cash-counts/{countId}/adjust', [Cash::class, 'adjust'])->whereNumber('countId');
+    Route::post('/budgets/{id}/approve', [Budget::class, 'approve'])->whereNumber('id');
 });
 
 Route::middleware('perm:finance.reports')->group(function () {
@@ -87,4 +95,5 @@ Route::middleware('perm:finance.reports')->group(function () {
     // FIN-006 Treasury
     Route::get('/treasury/position', [Treasury::class, 'position']);
     Route::get('/treasury/forecast', [Treasury::class, 'forecast']);
+    Route::get('/budgets/{id}/report', [Budget::class, 'report'])->whereNumber('id');
 });
