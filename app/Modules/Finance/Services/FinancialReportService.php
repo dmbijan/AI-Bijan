@@ -41,14 +41,25 @@ class FinancialReportService
             ->orderBy('chart_of_accounts.code');
         
         $accounts = $query->get()->groupBy('type');
-        
+
+        // net_amount = debit - kredit. Hasil berbaki kredit, jadi diterbalikkan supaya hasil positif.
+        // (Dulu tidak diterbalikkan: hasil keluar negatif dan kedai yang untung dilaporkan rugi.)
+        $hasil = ($accounts['revenue'] ?? collect())->map(function ($a) {
+            $a = clone $a;
+            $a->net_amount = -1 * (float) $a->net_amount;
+
+            return $a;
+        });
+        // Cukai pendapatan ialah akaun jenis expense dengan subtype tax_expense: asingkan dari belanja operasi.
+        $belanja = $accounts['expense'] ?? collect();
+
         // Calculate sections
-        $revenue = $this->calculateSection($accounts['revenue'] ?? collect());
+        $revenue = $this->calculateSection($hasil);
         $costOfGoods = $this->calculateSection($accounts['cost_of_goods'] ?? collect());
         $grossProfit = $revenue['total'] - $costOfGoods['total'];
-        $operatingExpenses = $this->calculateSection($accounts['expense'] ?? collect());
+        $operatingExpenses = $this->calculateSection($belanja->filter(fn ($a) => $a->subtype !== 'tax_expense'));
         $netProfitBeforeTax = $grossProfit - $operatingExpenses['total'];
-        $taxExpense = $this->calculateSection($accounts['tax_expense'] ?? collect());
+        $taxExpense = $this->calculateSection($belanja->filter(fn ($a) => $a->subtype === 'tax_expense'));
         $netProfitAfterTax = $netProfitBeforeTax - $taxExpense['total'];
         
         return [
@@ -122,17 +133,29 @@ class FinancialReportService
             ->orderBy('chart_of_accounts.code');
         
         $accounts = $query->get()->groupBy('type');
-        
+
+        // Liabiliti & ekuiti berbaki kredit: terbalikkan supaya positif. Aset semasa termasuk tunai, bank,
+        // penghutang & inventori (dulu hanya subtype `current_asset` dikira, jadi kunci kira-kira tidak seimbang).
+        $kredit = fn ($c) => $c->map(function ($a) {
+            $a = clone $a;
+            $a->net_amount = -1 * (float) $a->net_amount;
+
+            return $a;
+        });
+        $aset = $accounts['asset'] ?? collect();
+        $liabiliti = $kredit($accounts['liability'] ?? collect());
+        $bukanSemasa = ['non_current_asset', 'fixed_assets'];
+
         // Calculate sections
-        $currentAssets = $this->calculateSectionBySubtype($accounts['asset'] ?? collect(), ['current_asset']);
-        $nonCurrentAssets = $this->calculateSectionBySubtype($accounts['asset'] ?? collect(), ['non_current_asset', 'fixed_assets']);
+        $currentAssets = $this->calculateSection($aset->filter(fn ($a) => ! in_array($a->subtype, $bukanSemasa, true)));
+        $nonCurrentAssets = $this->calculateSectionBySubtype($aset, $bukanSemasa);
         $totalAssets = $currentAssets['total'] + $nonCurrentAssets['total'];
-        
-        $currentLiabilities = $this->calculateSectionBySubtype($accounts['liability'] ?? collect(), ['current_liability']);
-        $nonCurrentLiabilities = $this->calculateSectionBySubtype($accounts['liability'] ?? collect(), ['non_current_liability']);
+
+        $currentLiabilities = $this->calculateSection($liabiliti->filter(fn ($a) => $a->subtype !== 'non_current_liability'));
+        $nonCurrentLiabilities = $this->calculateSectionBySubtype($liabiliti, ['non_current_liability']);
         $totalLiabilities = $currentLiabilities['total'] + $nonCurrentLiabilities['total'];
-        
-        $equity = $this->calculateSection($accounts['equity'] ?? collect());
+
+        $equity = $this->calculateSection($kredit($accounts['equity'] ?? collect()));
         
         // Retained earnings = net profit from P&L
         $retainedEarnings = $this->calculateRetainedEarnings($asOfDate);
@@ -239,11 +262,12 @@ class FinancialReportService
             ->join('chart_of_accounts', 'journal_entry_lines.account_id', '=', 'chart_of_accounts.id')
             ->where('journal_entries.status', 'posted')
             ->where('journal_entries.entry_date', '<=', $asOfDate)
-            ->whereIn('chart_of_accounts.type', ['revenue', 'expense'])
+            ->whereIn('chart_of_accounts.type', ['revenue', 'expense', 'cost_of_goods'])
             ->select(
-                DB::raw('SUM(journal_entry_lines.debit - journal_entry_lines.credit) as net_income')
+                // Untung = kredit - debit bagi akaun hasil/kos/belanja (dulu terbalik & tertinggal kos jualan).
+                DB::raw('SUM(journal_entry_lines.credit - journal_entry_lines.debit) as net_income')
             );
-        
+
         $result = $query->first();
         return $result ? (float) $result->net_income : 0;
     }
