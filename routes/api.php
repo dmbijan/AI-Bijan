@@ -1033,6 +1033,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // List available agents (view)
         Route::prefix('ai-agents')->middleware('perm:ai_agents.view')->group(function () {
             Route::get('/list', [AIAgentCtrl::class, 'listAgents']);
+            Route::get('/tools', [AIAgentCtrl::class, 'tools']);
             Route::get('/{agentKey}', [AIAgentCtrl::class, 'getAgent']);
             Route::get('/tenant/list', [AIAgentCtrl::class, 'listTenantAgents']);
             Route::get('/{agentKey}/stats', [AIAgentCtrl::class, 'getAgentStats']);
@@ -1058,6 +1059,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('ai-agents')->middleware('perm:ai_agents.execute')->group(function () {
             Route::post('/execute/task', [AIAgentCtrl::class, 'executeTask']);
             Route::post('/execute/tool', [AIAgentCtrl::class, 'executeTool']);
+            Route::post('/tools/run', [AIAgentCtrl::class, 'runTool']);
             Route::post('/invoke', [AIAgentCtrl::class, 'invokeAgent']);
         });
         // ============================================            // B-Personal AI Assistant (BAB 17)            // ============================================

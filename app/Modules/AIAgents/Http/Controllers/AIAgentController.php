@@ -476,4 +476,20 @@ class AIAgentController extends Controller
             'data' => $violations,
         ]);
     }
+
+    /** Senarai alat ejen sebenar (nama, input, kebenaran, risiko). */
+    public function tools(): JsonResponse
+    {
+        return response()->json(['data' => app(\App\Modules\AIAgents\Tools\AgentToolRegistry::class)->definitions()]);
+    }
+
+    /** Jalankan satu alat sebenar. Risiko tinggi → Peti Kelulusan (status menunggu_kelulusan). */
+    public function runTool(Request $request): JsonResponse
+    {
+        $d = $request->validate(['tool' => 'required|string|max:80', 'agent' => 'nullable|string|max:60', 'params' => 'nullable|array']);
+        $r = app(\App\Modules\AIAgents\Tools\AgentToolRunner::class)->jalan($d['agent'] ?? 'pengguna', $d['tool'], $d['params'] ?? [], $request->user()->id);
+        $kod = match ($r['status']) { 'berjaya' => 200, 'menunggu_kelulusan' => 202, 'ditolak' => 403, 'tiada_alat' => 404, 'input_tidak_sah' => 422, default => 409 };
+
+        return response()->json($r, $kod);
+    }
 }

@@ -30,7 +30,9 @@
                 $groups = [
                     'Utama' => [
                         ['Papan Pemuka', '/app', '◈'],
+                        ['Mula Berniaga', '/app/mula', '➜'],
                         ['Command Centre', '/app/command-centre', '◎'],
+                        ['Peti Kelulusan', '/app/kelulusan', '✓'],
                         ['Pejabat Maya', '/app/pejabat', '◉'],
                     ],
                     'AI & Automasi' => [

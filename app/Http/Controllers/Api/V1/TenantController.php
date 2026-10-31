@@ -232,6 +232,12 @@ class TenantController extends Controller
         $a->update(['status' => $d['decision'], 'decided_by' => $r->user()->id, 'decided_at' => now(), 'reason' => $d['reason'] ?? null]);
         $this->pengaudit()->log('approvals.'.$d['decision'], $a, ['status' => 'pending'], ['status' => $d['decision']]);
 
+        // Cadangan ejen AI: laksanakan hanya selepas diluluskan; simpan hasil sebenar dalam payload.
+        if ($a->type === 'ai.tool' && $d['decision'] === 'approved') {
+            $hasil = app(\App\Modules\AIAgents\Tools\AgentToolRunner::class)->laksanaKelulusan($a);
+            $a->update(['payload' => $a->payload + ['hasil' => $hasil]]);
+        }
+
         return response()->json($a);
     }
 }

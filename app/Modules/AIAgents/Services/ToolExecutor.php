@@ -11,6 +11,13 @@ class ToolExecutor
      */
     public function execute($agentKey, $toolName, $params = [])
     {
+        // Alat sebenar (Master §11): kebenaran pengguna, kelulusan risiko tinggi, pengesahan hasil.
+        if (app(\App\Modules\AIAgents\Tools\AgentToolRegistry::class)->get($toolName)) {
+            $r = app(\App\Modules\AIAgents\Tools\AgentToolRunner::class)->jalan((string) $agentKey, $toolName, (array) $params, auth()->id());
+
+            return ['success' => $r['berjaya'], 'status' => $r['status'], 'result' => $r['hasil'] ?? null] + $r;
+        }
+
         // Validate tool exists
         if (!$this->toolExists($toolName)) {
             throw new \InvalidArgumentException("Tool '{$toolName}' does not exist.");
@@ -122,6 +129,12 @@ class ToolExecutor
      */
     protected function dispatchTool($toolName, $params)
     {
+        // Pengendali lama di bawah ialah STUB yang memulangkan "berjaya" tanpa membuat apa-apa
+        // (cth. email.send → email_sent=true tanpa emel). Itu lebih bahaya daripada gagal:
+        // ejen akan mengaku siap. Sehingga setiap alat diganti dengan kelas dalam
+        // AIAgents/Tools (servis domain + kebenaran + pengesahan), alat ini gagal secara jelas.
+        throw new \RuntimeException("Alat '{$toolName}' belum dilaksanakan (not_implemented). Tiada tindakan diambil.");
+
         // Map tools to their handlers
         $handlers = [
             // CEO tools

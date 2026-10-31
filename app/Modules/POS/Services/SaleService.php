@@ -322,6 +322,32 @@ class SaleService
     /**
      * Get POS summary statistics.
      */
+    /**
+     * Jumlah bayaran ikut kaedah. Kasa v9.5 menyimpan bayaran dalam `pos_sale_tenders`;
+     * jualan lama (completeSale) dalam `pos_sale_payments`. Gabung kedua-duanya.
+     */
+    protected function ikutKaedah(int $tenantId, ?string $startDate, ?string $endDate): array
+    {
+        $sumber = [
+            ['pos_sale_tenders', 'method'],
+            ['pos_sale_payments', 'payment_method'],
+        ];
+        $hasil = [];
+        foreach ($sumber as [$jadual, $lajur]) {
+            \Illuminate\Support\Facades\DB::table($jadual)->join('pos_sales', "{$jadual}.sale_id", '=', 'pos_sales.id')
+                ->where('pos_sales.tenant_id', $tenantId)->where('pos_sales.status', 'completed')
+                ->when($startDate, fn ($q) => $q->whereDate('pos_sales.sale_date', '>=', $startDate))
+                ->when($endDate, fn ($q) => $q->whereDate('pos_sales.sale_date', '<=', $endDate))
+                ->selectRaw("{$jadual}.{$lajur} as kaedah, sum({$jadual}.amount) as jumlah")
+                ->groupBy("{$jadual}.{$lajur}")->get()
+                ->each(function ($r) use (&$hasil) {
+                    $hasil[$r->kaedah] = round(($hasil[$r->kaedah] ?? 0) + (float) $r->jumlah, 2);
+                });
+        }
+
+        return $hasil;
+    }
+
     public function getSummary(int $tenantId, ?string $startDate = null, ?string $endDate = null): array
     {
         $query = POSSale::forTenant($tenantId)->where('status', 'completed');
@@ -341,14 +367,7 @@ class SaleService
             'total_discounts' => $sales->sum('discount_amount'),
             'total_tax' => $sales->sum('tax_amount'),
             'avg_transaction' => $sales->count() > 0 ? $sales->sum('total_amount') / $sales->count() : 0,
-            'by_payment_method' => POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
-                ->where('pos_sales.tenant_id', $tenantId)
-                ->where('pos_sales.status', 'completed')
-                ->when($startDate, fn($q) => $q->whereDate('pos_sales.sale_date', '>=', $startDate))
-                ->when($endDate, fn($q) => $q->whereDate('pos_sales.sale_date', '<=', $endDate))
-                ->selectRaw('pos_sale_payments.payment_method, sum(pos_sale_payments.amount) as total')
-                ->groupBy('pos_sale_payments.payment_method')
-                ->pluck('total', 'payment_method'),
+            'by_payment_method' => $this->ikutKaedah($tenantId, $startDate, $endDate),
             'daily_breakdown' => $sales->groupBy('sale_date')
                 ->map(fn($day) => [
                     'count' => $day->count(),
