@@ -32,6 +32,7 @@
 </form>
 <div class="hk-cadang" id="cadangan"></div>
 <div class="hk-jawapan" id="jawapan" hidden aria-live="polite"></div>
+<div id="jawapanAksi" hidden style="margin:-8px 0 16px"><button class="btn btn-sm" type="button" onclick="hantarWa()">Hantar ke WhatsApp</button></div>
 
 <div class="hk-kad" id="kadBisnes" aria-live="polite">
     <div class="stat"><a href="/app/pos"><span class="stat-label">Jualan hari ni</span><span class="stat-value" id="kJualan">—</span><span class="stat-delta" id="kJualanSub">&nbsp;</span><span class="hk-aksi">Buka kaunter →</span></a></div>
@@ -108,8 +109,20 @@ async function tanya(soalan) {
     const el = App.$('#jawapan');
     el.hidden = false; el.textContent = 'Sedang semak…';
     // Format tebal WhatsApp (*teks*) dibuang untuk paparan web
-    try { el.textContent = (await App.api.post('/api/v1/ai-agents/tanya', { soalan })).jawapan.replace(/\*([^*\n]+)\*/g, '$1'); }
+    App.$('#jawapanAksi').hidden = true;
+    try {
+        const r = await App.api.post('/api/v1/ai-agents/tanya', { soalan });
+        window._jawapanWa = r.faham ? r.jawapan : null;
+        el.textContent = r.jawapan.replace(/\*([^*\n]+)\*/g, '$1');
+        App.$('#jawapanAksi').hidden = !window._jawapanWa;
+    }
     catch (e) { el.textContent = e.message; }
+}
+
+async function hantarWa() {
+    if (!window._jawapanWa) return;
+    try { window.open((await App.api.post('/api/v1/ai-agents/whatsapp-pautan', { teks: window._jawapanWa })).url, '_blank', 'noopener'); }
+    catch (e) { App.toast(e.message, 'error'); }
 }
 
 async function alat(nama) {

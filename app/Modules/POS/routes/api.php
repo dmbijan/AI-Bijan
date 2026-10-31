@@ -37,6 +37,7 @@ Route::middleware('perm:pos.view')->group(function () {
     Route::get('/sales', [SaleController::class, 'index']);
     Route::get('/sales/summary', [SaleController::class, 'summary']);
     Route::get('/stock-exceptions', [SaleController::class, 'stockExceptions']);
+    Route::get('/sales/{id}/resit-whatsapp', [SaleController::class, 'resitWhatsApp'])->whereNumber('id');
     Route::get('/sales/{id}', [SaleController::class, 'show'])->whereNumber('id');
 
     // T-77 Modifier

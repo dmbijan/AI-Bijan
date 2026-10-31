@@ -500,4 +500,16 @@ class AIAgentController extends Controller
 
         return response()->json(app(\App\Modules\AIAgents\Tools\TanyaAiBijan::class)->jawab($d['soalan'], $request->user()->id));
     }
+
+    /** Pautan wa.me untuk teks yang dijana ejen (laporan, peringatan). Tiada mesej dihantar oleh sistem. */
+    public function pautanWhatsApp(Request $request): JsonResponse
+    {
+        $d = $request->validate(['teks' => 'required|string|max:4000', 'telefon' => 'nullable|string|max:30']);
+        $n = \App\Support\WhatsApp\PautanWhatsApp::nombor($d['telefon'] ?? null);
+        if (! empty($d['telefon']) && ! $n) {
+            return response()->json(['message' => 'Nombor telefon tidak sah.'], 422);
+        }
+
+        return response()->json(['url' => \App\Support\WhatsApp\PautanWhatsApp::url($n, $d['teks']), 'nombor' => $n]);
+    }
 }

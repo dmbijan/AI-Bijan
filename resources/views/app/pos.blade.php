@@ -870,6 +870,16 @@ async function bayarKasa() {
     kemasLencana();
 }
 
+// ---------- Resit WhatsApp (pautan wa.me; pengguna sendiri tekan Hantar) ----------
+async function resitWhatsApp(id) {
+    const telefon = prompt('Nombor WhatsApp pelanggan (kosongkan untuk pilih kenalan):', '');
+    if (telefon === null) return;
+    try {
+        const r = await App.api.get(`/api/v1/pos/sales/${id}/resit-whatsapp?telefon=${encodeURIComponent(telefon)}`);
+        window.open(r.url, '_blank', 'noopener');
+    } catch (e) { App.toast(e.message, 'error'); }
+}
+
 // ---------- Luar talian ----------
 function kemasLencana() {
     const n = PosLuarTalian.giliran().length;
@@ -935,6 +945,7 @@ function saleActions(s) {
     }
     if (s.status === 'completed') {
         return `<button class="btn btn-sm" onclick="printPosReceipt(${s.id})">Cetak resit USB</button> ` +
+               `<button class="btn btn-sm" onclick="resitWhatsApp(${s.id})">WhatsApp</button> ` +
                `<button class="btn btn-sm btn-danger" onclick="openRefund(${s.id}, ${Number(s.total_amount) || 0})">Pulangan</button>`;
     }
     return '—';

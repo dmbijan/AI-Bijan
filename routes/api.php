@@ -1061,6 +1061,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/execute/tool', [AIAgentCtrl::class, 'executeTool']);
             Route::post('/tools/run', [AIAgentCtrl::class, 'runTool']);
             Route::post('/tanya', [AIAgentCtrl::class, 'tanya']);
+            Route::post('/whatsapp-pautan', [AIAgentCtrl::class, 'pautanWhatsApp']);
             Route::post('/invoke', [AIAgentCtrl::class, 'invokeAgent']);
         });
         // ============================================            // B-Personal AI Assistant (BAB 17)            // ============================================
