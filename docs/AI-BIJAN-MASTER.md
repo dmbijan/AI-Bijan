@@ -39,7 +39,7 @@ Jika dua sumber bercanggah, ikut susunan ini:
 | 3 | Dakwaan ujian | Commit baseline v9.5: "963 ujian lulus, 0 gagal" | Disahkan 31/10: suite **tidak boleh jalan** di `main` (26 migrasi bayangan). Selepas PR #2: 1,365 ujian, 3 gagal (ext-intl sandbox) | Guna nombor PR #2; CI GitHub kini dikunci (bil) — perlu dibuka. |
 | 4 | Nama fail blueprint | `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` berisi v9.3 | Alias kata v9.6 | Namakan semula kepada `AI-BIJAN-MASTER-BLUEPRINT.md` (PR berasingan) dan kemas kini nombor versi. |
 | 5 | 210 nama legacy | Nama individu 1–210 tidak dapat dipulihkan (kecuali MES #117) | – | Owner bekalkan daftar asal untuk crosswalk (Inventory §14 #1). |
-| 6 | Alat ejen AI | – | 67 alat dalam `ToolExecutor` ialah stub yang pulangkan "berjaya" palsu (§11.2) | Wajib dibetulkan sebelum ejen dibuka kepada pelanggan. |
+| 6 | Alat ejen AI | – | 67 alat dalam `ToolExecutor` ialah stub dan tidak boleh dicapai: ejen tiada alat berfungsi (§11.2). Fasa 1.1 menambah alat sebenar | Wajib dibetulkan sebelum ejen dibuka kepada pelanggan. |
 | 7 | Pemetaan §3 | Pemetaan canonical → modul dibuat oleh Dimas | – | Owner/Product Owner sahkan. |
 
 ## 3. Registry canonical × status kod sebenar
@@ -518,9 +518,11 @@ Lajur "AI Bijan sekarang" diambil daripada §3 (status kod). "Jadikan lebih powe
 
 ### 11.2 Jurang kritikal (jujur)
 
-**Semua 67 alat ejen dalam `AIAgents/Services/ToolExecutor.php` ialah stub.** Ia memulangkan keputusan tetap tanpa membuat apa-apa, contohnya `email.send` → `['email_sent' => true]` walaupun tiada emel dihantar. Kesannya:
-- Ejen akan **mengaku berjaya** untuk tindakan yang tidak berlaku. Ini lebih bahaya daripada tiada ejen langsung.
-- Melanggar prinsip Inventory §11: "semua tindakan luaran mempunyai audit dan outcome verification".
+**Semua 67 alat ejen dalam `AIAgents/Services/ToolExecutor.php` ialah stub** yang memulangkan keputusan tetap tanpa membuat apa-apa (contohnya `email.send` → `['email_sent' => true]`). Semakan lanjut (31/10/2026): stub ini **tidak boleh dicapai** kerana `toolExists()` membaca config `ai_agents.tools` yang tidak wujud, jadi setiap panggilan gagal dengan "Tool does not exist". Kesannya:
+- Sebelum Fasa 1.1, ejen **tiada satu pun alat yang berfungsi**; mereka hanya boleh berbual.
+- Jika config itu ditambah tanpa membetulkan pengendali, ejen akan terus mengaku "berjaya" untuk tindakan yang tidak berlaku. Ini lebih bahaya daripada gagal.
+
+**Status Fasa 1.1 (cawangan `feat/agentic-asas`):** 6 alat sebenar (`AIAgents/Tools`) dengan kebenaran pengguna, Peti Kelulusan untuk risiko tinggi, pengesahan hasil dan audit; pengendali stub kini melontar `not_implemented`.
 
 **Tindakan wajib sebelum mana-mana ejen dibuka kepada pelanggan:**
 1. Alat stub mesti **gagal secara jelas** (`not_implemented`), bukan pulangkan "berjaya".

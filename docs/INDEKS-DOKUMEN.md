@@ -2,7 +2,7 @@
 
 Dijana 31/10/2026 daripada repo + folder pejabat. Titik masuk: [`AI-BIJAN-MASTER.md`](AI-BIJAN-MASTER.md).
 
-**Ringkasan:** 170 fail `.md` dalam repo · 24 kumpulan pendua tepat (kandungan sama 100%) · ≈4.4 MB bazir.
+**Ringkasan:** 173 fail `.md` dalam repo · 24 kumpulan pendua tepat (kandungan sama 100%) · ≈4.4 MB bazir.
 
 ## 1. Dokumen induk (guna ini)
 
@@ -11,7 +11,7 @@ Dijana 31/10/2026 daripada repo + folder pejabat. Titik masuk: [`AI-BIJAN-MASTER
 | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | 9.3 | 653 KB | INDUK — Blueprint v9.x (kandungan penuh) |
 | `docs/AI-BIJAN-MASTER-BLUEPRINT.md` |  | 1 KB | INDUK — alias blueprint |
 | `docs/AI-BIJAN-MASTER-INVENTORY-v1.0.md` | 1.0 | 58 KB | INDUK — Registry 179 sistem |
-| `docs/AI-BIJAN-MASTER.md` | 1.0 | 52 KB | INDUK — Master rasmi |
+| `docs/AI-BIJAN-MASTER.md` | 1.0 | 53 KB | INDUK — Master rasmi |
 
 ## 2. Pendua tepat (cadangan: simpan satu salinan dalam `docs/archive/`)
 
@@ -73,7 +73,7 @@ Tiada fail dipadam dalam PR ini — pemadaman perlu kelulusan owner.
 | `docs/blueprint-v4.5.1-corrected.md` | 4.5.1 | 257 KB | ya |
 | `docs/master-blueprint-v4.5.1-consolidated.md` | 4.5.1 | 61 KB | ya |
 
-### Audit / kajian (10)
+### Audit / kajian (11)
 
 | Fail | Versi | Saiz | Pendua? |
 |---|---|---:|---|
@@ -87,8 +87,9 @@ Tiada fail dipadam dalam PR ini — pemadaman perlu kelulusan owner.
 | `docs/AUDIT-TENANT-ISOLATION.md` |  | 9 KB |  |
 | `docs/KAJIAN-FINDS-PROSPECT-BLAST-CLOSE.md` |  | 15 KB |  |
 | `docs/PETA-PESAING-34-MODUL.md` |  | 28 KB |  |
+| `docs/master/10-audit-odoo-50-app.md` |  | 13 KB |  |
 
-### Rujukan (33)
+### Rujukan (35)
 
 | Fail | Versi | Saiz | Pendua? |
 |---|---|---:|---|
@@ -124,6 +125,8 @@ Tiada fail dipadam dalam PR ini — pemadaman perlu kelulusan owner.
 | `docs/ekosistem-v3.0-owner.md` |  | 3 KB | ya |
 | `docs/getting-started.md` |  | 4 KB |  |
 | `docs/industry-coverage-v4.0.md` | 4.0 | 59 KB | ya |
+| `docs/master/11-pelaksanaan-agentic-ai.md` |  | 7 KB |  |
+| `docs/master/12-standard-ui-ux.md` |  | 3 KB |  |
 | `docs/shopify-hubspot-enhancement-strategy.md` |  | 25 KB |  |
 
 ### Panduan repo (5)
@@ -259,9 +262,10 @@ Folder kerja pejabat Bijan Digital Marketing (`/home/kantor/kantor`). Rujukan sa
 | `hasil/2026-10-29-audit-jujur-ai-bijan.md` |  | 6 KB |  |
 | `hasil/2026-10-29-banding-dua-build-ai-bijan.md` |  | 3 KB |  |
 | `hasil/2026-10-29-fix-tenantcontext-ai-bijan.md` |  | 3 KB |  |
-| `hasil/2026-10-31-AI-BIJAN-MASTER.md` | 1.0 | 30 KB |  |
+| `hasil/2026-10-31-AI-BIJAN-MASTER.md` | 1.0 | 52 KB |  |
 | `hasil/2026-10-31-INDEKS-DOKUMEN-aibijan.md` |  | 22 KB |  |
 | `hasil/2026-10-31-cadangan-mvp-aibijan.md` |  | 4 KB |  |
+| `hasil/2026-10-31-todo-fasa-aibijan.md` |  | 2 KB |  |
 | `hasil/AI_BIJAN_Master_Inventory_v1.0.md` | 1.0 | 58 KB | ya (sama tepat) |
 | `hasil/2026-10-14-pelan-ai-bijan/PELAN-TEKNIKAL.md` |  | 11 KB |  |
 | `hasil/2026-10-15-aibijan-blink/LAPORAN.md` |  | 3 KB |  |

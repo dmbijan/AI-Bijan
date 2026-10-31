@@ -158,7 +158,7 @@ w('| 2 | Bilangan sistem | Inventory: 179 canonical + 210 slot legacy | Kod: 60 
 w('| 3 | Dakwaan ujian | Commit baseline v9.5: "963 ujian lulus, 0 gagal" | Disahkan 31/10: suite **tidak boleh jalan** di `main` (26 migrasi bayangan). Selepas PR #2: 1,365 ujian, 3 gagal (ext-intl sandbox) | Guna nombor PR #2; CI GitHub kini dikunci (bil) — perlu dibuka. |')
 w('| 4 | Nama fail blueprint | `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` berisi v9.3 | Alias kata v9.6 | Namakan semula kepada `AI-BIJAN-MASTER-BLUEPRINT.md` (PR berasingan) dan kemas kini nombor versi. |')
 w('| 5 | 210 nama legacy | Nama individu 1–210 tidak dapat dipulihkan (kecuali MES #117) | – | Owner bekalkan daftar asal untuk crosswalk (Inventory §14 #1). |')
-w('| 6 | Alat ejen AI | – | 67 alat dalam `ToolExecutor` ialah stub yang pulangkan "berjaya" palsu (§11.2) | Wajib dibetulkan sebelum ejen dibuka kepada pelanggan. |')
+w('| 6 | Alat ejen AI | – | 67 alat dalam `ToolExecutor` ialah stub dan tidak boleh dicapai: ejen tiada alat berfungsi (§11.2). Fasa 1.1 menambah alat sebenar | Wajib dibetulkan sebelum ejen dibuka kepada pelanggan. |')
 w('| 7 | Pemetaan §3 | Pemetaan canonical → modul dibuat oleh Dimas | – | Owner/Product Owner sahkan. |\n')
 
 w('## 3. Registry canonical × status kod sebenar\n')

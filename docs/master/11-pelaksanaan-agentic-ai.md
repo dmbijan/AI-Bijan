@@ -18,9 +18,11 @@
 
 ### 11.2 Jurang kritikal (jujur)
 
-**Semua 67 alat ejen dalam `AIAgents/Services/ToolExecutor.php` ialah stub.** Ia memulangkan keputusan tetap tanpa membuat apa-apa, contohnya `email.send` → `['email_sent' => true]` walaupun tiada emel dihantar. Kesannya:
-- Ejen akan **mengaku berjaya** untuk tindakan yang tidak berlaku. Ini lebih bahaya daripada tiada ejen langsung.
-- Melanggar prinsip Inventory §11: "semua tindakan luaran mempunyai audit dan outcome verification".
+**Semua 67 alat ejen dalam `AIAgents/Services/ToolExecutor.php` ialah stub** yang memulangkan keputusan tetap tanpa membuat apa-apa (contohnya `email.send` → `['email_sent' => true]`). Semakan lanjut (31/10/2026): stub ini **tidak boleh dicapai** kerana `toolExists()` membaca config `ai_agents.tools` yang tidak wujud, jadi setiap panggilan gagal dengan "Tool does not exist". Kesannya:
+- Sebelum Fasa 1.1, ejen **tiada satu pun alat yang berfungsi**; mereka hanya boleh berbual.
+- Jika config itu ditambah tanpa membetulkan pengendali, ejen akan terus mengaku "berjaya" untuk tindakan yang tidak berlaku. Ini lebih bahaya daripada gagal.
+
+**Status Fasa 1.1 (cawangan `feat/agentic-asas`):** 6 alat sebenar (`AIAgents/Tools`) dengan kebenaran pengguna, Peti Kelulusan untuk risiko tinggi, pengesahan hasil dan audit; pengendali stub kini melontar `not_implemented`.
 
 **Tindakan wajib sebelum mana-mana ejen dibuka kepada pelanggan:**
 1. Alat stub mesti **gagal secara jelas** (`not_implemented`), bukan pulangkan "berjaya".
