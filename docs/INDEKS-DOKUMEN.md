@@ -10,7 +10,7 @@ Dijana 31/10/2026 daripada repo + folder pejabat. Titik masuk: [`AI-BIJAN-MASTER
 |---|---|---:|---|
 | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | 9.3 | 653 KB | INDUK — Blueprint v9.x (kandungan penuh) |
 | `docs/AI-BIJAN-MASTER-BLUEPRINT.md` |  | 1 KB | INDUK — alias blueprint |
-| `docs/AI-BIJAN-INVENTORI-INDUK-v2.0.md` | 2.0 | 120 KB | INDUK — Registry 235 sistem, 5 lapisan BOS, event & integrasi (ganti v1.0) |
+| `docs/AI-BIJAN-INVENTORI-INDUK-v2.0.md` | 2.0 | 88 KB | INDUK — Registry 235 sistem, 5 lapisan BOS, event & integrasi (ganti v1.0) |
 | `docs/AI-BIJAN-MASTER-INVENTORY-v1.0.md` | 1.0 | 58 KB | Sejarah — digantikan v2.0 |
 | `docs/AI-BIJAN-MASTER.md` | 1.0 | 53 KB | INDUK — Master rasmi |
 
