@@ -24,4 +24,10 @@ class BankStatementLine extends Model
     {
         return $this->belongsTo(BankAccount::class);
     }
+
+    /** Simpan sebagai Y-m-d sahaja supaya tapisan "hingga tarikh" termasuk hari terakhir. */
+    public function setTxnDateAttribute($nilai): void
+    {
+        $this->attributes['txn_date'] = $nilai === null ? null : \Illuminate\Support\Carbon::parse($nilai)->toDateString();
+    }
 }

@@ -83,7 +83,7 @@ class BankReconciliationController extends Controller
 
     public function match(Request $r, int $lineId): JsonResponse
     {
-        $d = $r->validate(['type' => 'required|in:payment,payment_link', 'id' => 'required|integer']);
+        $d = $r->validate(['type' => 'required|in:payment,payment_link,cash_deposit', 'id' => 'required|integer']);
         $l = BankStatementLine::findOrFail($lineId);
 
         return $this->cuba(fn () => $this->svc->padan($l, $d['type'], (int) $d['id'], 'manual', $r->user()->id), 'finance.bank_line_matched', $l);

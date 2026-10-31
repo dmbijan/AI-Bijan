@@ -5,6 +5,7 @@ namespace App\Modules\Finance\Services;
 use App\Modules\Billing\Models\PaymentLink;
 use App\Modules\Finance\Models\BankAccount;
 use App\Modules\Finance\Models\BankStatementLine;
+use App\Modules\Finance\Models\CashBoxEntry;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -137,6 +138,14 @@ class BankReconciliationService
                 $out[] = ['type' => 'payment_link', 'id' => $p->id, 'date' => $p->paid_at->toDateString(), 'amount' => (float) $p->amount,
                     'label' => strtoupper($p->provider).' '.$p->provider_ref, 'refs' => array_values(array_filter([$p->provider_ref]))];
             }
+
+            // FIN-018: deposit tunai dari peti ke akaun bank ini.
+            $deposit = CashBoxEntry::where('type', 'deposit')->where('bank_account_id', $l->bank_account_id)->where('is_reconciled', false)
+                ->where('amount', -$amaun)->whereBetween('entry_date', [$dari, $hingga])->get();
+            foreach ($deposit as $e) {
+                $out[] = ['type' => 'cash_deposit', 'id' => $e->id, 'date' => $e->entry_date->toDateString(), 'amount' => $amaun,
+                    'label' => 'Deposit tunai'.($e->reference ? ' · '.$e->reference : ''), 'refs' => array_values(array_filter([$e->reference]))];
+            }
         }
 
         // Rekod yang sudah dipadankan oleh baris bank lain tidak lagi menjadi calon.
@@ -232,6 +241,14 @@ class BankReconciliationService
 
             return ['amount' => (float) $p->amount, 'reconciled' => (bool) $p->is_reconciled];
         }
+        if ($jenis === 'cash_deposit') {
+            $e = CashBoxEntry::where('type', 'deposit')->find($id);
+            if (! $e) {
+                throw new RuntimeException('Deposit tunai tidak dijumpai.');
+            }
+
+            return ['amount' => abs((float) $e->amount), 'reconciled' => (bool) $e->is_reconciled];
+        }
         throw new RuntimeException('Jenis padanan tidak disokong.');
     }
 
@@ -242,6 +259,8 @@ class BankReconciliationService
                 ->update(['is_reconciled' => $nilai, 'reconciled_at' => $tarikh, 'updated_at' => now()]);
         } elseif ($jenis === 'payment_link') {
             PaymentLink::whereKey($id)->update(['is_reconciled' => $nilai]);
+        } elseif ($jenis === 'cash_deposit') {
+            CashBoxEntry::whereKey($id)->where('type', 'deposit')->update(['is_reconciled' => $nilai]);
         }
     }
 

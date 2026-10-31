@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Finance\Http\Controllers\BankReconciliationController as Bank;
+use App\Modules\Finance\Http\Controllers\CashManagementController as Cash;
 use App\Modules\Finance\Http\Controllers\ChartOfAccountsController as Coa;
 use App\Modules\Finance\Http\Controllers\FinancialReportController as Report;
 use App\Modules\Finance\Http\Controllers\JournalController as Journal;
@@ -31,6 +32,11 @@ Route::middleware('perm:finance.view')->group(function () {
     Route::get('/bank-accounts/{id}/lines', [Bank::class, 'lines'])->whereNumber('id');
     Route::get('/bank-accounts/{id}/summary', [Bank::class, 'summary'])->whereNumber('id');
     Route::get('/bank-lines/{lineId}/candidates', [Bank::class, 'candidates'])->whereNumber('lineId');
+
+    // FIN-018 Pengurusan Tunai
+    Route::get('/cash-boxes', [Cash::class, 'boxes']);
+    Route::get('/cash-boxes/{id}/report', [Cash::class, 'report'])->whereNumber('id');
+    Route::get('/cash-denominations', [Cash::class, 'denominations']);
 });
 
 Route::middleware('perm:finance.manage')->group(function () {
@@ -44,11 +50,19 @@ Route::middleware('perm:finance.manage')->group(function () {
     Route::post('/bank-lines/{lineId}/match', [Bank::class, 'match'])->whereNumber('lineId');
     Route::post('/bank-lines/{lineId}/unmatch', [Bank::class, 'unmatch'])->whereNumber('lineId');
     Route::post('/bank-lines/{lineId}/ignore', [Bank::class, 'ignore'])->whereNumber('lineId');
+
+    Route::post('/cash-boxes', [Cash::class, 'storeBox']);
+    Route::post('/cash-boxes/{id}/entries', [Cash::class, 'entry'])->whereNumber('id');
+    Route::post('/cash-boxes/{id}/top-up', [Cash::class, 'topUp'])->whereNumber('id');
+    Route::post('/cash-boxes/{id}/deposit', [Cash::class, 'deposit'])->whereNumber('id');
+    Route::post('/cash-boxes/{id}/receive-drop', [Cash::class, 'receiveDrop'])->whereNumber('id');
+    Route::post('/cash-counts', [Cash::class, 'count']);
 });
 
 Route::middleware('perm:finance.approve')->group(function () {
     Route::post('/journal-entries/{id}/post', [Journal::class, 'post']);
     Route::post('/journal-entries/{id}/cancel', [Journal::class, 'cancel']);
+    Route::post('/cash-counts/{countId}/adjust', [Cash::class, 'adjust'])->whereNumber('countId');
 });
 
 Route::middleware('perm:finance.reports')->group(function () {

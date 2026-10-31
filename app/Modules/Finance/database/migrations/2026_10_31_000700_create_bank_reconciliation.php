@@ -36,7 +36,7 @@ return new class extends Migration
             $t->char('line_hash', 64);               // elak import berganda
             $t->string('import_batch', 26)->index();
             $t->string('status', 12)->default('unmatched'); // unmatched | matched | ignored
-            $t->string('matched_type', 20)->nullable();     // payment | payment_link
+            $t->string('matched_type', 20)->nullable();     // payment | payment_link | cash_deposit
             $t->unsignedBigInteger('matched_id')->nullable();
             $t->string('match_rule', 20)->nullable();       // reference | amount_date | manual
             $t->foreignId('matched_by')->nullable()->constrained('users')->nullOnDelete();
