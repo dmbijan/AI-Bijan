@@ -54,6 +54,7 @@ class AppController extends Controller
             'scm'             => 'scm',
             'assets'          => 'assets',
             'finance'         => 'finance',
+            'import'          => 'import',
             'payroll'         => 'payroll',
             'hrms'            => 'hrms',
             'projects'        => 'projects',

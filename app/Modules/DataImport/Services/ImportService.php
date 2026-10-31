@@ -181,10 +181,10 @@ class ImportService
             if (($d['name'] ?? '') === '') {
                 $err[] = 'Nama kosong';
             }
-            foreach (['sell_price', 'standard_cost', 'reorder_level'] as $m) {
+            foreach (['sell_price' => 'Harga jual', 'standard_cost' => 'Kos', 'reorder_level' => 'Paras pesanan semula'] as $m => $label) {
                 if (isset($d[$m]) && $d[$m] !== '') {
                     $n = $this->nombor($d[$m]);
-                    $n === null || $n < 0 ? $err[] = "{$m} bukan nombor sah" : $d[$m] = $n;
+                    $n === null || $n < 0 ? $err[] = "{$label} bukan nombor sah" : $d[$m] = $n;
                 } else {
                     unset($d[$m]);
                 }

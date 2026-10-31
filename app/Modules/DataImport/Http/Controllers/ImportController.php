@@ -43,9 +43,10 @@ class ImportController extends Controller
             'file' => 'required_without:csv|file|mimes:csv,txt|max:10240',
             'csv' => 'required_without:file|string|max:10000000',
             'mapping' => 'nullable|array',
+            'filename' => 'nullable|string|max:190',
         ]);
         $csv = $r->hasFile('file') ? (string) file_get_contents($r->file('file')->getRealPath()) : (string) $d['csv'];
-        $nama = $r->hasFile('file') ? $r->file('file')->getClientOriginalName() : null;
+        $nama = $r->hasFile('file') ? $r->file('file')->getClientOriginalName() : ($d['filename'] ?? null);
         try {
             $job = $this->svc->pratonton($type, $csv, $nama, $d['mapping'] ?? null, $r->user()->id);
         } catch (\RuntimeException $e) {

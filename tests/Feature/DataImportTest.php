@@ -52,7 +52,7 @@ class DataImportTest extends TestCase
         $this->assertEquals(1250, $ralat[2]['data']['sell_price']);
         $this->assertStringContainsString('SKU kosong', $ralat[4]['errors'][0]);
         $this->assertStringContainsString('baris 3', $ralat[5]['errors'][0]);
-        $this->assertStringContainsString('sell_price', $ralat[6]['errors'][0]);
+        $this->assertStringContainsString('Harga jual', $ralat[6]['errors'][0]);
 
         $this->dalamTenant($t);
         $this->assertSame(0, Item::count()); // pratonton tidak menyentuh data sebenar

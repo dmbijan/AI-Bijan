@@ -70,6 +70,7 @@
                         ['Logistik', '/app/logistics', '▷'],
                         ['SCM', '/app/scm', '⛓'],
                         ['Aset', '/app/assets', '▣'],
+                        ['Import Data', '/app/import', '⇪'],
                     ],
                     'Kewangan' => [
                         ['Kewangan', '/app/finance', '▦'],
