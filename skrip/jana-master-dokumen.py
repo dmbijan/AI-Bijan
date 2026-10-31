@@ -130,6 +130,9 @@ w('> Dokumen ini **menggabungkan** semua dokumen AI Bijan menjadi satu titik mas
   'lama; setiap bahagian menunjuk ke sumber yang betul, dan setiap sistem ditanda dengan **status sebenar dalam kod**, '
   'bukan dakwaan blueprint. Senarai penuh semua fail `.md` ada dalam [`INDEKS-DOKUMEN.md`](INDEKS-DOKUMEN.md).\n')
 
+w('**Kandungan:** 0 Sumber kebenaran · 1 Identiti · 2 Keputusan terbuka · 3 Registry 179 × status kod · 4 Modul luar registry · '
+  '5 Peta Blueprint · 6 Seni bina/OAM/Migrasi · 7 Roadmap MVP · 8 Kualiti · 9 Cara kemas kini · '
+  '**10 Audit Odoo 50 app** · **11 Pelaksanaan Agentic AI** · **12 Standard UI/UX**\n')
 w('## 0. Hierarki sumber kebenaran\n')
 w('Jika dua sumber bercanggah, ikut susunan ini:\n')
 w('| # | Sumber | Fail | Peranan |\n|---|---|---|---|')
@@ -150,12 +153,13 @@ w('- **Seni bina (Inventory §10):** Laravel modular monolith, API `/api/v1`, mu
 
 w('## 2. Percanggahan & keputusan terbuka (perlu owner)\n')
 w('| # | Isu | Sumber A | Sumber B | Cadangan |\n|---|---|---|---|---|')
-w('| 1 | **Harga langganan** | Blueprint BAB 2–3: Starter RM288 · Professional RM488 · Business RM888 · Business Pro RM1,288 · Enterprise RM1,888, token AI **termasuk** | Kod `Billing/config/billing.php` (27/10): Starter RM88 · Growth RM388 (bahagian platform RM288, reseller RM100) · Enterprise RM1,888, token AI **berbayar berasingan & wajib**. `Entitlement/config`: Growth RM288 · Enterprise RM1,888 | Owner tetapkan satu jadual harga; kemudian selaraskan Billing + Entitlement + blueprint. **Tiada harga diubah dalam dokumen ini.** |')
+w('| 1 | **Harga langganan** | Blueprint: 5 pakej RM288–RM1,888, token termasuk | Kod Billing/Entitlement: harga berbeza dalam config | **DIPUTUSKAN 31/10/2026:** semua harga & pakej diurus di **Super Admin → Pakej & Harga** (PR #2); sistem hanya semai pakej contoh. Harga dalam blueprint dan config = contoh sahaja. |')
 w('| 2 | Bilangan sistem | Inventory: 179 canonical + 210 slot legacy | Kod: 60 modul (`app/Modules`) | Lihat §3: berapa canonical yang ada dalam kod, dan §4: modul kod di luar registry. |')
 w('| 3 | Dakwaan ujian | Commit baseline v9.5: "963 ujian lulus, 0 gagal" | Disahkan 31/10: suite **tidak boleh jalan** di `main` (26 migrasi bayangan). Selepas PR #2: 1,365 ujian, 3 gagal (ext-intl sandbox) | Guna nombor PR #2; CI GitHub kini dikunci (bil) — perlu dibuka. |')
 w('| 4 | Nama fail blueprint | `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` berisi v9.3 | Alias kata v9.6 | Namakan semula kepada `AI-BIJAN-MASTER-BLUEPRINT.md` (PR berasingan) dan kemas kini nombor versi. |')
 w('| 5 | 210 nama legacy | Nama individu 1–210 tidak dapat dipulihkan (kecuali MES #117) | – | Owner bekalkan daftar asal untuk crosswalk (Inventory §14 #1). |')
-w('| 6 | Pemetaan §3 | Pemetaan canonical → modul dibuat oleh Dimas | – | Owner/Product Owner sahkan. |\n')
+w('| 6 | Alat ejen AI | – | 67 alat dalam `ToolExecutor` ialah stub yang pulangkan "berjaya" palsu (§11.2) | Wajib dibetulkan sebelum ejen dibuka kepada pelanggan. |')
+w('| 7 | Pemetaan §3 | Pemetaan canonical → modul dibuat oleh Dimas | – | Owner/Product Owner sahkan. |\n')
 
 w('## 3. Registry canonical × status kod sebenar\n')
 w(f'Sumber registry: Master Inventory v1.0 §4 (179 sistem). Status dikira daripada kod repo pada 31/10/2026 '
@@ -225,6 +229,12 @@ w('1. Sistem baharu → tambah dalam Master Inventory dengan ID canonical; janga
 w('2. Status → jana semula §3 dari kod (skrip penjana dalam PR ini), jangan taip tangan.')
 w('3. Keputusan owner → pindah dari §2 ke bahagian berkaitan dengan tarikh.')
 w('4. Dokumen lama → arkib; jangan sunting blueprint lama untuk keputusan baharu.\n')
+# Bahagian tulisan tangan (audit Odoo, Agentic AI, UI/UX) disimpan berasingan supaya tidak hilang bila dijana semula
+bah = os.path.join(REPO, 'docs/master')
+if os.path.isdir(bah):
+    for f in sorted(os.listdir(bah)):
+        if f.endswith('.md'):
+            o.append(open(os.path.join(bah, f), encoding='utf-8').read().rstrip() + '\n')
 open(os.path.join(REPO, 'docs/AI-BIJAN-MASTER.md'), 'w', encoding='utf-8').write('\n'.join(o) + '\n')
 
 # ---------- INDEKS ----------

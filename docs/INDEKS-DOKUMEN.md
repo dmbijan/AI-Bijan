@@ -2,7 +2,7 @@
 
 Dijana 31/10/2026 daripada repo + folder pejabat. Titik masuk: [`AI-BIJAN-MASTER.md`](AI-BIJAN-MASTER.md).
 
-**Ringkasan:** 169 fail `.md` dalam repo · 24 kumpulan pendua tepat (kandungan sama 100%) · ≈4.4 MB bazir.
+**Ringkasan:** 170 fail `.md` dalam repo · 24 kumpulan pendua tepat (kandungan sama 100%) · ≈4.4 MB bazir.
 
 ## 1. Dokumen induk (guna ini)
 
@@ -11,7 +11,7 @@ Dijana 31/10/2026 daripada repo + folder pejabat. Titik masuk: [`AI-BIJAN-MASTER
 | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` | 9.3 | 653 KB | INDUK — Blueprint v9.x (kandungan penuh) |
 | `docs/AI-BIJAN-MASTER-BLUEPRINT.md` |  | 1 KB | INDUK — alias blueprint |
 | `docs/AI-BIJAN-MASTER-INVENTORY-v1.0.md` | 1.0 | 58 KB | INDUK — Registry 179 sistem |
-| `docs/AI-BIJAN-MASTER.md` | 1.0 | 30 KB | INDUK — Master rasmi |
+| `docs/AI-BIJAN-MASTER.md` | 1.0 | 52 KB | INDUK — Master rasmi |
 
 ## 2. Pendua tepat (cadangan: simpan satu salinan dalam `docs/archive/`)
 
@@ -88,13 +88,14 @@ Tiada fail dipadam dalam PR ini — pemadaman perlu kelulusan owner.
 | `docs/KAJIAN-FINDS-PROSPECT-BLAST-CLOSE.md` |  | 15 KB |  |
 | `docs/PETA-PESAING-34-MODUL.md` |  | 28 KB |  |
 
-### Rujukan (32)
+### Rujukan (33)
 
 | Fail | Versi | Saiz | Pendua? |
 |---|---|---:|---|
 | `docs/BACA-SAYA.md` |  | 5 KB |  |
 | `docs/BUSINESS-GROWTH-ENGINE.md` |  | 12 KB |  |
 | `docs/CADANGAN-IMPAK-TINGGI.md` |  | 15 KB |  |
+| `docs/INDEKS-DOKUMEN.md` |  | 23 KB |  |
 | `docs/KATALOG-MODUL-AI-BIJAN.md` |  | 21 KB |  |
 | `docs/MODEL-HASIL-TOKEN.md` |  | 7 KB |  |
 | `docs/MODUL-AI-INTEGRASI.md` |  | 10 KB |  |
@@ -258,6 +259,8 @@ Folder kerja pejabat Bijan Digital Marketing (`/home/kantor/kantor`). Rujukan sa
 | `hasil/2026-10-29-audit-jujur-ai-bijan.md` |  | 6 KB |  |
 | `hasil/2026-10-29-banding-dua-build-ai-bijan.md` |  | 3 KB |  |
 | `hasil/2026-10-29-fix-tenantcontext-ai-bijan.md` |  | 3 KB |  |
+| `hasil/2026-10-31-AI-BIJAN-MASTER.md` | 1.0 | 30 KB |  |
+| `hasil/2026-10-31-INDEKS-DOKUMEN-aibijan.md` |  | 22 KB |  |
 | `hasil/2026-10-31-cadangan-mvp-aibijan.md` |  | 4 KB |  |
 | `hasil/AI_BIJAN_Master_Inventory_v1.0.md` | 1.0 | 58 KB | ya (sama tepat) |
 | `hasil/2026-10-14-pelan-ai-bijan/PELAN-TEKNIKAL.md` |  | 11 KB |  |
