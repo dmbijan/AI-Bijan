@@ -1560,4 +1560,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('support-access/{grant}', [PlatformController::class, 'revokeSupport'])->whereNumber('grant');
             Route::get('plans', [PlatformController::class, 'plans']);
             Route::post('plans', [PlatformController::class, 'savePlan']);
-            Route::put('plans/{id}', [PlatformController::class, 'savePlan'])->whereNumber('id');        });    });});
+            Route::put('plans/{id}', [PlatformController::class, 'savePlan'])->whereNumber('id');
+            Route::get('token-packages', [PlatformController::class, 'tokenPackages']);
+            Route::post('token-packages', [PlatformController::class, 'saveTokenPackage']);
+            Route::put('token-packages/{id}', [PlatformController::class, 'saveTokenPackage'])->whereNumber('id');        });    });});

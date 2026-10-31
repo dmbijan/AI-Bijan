@@ -33,6 +33,7 @@ class AppController extends Controller
             'pejabat'         => 'pejabat',
             'pos'             => 'pos',
             'pos-meja'        => 'pos-meja',
+            'admin-pakej'     => 'admin-pakej',
             'crm'             => 'crm',
             'invoicing'       => 'invoicing',
             'marketplace'     => 'marketplace',

@@ -99,6 +99,14 @@
                     @endforeach
                 </div>
             @endforeach
+                {{-- Super Admin platform sahaja; dipaparkan oleh app.js selepas sesi dimuat --}}
+                <div class="nav-group" id="navSuperAdmin" hidden>
+                    <div class="nav-group-title">Super Admin</div>
+                    <a href="/app/admin-pakej" class="nav-item" aria-label="Pakej &amp; Harga" title="Pakej &amp; Harga" @if (request()->is('app/admin-pakej')) aria-current="page" @endif>
+                        <span class="nav-icon" aria-hidden="true">₪</span>
+                        <span class="nav-label">Pakej &amp; Harga</span>
+                    </a>
+                </div>
             </div>
             <p class="nav-search-empty" id="moduleSearchEmpty" hidden>Tiada modul sepadan.</p>
         </nav>

@@ -59,7 +59,12 @@ class EntitlementService
     }
 
     /**
-     * Jana plan lalai (idempoten) — guna jadual `plans` sedia ada.
+     * Jana plan CONTOH jika belum wujud (idempoten).
+     *
+     * ⚠️ Keputusan owner 31/10/2026: harga & kandungan pakej diurus oleh Super Admin.
+     * Fungsi ini TIDAK menulis ganti plan/had yang sudah ada — dulu ia dipanggil setiap kali
+     * syarikat baharu didaftar dan menetapkan semula harga yang diubah admin.
+     * Harga contoh diambil daripada `billing.plans` (harga yang dicaj) jika ada.
      */
     public function janaPlanLalai(): int
     {
@@ -68,26 +73,28 @@ class EntitlementService
         foreach ((array) config('entitlement.default_plans', []) as $data) {
             $plan = Plan::query()->where('code', $data['code'])->first();
 
-            $atribut = [
-                'name' => $data['name'],
-                'max_users' => $data['max_users'] ?? null,
-                'max_locations' => $data['max_locations'] ?? null,
-                'storage_mb' => $data['storage_mb'] ?? null,
-                'ai_credits_monthly' => $data['ai_credits_monthly'] ?? 0,
-                'modules' => $data['modules'] ?? [],
-                'price_monthly' => $data['price_monthly'] ?? 0,
-                'is_active' => true,
-            ];
-
-            if ($plan) {
-                $plan->update($atribut);
-            } else {
-                $plan = Plan::create(array_merge($atribut, ['code' => $data['code']]));
+            if (! $plan) {
+                $harga = (float) (config("billing.plans.{$data['code']}.price") ?? ($data['price_monthly'] ?? 0));
+                $plan = Plan::create([
+                    'code' => $data['code'],
+                    'name' => $data['name'],
+                    'description' => 'Pakej contoh — ubah harga & kandungan di Super Admin.',
+                    'max_users' => $data['max_users'] ?? null,
+                    'max_locations' => $data['max_locations'] ?? null,
+                    'storage_mb' => $data['storage_mb'] ?? null,
+                    'ai_credits_monthly' => $data['ai_credits_monthly'] ?? 0,
+                    'modules' => $data['modules'] ?? [],
+                    'price_monthly' => $harga,
+                    'price_yearly' => $harga * 10, // tahunan = 2 bulan percuma
+                    'currency' => 'MYR',
+                    'is_public' => true,
+                    'is_active' => true,
+                ]);
                 $dicipta++;
             }
 
             foreach ((array) ($data['limits'] ?? []) as $limit) {
-                PlanLimit::query()->updateOrCreate(
+                PlanLimit::query()->firstOrCreate(
                     ['plan_id' => $plan->id, 'limit_key' => $limit['limit_key']],
                     [
                         'name' => $limit['name'],
@@ -99,7 +106,31 @@ class EntitlementService
             }
         }
 
+        $this->janaPakejTokenContoh();
+
         return $dicipta;
+    }
+
+    /** Pakej token AI contoh (dari config) jika jadual masih kosong. Selepas itu diurus oleh Super Admin. */
+    public function janaPakejTokenContoh(): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('token_packages') || \App\Models\TokenPackage::query()->exists()) {
+            return;
+        }
+        $urutan = 0;
+        foreach ((array) config('billing.token_packages', []) as $kod => $p) {
+            \App\Models\TokenPackage::create([
+                'code' => $kod,
+                'name' => $p['name'],
+                'tokens' => (int) $p['tokens'],
+                'usage_limit' => isset($p['harga_beli_tokens']) ? (int) $p['harga_beli_tokens'] : null,
+                'price' => (float) $p['price'],
+                'supplier_cost' => isset($p['kos_pembekal']) ? (float) $p['kos_pembekal'] : null,
+                'validity_days' => (int) ($p['validity_days'] ?? 30),
+                'is_active' => true,
+                'sort_order' => $urutan++,
+            ]);
+        }
     }
 
     /**

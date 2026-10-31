@@ -40,17 +40,51 @@ class PlatformController extends Controller
 
     public function plans()
     {
-        return response()->json(Plan::orderBy('price_monthly')->get());
+        return response()->json(Plan::with('limits')->orderBy('sort_order')->orderBy('price_monthly')->get());
     }
 
     public function savePlan(Request $r, ?int $id = null)
     {
-        $d = $r->validate(['code' => 'required|string|max:40|regex:/^[a-z0-9_-]+$/', 'name' => 'required|string|max:80', 'max_users' => 'nullable|integer|min:1', 'max_locations' => 'nullable|integer|min:1',
-            'storage_mb' => 'nullable|integer|min:1', 'ai_credits_monthly' => 'nullable|integer|min:0', 'modules' => 'nullable|array', 'price_monthly' => 'required|numeric|min:0', 'is_active' => 'boolean']);
+        $d = $r->validate(['code' => ['required', 'string', 'max:40', 'regex:/^[a-z0-9_-]+$/', \Illuminate\Validation\Rule::unique('plans', 'code')->ignore($id)],
+            'name' => 'required|string|max:80', 'description' => 'nullable|string|max:1000', 'max_users' => 'nullable|integer|min:1', 'max_locations' => 'nullable|integer|min:1',
+            'storage_mb' => 'nullable|integer|min:1', 'ai_credits_monthly' => 'nullable|integer|min:0', 'modules' => 'nullable|array', 'modules.*' => 'string|max:40',
+            'price_monthly' => 'required|numeric|min:0', 'price_yearly' => 'nullable|numeric|min:0', 'currency' => 'nullable|string|size:3', 'trial_days' => 'nullable|integer|min:0|max:365',
+            'features' => 'nullable|array', 'features.*' => 'string|max:200', 'sort_order' => 'nullable|integer|min:0', 'is_public' => 'boolean', 'is_active' => 'boolean', 'token_required' => 'boolean',
+            'limits' => 'nullable|array', 'limits.*.limit_key' => 'required_with:limits|string|max:40', 'limits.*.name' => 'required_with:limits|string|max:80',
+            'limits.*.limit_value' => 'nullable|integer|min:0', 'limits.*.unit' => 'nullable|string|max:20', 'limits.*.period' => 'nullable|in:total,monthly,daily']);
+        $had = $d['limits'] ?? null;
+        unset($d['limits']);
         $p = $id ? Plan::findOrFail($id) : new Plan;
         $before = $p->exists ? $p->toArray() : null;
         $p->fill($d)->save();
+        if ($had !== null) {
+            foreach ($had as $l) {
+                \App\Modules\Entitlement\Models\PlanLimit::updateOrCreate(['plan_id' => $p->id, 'limit_key' => $l['limit_key']],
+                    ['name' => $l['name'], 'limit_value' => $l['limit_value'] ?? null, 'unit' => $l['unit'] ?? null, 'period' => $l['period'] ?? 'monthly']);
+            }
+        }
         $this->audit()->log($id ? 'platform.plan_updated' : 'platform.plan_created', $p, $before, $p->toArray(), null);
+
+        return response()->json($p->load('limits'), $id ? 200 : 201);
+    }
+
+    /** Pakej token AI — senarai penuh termasuk kos pembekal & margin (Super Admin sahaja). */
+    public function tokenPackages()
+    {
+        return response()->json(\App\Models\TokenPackage::orderBy('sort_order')->orderBy('price')->get()->map(fn ($p) => $p->toArray() + [
+            'margin_pct' => (float) $p->price > 0 && $p->supplier_cost !== null ? round(((float) $p->price - (float) $p->supplier_cost) / (float) $p->price * 100, 1) : null,
+        ]));
+    }
+
+    public function saveTokenPackage(Request $r, ?int $id = null)
+    {
+        $d = $r->validate(['code' => ['required', 'string', 'max:40', 'regex:/^[a-z0-9_-]+$/', \Illuminate\Validation\Rule::unique('token_packages', 'code')->ignore($id)],
+            'name' => 'required|string|max:80', 'tokens' => 'required|integer|min:1', 'usage_limit' => 'nullable|integer|min:1', 'price' => 'required|numeric|min:0',
+            'supplier_cost' => 'nullable|numeric|min:0', 'validity_days' => 'nullable|integer|min:1|max:3650', 'sort_order' => 'nullable|integer|min:0', 'is_active' => 'boolean']);
+        $p = $id ? \App\Models\TokenPackage::findOrFail($id) : new \App\Models\TokenPackage;
+        $before = $p->exists ? $p->toArray() : null;
+        $p->fill($d)->save();
+        $this->audit()->log($id ? 'platform.token_package_updated' : 'platform.token_package_created', $p, $before, $p->toArray(), null);
 
         return response()->json($p, $id ? 200 : 201);
     }
