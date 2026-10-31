@@ -492,4 +492,12 @@ class AIAgentController extends Controller
 
         return response()->json($r, $kod);
     }
+
+    /** "Tanya AI Bijan": soalan BM → alat sebenar → jawapan ringkas. */
+    public function tanya(Request $request): JsonResponse
+    {
+        $d = $request->validate(['soalan' => 'required|string|min:2|max:300']);
+
+        return response()->json(app(\App\Modules\AIAgents\Tools\TanyaAiBijan::class)->jawab($d['soalan'], $request->user()->id));
+    }
 }
