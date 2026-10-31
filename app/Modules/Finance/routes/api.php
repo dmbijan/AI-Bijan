@@ -5,6 +5,7 @@ use App\Modules\Finance\Http\Controllers\CashManagementController as Cash;
 use App\Modules\Finance\Http\Controllers\ChartOfAccountsController as Coa;
 use App\Modules\Finance\Http\Controllers\FinancialReportController as Report;
 use App\Modules\Finance\Http\Controllers\JournalController as Journal;
+use App\Modules\Finance\Http\Controllers\TaxController as Tax;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -37,6 +38,12 @@ Route::middleware('perm:finance.view')->group(function () {
     Route::get('/cash-boxes', [Cash::class, 'boxes']);
     Route::get('/cash-boxes/{id}/report', [Cash::class, 'report'])->whereNumber('id');
     Route::get('/cash-denominations', [Cash::class, 'denominations']);
+
+    // FIN-010 Cukai SST
+    Route::get('/tax-codes', [Tax::class, 'codes']);
+    Route::get('/tax-settings', [Tax::class, 'settings']);
+    Route::post('/tax/calculate', [Tax::class, 'calculate']);
+    Route::get('/tax/period', [Tax::class, 'period']);
 });
 
 Route::middleware('perm:finance.manage')->group(function () {
@@ -57,6 +64,10 @@ Route::middleware('perm:finance.manage')->group(function () {
     Route::post('/cash-boxes/{id}/deposit', [Cash::class, 'deposit'])->whereNumber('id');
     Route::post('/cash-boxes/{id}/receive-drop', [Cash::class, 'receiveDrop'])->whereNumber('id');
     Route::post('/cash-counts', [Cash::class, 'count']);
+
+    Route::post('/tax-codes', [Tax::class, 'storeCode']);
+    Route::put('/tax-codes/{id}', [Tax::class, 'updateCode'])->whereNumber('id');
+    Route::put('/tax-settings', [Tax::class, 'updateSettings']);
 });
 
 Route::middleware('perm:finance.approve')->group(function () {
@@ -70,4 +81,5 @@ Route::middleware('perm:finance.reports')->group(function () {
     Route::get('/reports/balance-sheet', [Report::class, 'balanceSheet']);
     Route::get('/reports/trial-balance', [Report::class, 'trialBalance']);
     Route::get('/reports/general-ledger/{accountId}', [Report::class, 'generalLedger']);
+    Route::get('/reports/sst-02', [Tax::class, 'sst02']);
 });

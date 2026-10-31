@@ -106,11 +106,22 @@ class SaleService
             $discountPct = $data['discount_percentage'] ?? 0;
             $discountAmt = $data['discount_amount'] ?? 0;
             $taxRate = $data['tax_rate'] ?? 0;
+            $taxCode = null;
+            // FIN-010: kod SST menentukan kadar ikut tarikh jualan (mengatasi tax_rate).
+            if (! empty($data['tax_code'])) {
+                try {
+                    $kod = app(\App\Modules\Finance\Services\TaxService::class)->kod($data['tax_code'], optional($sale->sale_date)->toDateString());
+                } catch (\RuntimeException $e) {
+                    throw ValidationException::withMessages(['tax_code' => [$e->getMessage()]]);
+                }
+                $taxRate = (float) $kod->rate;
+                $taxCode = $kod->code;
+            }
 
             $lineSubtotal = $unitPrice * $quantity;
             $lineDiscount = max($discountAmt, $lineSubtotal * ($discountPct / 100));
             $lineTaxable = $lineSubtotal - $lineDiscount;
-            $lineTax = $lineTaxable * ($taxRate / 100);
+            $lineTax = round($lineTaxable * ($taxRate / 100), 2);
             $lineTotal = $lineTaxable + $lineTax;
 
             $item = POSSaleItem::create([
@@ -123,6 +134,7 @@ class SaleService
                 'discount_percentage' => $discountPct,
                 'discount_amount' => $lineDiscount,
                 'tax_amount' => $lineTax,
+                'tax_code' => $taxCode,
                 'line_total' => $lineTotal,
             ]);
 

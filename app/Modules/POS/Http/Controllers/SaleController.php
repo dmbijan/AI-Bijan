@@ -112,6 +112,7 @@ class SaleController extends Controller
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
             'discount_amount' => 'nullable|numeric|min:0',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
+            'tax_code' => 'nullable|string|max:10',
         ]);
 
         try {
