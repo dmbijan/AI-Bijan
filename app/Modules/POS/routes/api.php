@@ -36,6 +36,7 @@ Route::middleware('perm:pos.view')->group(function () {
 
     Route::get('/sales', [SaleController::class, 'index']);
     Route::get('/sales/summary', [SaleController::class, 'summary']);
+    Route::get('/stock-exceptions', [SaleController::class, 'stockExceptions']);
     Route::get('/sales/{id}', [SaleController::class, 'show'])->whereNumber('id');
 
     // T-77 Modifier
@@ -85,6 +86,7 @@ Route::middleware('perm:pos.manage')->group(function () {
 
     // T-79 Multi-tender checkout
     Route::post('/sales/checkout', [SaleController::class, 'checkout']);
+    Route::post('/stock-exceptions/{itemId}/resolve', [SaleController::class, 'resolveStockException'])->whereNumber('itemId');
     Route::post('/sales/{saleId}/pay', [SaleController::class, 'pay'])->whereNumber('saleId');
 
     // T-77 Modifier

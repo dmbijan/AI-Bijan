@@ -243,6 +243,16 @@
             </div>
         </div>
     </div>
+    <div class="card mb-4">
+        <div class="card-header">
+            <div><h2 class="card-title">Semakan Stok</h2><p class="card-subtitle">Jualan yang stoknya tak dapat dipotong. Jualan tetap sah; betulkan stok di Inventori, kemudian tanda disemak.</p></div>
+            <button class="btn btn-sm" onclick="loadStockExceptions()">Muat Semula</button>
+        </div>
+        <div class="table-wrap"><table class="table">
+            <thead><tr><th>No. Jualan</th><th>Barang</th><th class="table-num">Kuantiti</th><th>Sebab</th><th></th></tr></thead>
+            <tbody id="stockExTable"><tr><td colspan="5"><div class="empty"><div class="empty-text">Memuat…</div></div></td></tr></tbody>
+        </table></div>
+    </div>
     <div class="grid grid-3" id="regGrid">
         <div class="skeleton" style="height:120px"></div>
     </div>
@@ -382,6 +392,11 @@
                 <label class="label" for="editRegLocation">Lokasi</label>
                 <input class="input" id="editRegLocation">
             </div>
+            <div class="field">
+                <label class="label" for="editRegWarehouse">Gudang stok</label>
+                <select class="select" id="editRegWarehouse"></select>
+                <p class="text-xs text-muted" style="margin-top:4px">Jualan kaunter ini potong stok dari gudang ini. Kosong = gudang aktif pertama.</p>
+            </div>
             <div id="regError" class="alert alert-danger" hidden></div>
         </div>
         <div class="dialog-footer">
@@ -467,7 +482,7 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
         const name = tab.dataset.tab;
         if (name === 'sales') loadSales();
         if (name === 'shifts') { loadShiftSummary(); loadShifts(); }
-        if (name === 'registers') renderRegisters();
+        if (name === 'registers') { renderRegisters(); loadStockExceptions(); }
         if (name === 'kitchen') loadKitchen();
         if (name === 'discounts') loadDiscounts();
     });
@@ -1106,6 +1121,12 @@ function openRegDialog(id) {
     App.$('#editRegLocation').value = g.location ?? '';
     App.$('#regError').hidden = true;
     App.$('#regDialog').hidden = false;
+    App.$('#editRegWarehouse').innerHTML = '<option value="">(Gudang aktif pertama)</option>';
+    App.api.get('/api/v1/inventory/warehouses').then(r => {
+        App.$('#editRegWarehouse').innerHTML = '<option value="">(Gudang aktif pertama)</option>' +
+            rows(r).map(w => `<option value="${w.id}">${App.escapeHtml(w.name)} (${App.escapeHtml(w.code ?? '')})</option>`).join('');
+        App.$('#editRegWarehouse').value = g.warehouse_id ? String(g.warehouse_id) : '';
+    }).catch(() => {});
 }
 function closeRegDialog() { App.$('#regDialog').hidden = true; }
 
@@ -1115,11 +1136,35 @@ async function saveRegister() {
     if (!name) { const el = App.$('#regError'); el.textContent = 'Nama diperlukan.'; el.hidden = false; return; }
     await App.withLoading(App.$('#regSaveBtn'), async () => {
         try {
-            await App.api.put(`/api/v1/pos/registers/${id}`, { name, location: App.$('#editRegLocation').value.trim() || null });
+            await App.api.put(`/api/v1/pos/registers/${id}`, {
+                name, location: App.$('#editRegLocation').value.trim() || null,
+                warehouse_id: Number(App.$('#editRegWarehouse').value) || null,
+            });
             App.toast('Kaunter dikemas kini', 'success');
             closeRegDialog(); loadRegisters();
         } catch (e) { const el = App.$('#regError'); el.textContent = e.message; el.hidden = false; }
     });
+}
+
+// ---------- Semakan stok ----------
+const SEBAB_STOK = { insufficient: 'Stok tak cukup', no_warehouse: 'Tiada gudang' };
+async function loadStockExceptions() {
+    try {
+        const r = await App.api.get('/api/v1/pos/stock-exceptions');
+        const list = rows(r);
+        App.$('#stockExTable').innerHTML = list.length ? list.map(x => `
+            <tr>
+                <td class="mono text-xs">${App.escapeHtml(x.sale_no ?? '—')}</td>
+                <td>${App.escapeHtml(x.product_name)}</td>
+                <td class="table-num">${Number(x.quantity)}</td>
+                <td class="text-xs"><span class="badge badge-warning">${SEBAB_STOK[x.stock_status] ?? x.stock_status}</span> ${App.escapeHtml(x.stock_note ?? '')}</td>
+                <td><button class="btn btn-sm" onclick="resolveStockException(${x.id})">Tanda disemak</button></td>
+            </tr>`).join('') : '<tr><td colspan="5"><div class="empty"><div class="empty-text">Tiada isu stok. Semua jualan dah potong stok.</div></div></td></tr>';
+    } catch (e) { App.$('#stockExTable').innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-text">${App.escapeHtml(e.message)}</div></div></td></tr>`; }
+}
+async function resolveStockException(id) {
+    try { await App.api.post(`/api/v1/pos/stock-exceptions/${id}/resolve`); loadStockExceptions(); }
+    catch (e) { App.toast(e.message, 'error'); }
 }
 
 // ---------- Paparan Dapur (KDS) ----------

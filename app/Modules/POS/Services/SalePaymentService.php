@@ -25,6 +25,7 @@ class SalePaymentService
         private ServiceChargeService $serviceCharge,
         private DiscountApprovalService $discount,
         private KitchenService $kitchen,
+        private SaleStockService $stok,
     ) {
     }
 
@@ -128,6 +129,9 @@ class SalePaymentService
             if ($status === 'paid') {
                 $this->kitchen->enqueue($sale);
             }
+
+            // POS → IMS: potong stok (stok tak cukup ditanda untuk semakan, jualan tak disekat)
+            $this->stok->potongStok($sale);
 
             return $sale->fresh(['tenders', 'items']);
         });

@@ -186,7 +186,7 @@ class SaleController extends Controller
             'notes' => 'nullable|string|max:1000',
             'sold_at' => 'nullable|date|before_or_equal:now|after:-30 days',
             'items' => 'required|array|min:1|max:200',
-            'items.*.product_id' => 'nullable|integer|exists:items,id',
+            'items.*.product_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('items', 'id')->where('tenant_id', $this->tenantId())],
             'items.*.product_name' => 'required|string|max:255',
             'items.*.product_sku' => 'nullable|string|max:255',
             'items.*.quantity' => 'required|numeric|min:0.001',
@@ -227,6 +227,35 @@ class SaleController extends Controller
         }
 
         return response()->json(['message' => 'Jualan selesai.', 'data' => $sale->fresh(['items', 'tenders'])], 201);
+    }
+
+    /** Senarai semakan stok: baris jualan yang stoknya tak dapat dipotong (stok tak cukup / tiada gudang). */
+    public function stockExceptions()
+    {
+        $rows = \App\Modules\POS\Models\POSSaleItem::query()
+            ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
+            ->where('pos_sales.tenant_id', $this->tenantId())
+            ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
+            ->orderByDesc('pos_sale_items.id')->limit(200)
+            ->get(['pos_sale_items.id', 'pos_sale_items.product_id', 'pos_sale_items.product_name', 'pos_sale_items.quantity',
+                'pos_sale_items.stock_status', 'pos_sale_items.stock_note', 'pos_sales.sale_no', 'pos_sales.completed_at']);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /** Tanda baris semakan stok sebagai sudah disemak (stok dibetulkan secara manual di Inventori). */
+    public function resolveStockException(int $itemId)
+    {
+        $item = \App\Modules\POS\Models\POSSaleItem::query()
+            ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
+            ->where('pos_sales.tenant_id', $this->tenantId())
+            ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
+            ->where('pos_sale_items.id', $itemId)
+            ->select('pos_sale_items.*')->first();
+        abort_unless($item, 404);
+        $item->forceFill(['stock_status' => 'reviewed'])->save();
+
+        return response()->json(['message' => 'Ditanda sudah disemak.']);
     }
 
     public function pay(Request $request, int $saleId)

@@ -239,12 +239,8 @@ class SaleService
 
             $sale->save();
 
-            // Deduct inventory if products linked
-            foreach ($sale->items as $item) {
-                if ($item->product_id) {
-                    $this->deductInventory($item->product_id, $item->quantity);
-                }
-            }
+            // POS → IMS: potong stok (stok tak cukup ditanda untuk semakan, jualan tak disekat)
+            app(SaleStockService::class)->potongStok($sale);
 
             // Fire event
             event('pos.sale.completed', [$sale]);
@@ -323,12 +319,6 @@ class SaleService
     /**
      * Deduct inventory for a product.
      */
-    protected function deductInventory(int $productId, int $quantity): void
-    {
-        // Integration with Inventory module
-        // This would call InventoryService to reduce stock
-    }
-
     /**
      * Get POS summary statistics.
      */
