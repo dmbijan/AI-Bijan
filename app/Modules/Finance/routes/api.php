@@ -6,6 +6,7 @@ use App\Modules\Finance\Http\Controllers\ChartOfAccountsController as Coa;
 use App\Modules\Finance\Http\Controllers\FinancialReportController as Report;
 use App\Modules\Finance\Http\Controllers\JournalController as Journal;
 use App\Modules\Finance\Http\Controllers\TaxController as Tax;
+use App\Modules\Finance\Http\Controllers\TreasuryController as Treasury;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -82,4 +83,8 @@ Route::middleware('perm:finance.reports')->group(function () {
     Route::get('/reports/trial-balance', [Report::class, 'trialBalance']);
     Route::get('/reports/general-ledger/{accountId}', [Report::class, 'generalLedger']);
     Route::get('/reports/sst-02', [Tax::class, 'sst02']);
+
+    // FIN-006 Treasury
+    Route::get('/treasury/position', [Treasury::class, 'position']);
+    Route::get('/treasury/forecast', [Treasury::class, 'forecast']);
 });
