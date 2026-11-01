@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 // OAM skop data untuk jualan & kewangan: dokumen ditanda dengan unit pencipta (cawangan/jabatan).
 return new class extends Migration
 {
-    private const TABLES = ['invoices', 'quotations', 'sales_orders', 'customers', 'leads', 'opportunities', 'journal_entries'];
+    private const TABLES = ['invoices', 'quotations', 'sales_orders', 'customers', 'leads', 'opportunities', 'journal_entries', 'purchase_orders'];
 
     public function up(): void
     {

@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PurchaseOrder extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units';
+
     use BelongsToTenant;
 
     use HasFactory;
@@ -18,6 +24,7 @@ class PurchaseOrder extends Model
     protected $table = 'purchase_orders';
 
     protected $fillable = [
+        'org_unit_id',
         'tenant_id',
         'po_number',
         'supplier_id',

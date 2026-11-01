@@ -86,7 +86,7 @@ Route::middleware('perm:finance.approve')->group(function () {
 });
 
 Route::middleware('perm:finance.reports')->group(function () {
-    Route::get('/reports/profit-loss', [Report::class, 'profitLoss'])->middleware('company.scope');
+    Route::get('/reports/profit-loss', [Report::class, 'profitLoss']);
     Route::get('/reports/balance-sheet', [Report::class, 'balanceSheet'])->middleware('company.scope');
     Route::get('/reports/trial-balance', [Report::class, 'trialBalance'])->middleware('company.scope');
     Route::get('/reports/general-ledger/{accountId}', [Report::class, 'generalLedger'])->middleware('company.scope');

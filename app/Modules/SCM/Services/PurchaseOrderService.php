@@ -34,6 +34,7 @@ class PurchaseOrderService
                 'internal_notes' => $data['internal_notes'] ?? null,
                 'terms_conditions' => $data['terms_conditions'] ?? null,
                 'requested_by' => $data['requested_by'] ?? auth()->id(),
+                'org_unit_id' => $data['org_unit_id'] ?? null,
             ]);
             
             // Create line items
@@ -201,6 +202,7 @@ class PurchaseOrderService
             // Barang masuk stok terus (dokumen terimaan dipos) supaya kos & baki tepat; kos pendaratan boleh ditambah kemudian.
             $movement = null;
             if ($stockLines) {
+                app(\App\Support\Tenancy\DataScope::class)->authorize('warehouses', $warehouseId, 'Gudang ini di luar skop cawangan anda.');
                 $mv = app(\App\Modules\Inventory\MovementService::class);
                 $movement = $mv->post($mv->create(['type' => 'receipt', 'to_warehouse_id' => $warehouseId, 'reference' => $po->po_number,
                     'reason' => 'Terimaan '.$grn->grn_number, 'lines' => $stockLines]));

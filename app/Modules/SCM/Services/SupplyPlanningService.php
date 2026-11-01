@@ -34,7 +34,10 @@ class SupplyPlanningService
     {
         $today = ($today ?? now())->copy()->startOfDay();
         $from = $today->copy()->subDays(self::HISTORY_DAYS);
+        // Ahli berskop cawangan: ramalan & cadangan ikut gudang cawangannya sahaja.
+        $wh = app(\App\Support\Tenancy\DataScope::class)->warehouses();
         $rows = StockLedgerEntry::where('source_type', 'sale')->where('qty', '<', 0)
+            ->when($wh !== null, fn ($q) => $q->whereIn('warehouse_id', $wh ?: [0]))
             ->where('posted_at', '>=', $from)->where('posted_at', '<', $today)
             ->when($itemIds, fn ($q) => $q->whereIn('item_id', $itemIds))
             ->selectRaw('item_id, DATE(posted_at) d, SUM(-qty) q')->groupBy('item_id', DB::raw('DATE(posted_at)'))->get()->groupBy('item_id');
@@ -95,9 +98,12 @@ class SupplyPlanningService
     {
         $items = Item::where('is_stock', true)->where('is_active', true)->get();
         $fc = $this->forecast(30, $today);
-        $onHand = StockBalance::selectRaw('item_id, SUM(qty - reserved) q')->groupBy('item_id')->pluck('q', 'item_id');
+        $ds = app(\App\Support\Tenancy\DataScope::class);
+        $wh = $ds->warehouses();
+        $onHand = StockBalance::selectRaw('item_id, SUM(qty - reserved) q')->when($wh !== null, fn ($q) => $q->whereIn('warehouse_id', $wh ?: [0]))->groupBy('item_id')->pluck('q', 'item_id');
         $onOrder = DB::table('purchase_order_lines')->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_lines.purchase_order_id')
-            ->where('purchase_orders.tenant_id', app(TenantContext::class)->id())->whereIn('purchase_orders.status', self::OPEN_PO)->whereNotNull('purchase_order_lines.item_id')
+            ->where('purchase_orders.tenant_id', app(TenantContext::class)->id())->whereIn('purchase_orders.status', self::OPEN_PO)
+            ->when($ds->restricted(), fn ($q) => $q->whereIn('purchase_orders.org_unit_id', $ds->units() ?: [0]))->whereNotNull('purchase_order_lines.item_id')
             ->selectRaw('purchase_order_lines.item_id, SUM(purchase_order_lines.quantity_ordered - purchase_order_lines.quantity_received) q')
             ->groupBy('purchase_order_lines.item_id')->pluck('q', 'item_id');
         $lastCost = StockLedgerEntry::where('qty', '>', 0)->where('unit_cost', '>', 0)->orderByDesc('id')->get(['item_id', 'unit_cost'])->unique('item_id')->pluck('unit_cost', 'item_id');

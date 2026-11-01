@@ -171,4 +171,38 @@ class DataScopeTest extends TestCase
         $this->sebagai($this->mgr, $this->t)->getJson('/api/v1/finance/reports/balance-sheet')->assertForbidden();
         $this->sebagai($this->u, $this->t)->getJson('/api/v1/finance/reports/balance-sheet?as_of_date='.now()->toDateString())->assertSuccessful();
     }
+
+    #[Test]
+    public function untung_rugi_per_cawangan_dan_pesanan_belian_ikut_cawangan(): void
+    {
+        $acc = fn ($code, $type, $sub) => ($r = $this->postJson('/api/v1/finance/chart-of-accounts', ['code' => $code, 'name' => $code, 'type' => $type, 'subtype' => $sub, 'allow_posting' => true])->assertSuccessful())->json('data.id') ?? $r->json('id');
+        $cash = $acc('1010', 'asset', 'cash');
+        $rev = $acc('4010', 'revenue', 'operating_revenue');
+        $jurnal = function ($unit, $amt) use ($cash, $rev) {
+            $id = $this->postJson('/api/v1/finance/journal-entries', ['entry_date' => now()->toDateString(), 'description' => 'Jualan', 'org_unit_id' => $unit,
+                'lines' => [['account_id' => $cash, 'debit' => $amt, 'credit' => 0], ['account_id' => $rev, 'debit' => 0, 'credit' => $amt]]])->assertSuccessful()->json('data.id') ?? null;
+            return $id;
+        };
+        $http = $this->sebagai($this->u, $this->t);
+        foreach ([[$this->uA, 100], [$this->uB, 250], [null, 40]] as [$u, $a]) {
+            $id = $jurnal($u, $a);
+            $this->dalamTenant($this->t);
+            $id ??= \App\Modules\Finance\Models\JournalEntry::withoutGlobalScopes()->latest('id')->value('id');
+            $this->sebagai($this->u, $this->t)->postJson("/api/v1/finance/journal-entries/{$id}/post")->assertSuccessful();
+        }
+        $q = '/api/v1/finance/reports/profit-loss?date_from='.now()->startOfMonth()->toDateString().'&date_to='.now()->addDay()->toDateString();
+        $this->assertEquals(390, $this->getJson($q)->json('sections.revenue.total'));
+        $this->assertEquals(250, $this->getJson($q.'&org_unit_id='.$this->uB)->json('sections.revenue.total'));
+        $mgr = $this->sebagai($this->mgr, $this->t);
+        $this->assertEquals(100, $mgr->getJson($q)->json('sections.revenue.total'));
+        $mgr->getJson($q.'&org_unit_id='.$this->uB)->assertForbidden();
+
+        // Pesanan belian: dicipta pengurus Kajang → milik Kajang; pemilik nampak semua.
+        $sup = $mgr->postJson('/api/v1/scm/suppliers', ['company_name' => 'Pembekal Bunga'])->assertCreated()->json('id');
+        $mgr->postJson('/api/v1/scm/purchase-orders', ['supplier_id' => $sup, 'order_date' => now()->toDateString(), 'lines' => [['item_name' => 'Ros', 'quantity_ordered' => 10, 'unit_price' => 2]]])->assertCreated();
+        $mgr->postJson('/api/v1/scm/purchase-orders', ['supplier_id' => $sup, 'org_unit_id' => $this->uB, 'order_date' => now()->toDateString(), 'lines' => [['item_name' => 'Ros', 'quantity_ordered' => 1, 'unit_price' => 2]]])->assertForbidden();
+        $this->sebagai($this->u, $this->t)->postJson('/api/v1/scm/purchase-orders', ['supplier_id' => $sup, 'org_unit_id' => $this->uB, 'order_date' => now()->toDateString(), 'lines' => [['item_name' => 'Lili', 'quantity_ordered' => 5, 'unit_price' => 3]]])->assertCreated();
+        $this->assertCount(1, $this->sebagai($this->mgr, $this->t)->getJson('/api/v1/scm/purchase-orders')->json('data'));
+        $this->assertCount(2, $this->sebagai($this->u, $this->t)->getJson('/api/v1/scm/purchase-orders')->json('data'));
+    }
 }

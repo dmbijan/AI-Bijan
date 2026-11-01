@@ -145,6 +145,7 @@
         <div class="row" style="flex-wrap:wrap;gap:8px;align-items:end">
             <div class="field" style="margin:0"><label class="label" for="rDari">Dari</label><input class="input" type="date" id="rDari"></div>
             <div class="field" style="margin:0"><label class="label" for="rHingga">Hingga</label><input class="input" type="date" id="rHingga"></div>
+            <div class="field" style="margin:0"><label class="label" for="rUnit">Cawangan / jabatan</label><select class="select" id="rUnit"><option value="">Seluruh syarikat</option></select></div>
             <button class="btn btn-primary btn-sm" onclick="loadReport('profit-loss')">Untung rugi</button>
             <button class="btn btn-sm" onclick="loadReport('balance-sheet')">Kunci kira-kira</button>
         </div>
@@ -194,7 +195,7 @@ const hariIni = () => isoTempatan(new Date());
 const dimuat = {};
 
 // ── tab ──────────────────────────────────────────────
-const pemuat = { ringkasan: loadTreasury, bank: loadBankAccounts, tunai: loadBoxes, sst: loadSst, bajet: loadBudgets, coa: loadCoa, journal: loadJournal, laporan: () => {} };
+const pemuat = { ringkasan: loadTreasury, bank: loadBankAccounts, tunai: loadBoxes, sst: loadSst, bajet: loadBudgets, coa: loadCoa, journal: loadJournal, laporan: () => muatUnitLaporan() };
 function bukaTab(nama) {
     document.querySelectorAll('[data-tab]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === nama)));
     document.querySelector(`[data-tab="${nama}"]`)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -503,16 +504,28 @@ function seksyen(tajuk, s, tebal) {
     return `${akaun ? `<tr><td colspan="2" class="text-xs text-muted" style="padding-top:14px">${E(tajuk)}</td></tr>${akaun}` : ''}
         <tr style="${tebal ? 'font-weight:700;border-top:2px solid var(--border,#ddd)' : 'font-weight:600'}"><td>${E(akaun ? 'Jumlah ' + tajuk.toLowerCase() : tajuk)}</td><td class="table-num">${RM(s.total ?? s.amount)}</td></tr>`;
 }
+async function muatUnitLaporan() {
+    const sel = App.$('#rUnit');
+    if (sel.dataset.ok) return;
+    sel.dataset.ok = '1';
+    try {
+        const r = await App.api.get('/api/v1/org/units');
+        const J = { group: 'Kumpulan', company: 'Syarikat', branch: 'Cawangan', department: 'Jabatan', team: 'Pasukan' };
+        sel.innerHTML += (r.data ?? []).filter(u => u.status === 'active').map(u => `<option value="${u.id}">${E(J[u.type] + ': ' + u.name)}</option>`).join('');
+    } catch { /* tiada kebenaran tetapan: kekal seluruh syarikat */ }
+}
 async function loadReport(jenis) {
+    muatUnitLaporan();
     const dari = App.$('#rDari').value, hingga = App.$('#rHingga').value;
     App.$('#reportTitle').textContent = jenis === 'profit-loss' ? 'Untung rugi' : 'Kunci kira-kira';
     App.$('#reportBody').innerHTML = '<div class="skeleton" style="height:160px"></div>';
-    const q = jenis === 'profit-loss' ? `date_from=${dari}&date_to=${hingga}` : `as_of_date=${hingga}`;
+    const unit = App.$('#rUnit').value;
+    const q = jenis === 'profit-loss' ? `date_from=${dari}&date_to=${hingga}${unit ? '&org_unit_id=' + unit : ''}` : `as_of_date=${hingga}`;
     const d = await cuba(() => App.api.get(`/api/v1/finance/reports/${jenis}?${q}`));
     if (!d) { App.$('#reportBody').innerHTML = ''; return; }
     const s = d.sections;
     if (jenis === 'profit-loss') {
-        App.$('#reportSub').textContent = `${tarikh(dari)} – ${tarikh(hingga)}`;
+        App.$('#reportSub').textContent = `${tarikh(dari)} – ${tarikh(hingga)}` + (d.scope?.type === 'units' ? ` · ${App.$('#rUnit').selectedOptions[0]?.text ?? 'skop anda'}. ${d.scope.note}` : '');
         App.$('#reportBody').innerHTML = `<div class="table-wrap"><table class="table"><tbody>
             ${seksyen('Pendapatan', s.revenue)}${seksyen('Kos jualan', s.cost_of_goods)}${seksyen('Untung kasar', s.gross_profit, true)}
             ${seksyen('Perbelanjaan operasi', s.operating_expenses)}${seksyen('Untung sebelum cukai', s.net_profit_before_tax, true)}

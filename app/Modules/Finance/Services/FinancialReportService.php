@@ -20,7 +20,8 @@ class FinancialReportService
      * - Tax Expense (Cukai Pendapatan)
      * = Net Profit After Tax (Untung Bersih Selepas Cukai)
      */
-    public function generateProfitLoss(string $startDate, string $endDate): array
+    /** @param array<int>|null $unitIds null = seluruh syarikat; senarai = jurnal yang ditanda unit tersebut sahaja */
+    public function generateProfitLoss(string $startDate, string $endDate, ?array $unitIds = null): array
     {
         // Get all posted journal lines in period
         $query = JournalEntryLine::query()
@@ -29,6 +30,7 @@ class FinancialReportService
             ->where('journal_entries.status', 'posted')
             ->where('journal_entries.entry_date', '>=', $startDate)
             ->where('journal_entries.entry_date', '<=', $endDate)
+            ->when($unitIds !== null, fn ($q) => $q->whereIn('journal_entries.org_unit_id', $unitIds ?: [0]))
             ->select(
                 'chart_of_accounts.code',
                 'chart_of_accounts.name',
