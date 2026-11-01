@@ -171,4 +171,17 @@ class OrganizationAccessTest extends TestCase
         $this->assertCount(0, $this->getJson('/api/v1/org/units')->json('data'));
         $this->putJson('/api/v1/org/units/1', ['name' => 'Curi'])->assertNotFound();
     }
+
+    #[Test]
+    public function juruwang_boleh_checkout_tapi_tidak_urus_kaunter(): void
+    {
+        $r = $this->postJson('/api/v1/pos/registers', ['name' => 'Kaunter 1', 'code' => 'K1'])->assertCreated();
+        $reg = $r->json('id') ?? $r->json('data.id');
+        $kasyer = $this->jemput($this->u, $this->t, 'kasyer@abc.my', ['cashier']);
+        $http = $this->sebagai($kasyer, $this->t);
+        $sale = $http->postJson('/api/v1/pos/sales/checkout', ['register_id' => $reg, 'items' => [['product_name' => 'Ros', 'quantity' => 1, 'unit_price' => 5]], 'tenders' => [['method' => 'cash', 'amount' => 5]]])
+            ->assertCreated()->json('data.id');
+        $http->postJson('/api/v1/pos/registers', ['name' => 'Kaunter 2', 'code' => 'K2'])->assertForbidden();
+        $http->postJson("/api/v1/pos/sales/{$sale}/refund", ['reason' => 'x'])->assertForbidden();
+    }
 }

@@ -1561,10 +1561,10 @@ Route::middleware('auth:sanctum')->group(function () {
         });
         // Financial Reports (read-only)
         Route::middleware('perm:finance.reports')->group(function () {
-            Route::get('finance/reports/profit-loss', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'profitLoss']);
-            Route::get('finance/reports/balance-sheet', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'balanceSheet']);
-            Route::get('finance/reports/trial-balance', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'trialBalance']);
-            Route::get('finance/reports/general-ledger/{accountId}', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'generalLedger'])->whereNumber('accountId');
+            Route::get('finance/reports/profit-loss', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'profitLoss'])->middleware('company.scope');
+            Route::get('finance/reports/balance-sheet', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'balanceSheet'])->middleware('company.scope');
+            Route::get('finance/reports/trial-balance', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'trialBalance'])->middleware('company.scope');
+            Route::get('finance/reports/general-ledger/{accountId}', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'generalLedger'])->whereNumber('accountId')->middleware('company.scope');
         });
         // ============================================            // B-SCM — Supply Chain Management            // ============================================
         // Suppliers

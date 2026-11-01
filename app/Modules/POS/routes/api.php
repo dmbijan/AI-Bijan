@@ -60,6 +60,29 @@ Route::middleware('perm:pos.view')->group(function () {
     Route::get('/discounts/pending', [DiscountApprovalController::class, 'pending']);
 });
 
+// ── Kaunter harian (pos.sell): jual, bayar, syif, pesanan meja, minta diskaun ──
+Route::middleware('perm:pos.sell')->group(function () {
+    Route::post('/shifts/open', [CashShiftController::class, 'open']);
+    Route::post('/shifts/{id}/close', [CashShiftController::class, 'close'])->whereNumber('id');
+    Route::post('/shifts/{id}/cash', [ShiftCashController::class, 'store'])->whereNumber('id');
+    Route::get('/shifts/{id}/cash-summary', [ShiftCashController::class, 'summary'])->whereNumber('id');
+    Route::post('/shifts/{id}/close-with-summary', [ShiftCashController::class, 'close'])->whereNumber('id');
+    Route::post('/sales/draft', [SaleController::class, 'storeDraft']);
+    Route::post('/sales/{saleId}/items', [SaleController::class, 'addItem'])->whereNumber('saleId');
+    Route::put('/sales/items/{itemId}', [SaleController::class, 'updateItem'])->whereNumber('itemId');
+    Route::delete('/sales/items/{itemId}', [SaleController::class, 'removeItem'])->whereNumber('itemId');
+    Route::post('/sales/{saleId}/complete', [SaleController::class, 'complete'])->whereNumber('saleId');
+    Route::post('/sales/checkout', [SaleController::class, 'checkout']);
+    Route::post('/sales/{id}/pautan-bayar', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'pautanJualan'])->whereNumber('id');
+    Route::post('/sales/{saleId}/pay', [SaleController::class, 'pay'])->whereNumber('saleId');
+    Route::post('/dine/orders', [DineInController::class, 'store']);
+    Route::post('/dine/orders/{id}/accept', [DineInController::class, 'accept'])->whereNumber('id');
+    Route::post('/dine/orders/{id}/reject', [DineInController::class, 'reject'])->whereNumber('id');
+    Route::post('/kitchen/{id}/status', [KitchenDisplayController::class, 'updateStatus'])->whereNumber('id');
+    Route::post('/tng/{id}/match', [TngSoundboxController::class, 'match'])->whereNumber('id');
+    Route::post('/discounts', [DiscountApprovalController::class, 'request']);
+});
+
 // ── Operasi (pos.manage) ──────────────────────────────────────────
 Route::middleware('perm:pos.manage')->group(function () {
     // Registers
@@ -69,29 +92,16 @@ Route::middleware('perm:pos.manage')->group(function () {
     Route::post('/registers/{id}/toggle', [RegisterController::class, 'toggleActive'])->whereNumber('id');
 
     // Shifts
-    Route::post('/shifts/open', [CashShiftController::class, 'open']);
-    Route::post('/shifts/{id}/close', [CashShiftController::class, 'close'])->whereNumber('id');
     Route::post('/shifts/{id}/lock', [CashShiftController::class, 'lock'])->whereNumber('id');
 
     // T-80 Cash movement & tutup syif dengan ringkasan
-    Route::post('/shifts/{id}/cash', [ShiftCashController::class, 'store'])->whereNumber('id');
-    Route::get('/shifts/{id}/cash-summary', [ShiftCashController::class, 'summary'])->whereNumber('id');
-    Route::post('/shifts/{id}/close-with-summary', [ShiftCashController::class, 'close'])->whereNumber('id');
 
     // Sales
-    Route::post('/sales/draft', [SaleController::class, 'storeDraft']);
-    Route::post('/sales/{saleId}/items', [SaleController::class, 'addItem'])->whereNumber('saleId');
-    Route::put('/sales/items/{itemId}', [SaleController::class, 'updateItem'])->whereNumber('itemId');
-    Route::delete('/sales/items/{itemId}', [SaleController::class, 'removeItem'])->whereNumber('itemId');
-    Route::post('/sales/{saleId}/complete', [SaleController::class, 'complete'])->whereNumber('saleId');
     Route::post('/sales/{saleId}/cancel', [SaleController::class, 'cancel'])->whereNumber('saleId');
     Route::post('/sales/{saleId}/refund', [SaleController::class, 'refund'])->whereNumber('saleId');
 
     // T-79 Multi-tender checkout
-    Route::post('/sales/checkout', [SaleController::class, 'checkout']);
-    Route::post('/sales/{id}/pautan-bayar', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'pautanJualan'])->whereNumber('id');
     Route::post('/stock-exceptions/{itemId}/resolve', [SaleController::class, 'resolveStockException'])->whereNumber('itemId');
-    Route::post('/sales/{saleId}/pay', [SaleController::class, 'pay'])->whereNumber('saleId');
 
     // T-77 Modifier
     Route::post('/modifiers', [ModifierController::class, 'store']);
@@ -102,19 +112,13 @@ Route::middleware('perm:pos.manage')->group(function () {
     Route::post('/dine/areas', [DineInController::class, 'storeArea']);
     Route::post('/dine/tables', [DineInController::class, 'storeTable']);
     Route::post('/dine/tables/{id}/qr', [DineInController::class, 'regenerateQr'])->whereNumber('id');
-    Route::post('/dine/orders', [DineInController::class, 'store']);
-    Route::post('/dine/orders/{id}/accept', [DineInController::class, 'accept'])->whereNumber('id');
-    Route::post('/dine/orders/{id}/reject', [DineInController::class, 'reject'])->whereNumber('id');
 
     // T-76 Kitchen Display
-    Route::post('/kitchen/{id}/status', [KitchenDisplayController::class, 'updateStatus'])->whereNumber('id');
 
     // T-82 TNG
     Route::post('/tng/notify', [TngSoundboxController::class, 'receive']);
-    Route::post('/tng/{id}/match', [TngSoundboxController::class, 'match'])->whereNumber('id');
 
     // T-83 Diskaun
-    Route::post('/discounts', [DiscountApprovalController::class, 'request']);
     Route::post('/discounts/{id}/approve', [DiscountApprovalController::class, 'approve'])->whereNumber('id');
     Route::post('/discounts/{id}/reject', [DiscountApprovalController::class, 'reject'])->whereNumber('id');
 });

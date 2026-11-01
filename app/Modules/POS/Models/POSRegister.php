@@ -63,7 +63,7 @@ class POSRegister extends Model
      */
     public static function generateCode(): string
     {
-        $lastCode = static::orderBy('code', 'desc')->value('code');
+        $lastCode = static::withoutGlobalScope('org_unit')->orderBy('code', 'desc')->value('code');
         
         if (!$lastCode) {
             return 'POS-REG-001';

@@ -10,6 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Customer extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units_shared';
+
     use BelongsToTenant;
 
     protected $table = 'customers';

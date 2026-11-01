@@ -44,6 +44,17 @@ class DataScope
         return $this->memo('units', fn () => app(AccessService::class)->visibleUnitIds($m));
     }
 
+    /** Unit utama ahli berskop (untuk tanda dokumen baharu). Null jika tidak disekat. */
+    public function primaryUnit(): ?int
+    {
+        if (! $this->restricted()) {
+            return null;
+        }
+        $m = $this->ctx()->membership();
+
+        return $this->memo('primary', fn () => MembershipScope::where('tenant_user_id', $m->id)->value('org_unit_id') ?? ($this->units()[0] ?? null));
+    }
+
     public function restricted(): bool
     {
         return $this->units() !== null;
@@ -93,7 +104,7 @@ class DataScope
     public function idsFor(string $kind): ?array
     {
         return match ($kind) {
-            'units' => $this->units(),
+            'units', 'units_shared' => $this->units(),
             'warehouses' => $this->warehouses(),
             'registers' => $this->registers(),
             'employees' => $this->employees(),
@@ -104,8 +115,14 @@ class DataScope
     public function apply($query, string $column, string $kind)
     {
         $ids = $this->idsFor($kind);
+        if ($ids === null) {
+            return $query;
+        }
+        if ($kind === 'units_shared') {
+            return $query->where(fn ($q) => $q->whereIn($column, $ids ?: [0])->orWhereNull($column));
+        }
 
-        return $ids === null ? $query : $query->whereIn($column, $ids ?: [0]);
+        return $query->whereIn($column, $ids ?: [0]);
     }
 
     public function allows(string $kind, ?int $id): bool

@@ -55,7 +55,7 @@ class DataScopeTest extends TestCase
         $http->putJson('/api/v1/org/links', ['type' => 'register', 'ids' => [$this->rA], 'org_unit_id' => $this->uA])->assertOk();
         $http->putJson('/api/v1/org/links', ['type' => 'register', 'ids' => [$this->rB], 'org_unit_id' => $this->uB])->assertOk();
 
-        $this->mgr = $this->jemput($this->u, $this->t, 'pengurus@abc.my', ['tenant_admin', 'hr_manager']);
+        $this->mgr = $this->jemput($this->u, $this->t, 'pengurus@abc.my', ['tenant_admin', 'hr_manager', 'sales_manager', 'finance_manager']);
         $this->dalamTenant($this->t);
         $m = TenantUser::where('user_id', $this->mgr->id)->first();
         $this->sebagai($this->u, $this->t)->putJson("/api/v1/org/members/{$m->id}/scope", ['org_unit_id' => $this->uA, 'data_scope' => 'unit_tree'])->assertOk();
@@ -137,5 +137,38 @@ class DataScopeTest extends TestCase
         $admin = User::where('email', 'admin@abc.my')->first();
         $this->sebagai($admin, $this->t)->putJson('/api/v1/org/links', ['type' => 'warehouse', 'ids' => [$this->wB], 'org_unit_id' => $this->uA])->assertForbidden();
         $this->assertCount(3, $this->sebagai($this->u, $this->t)->getJson('/api/v1/org/links')->json('data'));
+    }
+
+    private function senarai($res): \Illuminate\Support\Collection
+    {
+        $j = $res->json();
+
+        return collect($j['data']['data'] ?? $j['data'] ?? $j);
+    }
+
+    #[Test]
+    public function crm_dokumen_ditanda_unit_pencipta_pelanggan_hq_dikongsi_kewangan_peringkat_syarikat(): void
+    {
+        $this->postJson('/api/v1/crm/customers', ['customer_type' => 'business', 'name' => 'Pelanggan HQ'])->assertSuccessful();
+        $this->postJson('/api/v1/crm/leads', ['name' => 'Prospek HQ'])->assertSuccessful();
+
+        // Pengurus B (Johor)
+        $b = $this->jemput($this->u, $this->t, 'johor@abc.my', ['sales_manager']);
+        $this->dalamTenant($this->t);
+        $mb = TenantUser::where('user_id', $b->id)->first();
+        $this->sebagai($this->u, $this->t)->putJson("/api/v1/org/members/{$mb->id}/scope", ['org_unit_id' => $this->uB, 'data_scope' => 'own_unit'])->assertOk();
+        $this->sebagai($b, $this->t)->postJson('/api/v1/crm/leads', ['name' => 'Prospek Johor'])->assertSuccessful();
+
+        // Pengurus A (Kajang): cipta prospek sendiri, nampak pelanggan HQ (dikongsi), tak nampak prospek HQ/Johor.
+        $http = $this->sebagai($this->mgr, $this->t);
+        $http->postJson('/api/v1/crm/leads', ['name' => 'Prospek Kajang'])->assertSuccessful();
+        $this->assertSame(['Prospek Kajang'], $this->senarai($http->getJson('/api/v1/crm/leads'))->pluck('name')->all());
+        $this->assertContains('Pelanggan HQ', $this->senarai($http->getJson('/api/v1/crm/customers'))->pluck('name')->all());
+        $this->dalamTenant($this->t);
+        $this->assertSame($this->uA, \App\Modules\CRM\Models\Lead::withoutGlobalScopes()->where('name', 'Prospek Kajang')->value('org_unit_id'));
+
+        $this->assertCount(3, $this->senarai($this->sebagai($this->u, $this->t)->getJson('/api/v1/crm/leads')));
+        $this->sebagai($this->mgr, $this->t)->getJson('/api/v1/finance/reports/balance-sheet')->assertForbidden();
+        $this->sebagai($this->u, $this->t)->getJson('/api/v1/finance/reports/balance-sheet?as_of_date='.now()->toDateString())->assertSuccessful();
     }
 }

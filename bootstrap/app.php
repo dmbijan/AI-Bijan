@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tenant' => \App\Http\Middleware\ResolveTenant::class,
             'perm' => \App\Http\Middleware\RequirePermission::class,
+            'company.scope' => \App\Http\Middleware\RequireCompanyScope::class,
             'platform' => \App\Http\Middleware\PlatformAdmin::class,
             'throttle.api' => \App\Http\Middleware\ThrottleRequests::class,
             'idempotent' => \App\Http\Middleware\IdempotencyMiddleware::class,

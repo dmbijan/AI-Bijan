@@ -31,24 +31,24 @@ Route::middleware('perm:finance.view')->group(function () {
     Route::get('/journal-entries/{id}', [Journal::class, 'show']);
 
     // FIN-017 Rekonsiliasi Bank
-    Route::get('/bank-accounts', [Bank::class, 'accounts']);
-    Route::get('/bank-accounts/{id}/lines', [Bank::class, 'lines'])->whereNumber('id');
-    Route::get('/bank-accounts/{id}/summary', [Bank::class, 'summary'])->whereNumber('id');
-    Route::get('/bank-lines/{lineId}/candidates', [Bank::class, 'candidates'])->whereNumber('lineId');
+    Route::get('/bank-accounts', [Bank::class, 'accounts'])->middleware('company.scope');
+    Route::get('/bank-accounts/{id}/lines', [Bank::class, 'lines'])->whereNumber('id')->middleware('company.scope');
+    Route::get('/bank-accounts/{id}/summary', [Bank::class, 'summary'])->whereNumber('id')->middleware('company.scope');
+    Route::get('/bank-lines/{lineId}/candidates', [Bank::class, 'candidates'])->whereNumber('lineId')->middleware('company.scope');
 
     // FIN-018 Pengurusan Tunai
-    Route::get('/cash-boxes', [Cash::class, 'boxes']);
-    Route::get('/cash-boxes/{id}/report', [Cash::class, 'report'])->whereNumber('id');
-    Route::get('/cash-denominations', [Cash::class, 'denominations']);
+    Route::get('/cash-boxes', [Cash::class, 'boxes'])->middleware('company.scope');
+    Route::get('/cash-boxes/{id}/report', [Cash::class, 'report'])->whereNumber('id')->middleware('company.scope');
+    Route::get('/cash-denominations', [Cash::class, 'denominations'])->middleware('company.scope');
 
     // FIN-010 Cukai SST
     Route::get('/tax-codes', [Tax::class, 'codes']);
-    Route::get('/tax-settings', [Tax::class, 'settings']);
+    Route::get('/tax-settings', [Tax::class, 'settings'])->middleware('company.scope');
     Route::post('/tax/calculate', [Tax::class, 'calculate']);
-    Route::get('/tax/period', [Tax::class, 'period']);
+    Route::get('/tax/period', [Tax::class, 'period'])->middleware('company.scope');
 
     // FIN-005 Bajet
-    Route::get('/budgets', [Budget::class, 'index']);
+    Route::get('/budgets', [Budget::class, 'index'])->middleware('company.scope');
 });
 
 Route::middleware('perm:finance.manage')->group(function () {
@@ -56,44 +56,44 @@ Route::middleware('perm:finance.manage')->group(function () {
     Route::put('/chart-of-accounts/{id}', [Coa::class, 'update']);
     Route::post('/journal-entries', [Journal::class, 'store']);
 
-    Route::post('/bank-accounts', [Bank::class, 'storeAccount']);
-    Route::post('/bank-accounts/{id}/import', [Bank::class, 'import'])->whereNumber('id');
-    Route::post('/bank-accounts/{id}/auto-match', [Bank::class, 'autoMatch'])->whereNumber('id');
-    Route::post('/bank-lines/{lineId}/match', [Bank::class, 'match'])->whereNumber('lineId');
-    Route::post('/bank-lines/{lineId}/unmatch', [Bank::class, 'unmatch'])->whereNumber('lineId');
-    Route::post('/bank-lines/{lineId}/ignore', [Bank::class, 'ignore'])->whereNumber('lineId');
+    Route::post('/bank-accounts', [Bank::class, 'storeAccount'])->middleware('company.scope');
+    Route::post('/bank-accounts/{id}/import', [Bank::class, 'import'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/bank-accounts/{id}/auto-match', [Bank::class, 'autoMatch'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/bank-lines/{lineId}/match', [Bank::class, 'match'])->whereNumber('lineId')->middleware('company.scope');
+    Route::post('/bank-lines/{lineId}/unmatch', [Bank::class, 'unmatch'])->whereNumber('lineId')->middleware('company.scope');
+    Route::post('/bank-lines/{lineId}/ignore', [Bank::class, 'ignore'])->whereNumber('lineId')->middleware('company.scope');
 
-    Route::post('/cash-boxes', [Cash::class, 'storeBox']);
-    Route::post('/cash-boxes/{id}/entries', [Cash::class, 'entry'])->whereNumber('id');
-    Route::post('/cash-boxes/{id}/top-up', [Cash::class, 'topUp'])->whereNumber('id');
-    Route::post('/cash-boxes/{id}/deposit', [Cash::class, 'deposit'])->whereNumber('id');
-    Route::post('/cash-boxes/{id}/receive-drop', [Cash::class, 'receiveDrop'])->whereNumber('id');
-    Route::post('/cash-counts', [Cash::class, 'count']);
+    Route::post('/cash-boxes', [Cash::class, 'storeBox'])->middleware('company.scope');
+    Route::post('/cash-boxes/{id}/entries', [Cash::class, 'entry'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/cash-boxes/{id}/top-up', [Cash::class, 'topUp'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/cash-boxes/{id}/deposit', [Cash::class, 'deposit'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/cash-boxes/{id}/receive-drop', [Cash::class, 'receiveDrop'])->whereNumber('id')->middleware('company.scope');
+    Route::post('/cash-counts', [Cash::class, 'count'])->middleware('company.scope');
 
     Route::post('/tax-codes', [Tax::class, 'storeCode']);
-    Route::put('/tax-codes/{id}', [Tax::class, 'updateCode'])->whereNumber('id');
-    Route::put('/tax-settings', [Tax::class, 'updateSettings']);
+    Route::put('/tax-codes/{id}', [Tax::class, 'updateCode'])->whereNumber('id')->middleware('company.scope');
+    Route::put('/tax-settings', [Tax::class, 'updateSettings'])->middleware('company.scope');
 
-    Route::post('/budgets', [Budget::class, 'store']);
-    Route::put('/budgets/{id}/lines', [Budget::class, 'setLines'])->whereNumber('id');
+    Route::post('/budgets', [Budget::class, 'store'])->middleware('company.scope');
+    Route::put('/budgets/{id}/lines', [Budget::class, 'setLines'])->whereNumber('id')->middleware('company.scope');
 });
 
 Route::middleware('perm:finance.approve')->group(function () {
     Route::post('/journal-entries/{id}/post', [Journal::class, 'post']);
     Route::post('/journal-entries/{id}/cancel', [Journal::class, 'cancel']);
-    Route::post('/cash-counts/{countId}/adjust', [Cash::class, 'adjust'])->whereNumber('countId');
-    Route::post('/budgets/{id}/approve', [Budget::class, 'approve'])->whereNumber('id');
+    Route::post('/cash-counts/{countId}/adjust', [Cash::class, 'adjust'])->whereNumber('countId')->middleware('company.scope');
+    Route::post('/budgets/{id}/approve', [Budget::class, 'approve'])->whereNumber('id')->middleware('company.scope');
 });
 
 Route::middleware('perm:finance.reports')->group(function () {
-    Route::get('/reports/profit-loss', [Report::class, 'profitLoss']);
-    Route::get('/reports/balance-sheet', [Report::class, 'balanceSheet']);
-    Route::get('/reports/trial-balance', [Report::class, 'trialBalance']);
-    Route::get('/reports/general-ledger/{accountId}', [Report::class, 'generalLedger']);
-    Route::get('/reports/sst-02', [Tax::class, 'sst02']);
+    Route::get('/reports/profit-loss', [Report::class, 'profitLoss'])->middleware('company.scope');
+    Route::get('/reports/balance-sheet', [Report::class, 'balanceSheet'])->middleware('company.scope');
+    Route::get('/reports/trial-balance', [Report::class, 'trialBalance'])->middleware('company.scope');
+    Route::get('/reports/general-ledger/{accountId}', [Report::class, 'generalLedger'])->middleware('company.scope');
+    Route::get('/reports/sst-02', [Tax::class, 'sst02'])->middleware('company.scope');
 
     // FIN-006 Treasury
-    Route::get('/treasury/position', [Treasury::class, 'position']);
-    Route::get('/treasury/forecast', [Treasury::class, 'forecast']);
-    Route::get('/budgets/{id}/report', [Budget::class, 'report'])->whereNumber('id');
+    Route::get('/treasury/position', [Treasury::class, 'position'])->middleware('company.scope');
+    Route::get('/treasury/forecast', [Treasury::class, 'forecast'])->middleware('company.scope');
+    Route::get('/budgets/{id}/report', [Budget::class, 'report'])->whereNumber('id')->middleware('company.scope');
 });

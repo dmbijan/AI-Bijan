@@ -14,6 +14,12 @@ use App\Modules\Invoicing\Models\QuotationLine;
 
 class Quotation extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units';
+
     use BelongsToTenant;
 
     use HasFactory, SoftDeletes;
@@ -108,7 +114,7 @@ class Quotation extends Model
         $year = date('Y');
         $prefix = 'QT';
         
-        $lastQuotation = self::whereYear('created_at', $year)
+        $lastQuotation = self::withoutGlobalScope('org_unit')->whereYear('created_at', $year)
             ->orderBy('id', 'desc')
             ->first();
 
