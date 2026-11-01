@@ -80,6 +80,8 @@ class SaleController extends Controller
             'notes' => 'nullable|string',
             'customer_id' => 'nullable|exists:customers,id',
         ]);
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $validated['register_id'])->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
 
         try {
             $sale = $this->saleService->createDraft(
@@ -218,6 +220,8 @@ class SaleController extends Controller
             'tenders.*.reference' => 'nullable|string|max:255',
             'client_uuid' => 'nullable|uuid',
         ]);
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $v['register_id'])->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
         $tenantId = $this->tenantId();
 
         if (! empty($v['client_uuid'])) {
@@ -254,6 +258,8 @@ class SaleController extends Controller
         $rows = \App\Modules\POS\Models\POSSaleItem::query()
             ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
             ->where('pos_sales.tenant_id', $this->tenantId())
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers(), fn ($q, $ids) => $q->whereIn('pos_sales.register_id', $ids))
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers() === [], fn ($q) => $q->whereRaw('1 = 0'))
             ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
             ->orderByDesc('pos_sale_items.id')->limit(200)
             ->get(['pos_sale_items.id', 'pos_sale_items.product_id', 'pos_sale_items.product_name', 'pos_sale_items.quantity',
@@ -268,6 +274,8 @@ class SaleController extends Controller
         $item = \App\Modules\POS\Models\POSSaleItem::query()
             ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
             ->where('pos_sales.tenant_id', $this->tenantId())
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers(), fn ($q, $ids) => $q->whereIn('pos_sales.register_id', $ids))
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers() === [], fn ($q) => $q->whereRaw('1 = 0'))
             ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
             ->where('pos_sale_items.id', $itemId)
             ->select('pos_sale_items.*')->first();

@@ -51,7 +51,10 @@ class TalentController extends Controller
 
     private function empRule(): array
     {
-        return ['required', 'integer', $this->ex('hrms_employees')];
+        // Pekerja mesti dalam syarikat ini DAN dalam skop cawangan/jabatan ahli.
+        $ids = app(\App\Support\Tenancy\DataScope::class)->employees();
+
+        return ['required', 'integer', $ids === null ? $this->ex('hrms_employees') : $this->ex('hrms_employees')->whereIn('id', $ids ?: [0])];
     }
 
     // ------------------------------------------------------------ ATS

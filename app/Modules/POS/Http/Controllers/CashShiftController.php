@@ -62,6 +62,8 @@ class CashShiftController extends Controller
             'register_id' => 'required|exists:pos_registers,id',
             'opening_cash' => 'nullable|numeric|min:0',
         ]);
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $validated['register_id'])->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
 
         try {
             $shift = $this->cashShiftService->openShift(
@@ -82,6 +84,8 @@ class CashShiftController extends Controller
      */
     public function getOpen(Request $request, int $registerId)
     {
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $registerId)->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
         $shift = $this->cashShiftService->getOpenShift($registerId, $this->tenantId());
 
         if (!$shift) {

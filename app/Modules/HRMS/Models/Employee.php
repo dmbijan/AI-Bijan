@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Employee extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'id';
+
+    protected static string $orgScopeKind = 'employees';
+
     use BelongsToTenant;
 
     use HasFactory;
@@ -39,6 +45,7 @@ class Employee extends Model
         'country',
         'department_id',
         'designation_id',
+        'org_unit_id',
         'employment_type',
         'date_joined',
         'contract_end_date',

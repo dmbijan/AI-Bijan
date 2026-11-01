@@ -113,6 +113,7 @@ class HrBriefService
 
         $payroll = DB::table('employees')->where('is_active', true)
             ->where('tenant_id', app(TenantContext::class)->id())
+            ->when(app(\App\Support\Tenancy\DataScope::class)->restricted(), fn ($q) => $q->whereIn('ic_no', $emps->pluck('ic_number')->filter()->all() ?: ['-']))
             ->selectRaw('COUNT(*) n, COALESCE(SUM(basic_salary + fixed_allowance), 0) total')->first();
 
         return [

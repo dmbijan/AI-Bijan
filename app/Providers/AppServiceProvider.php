@@ -18,6 +18,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // Satu konteks tenant bagi setiap permintaan/job (scoped, bukan kekal antara permintaan).
         $this->app->scoped(TenantContext::class);
+        $this->app->scoped(\App\Support\Tenancy\DataScope::class);
     }
 
     /**

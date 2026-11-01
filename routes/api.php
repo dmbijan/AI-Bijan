@@ -128,6 +128,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put('units/{id}', [$O, 'saveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
             Route::post('units/{id}/archive', [$O, 'archiveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
             Route::get('modules', [$O, 'modules'])->middleware('perm:tenant.settings.view');
+            Route::get('links', [$O, 'links'])->middleware('perm:tenant.settings.update');
+            Route::put('links', [$O, 'setLink'])->middleware('perm:tenant.settings.update');
             Route::get('members', [$O, 'members'])->middleware('perm:members.view');
             Route::get('members/{id}/effective', [$O, 'effective'])->middleware('perm:members.view')->whereNumber('id');
             Route::put('members/{id}/scope', [$O, 'setScope'])->middleware('perm:members.manage')->whereNumber('id');

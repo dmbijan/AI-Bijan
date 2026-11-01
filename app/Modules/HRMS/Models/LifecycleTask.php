@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class LifecycleTask extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'employee_id';
+
+    protected static string $orgScopeKind = 'employees';
+
     use BelongsToTenant;
 
     protected $table = 'hrms_lifecycle_tasks';

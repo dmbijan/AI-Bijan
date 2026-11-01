@@ -10,6 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class POSRegister extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'id';
+
+    protected static string $orgScopeKind = 'registers';
+
     use BelongsToTenant;
 
     use HasFactory;
@@ -19,6 +25,7 @@ class POSRegister extends Model
     protected $fillable = [
         'tenant_id',
         'name',
+        'org_unit_id',
         'code',
         'description',
         'location',

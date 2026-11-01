@@ -131,6 +131,46 @@ class OrganizationController extends Controller
         return response()->json(['data' => $u]);
     }
 
+    // ------------------------------------------------------------ tautan unit (skop data)
+
+    private const LINKS = [
+        'warehouse' => [\App\Models\Warehouse::class, 'Gudang / outlet'],
+        'register' => [\App\Modules\POS\Models\POSRegister::class, 'Kaunter POS'],
+        'employee' => [\App\Modules\HRMS\Models\Employee::class, 'Pekerja'],
+    ];
+
+    /** Rekod yang boleh ditautkan ke unit. Hanya untuk pentadbir berskop seluruh organisasi. */
+    public function links(): JsonResponse
+    {
+        abort_if(app(\App\Support\Tenancy\DataScope::class)->restricted(), 403, 'Hanya ahli berskop seluruh organisasi boleh menautkan unit.');
+        $out = [];
+        foreach (self::LINKS as $type => [$cls, $label]) {
+            $out[$type] = ['label' => $label, 'rows' => $cls::withoutGlobalScope('org_unit')->get()->map(fn ($x) => [
+                'id' => $x->id, 'org_unit_id' => $x->org_unit_id,
+                'name' => $type === 'employee' ? trim($x->first_name.' '.$x->last_name) : $x->name,
+                'code' => $x->code ?? $x->employee_no ?? null,
+                'hint' => $type === 'register' && ! $x->org_unit_id && $x->warehouse_id ? 'ikut gudang' : null,
+            ])->values()];
+        }
+
+        return response()->json(['data' => $out]);
+    }
+
+    public function setLink(Request $r): JsonResponse
+    {
+        abort_if(app(\App\Support\Tenancy\DataScope::class)->restricted(), 403, 'Hanya ahli berskop seluruh organisasi boleh menautkan unit.');
+        $d = $r->validate(['type' => 'required|in:'.implode(',', array_keys(self::LINKS)), 'ids' => 'required|array|min:1|max:500', 'ids.*' => 'integer', 'org_unit_id' => $this->unitRule()]);
+        $cls = self::LINKS[$d['type']][0];
+        $rows = $cls::withoutGlobalScope('org_unit')->whereIn('id', $d['ids'])->get();
+        abort_if($rows->count() !== count(array_unique($d['ids'])), 404);
+        foreach ($rows as $x) {
+            $x->forceFill(['org_unit_id' => $d['org_unit_id'] ?? null])->save();
+        }
+        $this->log('org.linked', $rows->first(), null, ['type' => $d['type'], 'ids' => $d['ids'], 'org_unit_id' => $d['org_unit_id'] ?? null]);
+
+        return response()->json(['data' => ['updated' => $rows->count()]]);
+    }
+
     // ------------------------------------------------------------ ahli
 
     public function members(): JsonResponse

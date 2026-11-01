@@ -67,6 +67,11 @@
         <button class="btn btn-primary btn-sm" onclick="tambahUnit()">+ Unit</button>
     </div>
     <div class="card" style="padding:0"><div id="sTree"></div></div>
+    <div class="card mt-4" style="padding:0">
+        <div class="card-header" style="padding:16px 16px 0"><div><h2 class="card-title">Tautkan ke unit</h2>
+            <p class="card-subtitle">Tetapkan gudang, kaunter POS dan pekerja milik cawangan/jabatan mana. Ahli berskop cawangan hanya nampak rekod unitnya. Rekod tanpa unit hanya dilihat oleh ahli berskop seluruh organisasi.</p></div></div>
+        <div id="sLinks"></div>
+    </div>
 </section>
 
 <section data-panel="members" hidden>
@@ -242,6 +247,7 @@ async function loadUnits() {
             <button class="btn btn-sm btn-ghost" onclick="ubahUnit(${u.id})">Ubah</button>
             <button class="btn btn-sm btn-ghost" onclick="arkibUnit(${u.id})">${u.status === 'active' ? 'Arkib' : 'Pulih'}</button></span></div>` + kids(u.id).map(c => baris(c, d + 1)).join('');
     App.$('#sTree').innerHTML = UNITS.length ? kids(null).map(u => baris(u, 0)).join('') : kosong('Belum ada struktur. Mula dengan tambah syarikat anda.');
+    loadLinks();
 }
 function medanUnit(u, jenisOpts) {
     return [{ n: 'type', l: 'Jenis', opts: jenisOpts.map(t => [t, JENIS[t]]), v: u?.type }, { n: 'name', l: 'Nama', req: true, v: u?.name },
@@ -257,6 +263,18 @@ async function ubahUnit(id) {
     const u = UNITS.find(x => x.id === id);
     const d = await borang('Ubah ' + u.name, medanUnit(u, [u.type]).slice(1));
     if (d && await cuba(() => App.api.put(`/api/v1/org/units/${id}`, d), 'Disimpan')) loadUnits();
+}
+async function loadLinks() {
+    const r = await cuba(() => App.api.get('/api/v1/org/links'));
+    if (!r) { App.$('#sLinks').innerHTML = kosong('Hanya ahli berskop seluruh organisasi boleh menautkan unit.'); return; }
+    const opts = sel => '<option value="">— tiada (ibu pejabat) —</option>' + UNITS.filter(u => u.status === 'active').map(u => `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${E(JENIS[u.type] + ': ' + u.name)}</option>`).join('');
+    App.$('#sLinks').innerHTML = Object.entries(r.data).map(([type, g]) => `<div style="padding:12px 16px"><h3 class="text-sm" style="font-weight:600;margin:0 0 6px">${E(g.label)} (${g.rows.length})</h3>
+        ${g.rows.length ? g.rows.map(x => `<div class="row-between" style="gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border,#eee)">
+            <span class="text-sm">${E(x.name)} ${x.code ? `<span class="mono text-xs text-muted">${E(x.code)}</span>` : ''}${x.hint ? ` <span class="text-xs text-muted">(${E(x.hint)})</span>` : ''}</span>
+            <select class="select" style="max-width:280px" aria-label="Unit untuk ${E(x.name)}" onchange="tautkan('${type}', ${x.id}, this.value)">${opts(x.org_unit_id)}</select></div>`).join('') : '<div class="text-xs text-muted">Tiada.</div>'}</div>`).join('');
+}
+async function tautkan(type, id, unit) {
+    await cuba(() => App.api.put('/api/v1/org/links', { type, ids: [id], org_unit_id: unit ? Number(unit) : null }), 'Ditautkan');
 }
 async function arkibUnit(id) { if (await cuba(() => App.api.post(`/api/v1/org/units/${id}/archive`), 'Dikemas kini')) loadUnits(); }
 

@@ -30,10 +30,27 @@ class InventoryController extends Controller
         app(AuditLogger::class)->log($a, $m, $b, $af);
     }
 
-    // ---------- Gudang
-    public function warehouses()
+    private function ds(): \App\Support\Tenancy\DataScope
     {
-        return response()->json(Warehouse::orderBy('code')->get());
+        return app(\App\Support\Tenancy\DataScope::class);
+    }
+
+    /** Pergerakan kelihatan jika salah satu gudangnya dalam skop. */
+    private function movementVisible(StockMovement $m): bool
+    {
+        return $this->ds()->allows('warehouses', $m->from_warehouse_id) || $this->ds()->allows('warehouses', $m->to_warehouse_id);
+    }
+
+    // ---------- Gudang
+    public function warehouses(Request $r)
+    {
+        // ?all=1: senarai penuh untuk pilih gudang destinasi pindahan (nama sahaja tanpa baki).
+        $q = Warehouse::orderBy('code');
+        if (! $r->boolean('all')) {
+            $this->ds()->apply($q, 'warehouses.id', 'warehouses');
+        }
+
+        return response()->json($q->get());
     }
 
     public function saveWarehouse(Request $r, ?int $id = null)
@@ -42,6 +59,8 @@ class InventoryController extends Controller
         $d = $r->validate(['code' => ['required', 'string', 'max:20', 'regex:/^[A-Z0-9_-]+$/i', Rule::unique('warehouses')->where('tenant_id', $tid)->ignore($id)],
             'name' => 'required|string|max:120', 'type' => 'required|in:gudang,outlet,dropship,transit', 'address' => 'nullable|string|max:255', 'is_active' => 'boolean']);
         $w = $id ? Warehouse::findOrFail($id) : new Warehouse;
+        abort_if($id && ! $this->ds()->allows('warehouses', $w->id), 403, 'Gudang ini di luar skop cawangan anda.');
+        abort_if(! $id && $this->ds()->restricted(), 403, 'Hanya ahli berskop seluruh organisasi boleh menambah gudang.');
         $before = $w->exists ? $w->toArray() : null;
         $w->fill($d)->save();
         $this->log($id ? 'inventory.warehouse_updated' : 'inventory.warehouse_created', $w, $before, $d);
@@ -95,6 +114,7 @@ class InventoryController extends Controller
         $q = StockBalance::query()->join('items', 'items.id', '=', 'stock_balances.item_id')->join('warehouses', 'warehouses.id', '=', 'stock_balances.warehouse_id')
             ->leftJoin('batches', 'batches.id', '=', 'stock_balances.batch_id')->where('stock_balances.qty', '!=', 0)
             ->when($r->query('item_id'), fn ($q, $i) => $q->where('stock_balances.item_id', $i))->when($r->query('warehouse_id'), fn ($q, $w) => $q->where('stock_balances.warehouse_id', $w))
+            ->when($this->ds()->restricted(), fn ($q) => $q->whereIn('stock_balances.warehouse_id', $this->ds()->warehouses() ?: [0]))
             ->select('stock_balances.item_id', 'items.sku', 'items.name', 'items.uom', 'stock_balances.warehouse_id', 'warehouses.code as warehouse', 'batches.batch_no', 'batches.expires_on', 'stock_balances.qty', 'stock_balances.value')
             ->orderBy('items.name');
 
@@ -105,13 +125,15 @@ class InventoryController extends Controller
     {
         Item::findOrFail($itemId);
 
-        return response()->json(StockLedgerEntry::where('item_id', $itemId)->when($r->query('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))->orderByDesc('id')->paginate(100));
+        return response()->json(StockLedgerEntry::where('item_id', $itemId)->when($this->ds()->restricted(), fn ($q) => $q->whereIn('warehouse_id', $this->ds()->warehouses() ?: [0]))->when($r->query('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))->orderByDesc('id')->paginate(100));
     }
 
     // ---------- Pergerakan
     public function movements(Request $r)
     {
-        return response()->json(StockMovement::with('lines')->when($r->query('type'), fn ($q, $t) => $q->where('type', $t))->when($r->query('status'), fn ($q, $s) => $q->where('status', $s))->orderByDesc('id')->paginate(50));
+        $wh = $this->ds()->warehouses();
+
+        return response()->json(StockMovement::with('lines')->when($wh !== null, fn ($q) => $q->where(fn ($w) => $w->whereIn('from_warehouse_id', $wh ?: [0])->orWhereIn('to_warehouse_id', $wh ?: [0])))->when($r->query('type'), fn ($q, $t) => $q->where('type', $t))->when($r->query('status'), fn ($q, $s) => $q->where('status', $s))->orderByDesc('id')->paginate(50));
     }
 
     public function createMovement(Request $r, MovementService $svc)
@@ -126,6 +148,8 @@ class InventoryController extends Controller
         foreach ($perlu as $k) {
             abort_if(empty($d[$k]), 422, "Medan $k diperlukan untuk {$d['type']}.");
         }
+        // Skop: gudang sumber (atau gudang sasaran untuk terimaan/pelarasan) mesti dalam cawangan ahli. Destinasi pindahan bebas.
+        $this->ds()->authorize('warehouses', (int) ($d['type'] === 'transfer' || $d['type'] === 'issue' ? $d['from_warehouse_id'] : $d['to_warehouse_id']), 'Gudang ini di luar skop cawangan anda.');
         foreach ($d['lines'] as $i => $l) {
             // Tukar unit (cth kotak → unit asas) ikut faktor barang.
             if (! empty($l['uom'])) {
@@ -154,6 +178,7 @@ class InventoryController extends Controller
     public function post(int $id, MovementService $svc)
     {
         $m = StockMovement::findOrFail($id);
+        abort_unless($this->ds()->allows('warehouses', $m->type === 'transfer' || $m->type === 'issue' ? $m->from_warehouse_id : $m->to_warehouse_id), 403, 'Dokumen ini di luar skop cawangan anda.');
         if (in_array($m->type, ['adjustment', 'count'], true)) {
             abort_unless($this->ctx()->can('inventory.approve'), 403, 'Pelarasan stok perlu kelulusan pengurus.');
             abort_if($m->created_by === auth()->id() && ! $this->ctx()->can('roles.manage'), 403, 'Pelarasan tidak boleh diluluskan oleh pencipta sendiri.');
@@ -164,12 +189,17 @@ class InventoryController extends Controller
 
     public function receive(int $id, MovementService $svc)
     {
-        return response()->json($svc->receiveTransfer(StockMovement::findOrFail($id)));
+        $m = StockMovement::findOrFail($id);
+        $this->ds()->authorize('warehouses', $m->to_warehouse_id, 'Hanya cawangan penerima boleh menerima pindahan ini.');
+
+        return response()->json($svc->receiveTransfer($m));
     }
 
     public function cancel(int $id, MovementService $svc)
     {
-        $svc->cancel(StockMovement::findOrFail($id));
+        $m = StockMovement::findOrFail($id);
+        abort_unless($this->movementVisible($m), 403, 'Dokumen ini di luar skop cawangan anda.');
+        $svc->cancel($m);
 
         return response()->json(['ok' => true]);
     }
@@ -177,16 +207,19 @@ class InventoryController extends Controller
     // ---------- Laporan
     public function reports(Request $r, string $report, StockEngine $engine)
     {
+        $wh = $this->ds()->warehouses();
+        $bal = fn () => StockBalance::query()->when($wh !== null, fn ($q) => $q->whereIn('stock_balances.warehouse_id', $wh ?: [0]));
+
         return response()->json(match ($report) {
-            'valuation' => ['method' => $engine->method(), 'total' => Dec::round(StockBalance::sum('value')),
-                'by_warehouse' => StockBalance::join('warehouses', 'warehouses.id', '=', 'stock_balances.warehouse_id')->groupBy('warehouses.code')->selectRaw('warehouses.code, SUM(stock_balances.value) as value, SUM(stock_balances.qty) as qty')->get()],
-            'low-stock' => Item::where('is_stock', true)->where('is_active', true)->get()->map(fn ($i) => ['id' => $i->id, 'sku' => $i->sku, 'name' => $i->name, 'qty' => Dec::n(StockBalance::where('item_id', $i->id)->sum('qty')), 'reorder_level' => $i->reorder_level, 'safety_stock' => $i->safety_stock])
+            'valuation' => ['method' => $engine->method(), 'total' => Dec::round($bal()->sum('value')),
+                'by_warehouse' => $bal()->join('warehouses', 'warehouses.id', '=', 'stock_balances.warehouse_id')->groupBy('warehouses.code')->selectRaw('warehouses.code, SUM(stock_balances.value) as value, SUM(stock_balances.qty) as qty')->get()],
+            'low-stock' => Item::where('is_stock', true)->where('is_active', true)->get()->map(fn ($i) => ['id' => $i->id, 'sku' => $i->sku, 'name' => $i->name, 'qty' => Dec::n($bal()->where('item_id', $i->id)->sum('qty')), 'reorder_level' => $i->reorder_level, 'safety_stock' => $i->safety_stock])
                 ->filter(fn ($x) => Dec::cmp($x['qty'], $x['reorder_level']) <= 0 && Dec::cmp($x['reorder_level'], 0) > 0)->values(),
-            'expiring' => StockBalance::join('batches', 'batches.id', '=', 'stock_balances.batch_id')->join('items', 'items.id', '=', 'stock_balances.item_id')->where('stock_balances.qty', '>', 0)
+            'expiring' => $bal()->join('batches', 'batches.id', '=', 'stock_balances.batch_id')->join('items', 'items.id', '=', 'stock_balances.item_id')->where('stock_balances.qty', '>', 0)
                 ->whereNotNull('batches.expires_on')->where('batches.expires_on', '<=', now()->addDays((int) $r->query('days', 30))->toDateString())
                 ->orderBy('batches.expires_on')->get(['items.sku', 'items.name', 'batches.batch_no', 'batches.expires_on', 'stock_balances.qty', 'stock_balances.value', 'stock_balances.warehouse_id']),
-            'non-moving' => Item::where('is_stock', true)->get()->filter(function ($i) use ($r) {
-                $ada = Dec::cmp(StockBalance::where('item_id', $i->id)->sum('qty'), 0) > 0;
+            'non-moving' => Item::where('is_stock', true)->get()->filter(function ($i) use ($r, $bal) {
+                $ada = Dec::cmp($bal()->where('item_id', $i->id)->sum('qty'), 0) > 0;
                 $keluar = StockLedgerEntry::where('item_id', $i->id)->where('qty', '<', 0)->where('posted_at', '>=', now()->subDays((int) $r->query('days', 90)))->exists();
 
                 return $ada && ! $keluar;

@@ -11,7 +11,7 @@ class Warehouse extends Model
 
     protected $table = 'warehouses';
 
-    protected $fillable = ['code', 'name', 'type', 'address', 'is_active'];
+    protected $fillable = ['code', 'name', 'type', 'address', 'is_active', 'org_unit_id'];
 
     protected $casts = ['is_active' => 'boolean'];
 }
