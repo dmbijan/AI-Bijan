@@ -198,10 +198,11 @@ class PurchaseOrderController extends Controller
             'received_items.*.purchase_order_line_id' => 'required|integer',
             'received_items.*.quantity_received' => 'required|integer|min:0',
             'received_items.*.quantity_rejected' => 'nullable|integer|min:0',
+            'warehouse_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('warehouses', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
         ]);
         
         try {
-            $grn = $this->poService->receiveGoods($po, $validated['received_items']);
+            $grn = $this->poService->receiveGoods($po, $validated['received_items'], $validated['warehouse_id'] ?? null);
             return response()->json($grn, 201);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);

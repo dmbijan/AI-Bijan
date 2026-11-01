@@ -127,7 +127,7 @@ class PurchaseOrder extends Model
         $year = date('Y');
         $prefix = "PO-{$year}-";
         
-        $lastPO = self::where('po_number', 'like', "{$prefix}%")
+        $lastPO = self::withoutGlobalScopes()->where('po_number', 'like', "{$prefix}%")
             ->orderBy('po_number', 'desc')
             ->first();
         

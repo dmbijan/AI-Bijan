@@ -50,7 +50,7 @@ class GoodsReceivedNote extends Model
         $year = date('Y');
         $prefix = "GRN-{$year}-";
         
-        $lastGRN = self::where('grn_number', 'like', "{$prefix}%")
+        $lastGRN = self::withoutGlobalScopes()->where('grn_number', 'like', "{$prefix}%")
             ->orderBy('grn_number', 'desc')
             ->first();
         

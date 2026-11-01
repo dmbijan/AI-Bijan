@@ -115,3 +115,56 @@ Route::prefix('shifts')->name('hrms.shifts.')->group(function () {
         Route::post('/{id}/toggle-status', [ShiftController::class, 'toggleStatus'])->name('toggle-status');
     });
 });
+
+// Kelompok 2: bakat, prestasi, ganjaran, kemahiran, suara pekerja, faedah, masuk/keluar, AI CHRO
+use App\Modules\HRMS\Http\Controllers\TalentController as Tal;
+
+Route::middleware('perm:hrms.view')->group(function () {
+    Route::get('talent/brief', [Tal::class, 'brief']);
+    Route::get('recruitment/vacancies', [Tal::class, 'vacancies']);
+    Route::get('recruitment/applicants', [Tal::class, 'applicants']);
+    Route::get('performance/goals', [Tal::class, 'goals']);
+    Route::get('performance/reviews', [Tal::class, 'reviews']);
+    Route::get('skills', [Tal::class, 'skills']);
+    Route::get('engagement/surveys', [Tal::class, 'surveys']);
+    Route::post('engagement/surveys/{id}/respond', [Tal::class, 'respond'])->whereNumber('id');
+    Route::get('engagement/recognitions', [Tal::class, 'recognitions']);
+    Route::post('engagement/recognitions', [Tal::class, 'recognise']);
+    Route::get('benefits', [Tal::class, 'benefits']);
+    Route::get('lifecycle', [Tal::class, 'lifecycle']);
+});
+
+Route::middleware('perm:hrms.manage')->group(function () {
+    Route::post('recruitment/vacancies', [Tal::class, 'saveVacancy']);
+    Route::put('recruitment/vacancies/{id}', [Tal::class, 'saveVacancy'])->whereNumber('id');
+    Route::post('recruitment/applicants', [Tal::class, 'storeApplicant']);
+    Route::post('recruitment/applicants/{id}/move', [Tal::class, 'moveApplicant'])->whereNumber('id');
+    Route::post('recruitment/applicants/{id}/hire', [Tal::class, 'hire'])->whereNumber('id');
+    Route::post('performance/goals', [Tal::class, 'saveGoal']);
+    Route::put('performance/goals/{id}', [Tal::class, 'saveGoal'])->whereNumber('id');
+    Route::post('performance/reviews', [Tal::class, 'saveReview']);
+    Route::post('skills', [Tal::class, 'saveSkill']);
+    Route::post('skills/rate', [Tal::class, 'rateSkill']);
+    Route::post('skills/require', [Tal::class, 'requireSkill']);
+    Route::post('engagement/surveys', [Tal::class, 'storeSurvey']);
+    Route::post('engagement/surveys/{id}/close', [Tal::class, 'closeSurvey'])->whereNumber('id');
+    Route::post('benefits/claims', [Tal::class, 'submitClaim']);
+    Route::post('lifecycle/templates', [Tal::class, 'saveTemplate']);
+    Route::post('lifecycle/{id}/onboarding', [Tal::class, 'startOnboarding'])->whereNumber('id');
+    Route::post('lifecycle/{id}/offboarding', [Tal::class, 'startOffboarding'])->whereNumber('id');
+    Route::post('lifecycle/tasks/{id}/toggle', [Tal::class, 'toggleTask'])->whereNumber('id');
+    Route::post('lifecycle/{id}/exit-interview', [Tal::class, 'exitInterview'])->whereNumber('id');
+});
+
+// Duit & data sensitif: gaji, bonus, tuntutan, keputusan survey
+Route::middleware('perm:hrms.approve')->group(function () {
+    Route::get('compensation', [Tal::class, 'compensation']);
+    Route::post('compensation/bands', [Tal::class, 'saveBand']);
+    Route::post('compensation/employees/{id}/grade', [Tal::class, 'setGrade'])->whereNumber('id');
+    Route::post('compensation/changes', [Tal::class, 'requestChange']);
+    Route::post('compensation/changes/{id}/decide', [Tal::class, 'decideChange'])->whereNumber('id');
+    Route::post('benefits/plans', [Tal::class, 'savePlan']);
+    Route::put('benefits/plans/{id}', [Tal::class, 'savePlan'])->whereNumber('id');
+    Route::post('benefits/claims/{id}/decide', [Tal::class, 'decideClaim'])->whereNumber('id');
+    Route::get('engagement/surveys/{id}/results', [Tal::class, 'surveyResults'])->whereNumber('id');
+});

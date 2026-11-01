@@ -40,7 +40,7 @@ class EmployeeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $filters = $request->only(['status', 'department_id', 'employment_type', 'search']);
+        $filters = $request->only(['status', 'department_id', 'employment_type', 'search', 'per_page']);
         $employees = $this->employeeService->listEmployees(app(\App\Support\Tenancy\TenantContext::class)->id(), $filters);
 
         return response()->json([

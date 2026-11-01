@@ -240,7 +240,8 @@ class Employee extends Model
     public static function generateEmployeeNo(): string
     {
         $year = now()->format('Y');
-        $lastNo = static::whereYear('created_at', $year)
+        // employee_no unik merentas semua tenant, jadi siri dikira global (bukan ikut tenant).
+        $lastNo = static::withoutGlobalScopes()->where('employee_no', 'like', 'EMP-'.$year.'-%')
             ->orderBy('employee_no', 'desc')
             ->value('employee_no');
 

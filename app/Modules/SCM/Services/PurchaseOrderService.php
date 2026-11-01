@@ -137,9 +137,10 @@ class PurchaseOrderService
     /**
      * Receive goods against a PO (create GRN).
      */
-    public function receiveGoods(PurchaseOrder $po, array $receivedItems): GoodsReceivedNote
+    public function receiveGoods(PurchaseOrder $po, array $receivedItems, ?int $warehouseId = null): GoodsReceivedNote
     {
-        return DB::transaction(function () use ($po, $receivedItems) {
+        return DB::transaction(function () use ($po, $receivedItems, $warehouseId) {
+            $stockLines = [];
             if (!in_array($po->status, ['sent', 'partially_received'])) {
                 throw new \InvalidArgumentException("Can only receive goods for sent or partially received POs");
             }
@@ -178,6 +179,10 @@ class PurchaseOrderService
                     'uom' => $poLine->uom,
                 ]);
                 
+                if ($warehouseId && $poLine->item_id && $received > 0) {
+                    $stockLines[] = ['item_id' => $poLine->item_id, 'qty' => $received, 'unit_cost' => $poLine->unit_price];
+                }
+
                 // Update PO line
                 $poLine->quantity_received += $received;
                 $poLine->delivery_status = ($poLine->quantity_received >= $poLine->quantity_ordered) ? 2 : 1;
@@ -192,8 +197,16 @@ class PurchaseOrderService
                 $po->status = 'partially_received';
             }
             $po->save();
-            
-            return $grn->fresh()->load(['lines.poLine']);
+
+            // Barang masuk stok terus (dokumen terimaan dipos) supaya kos & baki tepat; kos pendaratan boleh ditambah kemudian.
+            $movement = null;
+            if ($stockLines) {
+                $mv = app(\App\Modules\Inventory\MovementService::class);
+                $movement = $mv->post($mv->create(['type' => 'receipt', 'to_warehouse_id' => $warehouseId, 'reference' => $po->po_number,
+                    'reason' => 'Terimaan '.$grn->grn_number, 'lines' => $stockLines]));
+            }
+
+            return $grn->fresh()->load(['lines.poLine'])->setAttribute('stock_movement', $movement ? ['id' => $movement->id, 'number' => $movement->number] : null);
         });
     }
 
