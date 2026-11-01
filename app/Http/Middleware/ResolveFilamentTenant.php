@@ -38,7 +38,7 @@ class ResolveFilamentTenant
 
         $q = TenantUser::withoutGlobalScope('tenant')
             ->where('user_id', $user->id)
-            ->where('status', 'active');
+            ->where('status', 'active')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
 
         $membership = $pilih
             ? (clone $q)->whereHas('tenant', fn ($t) => $t->where('ulid', $pilih))->first()

@@ -53,6 +53,23 @@ class SaleController extends Controller
         return response()->json($sale);
     }
 
+    /** Pautan wa.me dengan resit siap ditaip (Fasa 1.5a). Pengguna sendiri tekan Hantar di WhatsApp. */
+    public function resitWhatsApp(Request $request, int $id)
+    {
+        $d = $request->validate(['telefon' => 'nullable|string|max:30']);
+        $sale = \App\Modules\POS\Models\POSSale::forTenant($this->tenantId())->with('items')->find($id);
+        if (! $sale || $sale->status !== 'completed') {
+            return response()->json(['message' => 'Jualan selesai tidak dijumpai.'], 404);
+        }
+        $teks = \App\Support\WhatsApp\PautanWhatsApp::teksResit($sale, app(TenantContext::class)->tenant()->name);
+        $nombor = \App\Support\WhatsApp\PautanWhatsApp::nombor($d['telefon'] ?? null);
+        if (! empty($d['telefon']) && ! $nombor) {
+            return response()->json(['message' => 'Nombor telefon tidak sah.'], 422);
+        }
+
+        return response()->json(['url' => \App\Support\WhatsApp\PautanWhatsApp::url($nombor, $teks), 'teks' => $teks, 'nombor' => $nombor]);
+    }
+
     /**
      * Create a draft sale.
      */
@@ -63,6 +80,8 @@ class SaleController extends Controller
             'notes' => 'nullable|string',
             'customer_id' => 'nullable|exists:customers,id',
         ]);
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $validated['register_id'])->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
 
         try {
             $sale = $this->saleService->createDraft(
@@ -95,6 +114,7 @@ class SaleController extends Controller
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
             'discount_amount' => 'nullable|numeric|min:0',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
+            'tax_code' => 'nullable|string|max:10',
         ]);
 
         try {
@@ -192,6 +212,7 @@ class SaleController extends Controller
             'items.*.quantity' => 'required|numeric|min:0.001',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'items.*.tax_code' => 'nullable|string|max:10',
             'tenders' => 'required|array|min:1|max:2',
             'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher,duitnow',
             'tenders.*.amount' => 'required|numeric|min:0.01',
@@ -199,6 +220,8 @@ class SaleController extends Controller
             'tenders.*.reference' => 'nullable|string|max:255',
             'client_uuid' => 'nullable|uuid',
         ]);
+        // Kaunter mesti milik syarikat ini DAN dalam skop cawangan ahli (skop global model).
+        abort_unless(\App\Modules\POS\Models\POSRegister::whereKey((int) $v['register_id'])->exists(), 403, 'Kaunter ini di luar skop cawangan anda.');
         $tenantId = $this->tenantId();
 
         if (! empty($v['client_uuid'])) {
@@ -235,6 +258,8 @@ class SaleController extends Controller
         $rows = \App\Modules\POS\Models\POSSaleItem::query()
             ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
             ->where('pos_sales.tenant_id', $this->tenantId())
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers(), fn ($q, $ids) => $q->whereIn('pos_sales.register_id', $ids))
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers() === [], fn ($q) => $q->whereRaw('1 = 0'))
             ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
             ->orderByDesc('pos_sale_items.id')->limit(200)
             ->get(['pos_sale_items.id', 'pos_sale_items.product_id', 'pos_sale_items.product_name', 'pos_sale_items.quantity',
@@ -249,6 +274,8 @@ class SaleController extends Controller
         $item = \App\Modules\POS\Models\POSSaleItem::query()
             ->join('pos_sales', 'pos_sales.id', '=', 'pos_sale_items.sale_id')
             ->where('pos_sales.tenant_id', $this->tenantId())
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers(), fn ($q, $ids) => $q->whereIn('pos_sales.register_id', $ids))
+            ->when(app(\App\Support\Tenancy\DataScope::class)->registers() === [], fn ($q) => $q->whereRaw('1 = 0'))
             ->whereIn('pos_sale_items.stock_status', ['insufficient', 'no_warehouse'])
             ->where('pos_sale_items.id', $itemId)
             ->select('pos_sale_items.*')->first();

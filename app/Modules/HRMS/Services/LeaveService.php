@@ -212,7 +212,7 @@ class LeaveService
             $query->where('tenant_id', $tenantId);
         })
         ->where('status', 'pending')
-        ->with(['employee.department', 'employee.user'])
+        ->with(['employee.department', 'employee.user', 'leaveType'])
         ->orderBy('created_at', 'desc')
         ->limit($limit)
         ->get();

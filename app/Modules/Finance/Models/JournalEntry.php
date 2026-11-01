@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class JournalEntry extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units';
+
     use BelongsToTenant;
 
     use HasFactory;
@@ -18,6 +24,7 @@ class JournalEntry extends Model
     protected $table = 'journal_entries';
 
     protected $fillable = [
+        'org_unit_id',
         'tenant_id',
         'entry_number',
         'entry_date',

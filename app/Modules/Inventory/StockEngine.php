@@ -178,6 +178,67 @@ class StockEngine
         return ValidationException::withMessages(['qty' => "Stok {$item->sku} tidak mencukupi (perlu ".rtrim(rtrim(Dec::n($perlu), '0'), '.').($ada !== null ? ', ada '.rtrim(rtrim(Dec::n($ada), '0'), '.') : '').').']);
     }
 
+    /**
+     * Tambah nilai (tanpa ubah kuantiti) kepada stok sedia ada, cth. kos pendaratan.
+     * Nilai diagih ikut kuantiti baki merentas batch, dan (FIFO) ke lapisan terbaharu yang masih ada baki
+     * sehingga $qtyCap unit. Pulangkan nilai yang benar-benar dimasukkan ke stok.
+     */
+    public function revalue(int $itemId, int $whId, $value, $qtyCap, string $srcType, int $srcId, ?string $reason = null): string
+    {
+        $value = Dec::n($value);
+        if (Dec::cmp($value, 0) <= 0) {
+            return '0';
+        }
+
+        return DB::transaction(function () use ($itemId, $whId, $value, $qtyCap, $srcType, $srcId, $reason) {
+            $this->lock($itemId);
+            $rows = StockBalance::where(['item_id' => $itemId, 'warehouse_id' => $whId])->where('qty', '>', 0)->lockForUpdate()->get();
+            $qty = Dec::n($rows->reduce(fn ($c, $b) => Dec::add($c, $b->qty), '0'));
+            if (Dec::cmp($qty, 0) <= 0) {
+                return '0';
+            }
+            $baki = $value;
+            foreach ($rows->values() as $i => $b) {
+                $part = $i === $rows->count() - 1 ? $baki : Dec::round(Dec::mul($value, Dec::div($b->qty, $qty)), 6);
+                $baki = Dec::sub($baki, $part);
+                $b->value = Dec::add($b->value, $part);
+                $b->save();
+                if ($this->method() === 'fifo') {
+                    $this->naikLapisan($itemId, $whId, $b->batch_id, $part, Dec::min($qtyCap, $b->qty));
+                }
+                StockLedgerEntry::create(['item_id' => $itemId, 'warehouse_id' => $whId, 'batch_id' => $b->batch_id, 'qty' => 0, 'unit_cost' => 0, 'value' => $part,
+                    'balance_qty' => $b->qty, 'balance_value' => $b->value, 'source_type' => $srcType, 'source_id' => $srcId, 'reason' => $reason, 'user_id' => auth()->id(), 'posted_at' => now()]);
+            }
+
+            return $value;
+        });
+    }
+
+    private function naikLapisan(int $itemId, int $whId, ?int $batchId, string $value, string $qtyCap): void
+    {
+        $lapisan = StockLayer::where(['item_id' => $itemId, 'warehouse_id' => $whId, 'batch_id' => $batchId])->where('qty_remaining', '>', 0)
+            ->orderByDesc('received_at')->orderByDesc('id')->lockForUpdate()->get();
+        $ambil = [];
+        $perlu = $qtyCap;
+        foreach ($lapisan as $l) {
+            if (Dec::cmp($perlu, 0) <= 0) {
+                break;
+            }
+            $q = Dec::min($perlu, $l->qty_remaining);
+            $ambil[] = [$l, $q];
+            $perlu = Dec::sub($perlu, $q);
+        }
+        $jumlah = Dec::sub($qtyCap, $perlu);
+        if (Dec::cmp($jumlah, 0) <= 0) {
+            return;
+        }
+        foreach ($ambil as [$l, $q]) {
+            $inc = Dec::mul($value, Dec::div($q, $jumlah));
+            $l->unit_cost = Dec::add($l->unit_cost, Dec::div($inc, $l->qty_remaining));
+            $l->save();
+        }
+    }
+
     /** Kos purata semasa (untuk pelarasan masuk tanpa kos). */
     public function averageCost(int $itemId, ?int $whId = null): string
     {

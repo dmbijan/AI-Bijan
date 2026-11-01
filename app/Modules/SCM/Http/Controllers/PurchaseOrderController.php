@@ -87,6 +87,7 @@ class PurchaseOrderController extends Controller
     {
         $validated = $request->validate([
             'supplier_id' => 'required|integer',
+            'org_unit_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('org_units', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
             'order_date' => 'required|date',
             'expected_delivery_date' => 'nullable|date|after:order_date',
             'shipping_cost' => 'nullable|numeric|min:0',
@@ -107,6 +108,9 @@ class PurchaseOrderController extends Controller
         ]);
         
         $validated['tenant_id'] = $this->tenantId();
+        if (! empty($validated['org_unit_id'])) {
+            app(\App\Support\Tenancy\DataScope::class)->authorize('units', (int) $validated['org_unit_id'], 'Unit ini di luar skop anda.');
+        }
         
         try {
             $po = $this->poService->createPurchaseOrder($validated);
@@ -198,10 +202,11 @@ class PurchaseOrderController extends Controller
             'received_items.*.purchase_order_line_id' => 'required|integer',
             'received_items.*.quantity_received' => 'required|integer|min:0',
             'received_items.*.quantity_rejected' => 'nullable|integer|min:0',
+            'warehouse_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('warehouses', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
         ]);
         
         try {
-            $grn = $this->poService->receiveGoods($po, $validated['received_items']);
+            $grn = $this->poService->receiveGoods($po, $validated['received_items'], $validated['warehouse_id'] ?? null);
             return response()->json($grn, 201);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);

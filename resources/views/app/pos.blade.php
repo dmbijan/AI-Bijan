@@ -86,6 +86,7 @@
             <div class="mt-4">
                 <div class="pos-cart-line"><span class="text-muted">Subtotal</span><span id="tSubtotal">—</span></div>
                 <div class="pos-cart-line"><span class="text-muted">Diskaun</span><span id="tDiscount">—</span></div>
+                <div class="pos-cart-line" id="tTaxRow" hidden><span class="text-muted" id="tTaxLabel">SST</span><span id="tTax">—</span></div>
                 <div class="pos-cart-line"><span class="text-muted">Caj perkhidmatan</span><span id="tService">—</span></div>
                 <div class="pos-cart-line grand"><span>Jumlah</span><span id="tTotal">—</span></div>
             </div>
@@ -243,6 +244,19 @@
             </div>
         </div>
     </div>
+    <div class="card mb-4">
+        <div class="card-header">
+            <div><h2 class="card-title">Bayaran Online (CHIP)</h2><p class="card-subtitle">Sambung akaun CHIP kedai anda: pelanggan bayar FPX/kad/DuitNow melalui pautan, duit terus ke akaun kedai.</p></div>
+            <span class="badge" id="chipStatus">—</span>
+        </div>
+        <div class="grid grid-3" style="gap:12px;align-items:end">
+            <div class="field" style="margin:0"><label class="label" for="chipBrand">Brand ID</label><input class="input mono" id="chipBrand" autocomplete="off"></div>
+            <div class="field" style="margin:0"><label class="label" for="chipKey">Secret key</label><input class="input mono" id="chipKey" type="password" autocomplete="new-password" placeholder="Tidak dipaparkan selepas disimpan"></div>
+            <button class="btn btn-primary" id="chipSave" onclick="simpanChip()">Sahkan &amp; simpan</button>
+        </div>
+        <p class="text-xs text-muted mt-2">Kunci disulitkan dan tidak pernah dipaparkan semula. Dapatkan di portal CHIP → Developers.</p>
+    </div>
+
     <div class="card mb-4">
         <div class="card-header">
             <div><h2 class="card-title">Semakan Stok</h2><p class="card-subtitle">Jualan yang stoknya tak dapat dipotong. Jualan tetap sah; betulkan stok di Inventori, kemudian tanda disemak.</p></div>
@@ -465,7 +479,22 @@
 const POS = {
     registers: [], products: [], cart: [], registerId: null, shift: null,
     saleDiscount: 0, payTarget: null, discountLimits: null,
+    tax: { default: null, codes: [] }, // FIN-010: kod SST (disimpan dalam peranti untuk luar talian)
 };
+
+const round2c = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+function kadarSst(code) { return code ? (POS.tax.codes.find(c => c.code === code)?.rate ?? 0) : 0; }
+async function loadTaxCodes() {
+    try {
+        POS.tax = (await App.api.get('/api/v1/pos/tax-codes')).data;
+        try { localStorage.setItem('aibijan-pos-sst', JSON.stringify(POS.tax)); } catch { /* pilihan */ }
+    } catch {
+        try { POS.tax = JSON.parse(localStorage.getItem('aibijan-pos-sst')) || POS.tax; } catch { /* kekal kosong */ }
+    }
+    POS.cart.forEach(l => { if (l.tax_code === undefined) l.tax_code = POS.tax.default; });
+    recalcCart();
+}
+function setTaxCode(idx, code) { if (POS.cart[idx]) { POS.cart[idx].tax_code = code || null; recalcCart(); } }
 
 function rows(r) {
     if (Array.isArray(r)) return r;
@@ -482,7 +511,7 @@ document.querySelectorAll('[data-tab]').forEach(tab => {
         const name = tab.dataset.tab;
         if (name === 'sales') loadSales();
         if (name === 'shifts') { loadShiftSummary(); loadShifts(); }
-        if (name === 'registers') { renderRegisters(); loadStockExceptions(); }
+        if (name === 'registers') { renderRegisters(); loadStockExceptions(); loadChip(); }
         if (name === 'kitchen') loadKitchen();
         if (name === 'discounts') loadDiscounts();
     });
@@ -494,7 +523,7 @@ async function loadAll() {
     kemasLencana();
     segerakSekarang(true);
     await loadRegisters();
-    await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits()]);
+    await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits(), loadTaxCodes()]);
     await loadCurrentShift();
 }
 
@@ -637,6 +666,7 @@ function addToCart(productId) {
         product_sku: p.sku ?? null,
         unit_price: productPrice(p),
         quantity: 1,
+        tax_code: POS.tax.default,
     });
     recalcCart();
 }
@@ -662,7 +692,12 @@ function clearCart() { POS.cart = []; recalcCart(); }
 function cartTotals() {
     const subtotal = POS.cart.reduce((s, l) => s + l.unit_price * l.quantity, 0);
     const disc = subtotal * (POS.saleDiscount / 100);
-    return { subtotal, disc, total: subtotal - disc };
+    // Sama seperti pelayan (SaleService::addItem): cukai setiap baris atas (subtotal - diskaun), dibundar ke sen.
+    const tax = POS.cart.reduce((s, l) => {
+        const sub = l.unit_price * l.quantity;
+        return s + round2c((sub - sub * (POS.saleDiscount / 100)) * kadarSst(l.tax_code) / 100);
+    }, 0);
+    return { subtotal, disc, tax: round2c(tax), total: round2c(subtotal - disc + tax) };
 }
 
 function recalcCart() {
@@ -671,7 +706,10 @@ function recalcCart() {
     const body = App.$('#cartBody');
     body.innerHTML = POS.cart.length ? POS.cart.map((l, i) => `
         <tr>
-            <td class="text-sm">${App.escapeHtml(l.product_name)}</td>
+            <td class="text-sm">${App.escapeHtml(l.product_name)}${POS.tax.codes.length && POS.tax.default ? `
+                <select class="select" style="display:block;margin-top:4px;padding:2px 6px;font-size:12px;height:auto;width:auto" aria-label="Kod SST ${App.escapeHtml(l.product_name)}" onchange="setTaxCode(${i}, this.value)">
+                    ${POS.tax.codes.map(c => `<option value="${c.code}" ${c.code === l.tax_code ? 'selected' : ''}>${c.code} ${c.rate}%</option>`).join('')}
+                </select>` : ''}</td>
             <td>
                 <span class="pos-qty">
                     <button class="btn btn-sm" aria-label="Kurang kuantiti ${App.escapeHtml(l.product_name)}" onclick="changeQty(${i},-1)">−</button>
@@ -688,6 +726,8 @@ function recalcCart() {
     const t = cartTotals();
     App.$('#tSubtotal').textContent = App.rupiah(t.subtotal);
     App.$('#tDiscount').textContent = '− ' + App.rupiah(t.disc);
+    App.$('#tTaxRow').hidden = !t.tax;
+    App.$('#tTax').textContent = App.rupiah(t.tax);
     App.$('#tTotal').textContent = App.rupiah(t.total);
     App.$('#cartMeta').textContent = POS.cart.length + ' item · ' + POS.cart.reduce((s, l) => s + l.quantity, 0) + ' unit';
 }
@@ -707,6 +747,7 @@ async function commitCart() {
             quantity: l.quantity,
             unit_price: l.unit_price,
             discount_percentage: POS.saleDiscount || 0,
+            tax_code: l.tax_code ?? null,
         });
     }
     return App.api.get(`/api/v1/pos/sales/${sale.id}`);
@@ -854,6 +895,7 @@ async function bayarKasa() {
         items: POS.cart.map(l => ({
             product_id: l.product_id, product_name: l.product_name, product_sku: l.product_sku,
             quantity: l.quantity, unit_price: l.unit_price, discount_percentage: POS.saleDiscount || 0,
+            tax_code: l.tax_code ?? null,
         })),
         tenders: built.tenders,
     };
@@ -868,6 +910,45 @@ async function bayarKasa() {
     closePayDialog();
     clearCart();
     kemasLencana();
+}
+
+// ---------- Bayaran online CHIP kedai ----------
+async function loadChip() {
+    try {
+        const g = (await App.api.get('/api/v1/pos/payment-gateway')).data;
+        const b = App.$('#chipStatus');
+        b.textContent = g ? `Disambung (${g.kunci})` : 'Belum disambung';
+        b.className = 'badge badge-' + (g ? 'success' : 'neutral');
+        if (g) App.$('#chipBrand').value = g.brand_id;
+    } catch { /* tiada akses tetapan */ }
+}
+async function simpanChip() {
+    const brand_id = App.$('#chipBrand').value.trim(), api_key = App.$('#chipKey').value.trim();
+    if (!brand_id || !api_key) { App.toast('Isi Brand ID dan secret key.', 'error'); return; }
+    await App.withLoading(App.$('#chipSave'), async () => {
+        try { await App.api.put('/api/v1/pos/payment-gateway', { brand_id, api_key }); App.$('#chipKey').value = ''; App.toast('Akaun CHIP disahkan & disambung', 'success'); loadChip(); }
+        catch (e) { App.toast(e.message, 'error'); }
+    });
+}
+async function pautanBayar(id) {
+    try {
+        const l = (await App.api.post(`/api/v1/pos/sales/${id}/pautan-bayar`, {})).data;
+        const telefon = prompt(`Pautan bayar ${App.rupiah(l.jumlah)} sedia:\n${l.url}\n\nHantar ke WhatsApp pelanggan? Masukkan nombor (kosong = pilih kenalan), atau Batal untuk salin sahaja.`, '');
+        if (telefon === null) { try { await navigator.clipboard.writeText(l.url); App.toast('Pautan disalin', 'success'); } catch {} return; }
+        const teks = `Assalamualaikum / Hai, ini pautan bayaran ${App.rupiah(l.jumlah)}:\n${l.url}\nBoleh bayar guna FPX, kad atau DuitNow. Terima kasih!`;
+        const r = await App.api.post('/api/v1/ai-agents/whatsapp-pautan', { teks, telefon });
+        window.open(r.url, '_blank', 'noopener');
+    } catch (e) { App.toast(e.message, 'error'); }
+}
+
+// ---------- Resit WhatsApp (pautan wa.me; pengguna sendiri tekan Hantar) ----------
+async function resitWhatsApp(id) {
+    const telefon = prompt('Nombor WhatsApp pelanggan (kosongkan untuk pilih kenalan):', '');
+    if (telefon === null) return;
+    try {
+        const r = await App.api.get(`/api/v1/pos/sales/${id}/resit-whatsapp?telefon=${encodeURIComponent(telefon)}`);
+        window.open(r.url, '_blank', 'noopener');
+    } catch (e) { App.toast(e.message, 'error'); }
 }
 
 // ---------- Luar talian ----------
@@ -931,10 +1012,12 @@ async function loadSales() {
 function saleActions(s) {
     if (s.status === 'draft') {
         return `<button class="btn btn-sm btn-primary" onclick="openPayForSale(${s.id}, ${Number(s.total_amount) || 0})">Bayar</button> ` +
+               `<button class="btn btn-sm" onclick="pautanBayar(${s.id})">Pautan bayar</button> ` +
                `<button class="btn btn-sm" onclick="cancelSale(${s.id})">Batal</button>`;
     }
     if (s.status === 'completed') {
         return `<button class="btn btn-sm" onclick="printPosReceipt(${s.id})">Cetak resit USB</button> ` +
+               `<button class="btn btn-sm" onclick="resitWhatsApp(${s.id})">WhatsApp</button> ` +
                `<button class="btn btn-sm btn-danger" onclick="openRefund(${s.id}, ${Number(s.total_amount) || 0})">Pulangan</button>`;
     }
     return '—';

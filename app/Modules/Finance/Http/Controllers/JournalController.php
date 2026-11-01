@@ -94,6 +94,7 @@ class JournalController extends Controller
             'narration_bm' => 'nullable|string|max:1000',
             'source_module' => 'nullable|string|max:100',
             'source_id' => 'nullable|string|max:255',
+            'org_unit_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('org_units', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
             'lines' => 'required|array|min:2',
             'lines.*.account_id' => 'required|integer',
             'lines.*.debit' => 'required|numeric|min:0',

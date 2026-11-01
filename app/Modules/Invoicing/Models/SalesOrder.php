@@ -13,6 +13,12 @@ use App\Models\User;
 
 class SalesOrder extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units';
+
     use BelongsToTenant;
 
     use HasFactory, SoftDeletes;
@@ -82,7 +88,7 @@ class SalesOrder extends Model
         $year = date('Y');
         $prefix = 'SO';
         
-        $lastOrder = self::whereYear('created_at', $year)
+        $lastOrder = self::withoutGlobalScope('org_unit')->whereYear('created_at', $year)
             ->orderBy('id', 'desc')
             ->first();
 

@@ -24,13 +24,25 @@ class FinancialReportController extends Controller
         $validated = $request->validate([
             'date_from' => 'required|date',
             'date_to' => 'required|date|after_or_equal:date_from',
+            'org_unit_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('org_units', 'id')->where('tenant_id', app(\App\Support\Tenancy\TenantContext::class)->id())],
         ]);
-        
-        $report = $this->reportService->generateProfitLoss(
-            $validated['date_from'],
-            $validated['date_to']
-        );
-        
+
+        // P&L per cawangan/jabatan: jurnal yang ditanda unit itu dan unit di bawahnya.
+        // Ahli berskop cawangan hanya boleh lihat unit dalam skopnya (lalai: semua unit skopnya).
+        $ds = app(\App\Support\Tenancy\DataScope::class);
+        $units = null;
+        if (! empty($validated['org_unit_id'])) {
+            $ds->authorize('units', (int) $validated['org_unit_id'], 'Unit ini di luar skop anda.');
+            $units = app(\App\Services\AccessService::class)->descendants((int) $validated['org_unit_id'], true);
+        }
+        if ($ds->restricted()) {
+            $units = $units === null ? $ds->units() : array_values(array_intersect($units, $ds->units()));
+        }
+
+        $report = $this->reportService->generateProfitLoss($validated['date_from'], $validated['date_to'], $units);
+        $report['scope'] = $units === null ? ['type' => 'company'] : ['type' => 'units', 'unit_ids' => $units,
+            'note' => 'Hanya jurnal yang ditanda unit ini. Jurnal ibu pejabat tanpa unit (cth. sewa pusat) tidak termasuk.'];
+
         return response()->json($report);
     }
 

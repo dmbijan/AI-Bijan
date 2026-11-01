@@ -8,6 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OvertimeRequest extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'employee_id';
+
+    protected static string $orgScopeKind = 'employees';
+
     use HasFactory;
 
     protected $table = 'hrms_overtime_requests';

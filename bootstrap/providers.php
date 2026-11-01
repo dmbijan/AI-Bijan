@@ -57,6 +57,7 @@ return [
     App\Modules\Site\SiteServiceProvider::class,
     App\Modules\VirtualOffice\VirtualOfficeServiceProvider::class,
     App\Modules\WorkflowStudio\WorkflowStudioServiceProvider::class,
+    App\Modules\DataImport\DataImportServiceProvider::class,
     App\Providers\AppServiceProvider::class,
     App\Providers\Filament\AdminPanelProvider::class,
 ];

@@ -40,7 +40,7 @@ class EmployeeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $filters = $request->only(['status', 'department_id', 'employment_type', 'search']);
+        $filters = $request->only(['status', 'department_id', 'employment_type', 'search', 'per_page']);
         $employees = $this->employeeService->listEmployees(app(\App\Support\Tenancy\TenantContext::class)->id(), $filters);
 
         return response()->json([
@@ -113,8 +113,16 @@ class EmployeeController extends Controller
             ], 422);
         }
 
+        // OAM: pekerja baharu milik unit pencipta jika pencipta berskop cawangan/jabatan.
+        $data = $request->all();
+        $ds = app(\App\Support\Tenancy\DataScope::class);
+        if ($ds->restricted()) {
+            $data['org_unit_id'] ??= \App\Models\MembershipScope::where('tenant_user_id', app(\App\Support\Tenancy\TenantContext::class)->membership()?->id)->value('org_unit_id');
+            $ds->authorize('units', isset($data['org_unit_id']) ? (int) $data['org_unit_id'] : null, 'Pilih unit dalam skop anda untuk pekerja ini.');
+        }
+
         try {
-            $employee = $this->employeeService->create($request->all(), app(\App\Support\Tenancy\TenantContext::class)->id());
+            $employee = $this->employeeService->create($data, app(\App\Support\Tenancy\TenantContext::class)->id());
 
             return response()->json([
                 'success' => true,

@@ -86,6 +86,9 @@ Route::prefix('public/{slug}/helpdesk')->middleware('throttle:30,1')->where(['sl
     Route::post('tickets/{token}/reply', [HelpdeskController::class, 'publicReply'])->middleware('throttle:10,10');
     Route::get('articles', [HelpdeskController::class, 'publicArticles']);
 });
+// Callback CHIP untuk bayaran pelanggan kedai (awam; tandatangan disahkan dengan kunci awam CHIP kedai)
+Route::post('webhooks/chip-kedai/{ulid}', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'callback'])
+    ->middleware('throttle:120,1')->where('ulid', '[0-9A-Za-z]{26}');
 // Menu meja QR (awam, token meja, had kadar)
 Route::prefix('public/meja/{token}')->middleware('throttle:60,1')->where(['token' => '[a-z0-9]{24}'])->group(function () {
     Route::get('/', [\App\Modules\POS\Http\Controllers\PublicDineController::class, 'show']);
@@ -115,6 +118,33 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('roles', [TenantController::class, 'saveRole'])->middleware('perm:roles.manage');
         Route::put('roles/{id}', [TenantController::class, 'saveRole'])->middleware('perm:roles.manage')->whereNumber('id');
         Route::get('audit', [TenantController::class, 'audit'])->middleware('perm:audit.view');
+
+        // OAM: struktur organisasi, skop & status ahli, semakan akses, seat, jemputan, sesi
+        Route::prefix('org')->group(function () {
+            $O = \App\Http\Controllers\Api\V1\OrganizationController::class;
+            Route::get('overview', [$O, 'overview'])->middleware('perm:tenant.settings.view');
+            Route::get('units', [$O, 'units'])->middleware('perm:tenant.settings.view');
+            Route::post('units', [$O, 'saveUnit'])->middleware('perm:tenant.settings.update');
+            Route::put('units/{id}', [$O, 'saveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
+            Route::post('units/{id}/archive', [$O, 'archiveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
+            Route::get('modules', [$O, 'modules'])->middleware('perm:tenant.settings.view');
+            Route::get('links', [$O, 'links'])->middleware('perm:tenant.settings.update');
+            Route::put('links', [$O, 'setLink'])->middleware('perm:tenant.settings.update');
+            Route::get('members', [$O, 'members'])->middleware('perm:members.view');
+            Route::get('members/{id}/effective', [$O, 'effective'])->middleware('perm:members.view')->whereNumber('id');
+            Route::put('members/{id}/scope', [$O, 'setScope'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/suspend', [$O, 'suspend'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/revoke', [$O, 'revoke'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/reactivate', [$O, 'reactivate'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('access/check', [$O, 'check']);
+            Route::get('seats', [$O, 'seats'])->middleware('perm:members.view');
+            Route::get('invitations', [$O, 'invitations'])->middleware('perm:members.invite');
+            Route::post('invitations/{id}/resend', [$O, 'resendInvitation'])->middleware('perm:members.invite')->whereNumber('id');
+            Route::post('invitations/{id}/cancel', [$O, 'cancelInvitation'])->middleware('perm:members.invite')->whereNumber('id');
+            Route::post('roles/{id}/clone', [$O, 'cloneRole'])->middleware('perm:roles.manage')->whereNumber('id');
+            Route::get('sessions', [$O, 'sessions']);
+            Route::delete('sessions/{id}', [$O, 'revokeSession']);
+        });
         Route::post('files', [TenantController::class, 'upload'])->middleware('perm:files.upload');
         Route::get('files/{ulid}', [TenantController::class, 'download'])->middleware('perm:files.view');
         Route::get('api-keys', [TenantController::class, 'apiKeys'])->middleware('perm:api_keys.manage');
@@ -1033,6 +1063,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // List available agents (view)
         Route::prefix('ai-agents')->middleware('perm:ai_agents.view')->group(function () {
             Route::get('/list', [AIAgentCtrl::class, 'listAgents']);
+            Route::get('/tools', [AIAgentCtrl::class, 'tools']);
             Route::get('/{agentKey}', [AIAgentCtrl::class, 'getAgent']);
             Route::get('/tenant/list', [AIAgentCtrl::class, 'listTenantAgents']);
             Route::get('/{agentKey}/stats', [AIAgentCtrl::class, 'getAgentStats']);
@@ -1058,6 +1089,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('ai-agents')->middleware('perm:ai_agents.execute')->group(function () {
             Route::post('/execute/task', [AIAgentCtrl::class, 'executeTask']);
             Route::post('/execute/tool', [AIAgentCtrl::class, 'executeTool']);
+            Route::post('/tools/run', [AIAgentCtrl::class, 'runTool']);
+            Route::post('/tanya', [AIAgentCtrl::class, 'tanya']);
+            Route::post('/whatsapp-pautan', [AIAgentCtrl::class, 'pautanWhatsApp']);
             Route::post('/invoke', [AIAgentCtrl::class, 'invokeAgent']);
         });
         // ============================================            // B-Personal AI Assistant (BAB 17)            // ============================================
@@ -1528,9 +1562,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Financial Reports (read-only)
         Route::middleware('perm:finance.reports')->group(function () {
             Route::get('finance/reports/profit-loss', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'profitLoss']);
-            Route::get('finance/reports/balance-sheet', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'balanceSheet']);
-            Route::get('finance/reports/trial-balance', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'trialBalance']);
-            Route::get('finance/reports/general-ledger/{accountId}', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'generalLedger'])->whereNumber('accountId');
+            Route::get('finance/reports/balance-sheet', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'balanceSheet'])->middleware('company.scope');
+            Route::get('finance/reports/trial-balance', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'trialBalance'])->middleware('company.scope');
+            Route::get('finance/reports/general-ledger/{accountId}', [\App\Modules\Finance\Http\Controllers\FinancialReportController::class, 'generalLedger'])->whereNumber('accountId')->middleware('company.scope');
         });
         // ============================================            // B-SCM — Supply Chain Management            // ============================================
         // Suppliers

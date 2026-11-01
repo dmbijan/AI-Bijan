@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class POSSale extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'register_id';
+
+    protected static string $orgScopeKind = 'registers';
+
     use BelongsToTenant;
 
     use HasFactory;
@@ -202,7 +208,8 @@ class POSSale extends Model
     public static function generateSaleNo(): string
     {
         $year = now()->format('Y');
-        $lastNo = static::whereYear('created_at', $year)
+        // Siri nombor dikongsi semua cawangan: abaikan skop cawangan (skop tenant kekal).
+        $lastNo = static::withoutGlobalScope('org_unit')->whereYear('created_at', $year)
             ->orderBy('sale_no', 'desc')
             ->value('sale_no');
 

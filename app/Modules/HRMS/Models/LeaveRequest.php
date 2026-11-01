@@ -9,6 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LeaveRequest extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'employee_id';
+
+    protected static string $orgScopeKind = 'employees';
+
     use HasFactory;
 
     protected $table = 'hrms_leave_requests';

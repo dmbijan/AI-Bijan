@@ -9,6 +9,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Opportunity extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'org_unit_id';
+
+    protected static string $orgScopeKind = 'units';
+
     use BelongsToTenant;
 
     protected $table = 'opportunities';
@@ -79,7 +85,7 @@ class Opportunity extends Model
     public static function generateOpportunityNumber(): string
     {
         $year = date('Y');
-        $lastNumber = static::whereYear('created_at', $year)
+        $lastNumber = static::withoutGlobalScope('org_unit')->whereYear('created_at', $year)
             ->max('id');
         $number = ($lastNumber ?? 0) + 1;
         

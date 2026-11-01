@@ -30,7 +30,9 @@
                 $groups = [
                     'Utama' => [
                         ['Papan Pemuka', '/app', '◈'],
+                        ['Mula Berniaga', '/app/mula', '➜'],
                         ['Command Centre', '/app/command-centre', '◎'],
+                        ['Peti Kelulusan', '/app/kelulusan', '✓'],
                         ['Pejabat Maya', '/app/pejabat', '◉'],
                     ],
                     'AI & Automasi' => [
@@ -68,6 +70,7 @@
                         ['Logistik', '/app/logistics', '▷'],
                         ['SCM', '/app/scm', '⛓'],
                         ['Aset', '/app/assets', '▣'],
+                        ['Import Data', '/app/import', '⇪'],
                     ],
                     'Kewangan' => [
                         ['Kewangan', '/app/finance', '▦'],
@@ -82,6 +85,9 @@
                         ['Analitik', '/app/analytics', '◔'],
                         ['Brain Hub', '/app/brainhub', '◇'],
                         ['Industry Packs', '/app/industry', '▨'],
+                    ],
+                    'Tetapan' => [
+                        ['Organisasi & Akses', '/app/organisasi', '⚙'],
                     ],
                 ];
             @endphp

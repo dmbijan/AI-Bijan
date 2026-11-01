@@ -129,6 +129,11 @@ class AuthController extends Controller
         $d = $r->validate(['token' => 'required|string|size:64', 'name' => 'nullable|string|max:120', 'password' => ['nullable', Password::min(10)->letters()->numbers()]]);
         $m = TenantUser::withoutGlobalScope('tenant')->where('invite_token_hash', hash('sha256', $d['token']))->where('status', 'invited')->first();
         abort_unless($m && $m->invite_expires_at?->isFuture(), 404, 'Jemputan tidak sah atau tamat tempoh.');
+        // OAM: jemputan tidak memakai seat; seat dikira bila diterima.
+        $tenant = \App\Models\Tenant::find($m->tenant_id);
+        app(\App\Support\Tenancy\TenantContext::class)->set($tenant);
+        abort_unless(app(\App\Services\AccessService::class)->seatAvailable($tenant->id), 409, 'Seat pengguna syarikat ini sudah penuh. Minta pentadbir tambah seat atau naik taraf pakej.');
+        app(\App\Support\Tenancy\TenantContext::class)->clear();
         $u = $m->user;
         if ($u->must_set_password) {
             abort_unless(! empty($d['password']) && ! empty($d['name']), 422, 'Isi nama dan kata laluan.');

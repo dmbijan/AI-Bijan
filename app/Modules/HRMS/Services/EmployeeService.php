@@ -42,7 +42,9 @@ class EmployeeService
             });
         }
 
-        return $query->orderBy('last_name')->paginate(20);
+        $perPage = max(1, min(200, (int) ($filters['per_page'] ?? 20)));
+
+        return $query->with(['department:id,name', 'designation:id,name'])->orderBy('first_name')->paginate($perPage);
     }
 
     /**

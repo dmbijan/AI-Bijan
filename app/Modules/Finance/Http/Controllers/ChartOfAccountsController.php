@@ -48,7 +48,7 @@ class ChartOfAccountsController extends Controller
             });
         }
         
-        return response()->json($query->paginate(50));
+        return response()->json($query->paginate(min(500, max(1, (int) $request->input('per_page', 50)))));
     }
 
     /**

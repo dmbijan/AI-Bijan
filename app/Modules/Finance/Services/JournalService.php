@@ -50,6 +50,7 @@ class JournalService
                 'period' => $period,
                 'source_module' => $data['source_module'] ?? null,
                 'source_id' => $data['source_id'] ?? null,
+                'org_unit_id' => $data['org_unit_id'] ?? null, // kosong → unit pencipta jika berskop (ScopedToOrgUnits)
                 'status' => 'draft',
             ]);
             

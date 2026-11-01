@@ -91,6 +91,8 @@ class TenantController extends Controller
         $roles = Role::whereIn('key', $d['roles'])->get();
         abort_if($roles->count() !== count(array_unique($d['roles'])), 422, 'Peranan tidak sah.');
         abort_if($roles->contains('key', 'tenant_owner') && ! $this->ctx()->can('roles.manage'), 403, 'Hanya pemilik boleh melantik pemilik.');
+        $lebih = app(\App\Services\AccessService::class)->canGrant($this->ctx()->permissions(), $roles);
+        abort_if($lebih, 403, 'Anda tidak boleh memberi kebenaran yang anda sendiri tiada: '.implode(', ', array_slice($lebih, 0, 5)));
         $token = Str::random(64);
         $m = DB::transaction(function () use ($d, $roles, $token, $r) {
             $u = User::where('email', strtolower($d['email']))->first();
@@ -123,11 +125,17 @@ class TenantController extends Controller
                 abort_if($roles->count() !== count(array_unique($d['roles'])), 422, 'Peranan tidak sah.');
                 $jadiPemilik = $roles->contains('key', 'tenant_owner') !== $m->roles->contains('key', 'tenant_owner');
                 abort_if($jadiPemilik && ! $this->ctx()->can('roles.manage'), 403, 'Hanya pemilik boleh ubah peranan pemilik.');
+                $lebih = app(\App\Services\AccessService::class)->canGrant($this->ctx()->permissions(), $roles);
+                abort_if($lebih, 403, 'Anda tidak boleh memberi kebenaran yang anda sendiri tiada: '.implode(', ', array_slice($lebih, 0, 5)));
+                abort_if($m->user_id === $r->user()->id && ! $this->ctx()->can('roles.manage'), 403, 'Tidak boleh ubah peranan diri sendiri.');
                 $m->roles()->sync($roles->pluck('id'));
             }
             if (isset($d['status'])) {
                 abort_if($m->user_id === $r->user()->id && $d['status'] === 'disabled', 422, 'Tidak boleh nyahaktif diri sendiri.');
-                $m->update(['status' => $d['status']]);
+                if ($d['status'] === 'active' && $m->status !== 'active') {
+                    abort_unless(app(\App\Services\AccessService::class)->seatAvailable($this->ctx()->id()), 409, 'Seat pengguna sudah penuh.');
+                }
+                $m->update(['status' => $d['status']] + ($d['status'] === 'active' ? ['suspended_at' => null, 'revoked_at' => null, 'status_reason' => null] : ['suspended_at' => now()]));
             }
             // Mesti kekal sekurang-kurangnya seorang pemilik aktif.
             $pemilik = TenantUser::where('status', 'active')->whereHas('roles', fn ($q) => $q->where('key', 'tenant_owner'))->count();
@@ -143,21 +151,51 @@ class TenantController extends Controller
     public function roles()
     {
         return response()->json([
-            'roles' => Role::with('permissions:id,key')->orderBy('id')->get()->map(fn ($x) => ['id' => $x->id, 'key' => $x->key, 'name' => $x->name, 'is_system' => $x->is_system, 'permissions' => $x->permissions->pluck('key')]),
+            'roles' => Role::with(['permissions:id,key', 'denies:id,key', 'limits'])->withCount('members')->orderBy('id')->get()->map(fn ($x) => ['id' => $x->id, 'key' => $x->key, 'name' => $x->name, 'description' => $x->description,
+                'is_system' => $x->is_system, 'parent_id' => $x->parent_id, 'members' => $x->members_count, 'permissions' => $x->permissions->pluck('key'), 'denies' => $x->denies->pluck('key'),
+                'limits' => $x->limits->pluck('value', 'limit_key'),
+                'effective' => app(\App\Services\AccessService::class)->permissionsForRoles(collect([$x]))]),
             'catalog' => Permission::orderBy('key')->get(['key', 'module', 'description']),
+            'limit_keys' => \App\Services\AccessService::LIMIT_KEYS,
         ]);
     }
 
     public function saveRole(Request $r, ?int $id = null)
     {
-        $d = $r->validate(['name' => 'required|string|max:80', 'key' => 'nullable|string|max:40|regex:/^[a-z0-9_]+$/', 'permissions' => 'array', 'permissions.*' => 'string|exists:permissions,key']);
+        $d = $r->validate(['name' => 'required|string|max:80', 'key' => 'nullable|string|max:40|regex:/^[a-z0-9_]+$/', 'permissions' => 'array', 'permissions.*' => 'string|exists:permissions,key',
+            'description' => 'nullable|string|max:255', 'parent_id' => 'nullable|integer', 'denies' => 'array', 'denies.*' => 'string|exists:permissions,key',
+            'limits' => 'array', 'limits.*' => 'nullable|numeric|min:0']);
         $role = $id ? Role::findOrFail($id) : new Role(['key' => $d['key'] ?? Str::slug($d['name'], '_'), 'is_system' => false]);
         abort_if($role->key === 'tenant_owner', 422, 'Peranan pemilik tidak boleh diubah.');
-        $before = $role->exists ? ['name' => $role->name, 'permissions' => $role->permissions()->pluck('key')] : null;
-        $role->name = $d['name'];
-        $role->save();
-        $role->permissions()->sync(Permission::whereIn('key', $d['permissions'] ?? [])->pluck('id'));
-        $this->pengaudit()->log($id ? 'roles.updated' : 'roles.created', $role, $before, ['name' => $role->name, 'permissions' => $d['permissions'] ?? []]);
+        abort_if(! $role->exists && Role::where('key', $role->key)->exists(), 422, 'Kunci peranan sudah wujud.');
+        if (! empty($d['parent_id'])) {
+            $induk = Role::findOrFail($d['parent_id']);
+            abort_if($induk->key === 'tenant_owner', 422, 'Peranan tidak boleh mewarisi Pemilik.');
+            // Elak kitaran & warisan terlalu dalam.
+            $cur = $induk;
+            for ($i = 0; $cur; $i++) {
+                abort_if($role->exists && $cur->id === $role->id, 422, 'Warisan berkitar tidak dibenarkan.');
+                abort_if($i >= \App\Services\AccessService::MAX_INHERIT_DEPTH, 422, 'Warisan terlalu dalam (maks '.\App\Services\AccessService::MAX_INHERIT_DEPTH.' tingkat).');
+                $cur = $cur->parent_id ? Role::find($cur->parent_id) : null;
+            }
+        }
+        abort_if(array_diff(array_keys($d['limits'] ?? []), array_keys(\App\Services\AccessService::LIMIT_KEYS)), 422, 'Jenis had tidak sah.');
+        $before = $role->exists ? ['name' => $role->name, 'permissions' => $role->permissions()->pluck('key'), 'denies' => $role->denies()->pluck('key'), 'parent_id' => $role->parent_id] : null;
+        DB::transaction(function () use ($role, $d) {
+            $role->fill(['name' => $d['name'], 'description' => $d['description'] ?? $role->description, 'parent_id' => $d['parent_id'] ?? null]);
+            $role->save();
+            $role->permissions()->sync(Permission::whereIn('key', $d['permissions'] ?? [])->pluck('id'));
+            $role->denies()->sync(Permission::whereIn('key', $d['denies'] ?? [])->pluck('id'));
+            if (array_key_exists('limits', $d)) {
+                $role->limits()->delete();
+                foreach ($d['limits'] as $k => $v) {
+                    if ($v !== null && $v !== '') {
+                        $role->limits()->create(['limit_key' => $k, 'value' => $v]);
+                    }
+                }
+            }
+        });
+        $this->pengaudit()->log($id ? 'roles.updated' : 'roles.created', $role, $before, ['name' => $role->name, 'permissions' => $d['permissions'] ?? [], 'denies' => $d['denies'] ?? [], 'parent_id' => $role->parent_id, 'limits' => $d['limits'] ?? null]);
 
         return response()->json(['id' => $role->id], $id ? 200 : 201);
     }
@@ -231,6 +269,12 @@ class TenantController extends Controller
         abort_if($a->requested_by === $r->user()->id, 403, 'Tidak boleh meluluskan permintaan sendiri.');
         $a->update(['status' => $d['decision'], 'decided_by' => $r->user()->id, 'decided_at' => now(), 'reason' => $d['reason'] ?? null]);
         $this->pengaudit()->log('approvals.'.$d['decision'], $a, ['status' => 'pending'], ['status' => $d['decision']]);
+
+        // Cadangan ejen AI: laksanakan hanya selepas diluluskan; simpan hasil sebenar dalam payload.
+        if ($a->type === 'ai.tool' && $d['decision'] === 'approved') {
+            $hasil = app(\App\Modules\AIAgents\Tools\AgentToolRunner::class)->laksanaKelulusan($a);
+            $a->update(['payload' => $a->payload + ['hasil' => $hasil]]);
+        }
 
         return response()->json($a);
     }

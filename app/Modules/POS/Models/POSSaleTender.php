@@ -29,6 +29,9 @@ class POSSaleTender extends Model
 
     public const METHOD_DUITNOW = 'duitnow';
 
+    /** Bayaran online melalui akaun CHIP kedai (FPX/kad/DuitNow) — disahkan oleh callback CHIP. */
+    public const METHOD_ONLINE = 'online';
+
     public const STATUS_PAID = 'paid';
     public const STATUS_PENDING = 'pending';
     public const STATUS_FAILED = 'failed';

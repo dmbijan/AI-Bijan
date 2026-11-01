@@ -476,4 +476,40 @@ class AIAgentController extends Controller
             'data' => $violations,
         ]);
     }
+
+    /** Senarai alat ejen sebenar (nama, input, kebenaran, risiko). */
+    public function tools(): JsonResponse
+    {
+        return response()->json(['data' => app(\App\Modules\AIAgents\Tools\AgentToolRegistry::class)->definitions()]);
+    }
+
+    /** Jalankan satu alat sebenar. Risiko tinggi → Peti Kelulusan (status menunggu_kelulusan). */
+    public function runTool(Request $request): JsonResponse
+    {
+        $d = $request->validate(['tool' => 'required|string|max:80', 'agent' => 'nullable|string|max:60', 'params' => 'nullable|array']);
+        $r = app(\App\Modules\AIAgents\Tools\AgentToolRunner::class)->jalan($d['agent'] ?? 'pengguna', $d['tool'], $d['params'] ?? [], $request->user()->id);
+        $kod = match ($r['status']) { 'berjaya' => 200, 'menunggu_kelulusan' => 202, 'ditolak' => 403, 'tiada_alat' => 404, 'input_tidak_sah' => 422, default => 409 };
+
+        return response()->json($r, $kod);
+    }
+
+    /** "Tanya AI Bijan": soalan BM → alat sebenar → jawapan ringkas. */
+    public function tanya(Request $request): JsonResponse
+    {
+        $d = $request->validate(['soalan' => 'required|string|min:2|max:300']);
+
+        return response()->json(app(\App\Modules\AIAgents\Tools\TanyaAiBijan::class)->jawab($d['soalan'], $request->user()->id));
+    }
+
+    /** Pautan wa.me untuk teks yang dijana ejen (laporan, peringatan). Tiada mesej dihantar oleh sistem. */
+    public function pautanWhatsApp(Request $request): JsonResponse
+    {
+        $d = $request->validate(['teks' => 'required|string|max:4000', 'telefon' => 'nullable|string|max:30']);
+        $n = \App\Support\WhatsApp\PautanWhatsApp::nombor($d['telefon'] ?? null);
+        if (! empty($d['telefon']) && ! $n) {
+            return response()->json(['message' => 'Nombor telefon tidak sah.'], 422);
+        }
+
+        return response()->json(['url' => \App\Support\WhatsApp\PautanWhatsApp::url($n, $d['teks']), 'nombor' => $n]);
+    }
 }

@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CashShift extends Model
 {
+    use \App\Models\Concerns\ScopedToOrgUnits;
+
+    protected static string $orgScopeColumn = 'register_id';
+
+    protected static string $orgScopeKind = 'registers';
+
     use BelongsToTenant;
 
     use HasFactory;
