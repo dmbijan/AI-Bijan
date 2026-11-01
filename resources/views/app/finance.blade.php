@@ -95,6 +95,7 @@
             <div class="field" style="margin:0"><label class="label" for="sDate">Tempoh yang mengandungi tarikh</label><input class="input" type="date" id="sDate" onchange="loadSst()"></div>
             <div class="field" style="margin:0"><label class="label" for="sReg">No. pendaftaran SST</label><input class="input mono" id="sReg" placeholder="cth. W10-1808-32000001"></div>
             <div class="field" style="margin:0"><label class="label" for="sMula">Bulan mula kitaran</label><select class="select" id="sMula"></select></div>
+            <div class="field" style="margin:0"><label class="label" for="sLalai">Kod SST lalai di POS</label><select class="select" id="sLalai"></select></div>
             <button class="btn btn-sm" onclick="simpanTetapanSst(this)">Simpan tetapan</button>
         </div>
     </div>
@@ -121,8 +122,15 @@
             <div class="field" style="margin:0"><label class="label" for="jBajet">Bajet</label><select class="select" id="jBajet" onchange="loadBajetReport()"></select></div>
             <div class="field" style="margin:0"><label class="label" for="jDari">Dari bulan</label><select class="select" id="jDari" onchange="loadBajetReport()"></select></div>
             <div class="field" style="margin:0"><label class="label" for="jHingga">Hingga bulan</label><select class="select" id="jHingga" onchange="loadBajetReport()"></select></div>
+            <button class="btn btn-sm" id="jEdit" onclick="editBajet()">Isi amaun</button>
+            <button class="btn btn-sm" id="jLulus" onclick="lulusBajet(this)">Lulus</button>
             <button class="btn btn-sm btn-ghost" onclick="tambahBajet()">+ Bajet baharu</button>
         </div>
+    </div>
+    <div class="card mb-4" id="jEditor" hidden>
+        <div class="card-header"><div><h2 class="card-title">Amaun bajet setahun</h2><p class="card-subtitle">Dibahagi sama rata 12 bulan. Kosongkan akaun yang tidak dibajet.</p></div></div>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Akaun</th><th class="table-num">Setahun (RM)</th></tr></thead><tbody id="jEditRows"></tbody></table></div>
+        <div class="row mt-3" style="justify-content:flex-end;gap:8px"><button class="btn btn-ghost btn-sm" onclick="App.$('#jEditor').hidden = true">Tutup</button><button class="btn btn-primary btn-sm" onclick="simpanBajet(this)">Simpan bajet</button></div>
     </div>
     <div class="grid grid-3 mb-4" id="jStats"></div>
     <div class="table-wrap"><table class="table">
@@ -402,6 +410,8 @@ async function loadSst() {
         tetapanSst = t?.data ?? {};
         App.$('#sReg').value = tetapanSst.sst_registration_no ?? '';
         App.$('#sMula').innerHTML = BULAN.map((b, i) => `<option value="${i + 1}" ${Number(tetapanSst.period_start_month || 1) === i + 1 ? 'selected' : ''}>${b}</option>`).join('');
+        const kodAktif = [...new Map((c?.data ?? []).filter(k => k.is_active).map(k => [k.code, k])).values()];
+        App.$('#sLalai').innerHTML = '<option value="">Tiada (POS tidak kenakan SST)</option>' + kodAktif.map(k => `<option value="${E(k.code)}" ${k.code === tetapanSst.default_tax_code ? 'selected' : ''}>${E(k.code)} · ${E(k.name)}</option>`).join('');
         App.$('#sCodes').innerHTML = (c?.data ?? []).map(k => `<tr><td class="mono">${E(k.code)}</td><td class="text-sm">${E(k.name)}</td><td class="table-num">${Number(k.rate)}%</td><td class="text-xs">${tarikh(k.effective_from)}${k.effective_to ? ' – ' + tarikh(k.effective_to) : ''}</td></tr>`).join('');
     }
     const r = await cuba(() => App.api.get('/api/v1/finance/reports/sst-02?date=' + App.$('#sDate').value));
@@ -418,7 +428,7 @@ async function loadSst() {
 }
 async function simpanTetapanSst(btn) {
     await App.withLoading(btn, async () => {
-        const r = await cuba(() => App.api.put('/api/v1/finance/tax-settings', { sst_registration_no: App.$('#sReg').value.trim() || null, period_start_month: Number(App.$('#sMula').value) }), 'Tetapan disimpan');
+        const r = await cuba(() => App.api.put('/api/v1/finance/tax-settings', { sst_registration_no: App.$('#sReg').value.trim() || null, period_start_month: Number(App.$('#sMula').value), default_tax_code: App.$('#sLalai').value || null }), 'Tetapan disimpan');
         if (r) { tetapanSst = r.data; loadSst(); }
     });
 }
@@ -427,6 +437,7 @@ async function simpanTetapanSst(btn) {
 async function loadBudgets() {
     const r = await cuba(() => App.api.get('/api/v1/finance/budgets'));
     if (!r) return;
+    bajetSemasa = r.data;
     App.$('#jBajet').innerHTML = r.data.length ? r.data.map(b => `<option value="${b.id}">${E(b.name)} (${b.fiscal_year})${b.status === 'approved' ? ' ✓' : ' · draf'}</option>`).join('') : '<option value="">Tiada bajet</option>';
     const bln = new Date().getMonth() + 1;
     App.$('#jDari').innerHTML = BULAN.map((b, i) => `<option value="${i + 1}" ${i === 0 ? 'selected' : ''}>${b}</option>`).join('');
@@ -448,12 +459,41 @@ async function loadBajetReport() {
         <td>${l.alert ? '<span class="badge badge-danger">Lari bajet</span>' : ''}</td></tr>`).join('')
         : kosong(5, 'Bajet ini belum ada baris akaun.');
 }
+let bajetSemasa = [];
+async function editBajet() {
+    const id = App.$('#jBajet').value;
+    if (!id) { App.toast('Cipta bajet dahulu.', 'error'); return; }
+    if (bajetSemasa.find(b => String(b.id) === id)?.status === 'approved') { App.toast('Bajet sudah diluluskan dan dikunci. Cipta bajet baharu untuk ubah.', 'error'); return; }
+    const [coa, lap] = await Promise.all([cuba(() => App.api.get('/api/v1/finance/chart-of-accounts?per_page=500')), cuba(() => App.api.get(`/api/v1/finance/budgets/${id}/report`))]);
+    const ada = Object.fromEntries((lap?.data?.lines ?? []).map(l => [l.account_id, l.budget]));
+    const akaun = (coa?.data ?? []).filter(a => ['revenue', 'cost_of_goods', 'expense'].includes(a.type));
+    const label = { revenue: 'Hasil', cost_of_goods: 'Kos jualan', expense: 'Belanja' };
+    App.$('#jEditRows').innerHTML = akaun.length ? akaun.map(a => `<tr><td class="text-sm"><span class="mono text-xs">${E(a.code)}</span> ${E(a.name_bm || a.name)} <span class="badge badge-neutral">${label[a.type]}</span></td>
+        <td class="table-num"><input class="input" style="max-width:140px;text-align:right" type="number" min="0" step="0.01" data-akaun="${a.id}" value="${ada[a.id] ? ada[a.id] : ''}" aria-label="Bajet ${E(a.name)}"></td></tr>`).join('')
+        : kosong(2, 'Tiada akaun hasil/kos/belanja dalam carta akaun.');
+    App.$('#jEditor').hidden = false;
+    App.$('#jEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function simpanBajet(btn) {
+    const id = App.$('#jBajet').value;
+    const lines = [...document.querySelectorAll('#jEditRows [data-akaun]')].filter(i => i.value !== '').map(i => ({ account_id: Number(i.dataset.akaun), annual: Number(i.value) }));
+    if (!lines.length) { App.toast('Isi sekurang-kurangnya satu akaun.', 'error'); return; }
+    await App.withLoading(btn, async () => {
+        if (await cuba(() => App.api.put(`/api/v1/finance/budgets/${id}/lines`, { lines }), 'Bajet disimpan')) { App.$('#jEditor').hidden = true; loadBajetReport(); }
+    });
+}
+async function lulusBajet(btn) {
+    const id = App.$('#jBajet').value;
+    if (!id || !confirm('Lulus bajet ini? Selepas lulus, amaun tidak boleh diubah.')) return;
+    await App.withLoading(btn, async () => { if (await cuba(() => App.api.post(`/api/v1/finance/budgets/${id}/approve`, {}), 'Bajet diluluskan')) loadBudgets(); });
+}
 async function tambahBajet() {
     const v = await borang('Bajet baharu', [
         { n: 'name', l: 'Nama', req: true, v: 'Bajet ' + new Date().getFullYear() },
         { n: 'fiscal_year', l: 'Tahun', t: 'number', req: true, v: new Date().getFullYear() },
     ]);
-    if (v && await cuba(() => App.api.post('/api/v1/finance/budgets', v), 'Bajet dicipta. Tetapkan amaun ikut akaun melalui API/import.')) loadBudgets();
+    const r = v && await cuba(() => App.api.post('/api/v1/finance/budgets', v), 'Bajet dicipta');
+    if (r) { await loadBudgets(); App.$('#jBajet').value = r.data.id; loadBajetReport(); editBajet(); }
 }
 
 // ── Laporan ──────────────────────────────────────────

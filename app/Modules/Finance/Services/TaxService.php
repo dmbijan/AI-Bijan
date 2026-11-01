@@ -43,6 +43,19 @@ class TaxService
         return TaxSetting::firstOrCreate([], ['period_start_month' => 1]);
     }
 
+    /** Untuk kaunter POS: kod lalai tenant + kod aktif hari ini dengan kadarnya. */
+    public function kodPos(): array
+    {
+        $this->pastikanLalai();
+        $hari = now()->toDateString();
+        $kod = TaxCode::where('is_active', true)->where('effective_from', '<=', $hari)
+            ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $hari))
+            ->orderBy('type')->orderBy('code')->get()
+            ->map(fn ($k) => ['code' => $k->code, 'name' => $k->name, 'type' => $k->type, 'rate' => (float) $k->rate])->values();
+
+        return ['default' => $this->tetapan()->default_tax_code, 'codes' => $kod];
+    }
+
     /** Kod yang berkuat kuasa pada tarikh tertentu. */
     public function kod(string $kod, ?string $tarikh = null): TaxCode
     {

@@ -107,6 +107,10 @@ class SaleService
             $discountAmt = $data['discount_amount'] ?? 0;
             $taxRate = $data['tax_rate'] ?? 0;
             $taxCode = null;
+            // FIN-010: tiada kod & tiada kadar diberi → guna kod SST lalai syarikat (jika ditetapkan).
+            if (! array_key_exists('tax_code', $data) && ! array_key_exists('tax_rate', $data)) {
+                $data['tax_code'] = \App\Modules\Finance\Models\TaxSetting::value('default_tax_code');
+            }
             // FIN-010: kod SST menentukan kadar ikut tarikh jualan (mengatasi tax_rate).
             if (! empty($data['tax_code'])) {
                 try {

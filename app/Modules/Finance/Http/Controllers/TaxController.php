@@ -59,6 +59,11 @@ class TaxController extends Controller
         return response()->json(['data' => $k]);
     }
 
+    public function posCodes(): JsonResponse
+    {
+        return response()->json(['data' => $this->svc->kodPos()]);
+    }
+
     public function settings(): JsonResponse
     {
         return response()->json(['data' => $this->svc->tetapan()]);
@@ -66,6 +71,7 @@ class TaxController extends Controller
 
     public function updateSettings(Request $r): JsonResponse
     {
+        $this->svc->pastikanLalai();
         $d = $r->validate([
             'sst_registration_no' => 'nullable|string|max:40',
             'sst_registered_from' => 'nullable|date',

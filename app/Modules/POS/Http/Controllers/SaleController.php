@@ -210,6 +210,7 @@ class SaleController extends Controller
             'items.*.quantity' => 'required|numeric|min:0.001',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'items.*.tax_code' => 'nullable|string|max:10',
             'tenders' => 'required|array|min:1|max:2',
             'tenders.*.method' => 'required|in:cash,card,ewallet,tng,credit,voucher,duitnow',
             'tenders.*.amount' => 'required|numeric|min:0.01',

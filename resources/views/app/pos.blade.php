@@ -86,6 +86,7 @@
             <div class="mt-4">
                 <div class="pos-cart-line"><span class="text-muted">Subtotal</span><span id="tSubtotal">—</span></div>
                 <div class="pos-cart-line"><span class="text-muted">Diskaun</span><span id="tDiscount">—</span></div>
+                <div class="pos-cart-line" id="tTaxRow" hidden><span class="text-muted" id="tTaxLabel">SST</span><span id="tTax">—</span></div>
                 <div class="pos-cart-line"><span class="text-muted">Caj perkhidmatan</span><span id="tService">—</span></div>
                 <div class="pos-cart-line grand"><span>Jumlah</span><span id="tTotal">—</span></div>
             </div>
@@ -478,7 +479,22 @@
 const POS = {
     registers: [], products: [], cart: [], registerId: null, shift: null,
     saleDiscount: 0, payTarget: null, discountLimits: null,
+    tax: { default: null, codes: [] }, // FIN-010: kod SST (disimpan dalam peranti untuk luar talian)
 };
+
+const round2c = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+function kadarSst(code) { return code ? (POS.tax.codes.find(c => c.code === code)?.rate ?? 0) : 0; }
+async function loadTaxCodes() {
+    try {
+        POS.tax = (await App.api.get('/api/v1/pos/tax-codes')).data;
+        try { localStorage.setItem('aibijan-pos-sst', JSON.stringify(POS.tax)); } catch { /* pilihan */ }
+    } catch {
+        try { POS.tax = JSON.parse(localStorage.getItem('aibijan-pos-sst')) || POS.tax; } catch { /* kekal kosong */ }
+    }
+    POS.cart.forEach(l => { if (l.tax_code === undefined) l.tax_code = POS.tax.default; });
+    recalcCart();
+}
+function setTaxCode(idx, code) { if (POS.cart[idx]) { POS.cart[idx].tax_code = code || null; recalcCart(); } }
 
 function rows(r) {
     if (Array.isArray(r)) return r;
@@ -507,7 +523,7 @@ async function loadAll() {
     kemasLencana();
     segerakSekarang(true);
     await loadRegisters();
-    await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits()]);
+    await Promise.all([loadSummary(), loadProducts(), loadShiftSummary(), loadSales(), loadLimits(), loadTaxCodes()]);
     await loadCurrentShift();
 }
 
@@ -650,6 +666,7 @@ function addToCart(productId) {
         product_sku: p.sku ?? null,
         unit_price: productPrice(p),
         quantity: 1,
+        tax_code: POS.tax.default,
     });
     recalcCart();
 }
@@ -675,7 +692,12 @@ function clearCart() { POS.cart = []; recalcCart(); }
 function cartTotals() {
     const subtotal = POS.cart.reduce((s, l) => s + l.unit_price * l.quantity, 0);
     const disc = subtotal * (POS.saleDiscount / 100);
-    return { subtotal, disc, total: subtotal - disc };
+    // Sama seperti pelayan (SaleService::addItem): cukai setiap baris atas (subtotal - diskaun), dibundar ke sen.
+    const tax = POS.cart.reduce((s, l) => {
+        const sub = l.unit_price * l.quantity;
+        return s + round2c((sub - sub * (POS.saleDiscount / 100)) * kadarSst(l.tax_code) / 100);
+    }, 0);
+    return { subtotal, disc, tax: round2c(tax), total: round2c(subtotal - disc + tax) };
 }
 
 function recalcCart() {
@@ -684,7 +706,10 @@ function recalcCart() {
     const body = App.$('#cartBody');
     body.innerHTML = POS.cart.length ? POS.cart.map((l, i) => `
         <tr>
-            <td class="text-sm">${App.escapeHtml(l.product_name)}</td>
+            <td class="text-sm">${App.escapeHtml(l.product_name)}${POS.tax.codes.length && POS.tax.default ? `
+                <select class="select" style="display:block;margin-top:4px;padding:2px 6px;font-size:12px;height:auto;width:auto" aria-label="Kod SST ${App.escapeHtml(l.product_name)}" onchange="setTaxCode(${i}, this.value)">
+                    ${POS.tax.codes.map(c => `<option value="${c.code}" ${c.code === l.tax_code ? 'selected' : ''}>${c.code} ${c.rate}%</option>`).join('')}
+                </select>` : ''}</td>
             <td>
                 <span class="pos-qty">
                     <button class="btn btn-sm" aria-label="Kurang kuantiti ${App.escapeHtml(l.product_name)}" onclick="changeQty(${i},-1)">−</button>
@@ -701,6 +726,8 @@ function recalcCart() {
     const t = cartTotals();
     App.$('#tSubtotal').textContent = App.rupiah(t.subtotal);
     App.$('#tDiscount').textContent = '− ' + App.rupiah(t.disc);
+    App.$('#tTaxRow').hidden = !t.tax;
+    App.$('#tTax').textContent = App.rupiah(t.tax);
     App.$('#tTotal').textContent = App.rupiah(t.total);
     App.$('#cartMeta').textContent = POS.cart.length + ' item · ' + POS.cart.reduce((s, l) => s + l.quantity, 0) + ' unit';
 }
@@ -720,6 +747,7 @@ async function commitCart() {
             quantity: l.quantity,
             unit_price: l.unit_price,
             discount_percentage: POS.saleDiscount || 0,
+            tax_code: l.tax_code ?? null,
         });
     }
     return App.api.get(`/api/v1/pos/sales/${sale.id}`);
@@ -867,6 +895,7 @@ async function bayarKasa() {
         items: POS.cart.map(l => ({
             product_id: l.product_id, product_name: l.product_name, product_sku: l.product_sku,
             quantity: l.quantity, unit_price: l.unit_price, discount_percentage: POS.saleDiscount || 0,
+            tax_code: l.tax_code ?? null,
         })),
         tenders: built.tenders,
     };

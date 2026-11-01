@@ -38,6 +38,7 @@ Route::middleware('perm:pos.view')->group(function () {
     Route::get('/sales/summary', [SaleController::class, 'summary']);
     Route::get('/stock-exceptions', [SaleController::class, 'stockExceptions']);
     Route::get('/payment-gateway', [\App\Modules\Billing\Http\Controllers\KedaiPaymentController::class, 'show']);
+    Route::get('/tax-codes', [\App\Modules\Finance\Http\Controllers\TaxController::class, 'posCodes']);
     Route::get('/sales/{id}/resit-whatsapp', [SaleController::class, 'resitWhatsApp'])->whereNumber('id');
     Route::get('/sales/{id}', [SaleController::class, 'show'])->whereNumber('id');
 

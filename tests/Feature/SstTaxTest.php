@@ -152,4 +152,30 @@ class SstTaxTest extends TestCase
         // Tenant lain dapat set lalai sendiri, bukan kod tenant pertama.
         $this->assertCount(6, $lain->getJson('/api/v1/finance/tax-codes')->json('data'));
     }
+
+    #[Test]
+    public function kod_lalai_dikenakan_di_checkout_pos_dan_juruwang_boleh_baca_kod(): void
+    {
+        [$u, $t, $http] = $this->sedia();
+        $http->putJson('/api/v1/finance/tax-settings', ['default_tax_code' => 'SV6'])->assertOk();
+        $http->putJson('/api/v1/finance/tax-settings', ['default_tax_code' => 'TIADA'])->assertStatus(422);
+
+        $kasir = $this->jemput($u, $t, 'kasir@bunga.my', ['cashier']);
+        $k = $this->sebagai($kasir, $t)->getJson('/api/v1/pos/tax-codes')->assertOk()->json('data');
+        $this->assertSame('SV6', $k['default']);
+        $this->assertContains('SV8', array_column($k['codes'], 'code'));
+
+        $http = $this->sebagai($u, $t);
+        $reg = $http->postJson('/api/v1/pos/registers', ['name' => 'K1'])->assertCreated();
+        $regId = $reg->json('id') ?? $reg->json('data.id');
+        // Tiada tax_code → lalai SV6 (RM100 + 6). tax_code null → tidak bercukai. SV8 eksplisit → 8%.
+        $s = $http->postJson('/api/v1/pos/sales/checkout', ['register_id' => $regId, 'items' => [
+            ['product_name' => 'Set makan', 'quantity' => 1, 'unit_price' => 100],
+            ['product_name' => 'Air', 'quantity' => 1, 'unit_price' => 10, 'tax_code' => null],
+            ['product_name' => 'Hiasan', 'quantity' => 2, 'unit_price' => 25, 'tax_code' => 'SV8'],
+        ], 'tenders' => [['method' => 'card', 'amount' => 170]]])->assertCreated()->json('data');
+        $this->assertEquals(170.0, (float) $s['total_amount']);
+        $kod = collect($s['items'])->pluck('tax_code', 'product_name');
+        $this->assertSame(['Set makan' => 'SV6', 'Air' => null, 'Hiasan' => 'SV8'], $kod->all());
+    }
 }
