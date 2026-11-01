@@ -118,6 +118,31 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('roles', [TenantController::class, 'saveRole'])->middleware('perm:roles.manage');
         Route::put('roles/{id}', [TenantController::class, 'saveRole'])->middleware('perm:roles.manage')->whereNumber('id');
         Route::get('audit', [TenantController::class, 'audit'])->middleware('perm:audit.view');
+
+        // OAM: struktur organisasi, skop & status ahli, semakan akses, seat, jemputan, sesi
+        Route::prefix('org')->group(function () {
+            $O = \App\Http\Controllers\Api\V1\OrganizationController::class;
+            Route::get('overview', [$O, 'overview'])->middleware('perm:tenant.settings.view');
+            Route::get('units', [$O, 'units'])->middleware('perm:tenant.settings.view');
+            Route::post('units', [$O, 'saveUnit'])->middleware('perm:tenant.settings.update');
+            Route::put('units/{id}', [$O, 'saveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
+            Route::post('units/{id}/archive', [$O, 'archiveUnit'])->middleware('perm:tenant.settings.update')->whereNumber('id');
+            Route::get('modules', [$O, 'modules'])->middleware('perm:tenant.settings.view');
+            Route::get('members', [$O, 'members'])->middleware('perm:members.view');
+            Route::get('members/{id}/effective', [$O, 'effective'])->middleware('perm:members.view')->whereNumber('id');
+            Route::put('members/{id}/scope', [$O, 'setScope'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/suspend', [$O, 'suspend'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/revoke', [$O, 'revoke'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('members/{id}/reactivate', [$O, 'reactivate'])->middleware('perm:members.manage')->whereNumber('id');
+            Route::post('access/check', [$O, 'check']);
+            Route::get('seats', [$O, 'seats'])->middleware('perm:members.view');
+            Route::get('invitations', [$O, 'invitations'])->middleware('perm:members.invite');
+            Route::post('invitations/{id}/resend', [$O, 'resendInvitation'])->middleware('perm:members.invite')->whereNumber('id');
+            Route::post('invitations/{id}/cancel', [$O, 'cancelInvitation'])->middleware('perm:members.invite')->whereNumber('id');
+            Route::post('roles/{id}/clone', [$O, 'cloneRole'])->middleware('perm:roles.manage')->whereNumber('id');
+            Route::get('sessions', [$O, 'sessions']);
+            Route::delete('sessions/{id}', [$O, 'revokeSession']);
+        });
         Route::post('files', [TenantController::class, 'upload'])->middleware('perm:files.upload');
         Route::get('files/{ulid}', [TenantController::class, 'download'])->middleware('perm:files.view');
         Route::get('api-keys', [TenantController::class, 'apiKeys'])->middleware('perm:api_keys.manage');

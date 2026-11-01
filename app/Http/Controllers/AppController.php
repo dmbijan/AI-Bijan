@@ -36,6 +36,7 @@ class AppController extends Controller
             'admin-pakej'     => 'admin-pakej',
             'kelulusan'       => 'kelulusan',
             'mula'            => 'mula',
+            'organisasi'      => 'organisasi',
             'crm'             => 'crm',
             'invoicing'       => 'invoicing',
             'marketplace'     => 'marketplace',

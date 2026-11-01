@@ -86,6 +86,9 @@
                         ['Brain Hub', '/app/brainhub', '◇'],
                         ['Industry Packs', '/app/industry', '▨'],
                     ],
+                    'Tetapan' => [
+                        ['Organisasi & Akses', '/app/organisasi', '⚙'],
+                    ],
                 ];
             @endphp
 

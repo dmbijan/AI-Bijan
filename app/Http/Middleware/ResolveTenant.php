@@ -57,7 +57,7 @@ class ResolveTenant
         $user = $request->user();
         abort_unless($user && $user->is_active, 401);
         $pilih = $request->header('X-Tenant') ?: ($request->hasSession() ? $request->session()->get('tenant_ulid') : null);
-        $q = TenantUser::withoutGlobalScope('tenant')->where('user_id', $user->id)->where('status', 'active');
+        $q = TenantUser::withoutGlobalScope('tenant')->where('user_id', $user->id)->where('status', 'active')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
         $m = $pilih ? (clone $q)->whereHas('tenant', fn ($t) => $t->where('ulid', $pilih))->first() : null;
         $m ??= $pilih ? null : $q->orderBy('id')->first();
         if (! $m && $pilih && $user->is_platform_admin) {

@@ -60,12 +60,12 @@ class TenantContext
         if ($this->permissions !== null) {
             return $this->permissions;
         }
-        if (! $this->membership || $this->membership->status !== 'active') {
+        if (! $this->membership) {
             return $this->permissions = [];
         }
 
-        return $this->permissions = $this->membership->roles()->with('permissions:id,key')->get()
-            ->flatMap(fn ($r) => $r->permissions->pluck('key'))->unique()->values()->all();
+        // OAM: warisan peranan, kebenaran ditolak & tamat tempoh keahlian dikira di satu tempat.
+        return $this->permissions = app(\App\Services\AccessService::class)->permissionsFor($this->membership);
     }
 
     public function can(string $permission): bool
