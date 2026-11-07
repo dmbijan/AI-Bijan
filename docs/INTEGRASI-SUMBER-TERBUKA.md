@@ -408,3 +408,32 @@ Menyemak 5 perkara bagi setiap model:
 ```bash
 php vendor/bin/phpunit --filter "TenantIsolationTest"
 ```
+
+### Keputusan
+
+| Ujian | Keputusan |
+|-------|-----------|
+| Ujian pengasingan 9 modul | **45/45 lulus**, 228 assertions |
+| Suite penuh projek | **1394/1394 lulus**, 5959 assertions, 0 gagal |
+| Pint (9 modul + 9 ujian) | **passed** |
+| Laluan API (middleware) | **90/90** dengan `sanctum` + `tenant` + `perm` |
+
+### Pembaikan migrasi pendua
+
+Projek mempunyai **27 migrasi pendua** antara `database/migrations/` dan
+`app/Modules/<Mod>/database/migrations/`. Kedua-duanya dimuatkan Laravel,
+jadi `getMigrationFiles()` hanya memulangkan 37 daripada 94 fail unik dan
+jadual dicipta dua kali.
+
+Disatukan dalam commit `67fc9a6`:
+
+1. `database/migrations/` dikekalkan sebagai **sumber kanonik** (pemulihan T-109)
+2. 27 salinan bertindih dipadam
+3. Migrasi pelengkap `2026_11_08_001000_lengkapkan_jadual_pos_booking.php`
+   menambah 2 jadual yang hanya wujud dalam versi modul:
+   `cash_shifts` (POS) dan `bookings_appointments` (Booking)
+4. `add_bpos_features_to_pos` dilindungi semakan awal — langkau jika
+   jadual teras sudah wujud
+
+**Hasil:** suite penuh dari **67 errors + 11 failures** → **0 gagal**.
+
