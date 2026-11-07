@@ -60,6 +60,8 @@ return [
             'modules' => [
                 'crm', 'inventory', 'invoicing', 'finance', 'pos', 'orders',
                 'booking', 'site', 'seo', 'analytics', 'email', 'blast',
+                // Modul asas integrasi sumber terbuka
+                'workspace', 'scheduling', 'open_gen_ai', 'open_whispr',
             ],
             'limits' => [
                 ['limit_key' => 'seats', 'name' => 'Pengguna', 'limit_value' => 5, 'unit' => 'pengguna', 'period' => 'total'],
@@ -84,6 +86,9 @@ return [
                 'reminder', 'business_intel', 'workflow_studio', 'expense', 'service_os',
                 'helpdesk', 'community', 'proof_of_value', 'sign_docs', 'cod', 'fleet',
                 'agent_studio', 'mcp_studio', 'ai_agents', 'executive_ai', 'ade',
+                // Modul integrasi sumber terbuka (9 suite)
+                'open_gen_ai', 'voice_studio', 'open_whispr', 'open_seo', 'workspace',
+                'work_management', 'scheduling', 'shared_inbox', 'screen_recorder',
             ],
             'limits' => [
                 ['limit_key' => 'seats', 'name' => 'Pengguna', 'limit_value' => 25, 'unit' => 'pengguna', 'period' => 'total'],

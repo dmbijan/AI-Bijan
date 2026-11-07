@@ -93,3 +93,6 @@ ujian-*.txt
 
 # Arkib sandaran besar
 /backups
+
+# Folder legasi (struktur lama sebelum konsolidasi ke akar repo)
+/ai-bijan-saas/
