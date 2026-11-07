@@ -24,12 +24,21 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // ⚠️ PRA-SEDIA: `database/migrations/2026_10_19_000500_create_pos_tables.php`
+        // (pemulihan T-109) sudah mencipta SEMUA jadual & lajur POS. Jika jadual
+        // teras sudah wujud, migrasi ini adalah lebihan — langkau sepenuhnya
+        // untuk elak "table/column/index already exists".
+        if (Schema::hasTable('pos_modifier_groups') && Schema::hasTable('pos_dine_orders')) {
+            return;
+        }
+
         $this->modifier();
         $this->kolumJualan();
         $this->dineIn();
         $this->syif();
         $this->tngDanDiskaun();
     }
+
     // ─────────────────────────────────────────────────────────────
     // T-77 — MODIFIER / ADD-ON
     // ─────────────────────────────────────────────────────────────
@@ -273,10 +282,7 @@ return new class extends Migration
         });
     }
 
-
     public function down(): void
-
-
     {
         Schema::dropIfExists('pos_discount_approvals');
         Schema::dropIfExists('pos_tng_notifications');
