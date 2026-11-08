@@ -9,6 +9,7 @@
 
 | Dokumen | Untuk siapa |
 |---|---|
+| **[NIRVANA-AI-BIJAN.md](NIRVANA-AI-BIJAN.md)** | ⭐ **Ringkasan eksekutif & peta produk** — apa yang dibina & ke mana ia pergi |
 | **[BACA-SAYA.md](BACA-SAYA.md)** | Panduan pantas 5 minit — apa ini & cara mula |
 | **[../README.md](../README.md)** | Pintu masuk repo (GitHub) |
 | **[getting-started.md](getting-started.md)** | Pemasangan penuh dari kosong |

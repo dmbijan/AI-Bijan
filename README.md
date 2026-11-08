@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/BACA-SAYA.md"><strong>Mula Pantas</strong></a> ·
+  <a href="docs/NIRVANA-AI-BIJAN.md"><strong>🎯 Ringkasan</strong></a> ·`r`n  <a href="docs/BACA-SAYA.md"><strong>Mula Pantas</strong></a> ·
   <a href="docs/AUDIT-BASELINE.md"><strong>Baseline</strong></a> ·
   <a href="docs/README.md"><strong>Indeks Dokumentasi</strong></a> ·
   <a href="docs/TODO.md"><strong>TODO</strong></a> ·
