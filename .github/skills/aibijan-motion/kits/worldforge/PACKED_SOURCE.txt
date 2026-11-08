@@ -1,0 +1,1517 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 3980 src/kits/worldforge/easing.ts
+// PAPERWORLD easing vocabulary (inherited from the PRECISION system). Every curve is a pure function of normalised time, so the
+// whole film stays deterministic: same frame in, same pose out.
+
+export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
+export const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+export const remap = (x: number, a: number, b: number) => clamp((x - a) / (b - a));
+
+export const smoothstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * (3 - 2 * x);
+};
+
+/** C2-continuous: zero velocity and acceleration at both ends. The house curve. */
+export const smootherstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/** CSS-style cubic bezier easing (x1,y1,x2,y2), solved by Newton + bisection. */
+export const bezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t: number) => ((ay * t + by) * t + cy) * t;
+  const dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    const X = clamp(x);
+    let t = X;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - X;
+      const d = dx(t);
+      if (Math.abs(e) < 1e-6) return sy(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1;
+    t = X;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - X) < 1e-6) break;
+      if (v < X) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+};
+
+// Named curves, tuned for handmade motion (long, confident tails; no bounce).
+export const ease = {
+  /** Default move: decisive start, very long settle. */
+  glide: bezier(0.45, 0, 0.12, 1),
+  /** Symmetric, weighty. Camera and large objects. */
+  inOut: bezier(0.65, 0, 0.35, 1),
+  /** Soft symmetric for subtle drifts. */
+  sine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t)),
+  /** Starts with energy (a magnet letting go), long deceleration. */
+  release: bezier(0.2, 0.7, 0.1, 1),
+  /** Gathers speed and arrives fast (magnetic pull into a dock). */
+  attract: bezier(0.55, 0, 0.95, 0.55),
+  /** Typographic reveal. */
+  type: bezier(0.2, 0, 0, 1),
+  out: bezier(0, 0, 0.2, 1),
+  in: bezier(0.6, 0, 1, 1),
+  smoother: smootherstep,
+};
+
+/** Eased progress of `frame` through [start, end]. */
+export const seg = (frame: number, start: number, end: number, curve: (t: number) => number = ease.inOut) =>
+  curve(remap(frame, start, end));
+
+/**
+ * Critically damped settle used after a mechanical stop: decays to zero with at most one
+ * tiny overshoot. `t` in frames since the stop, `amp` the initial offset.
+ */
+export const settle = (t: number, amp: number, freq = 0.11, damping = 0.16) =>
+  t <= 0 ? 0 : amp * Math.exp(-damping * t) * Math.cos(freq * t * Math.PI);
+
+// ── Paper-specific curves ───────────────────────────────────────────────────────
+/** Cardstock fold: committed start, soft landing. Paper has weight, not spring. */
+export const foldEase = bezier(0.55, 0, 0.18, 1);
+
+/**
+ * Pop-up hinge: rises past flat by at most `over` (fraction of travel) then settles, the
+ * way a pop-up piece slaps upright and wobbles once. 0 → 1, never more than one overshoot.
+ */
+export const popEase = (t: number, over = 0.035) => {
+  const x = clamp(t);
+  if (x < 0.7) return foldEase(x / 0.7) * (1 + over);
+  return 1 + over * (0.5 + 0.5 * Math.cos(((x - 0.7) / 0.3) * Math.PI));
+};
+
+/** Deterministic hash → [0,1) for per-object imperfections (seeded by an integer id). */
+export const hash01 = (n: number) => {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+};
+
+==== 4779 src/kits/worldforge/example/Starter.tsx
+// WORLDFORGE starter composition — the reusability test: a non-Mars world (ancient hilltop
+// citadel, Earth sky) built only from src/worldforge/ (Stage, Sky, heightfield, terrainMesh,
+// surface, geo, track). 2 s, 540×960, 30 fps. Nothing here imports src/mars/.
+
+import React, { useMemo } from "react";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { Mesh, MeshStandardMaterial, PCFShadowMap } from "three";
+import { Stage, type Look, type ShadowBox, type Shot } from "../Stage.tsx";
+import { SkyDome, useSkyEnvironment, type SkyColors } from "../Sky.tsx";
+import { gridGeometry } from "../terrainMesh.ts";
+import { inside } from "../heightfield.ts";
+import { makeTerrainMaterial } from "../surface.ts";
+import { box, cyl } from "../geo.ts";
+import { sample, type Key } from "../track.ts";
+import { PLATEAU, STARTER_SUN, getStarterTerrain } from "./world.ts";
+
+const SKY: SkyColors = { zenith: "#5f8fc6", horizon: "#cfdbe3", glow: "#fff0d2", halo: "#ffffff", ground: "#6b6450", sunDisk: 18 };
+
+const Terrain: React.FC = React.memo(() => {
+  const meshes = useMemo(() => {
+    const t = getStarterTerrain();
+    const { material } = makeTerrainMaterial();
+    const near = new Mesh(gridGeometry(t.near), material);
+    const ng = t.near.grid;
+    const far = new Mesh(gridGeometry({ ...t.far, skip: (x0, z0, x1, z1) => inside(ng, x0, z0, 2) && inside(ng, x1, z1, 2) }), material);
+    for (const m of [near, far]) m.receiveShadow = true;
+    return [near, far];
+  }, []);
+  return (
+    <>
+      {meshes.map((m, i) => (
+        <primitive key={i} object={m} />
+      ))}
+    </>
+  );
+});
+
+const stone = new MeshStandardMaterial({ color: "#cdb68c", roughness: 0.88 });
+const stoneDark = new MeshStandardMaterial({ color: "#a68f68", roughness: 0.9 });
+const S = { castShadow: true, receiveShadow: true } as const;
+
+/** A stepped temple, a colonnade ring and a scatter of houses on the plateau. */
+const Citadel: React.FC = React.memo(() => {
+  const y0 = getStarterTerrain().heightAt(PLATEAU.x, PLATEAU.z);
+  const tiers = [40, 31, 23, 15];
+  const houses = useMemo(
+    () =>
+      Array.from({ length: 22 }, (_, i) => {
+        const a = i * 2.39996, r = 46 + ((i * 37) % 23);
+        return { x: PLATEAU.x + Math.cos(a) * r, z: PLATEAU.z + Math.sin(a) * r, w: 5 + (i % 4), d: 4 + ((i * 3) % 5), h: 3 + (i % 3), yaw: a };
+      }),
+    [],
+  );
+  return (
+    <group position={[PLATEAU.x, y0, PLATEAU.z]}>
+      {tiers.map((w, i) => (
+        <mesh key={i} geometry={box(w, 5, w, 0.3)} material={i % 2 ? stoneDark : stone} position={[0, 2.5 + i * 5 - 0.4, 0]} {...S} />
+      ))}
+      <mesh geometry={box(8, 6, 8, 0.4)} material={stone} position={[0, 23, 0]} {...S} />
+      {Array.from({ length: 20 }, (_, i) => {
+        const a = (i / 20) * Math.PI * 2;
+        return <mesh key={i} geometry={cyl(0.7, 0.8, 9, 16)} material={stone} position={[Math.cos(a) * 33, 4.3, Math.sin(a) * 33]} {...S} />;
+      })}
+      {houses.map((h, i) => (
+        <mesh key={i} geometry={box(h.w, h.h, h.d, 0.15)} material={i % 3 ? stone : stoneDark} position={[h.x - PLATEAU.x, h.h / 2 - 0.3, h.z - PLATEAU.z]} rotation={[0, h.yaw, 0]} {...S} />
+      ))}
+    </group>
+  );
+});
+
+const CAM: Key[] = [
+  { f: 0, v: [-150, 78, 230, 0, 22, -20, 40] },
+  { f: 2, v: [-132, 70, 202, 0, 22, -20, 40] },
+];
+const SHADOW_BOX: ShadowBox = { min: [-160, -10, -180], max: [160, 60, 140], mapWidth: 4096, sun: STARTER_SUN };
+
+const Scene: React.FC<{ t: number; frame: number }> = ({ t, frame }) => {
+  const env = useSkyEnvironment(STARTER_SUN, SKY, 0.7);
+  const v = sample(CAM, t);
+  const shot: Shot = { pos: [v[0], v[1], v[2]], target: [v[3], v[4], v[5]], fov: v[6], near: 0.6, far: 30000 };
+  const look: Look = {
+    sun: STARTER_SUN,
+    sunColor: "#fff1d8",
+    sunI: 4.0,
+    exposure: 1.0,
+    fog: { color: SKY.horizon, density: 0.00012 },
+    background: SKY.horizon,
+    environment: env,
+    ao: 0.8,
+    bloom: 0.1,
+    haze: 0,
+    hazeFlow: 0,
+    hazeColor: "#ffffff",
+    vignette: 0.16,
+  };
+  return (
+    <Stage shot={shot} look={look} shadowBox={SHADOW_BOX} frame={frame}>
+      <SkyDome sun={STARTER_SUN} colors={SKY} />
+      <Terrain />
+      <Citadel />
+    </Stage>
+  );
+};
+
+export const WorldforgeStarter: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#cfdbe3" }}>
+      <ThreeCanvas width={width} height={height} shadows={{ type: PCFShadowMap }} dpr={1} gl={{ antialias: false, preserveDrawingBuffer: true }} camera={{ fov: 40, near: 0.6, far: 30000, position: [0, 50, 200] }}>
+        <Scene t={frame / fps} frame={frame} />
+      </ThreeCanvas>
+    </AbsoluteFill>
+  );
+};
+
+==== 4238 src/kits/worldforge/example/world.ts
+// WORLDFORGE starter — a second, non-Mars world built only from src/worldforge/ modules, to
+// test that the toolkit is world-agnostic: an ancient hilltop citadel above a dry valley,
+// Earth sky, afternoon sun. Pure TS (no three.js), like mars/field.ts + mars/terrain.ts.
+
+import { clamp01, fbm, lerp, ridged, smooth } from "../noise.ts";
+import { bakeAO, bakeSun, expAxis, gridNormals, inside, lookup, makeGrid, makeWorldHeight, type Grid } from "../heightfield.ts";
+
+type V3 = [number, number, number];
+const norm = (v: V3): V3 => {
+  const l = Math.hypot(...v);
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
+
+/** Afternoon sun from the south-east, 25° high. */
+export const STARTER_SUN: V3 = norm([0.62, 0.47, 0.62]);
+/** The citadel plateau. */
+export const PLATEAU = { x: 0, z: -20, r: 95, h: 24 };
+
+export const height = (x: number, z: number) => {
+  let h = 16 * fbm(x / 650, z / 650, 5) + 3 * fbm(x / 90, z / 90, 4) + 0.35 * fbm(x / 14, z / 14, 3);
+  // a mountain ring on the horizon
+  const R = Math.hypot(x, z);
+  if (R > 1500) h += smooth(1800, 4200, R) * 520 * Math.pow(ridged(x / 1400 + 3, z / 1400, 6), 1.4);
+  // a dry river valley winding across the foreground
+  const vz = 170 + 60 * Math.sin(x / 230);
+  const dv = (z - vz) / 55;
+  h -= 13 * Math.exp(-dv * dv);
+  // the plateau the citadel stands on (stepped edge)
+  const p = Math.hypot(x - PLATEAU.x, z - PLATEAU.z);
+  const k = 1 - smooth(PLATEAU.r * 0.75, PLATEAU.r * 1.35, p);
+  h = lerp(h, PLATEAU.h + 0.25 * fbm(x / 20, z / 20, 2), k);
+  return h;
+};
+
+const lin = (hex: number) =>
+  [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map((v) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+const GRASS = lin(0x7a7a44), DRY = lin(0xa8925a), ROCK = lin(0x8b8479), SAND = lin(0xc4aa7c), PAVE = lin(0xb9a98d);
+
+const albedo = (x: number, z: number, h: number, ny: number, out: number[]) => {
+  const v = 0.5 + 0.5 * fbm(x / 140, z / 140, 3);
+  for (let c = 0; c < 3; c++) out[c] = lerp(GRASS[c], DRY[c], v);
+  const slope = 1 - ny;
+  const mix = (col: number[], t: number) => {
+    for (let c = 0; c < 3; c++) out[c] += (col[c] - out[c]) * clamp01(t);
+  };
+  const vz = 170 + 60 * Math.sin(x / 230);
+  mix(SAND, Math.exp(-(((z - vz) / 30) ** 2)) * 0.9);
+  mix(ROCK, smooth(0.18, 0.45, slope));
+  mix(PAVE, (1 - smooth(PLATEAU.r * 0.55, PLATEAU.r * 0.8, Math.hypot(x - PLATEAU.x, z - PLATEAU.z))) * 0.8);
+  mix(lin(0xdad6cf), smooth(260, 420, h) * 0.85); // snow on the high peaks
+  return out;
+};
+
+export type Part = { grid: Grid; normals: Float32Array; color: Float32Array; shade: Float32Array };
+let cache: { near: Part; far: Part; heightAt: (x: number, z: number) => number } | null = null;
+
+/** Same recipe as mars/terrain.ts: two graded grids, baked sun + AO, vertex albedo. */
+export const getStarterTerrain = () => {
+  if (cache) return cache;
+  const near = makeGrid(expAxis(-520, 520, 1.2, 0.006), expAxis(-520, 520, 1.2, 0.006), height);
+  const fa = expAxis(-9000, 9000, 14, 0.009);
+  const far = makeGrid(fa, fa, height);
+  const world = makeWorldHeight(near, far);
+  let maxH = -1e9;
+  for (const v of far.h) maxH = Math.max(maxH, v);
+  const opts = { sun: STARTER_SUN, maxH: maxH + 2, maxDist: 3500, soft: 0.02 };
+  const part = (g: Grid, aoR: number): Part => {
+    const sun = bakeSun(g, world, opts), ao = bakeAO(g, world, aoR, 0.8), normals = gridNormals(g);
+    const n = g.ax.n * g.az.n;
+    const color = new Float32Array(n * 3), shade = new Float32Array(n * 2), c = [0, 0, 0];
+    for (let j = 0; j < g.az.n; j++)
+      for (let i = 0; i < g.ax.n; i++) {
+        const k = j * g.ax.n + i;
+        albedo(g.ax.coord[i], g.az.coord[j], g.h[k], normals[k * 3 + 1], c);
+        color.set(c, k * 3);
+        shade[k * 2] = sun[k];
+        shade[k * 2 + 1] = ao[k];
+      }
+    return { grid: g, normals, color, shade };
+  };
+  const nearP = part(near, 40), farP = part(far, 500);
+  for (let j = 0; j < far.az.n; j++)
+    for (let i = 0; i < far.ax.n; i++) if (inside(near, far.ax.coord[i], far.az.coord[j], 0.5)) far.h[j * far.ax.n + i] -= 3;
+  cache = { near: nearP, far: farP, heightAt: (x, z) => (inside(near, x, z) ? lookup(near, x, z) : lookup(far, x, z) + 3) };
+  return cache;
+};
+
+==== 4099 src/kits/worldforge/geo.ts
+// Small geometry kit for architecture: struts between points, merged lattices, lathe and
+// arch profiles, geodesic frames. Geometries are cached by key so a film builds each once.
+
+import {
+  BufferGeometry,
+  CylinderGeometry,
+  IcosahedronGeometry,
+  LatheGeometry,
+  Matrix4,
+  Quaternion,
+  Shape,
+  SphereGeometry,
+  TorusGeometry,
+  Vector2,
+  Vector3,
+} from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+
+const cache = new Map<string, BufferGeometry>();
+export const cached = <G extends BufferGeometry>(key: string, make: () => G): G => {
+  let g = cache.get(key);
+  if (!g) {
+    g = make();
+    cache.set(key, g);
+  }
+  return g as G;
+};
+
+export const cyl = (rt: number, rb: number, h: number, seg = 32, open = false, ts = 0, tl = Math.PI * 2) =>
+  cached(`cyl${rt},${rb},${h},${seg},${open},${ts},${tl}`, () => new CylinderGeometry(rt, rb, h, seg, 1, open, ts, tl));
+export const box = (w: number, h: number, d: number, r = 0.04, seg = 2) =>
+  cached(`box${w},${h},${d},${r}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2.01, h / 2.01, d / 2.01)));
+export const sphere = (r: number, ws = 32, hs = 16, phiLen = Math.PI * 2, thetaLen = Math.PI) =>
+  cached(`sph${r},${ws},${hs},${phiLen},${thetaLen}`, () => new SphereGeometry(r, ws, hs, 0, phiLen, 0, thetaLen));
+export const torus = (R: number, r: number, rs = 8, ts = 48, arc = Math.PI * 2) =>
+  cached(`tor${R},${r},${rs},${ts},${arc}`, () => new TorusGeometry(R, r, rs, ts, arc));
+export const lathe = (key: string, pts: [number, number][], seg = 64) =>
+  cached(`lathe${key}`, () => new LatheGeometry(pts.map(([x, y]) => new Vector2(x, y)), seg));
+
+const UP = new Vector3(0, 1, 0);
+/** A cylinder from p to q (world-free; positions in the caller's frame). */
+export const strutGeo = (p: Vector3, q: Vector3, r: number, seg = 6) => {
+  const d = new Vector3().subVectors(q, p);
+  const len = d.length();
+  const g = new CylinderGeometry(r, r, len, seg, 1, false);
+  const m = new Matrix4().compose(
+    new Vector3().addVectors(p, q).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(UP, d.normalize()),
+    new Vector3(1, 1, 1),
+  );
+  g.applyMatrix4(m);
+  return g;
+};
+
+export const merged = (key: string, make: () => BufferGeometry[]) =>
+  cached(key, () => {
+    const parts = make().map((g) => (g.index ? g.toNonIndexed() : g));
+    for (const p of parts) {
+      for (const name of Object.keys(p.attributes)) if (name !== "position" && name !== "normal" && name !== "uv") p.deleteAttribute(name);
+    }
+    return mergeGeometries(parts, false)!;
+  });
+
+/** Geodesic frame over the upper hemisphere (edges of a subdivided icosahedron). */
+export const geodesicFrame = (R: number, detail: number, strutR: number) =>
+  merged(`geo${R},${detail},${strutR}`, () => {
+    const ico = new IcosahedronGeometry(R, detail);
+    const p = ico.attributes.position;
+    const key = (v: Vector3) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    const edges = new Map<string, [Vector3, Vector3]>();
+    for (let i = 0; i < p.count; i += 3) {
+      const tri = [0, 1, 2].map((k) => new Vector3(p.getX(i + k), p.getY(i + k), p.getZ(i + k)));
+      for (let k = 0; k < 3; k++) {
+        const a = tri[k], b = tri[(k + 1) % 3];
+        if (a.y < -0.01 || b.y < -0.01) continue;
+        const ka = key(a), kb = key(b);
+        const id = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+        if (!edges.has(id)) edges.set(id, [a, b]);
+      }
+    }
+    return [...edges.values()].map(([a, b]) => strutGeo(a, b, strutR, 5));
+  });
+
+/** Arch outline (flat sides, rounded roof) in the x-y plane, base on y = 0. */
+export const archShape = (w: number, h: number, shoulder: number, inset = 0) => {
+  const s = new Shape();
+  const hw = w / 2 - inset;
+  s.moveTo(-hw, inset > 0 ? 0 : 0);
+  s.lineTo(-hw, h - shoulder);
+  s.quadraticCurveTo(-hw, h - inset, 0, h - inset);
+  s.quadraticCurveTo(hw, h - inset, hw, h - shoulder);
+  s.lineTo(hw, 0);
+  s.lineTo(-hw, 0);
+  return s;
+};
+
+==== 6674 src/kits/worldforge/heightfield.ts
+// Height-field toolkit: graded grids, bilinear lookup, baked sun visibility + ambient occlusion.
+//
+// A WORLDFORGE terrain is one analytic height function sampled on two graded grids: a dense
+// "near" patch where the camera travels (sub-metre at the hero location, coarser toward its
+// edges) and a coarse "far" patch out to the horizon. Grid spacing grows exponentially away
+// from the origin, so detail is spent where the camera is. Because the sun never moves within
+// a film, terrain self-shadowing and AO are baked once per grid vertex (pure CPU, seeded) —
+// long mountain and dune shadows cost nothing per frame and can never flicker.
+
+export type Axis = {
+  n: number;
+  /** Index of coordinate 0. */
+  c: number;
+  coord: Float64Array;
+  /** Fractional index of a coordinate (inverse of the spacing map). */
+  inv: (x: number) => number;
+};
+
+/** Spacing s(x) = s0 + k·|x|: a graded axis covering [min, max] with x = 0 on a grid line. */
+export const expAxis = (min: number, max: number, s0: number, k: number): Axis => {
+  const uOf = (x: number) => (Math.sign(x) * Math.log(1 + (k * Math.abs(x)) / s0)) / k;
+  const lo = Math.ceil(-uOf(min));
+  const hi = Math.ceil(uOf(max));
+  const n = lo + hi + 1;
+  const coord = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const u = i - lo;
+    coord[i] = (Math.sign(u) * (s0 / k)) * (Math.exp(k * Math.abs(u)) - 1);
+  }
+  return { n, c: lo, coord, inv: (x: number) => lo + uOf(x) };
+};
+
+export type Grid = {
+  ax: Axis;
+  az: Axis;
+  /** Heights, row-major: index = j * ax.n + i (i along x, j along z). */
+  h: Float32Array;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+};
+
+export const makeGrid = (ax: Axis, az: Axis, height: (x: number, z: number) => number): Grid => {
+  const h = new Float32Array(ax.n * az.n);
+  for (let j = 0; j < az.n; j++) {
+    const z = az.coord[j];
+    for (let i = 0; i < ax.n; i++) h[j * ax.n + i] = height(ax.coord[i], z);
+  }
+  return { ax, az, h, minX: ax.coord[0], maxX: ax.coord[ax.n - 1], minZ: az.coord[0], maxZ: az.coord[az.n - 1] };
+};
+
+export const inside = (g: Grid, x: number, z: number, margin = 0) =>
+  x > g.minX + margin && x < g.maxX - margin && z > g.minZ + margin && z < g.maxZ - margin;
+
+/** Bilinear height lookup in grid-index space (clamped to the grid). */
+export const lookup = (g: Grid, x: number, z: number) => {
+  const nx = g.ax.n, nz = g.az.n;
+  let fi = g.ax.inv(x), fj = g.az.inv(z);
+  if (fi < 0) fi = 0; else if (fi > nx - 1.0001) fi = nx - 1.0001;
+  if (fj < 0) fj = 0; else if (fj > nz - 1.0001) fj = nz - 1.0001;
+  const i = fi | 0, j = fj | 0;
+  // Linear in true coordinates within the cell (the mesh is linear there too).
+  const x0 = g.ax.coord[i], x1 = g.ax.coord[i + 1];
+  const z0 = g.az.coord[j], z1 = g.az.coord[j + 1];
+  let tx = (x - x0) / (x1 - x0), tz = (z - z0) / (z1 - z0);
+  tx = tx < 0 ? 0 : tx > 1 ? 1 : tx;
+  tz = tz < 0 ? 0 : tz > 1 ? 1 : tz;
+  const k = j * nx + i;
+  const a = g.h[k] + (g.h[k + 1] - g.h[k]) * tx;
+  const b = g.h[k + nx] + (g.h[k + nx + 1] - g.h[k + nx]) * tx;
+  return a + (b - a) * tz;
+};
+
+/** Height at any point: the near grid where it exists, otherwise the far grid. */
+export const makeWorldHeight = (near: Grid, far: Grid) => (x: number, z: number) =>
+  inside(near, x, z) ? lookup(near, x, z) : lookup(far, x, z);
+
+export type BakeOpts = {
+  /** Unit vector toward the sun. */
+  sun: [number, number, number];
+  /** Highest point in the world: rays above it can stop. */
+  maxH: number;
+  maxDist: number;
+  /** Penumbra half-width as a slope (tan of angle). */
+  soft: number;
+};
+
+/**
+ * Sun visibility per grid vertex, 0..1 with soft penumbrae: march toward the sun and keep the
+ * smallest clearance angle between the ray and the terrain.
+ */
+export const bakeSun = (g: Grid, height: (x: number, z: number) => number, o: BakeOpts) => {
+  const [lx, ly, lz] = o.sun;
+  const lh = Math.hypot(lx, lz);
+  const dx = lx / lh, dz = lz / lh, tanE = ly / lh;
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    const z = g.az.coord[j];
+    const sz = j > 0 ? z - g.az.coord[j - 1] : g.az.coord[1] - z;
+    for (let i = 0; i < nx; i++) {
+      const x = g.ax.coord[i];
+      const sx = i > 0 ? x - g.ax.coord[i - 1] : g.ax.coord[1] - x;
+      const spacing = Math.max(sx, sz);
+      const h0 = g.h[j * nx + i] + 0.12 + 0.04 * spacing;
+      let vis = 1;
+      let s = spacing * 0.8;
+      while (s < o.maxDist) {
+        const ry = h0 + s * tanE;
+        if (ry > o.maxH) break;
+        const th = height(x + dx * s, z + dz * s);
+        const v = 0.5 + (ry - th) / s / (2 * o.soft);
+        if (v < vis) {
+          vis = v;
+          if (vis <= 0) { vis = 0; break; }
+        }
+        s = s * 1.045 + 0.3 * spacing;
+      }
+      out[j * nx + i] = vis > 1 ? 1 : vis;
+    }
+  }
+  return out;
+};
+
+/** Horizon-based ambient occlusion per vertex (8 directions, exponential steps). */
+export const bakeAO = (g: Grid, height: (x: number, z: number) => number, radius: number, strength: number) => {
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz);
+  const dirs = Array.from({ length: 8 }, (_, k) => [Math.cos((k / 8) * Math.PI * 2 + 0.3), Math.sin((k / 8) * Math.PI * 2 + 0.3)]);
+  const steps: number[] = [];
+  for (let s = 1.2; s < radius; s *= 1.6) steps.push(s);
+  for (let j = 0; j < nz; j++) {
+    const z = g.az.coord[j];
+    for (let i = 0; i < nx; i++) {
+      const x = g.ax.coord[i];
+      const h0 = g.h[j * nx + i];
+      let occ = 0;
+      for (const [cx, cz] of dirs) {
+        let m = 0;
+        for (const s of steps) {
+          const t = (height(x + cx * s, z + cz * s) - h0) / s;
+          if (t > m) m = t;
+        }
+        occ += m / Math.sqrt(1 + m * m);
+      }
+      const ao = 1 - (occ / 8) * strength;
+      out[j * nx + i] = ao < 0 ? 0 : ao;
+    }
+  }
+  return out;
+};
+
+/** Grid-space normal (world units), written into `out` as xyz per vertex. */
+export const gridNormals = (g: Grid) => {
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz * 3);
+  for (let j = 0; j < nz; j++) {
+    const j0 = j > 0 ? j - 1 : j, j1 = j < nz - 1 ? j + 1 : j;
+    const dz = g.az.coord[j1] - g.az.coord[j0];
+    for (let i = 0; i < nx; i++) {
+      const i0 = i > 0 ? i - 1 : i, i1 = i < nx - 1 ? i + 1 : i;
+      const dx = g.ax.coord[i1] - g.ax.coord[i0];
+      const gx = (g.h[j * nx + i1] - g.h[j * nx + i0]) / dx;
+      const gz = (g.h[j1 * nx + i] - g.h[j0 * nx + i]) / dz;
+      const l = Math.hypot(gx, 1, gz);
+      const k = (j * nx + i) * 3;
+      out[k] = -gx / l;
+      out[k + 1] = 1 / l;
+      out[k + 2] = -gz / l;
+    }
+  }
+  return out;
+};
+
+==== 3442 src/kits/worldforge/noise.ts
+// Seeded, deterministic noise for world-building. Every function is a pure function of its
+// inputs (no Math.random), so terrain, scatter and textures are identical in every render tab.
+
+export const mulberry32 = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/** Integer hash → [0, 1). */
+export const hash2 = (x: number, y: number, seed = 0) => {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 2147483647)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+};
+
+// 2D gradient (Perlin) noise with a seeded permutation table.
+const P = new Uint16Array(512);
+const GX = new Float32Array(256);
+const GY = new Float32Array(256);
+{
+  const rnd = mulberry32(0x6a52);
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) P[i] = p[i & 255];
+  for (let i = 0; i < 256; i++) {
+    const a = rnd() * Math.PI * 2;
+    GX[i] = Math.cos(a);
+    GY[i] = Math.sin(a);
+  }
+}
+
+/** Perlin noise, roughly in [-1, 1]. */
+export const noise2 = (x: number, y: number) => {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const X = xi & 255, Y = yi & 255;
+  const a = P[X] + Y, b = P[X + 1] + Y;
+  const g00 = P[a], g01 = P[a + 1], g10 = P[b], g11 = P[b + 1];
+  const d00 = GX[g00] * xf + GY[g00] * yf;
+  const d10 = GX[g10] * (xf - 1) + GY[g10] * yf;
+  const d01 = GX[g01] * xf + GY[g01] * (yf - 1);
+  const d11 = GX[g11] * (xf - 1) + GY[g11] * (yf - 1);
+  const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10);
+  const v = yf * yf * yf * (yf * (yf * 6 - 15) + 10);
+  const x0 = d00 + (d10 - d00) * u;
+  const x1 = d01 + (d11 - d01) * u;
+  return (x0 + (x1 - x0) * v) * 1.414;
+};
+
+// Octaves are rotated ~37° against each other so the lattice never lines up.
+const RC = 0.8, RS = 0.6;
+
+/** Fractal sum, roughly in [-1, 1]. */
+export const fbm = (x: number, y: number, oct: number, gain = 0.5) => {
+  let s = 0, a = 1, n = 0;
+  for (let i = 0; i < oct; i++) {
+    s += a * noise2(x, y);
+    n += a;
+    const nx = (RC * x - RS * y) * 2.03 + 17.1;
+    y = (RS * x + RC * y) * 2.03 + 3.7;
+    x = nx;
+    a *= gain;
+  }
+  return s / n;
+};
+
+/** Ridged multifractal in [0, 1]: sharp crests, eroded-looking valleys. */
+export const ridged = (x: number, y: number, oct: number, gain = 0.5) => {
+  let s = 0, a = 1, n = 0, w = 1;
+  for (let i = 0; i < oct; i++) {
+    let r = 1 - Math.abs(noise2(x, y));
+    r *= r;
+    r *= w;
+    w = Math.min(1, r * 1.8);
+    s += a * r;
+    n += a;
+    const nx = (RC * x - RS * y) * 2.07 + 31.3;
+    y = (RS * x + RC * y) * 2.07 + 7.9;
+    x = nx;
+    a *= gain;
+  }
+  return s / n;
+};
+
+export const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+export const smooth = (a: number, b: number, x: number) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** Polynomial smooth minimum. */
+export const smin = (a: number, b: number, k: number) => {
+  const h = clamp01(0.5 + (0.5 * (b - a)) / k);
+  return lerp(b, a, h) - k * h * (1 - h);
+};
+
+==== 2090 src/kits/worldforge/path.ts
+// Plan-view paths for vehicles and people: Catmull-Rom through the points, sampled by arc
+// length so speed along the path is exact (wheels and footsteps can be derived from distance).
+
+export type P2 = [number, number];
+
+export type PlanPath = {
+  length: number;
+  /** Position and unit direction at arc length s (clamped). */
+  at: (s: number) => { p: P2; dir: P2 };
+};
+
+const cr = (a: number, b: number, c: number, d: number, t: number) =>
+  0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+
+export const planPath = (pts: P2[], perSeg = 40): PlanPath => {
+  const n = pts.length;
+  const get = (i: number) => pts[Math.max(0, Math.min(n - 1, i))];
+  const samples: P2[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const a = get(i - 1), b = get(i), c = get(i + 1), d = get(i + 2);
+    for (let k = 0; k < perSeg; k++) {
+      const t = k / perSeg;
+      samples.push([cr(a[0], b[0], c[0], d[0], t), cr(a[1], b[1], c[1], d[1], t)]);
+    }
+  }
+  samples.push(pts[n - 1]);
+  const cum = [0];
+  for (let i = 1; i < samples.length; i++) cum.push(cum[i - 1] + Math.hypot(samples[i][0] - samples[i - 1][0], samples[i][1] - samples[i - 1][1]));
+  const length = cum[cum.length - 1];
+  const at = (s: number) => {
+    const x = Math.max(0, Math.min(length - 1e-6, s));
+    let lo = 0, hi = cum.length - 1;
+    while (hi - lo > 1) {
+      const m = (lo + hi) >> 1;
+      if (cum[m] <= x) lo = m;
+      else hi = m;
+    }
+    const f = (x - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]);
+    const A = samples[lo], B = samples[hi];
+    const dx = B[0] - A[0], dz = B[1] - A[1];
+    const l = Math.hypot(dx, dz) || 1;
+    return { p: [A[0] + dx * f, A[1] + dz * f] as P2, dir: [dx / l, dz / l] as P2 };
+  };
+  return { length, at };
+};
+
+/** Distance travelled with a smooth start: rest until t0, accelerate over `ramp`, then speed v. */
+export const travel = (t: number, t0: number, ramp: number, v: number) => {
+  if (t <= t0) return 0;
+  const u = t - t0;
+  if (u < ramp) return (v * u * u) / (2 * ramp);
+  return v * (u - ramp / 2);
+};
+
+==== 4360 src/kits/worldforge/plants.ts
+// Procedural plants for close-ups: curved, cupped leaves assembled into rosettes (lettuce,
+// herbs) and a seedling (stem, two cotyledons, first true leaves). Leaves are bent strips
+// with a pointed-oval outline, so silhouettes and light read correctly at macro distance.
+
+import { BufferGeometry, CatmullRomCurve3, PlaneGeometry, TubeGeometry, Vector3 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mulberry32 } from "./noise.ts";
+
+export type LeafSpec = {
+  length: number;
+  width: number;
+  /** Start angle above horizontal (radians) and how much it bends down along its length. */
+  rise: number;
+  droop: number;
+  /** Cupping across the blade and edge ruffle amplitude (fractions of width). */
+  cup: number;
+  ruffle: number;
+};
+
+/** One leaf pointing along +z from the origin. */
+export const leafGeometry = (s: LeafSpec, seed = 1, segU = 8, segV = 18) => {
+  const g = new PlaneGeometry(1, 1, segU, segV);
+  const p = g.attributes.position;
+  const rnd = mulberry32(seed);
+  const ph = rnd() * 6;
+  // integrate the midrib: angle falls from `rise` by `droop` along the length
+  const rib: [number, number][] = [[0, 0]];
+  for (let k = 1; k <= segV; k++) {
+    const v = (k - 0.5) / segV;
+    const a = s.rise - s.droop * v * v;
+    const dl = s.length / segV;
+    const [z, y] = rib[k - 1];
+    rib.push([z + Math.cos(a) * dl, y + Math.sin(a) * dl]);
+  }
+  for (let i = 0; i < p.count; i++) {
+    const u = p.getX(i); // -0.5..0.5
+    const v = p.getY(i) + 0.5; // 0..1
+    const k = Math.round(v * segV);
+    const w = s.width * Math.sin(Math.PI * Math.pow(v, 0.75)) * (1 - 0.2 * v);
+    const [z, y] = rib[k];
+    const x = u * w;
+    const edge = Math.abs(u * 2);
+    const yy = y + s.cup * w * edge * edge + s.ruffle * w * edge * edge * Math.sin(v * 13 + ph + u * 2);
+    p.setXYZ(i, x, yy, z);
+  }
+  g.computeVertexNormals();
+  return g;
+};
+
+const rotY = (g: BufferGeometry, a: number) => g.rotateY(a);
+
+export type RosetteSpec = { leaves: number; leaf: LeafSpec; inner: number };
+
+/** Leaves on a golden-angle spiral; inner leaves are shorter and more upright. */
+export const rosetteGeometry = (r: RosetteSpec, seed = 7) => {
+  const rnd = mulberry32(seed);
+  const parts: BufferGeometry[] = [];
+  for (let i = 0; i < r.leaves; i++) {
+    const t = i / (r.leaves - 1); // 0 outer → 1 inner
+    const L = { ...r.leaf };
+    L.length *= 1 - t * (1 - r.inner) + (rnd() - 0.5) * 0.12;
+    L.width *= 1 - t * 0.4;
+    L.rise = r.leaf.rise + t * 0.75;
+    L.droop = r.leaf.droop * (1 - t * 0.7);
+    const g = leafGeometry(L, seed * 31 + i);
+    rotY(g, i * 2.39996 + rnd() * 0.2);
+    g.translate(0, t * 0.02, 0);
+    parts.push(g);
+  }
+  const m = mergeGeometries(parts, false)!;
+  m.computeBoundingSphere();
+  return m;
+};
+
+/** A seedling about 6 cm tall: curved stem, two cotyledons, two small true leaves. */
+export const seedlingGeometry = () => {
+  const stem = new TubeGeometry(
+    new CatmullRomCurve3([new Vector3(0, -0.01, 0), new Vector3(0.003, 0.016, 0.001), new Vector3(0.002, 0.032, -0.002), new Vector3(0, 0.042, 0)]),
+    16,
+    0.0028,
+    8,
+  );
+  const parts: BufferGeometry[] = [stem];
+  for (const side of [0, Math.PI]) {
+    const c = leafGeometry({ length: 0.024, width: 0.02, rise: 0.4, droop: 0.55, cup: 0.3, ruffle: 0 }, 3);
+    c.rotateY(side + Math.PI / 2);
+    c.translate(0, 0.04, 0);
+    parts.push(c);
+  }
+  for (const side of [0.3, Math.PI + 0.3]) {
+    const l = leafGeometry({ length: 0.026, width: 0.017, rise: 1.05, droop: 0.9, cup: 0.35, ruffle: 0.05 }, 5);
+    l.rotateY(side);
+    l.translate(0, 0.043, 0);
+    parts.push(l);
+  }
+  const strip = (g: BufferGeometry) => {
+    for (const k of Object.keys(g.attributes)) if (k !== "position" && k !== "normal" && k !== "uv") g.deleteAttribute(k);
+    return g.index ? g.toNonIndexed() : g;
+  };
+  return mergeGeometries(parts.map(strip), false)!;
+};
+
+export const PLANT_KINDS = {
+  lettuce: { leaves: 13, inner: 0.45, leaf: { length: 0.17, width: 0.12, rise: 0.25, droop: 0.9, cup: 0.3, ruffle: 0.12 } },
+  romaine: { leaves: 10, inner: 0.6, leaf: { length: 0.24, width: 0.08, rise: 0.85, droop: 0.6, cup: 0.25, ruffle: 0.05 } },
+  herb: { leaves: 16, inner: 0.5, leaf: { length: 0.11, width: 0.035, rise: 0.7, droop: 0.9, cup: 0.15, ruffle: 0.02 } },
+} satisfies Record<string, RosetteSpec>;
+
+==== 3601 src/kits/worldforge/Sky.tsx
+// Sky dome + matching image-based light. The dome follows the camera (no parallax) and is
+// drawn at the far plane; the same gradient, rendered once into a PMREM, lights every PBR
+// material, so ground bounce, sky fill and reflections agree with what the camera sees.
+
+import React, { useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import { BackSide, Color, Mesh, PMREMGenerator, Scene, ShaderMaterial, SphereGeometry, Vector3, type Texture } from "three";
+import type { V3 } from "./Stage.tsx";
+
+export type SkyColors = { zenith: string; horizon: string; glow: string; halo: string; ground: string; sunDisk: number };
+
+const makeSkyMaterial = (sun: V3, c: SkyColors, env: boolean) =>
+  new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      uSun: { value: new Vector3(...sun).normalize() },
+      uZenith: { value: new Color(c.zenith) },
+      uHorizon: { value: new Color(c.horizon) },
+      uGlow: { value: new Color(c.glow) },
+      uHalo: { value: new Color(c.halo) },
+      uGround: { value: new Color(c.ground) },
+      uDisk: { value: env ? 0 : c.sunDisk },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main(){
+        vDir = position;
+        vec4 p = projectionMatrix * viewMatrix * vec4(cameraPosition + position, 1.0);
+        gl_Position = p.xyww;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun, uZenith, uHorizon, uGlow, uHalo, uGround; uniform float uDisk;
+      varying vec3 vDir;
+      void main(){
+        vec3 d = normalize(vDir);
+        float e = d.y;
+        float up = max(e, 0.0);
+        vec3 col = mix(uHorizon, uZenith, pow(up, 0.55));
+        float mu = max(dot(d, uSun), 0.0);
+        // broad golden forward scattering, a tight cool halo (dusty skies scatter blue near the sun)
+        col += uGlow * (pow(mu, 5.0) * 0.55 + pow(mu, 24.0) * 0.45) * (1.0 - 0.5 * up);
+        col = mix(col, uHalo * 1.6, pow(mu, 180.0) * 0.6);
+        col += vec3(1.0, 0.93, 0.82) * uDisk * smoothstep(0.99993, 0.99997, mu);
+        // below the horizon: haze first, then ground bounce
+        col = mix(col, uGround, smoothstep(-0.02, -0.25, e));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+
+/** PMREM environment rendered from the sky (no sun disk; the sun is a real light). */
+export const useSkyEnvironment = (sun: V3, colors: SkyColors, intensity = 1): Texture => {
+  const gl = useThree((s) => s.gl);
+  return useMemo(() => {
+    const scene = new Scene();
+    const mat = makeSkyMaterial(sun, colors, true);
+    if (intensity !== 1) {
+      for (const k of ["uZenith", "uHorizon", "uGlow", "uHalo", "uGround"]) (mat.uniforms[k].value as Color).multiplyScalar(intensity);
+    }
+    // PMREM's cube camera sits at the origin, so "cameraPosition + position" is the dome itself.
+    scene.add(new Mesh(new SphereGeometry(100, 48, 24), mat));
+    const pmrem = new PMREMGenerator(gl);
+    const rt = pmrem.fromScene(scene, 0.02, 0.1, 1000);
+    pmrem.dispose();
+    return rt.texture;
+    // colours and sun are constants of a film
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl]);
+};
+
+export const SkyDome: React.FC<{ sun: V3; colors: SkyColors; visible?: boolean }> = ({ sun, colors, visible = true }) => {
+  const mesh = useMemo(() => {
+    const m = new Mesh(new SphereGeometry(1000, 64, 32), makeSkyMaterial(sun, colors, false));
+    m.frustumCulled = false;
+    m.renderOrder = -10;
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <primitive object={mesh} visible={visible} />;
+};
+
+==== 12617 src/kits/worldforge/Stage.tsx
+// Stage — owns lens, sun and the render loop of a WORLDFORGE film.
+//
+// One directional sun with a FIXED shadow frustum fitted (in light space) around the area the
+// camera explores: the light and the frustum never move, so object shadows cannot swim or
+// shimmer from frame to frame. Terrain self-shadowing is baked (see heightfield.ts); the shadow
+// map only carries props — rocks, buildings, vehicles, people.
+//
+// Finishing chain per frame:
+//   scene (MSAA, half float) → GTAO contact occlusion → optional bokeh DOF → restrained bloom
+//   → tone map (OutputPass) → grade (warm split tone, vignette, fine grain, entry haze).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import {
+  type Camera,
+  Color,
+  DirectionalLight,
+  FogExp2,
+  HalfFloatType,
+  Matrix4,
+  NeutralToneMapping,
+  Object3D,
+  PerspectiveCamera,
+  Vector2,
+  Vector3,
+  WebGLRenderTarget,
+  type Texture,
+} from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import type { Pass } from "three/examples/jsm/postprocessing/Pass.js";
+
+export type V3 = [number, number, number];
+
+/**
+ * Render layer for additive / volumetric effects (light shafts, glows, beams). Put such meshes on
+ * this layer only (`mesh.layers.set(FX_LAYER)`): the camera renders them, but GTAO and depth of
+ * field skip them. Large transparent volumes on the default layer can silently blank the frame.
+ */
+export const FX_LAYER = 1;
+const withoutFx = <P extends Pass>(pass: P, camera: Camera): P => {
+  const render = pass.render.bind(pass);
+  pass.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    camera.layers.disable(FX_LAYER);
+    try {
+      render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+    } finally {
+      camera.layers.enable(FX_LAYER);
+    }
+  };
+  return pass;
+};
+
+export type Shot = {
+  pos: V3;
+  target: V3;
+  fov: number;
+  roll?: number;
+  near: number;
+  far: number;
+  /** Bokeh: focus distance (world units), aperture, max blur. Off when aperture is 0. */
+  focus?: number;
+  aperture?: number;
+  maxBlur?: number;
+};
+
+export type Look = {
+  /** Unit vector toward the sun; null = no sun (e.g. a space shot lit in-shader). */
+  sun: V3 | null;
+  sunColor: string;
+  sunI: number;
+  exposure: number;
+  fog: { color: string; density: number } | null;
+  background: string;
+  environment: Texture | null;
+  /** Scales the image light (e.g. a dim reflection environment for a space shot). */
+  envIntensity?: number;
+  ao: number;
+  bloom: number;
+  /** Entry haze 0..1 and the flow clock that drives its streaks. */
+  haze: number;
+  hazeFlow: number;
+  hazeColor: string;
+  vignette: number;
+};
+
+/** World-space box the sun's shadow map must cover. */
+export type ShadowBox = { min: V3; max: V3; mapWidth: number; sun: V3 };
+
+// ── Grade ────────────────────────────────────────────────────────────────────
+
+/**
+ * Replaces non-finite pixels (NaN/Inf from a faulty custom shader) right after the scene render.
+ * Without it, bloom spreads a single NaN pixel across the whole frame and the frame renders blank
+ * with no error — found in testing with a custom light-shaft shader.
+ */
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.18 },
+    uGrain: { value: 0.012 },
+    uRes: { value: new Vector2(540, 960) },
+    uHaze: { value: 0 },
+    uFlow: { value: 0 },
+    uHazeColor: { value: new Color("#e5ad86") },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uGrain; uniform vec2 uRes;
+    uniform float uHaze; uniform float uFlow; uniform vec3 uHazeColor;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+      return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      // warm highlights, a breath of umber in the shadows (never blue-black)
+      c.rgb += smoothstep(0.55, 1.0, l) * vec3(0.010, 0.003, -0.008);
+      c.rgb += (1.0 - smoothstep(0.0, 0.4, l)) * vec3(0.012, 0.004, -0.002);
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.14);
+      // entry haze: dust streaks rushing outward from the centre of the frame, then a warm veil
+      if (uHaze > 0.0) {
+        vec2 p = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
+        float r = length(p);
+        float a = atan(p.y, p.x);
+        float s1 = vnoise(vec2(a * 9.0, log(r + 0.02) * 3.0 - uFlow * 2.6));
+        float s2 = vnoise(vec2(a * 23.0 + 4.0, log(r + 0.02) * 6.0 - uFlow * 4.1));
+        float streak = smoothstep(0.45, 1.0, s1 * 0.6 + s2 * 0.5) * smoothstep(0.08, 0.6, r);
+        float veil = smoothstep(0.0, 1.0, uHaze);
+        vec3 hz = uHazeColor * (0.95 + 0.1 * s1 + 0.08 * streak);
+        c.rgb = mix(c.rgb, hz, clamp(veil * (0.85 + 0.15 * streak) + streak * uHaze * 0.18 + smoothstep(0.82, 0.97, uHaze) * 0.4, 0.0, 1.0));
+      }
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.1);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.35, 0.95, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain * (0.6 + 0.4 * (1.0 - l));
+      gl_FragColor = c;
+    }`,
+};
+
+// ── Stage ────────────────────────────────────────────────────────────────────
+
+/** One light (and shadow map) per shadow box, kept for the page: switching boxes at a cut never reallocates. */
+const lightCache = new Map<ShadowBox | null, { light: DirectionalLight; target: Object3D }>();
+
+export type StageProps = {
+  shot: Shot;
+  look: Look;
+  shadowBox: ShadowBox | null;
+  frame: number;
+  children: React.ReactNode;
+};
+
+export const Stage: React.FC<StageProps> = ({ shot, look, shadowBox, frame, children }) => {
+  const { gl, scene, camera, size } = useThree();
+
+  const sun = useMemo(() => {
+    const hit = lightCache.get(shadowBox);
+    if (hit) return hit;
+    const target = new Object3D();
+    const light = new DirectionalLight("#fff", 3);
+    light.target = target;
+    light.castShadow = !!shadowBox;
+    if (shadowBox) {
+      // Fit an orthographic frustum, in light space, around the box. Fixed for the whole film.
+      const L = new Vector3(...shadowBox.sun).normalize();
+      const c = new Vector3(...shadowBox.min).add(new Vector3(...shadowBox.max)).multiplyScalar(0.5);
+      target.position.copy(c);
+      light.position.copy(c).addScaledVector(L, 3000);
+      const view = new Matrix4().lookAt(light.position, c, new Vector3(0, 1, 0));
+      const inv = new Matrix4().makeTranslation(light.position.x, light.position.y, light.position.z).multiply(view).invert();
+      const lo = new Vector3(Infinity, Infinity, Infinity), hi = new Vector3(-Infinity, -Infinity, -Infinity);
+      for (let k = 0; k < 8; k++) {
+        const p = new Vector3(k & 1 ? shadowBox.max[0] : shadowBox.min[0], k & 2 ? shadowBox.max[1] : shadowBox.min[1], k & 4 ? shadowBox.max[2] : shadowBox.min[2]).applyMatrix4(inv);
+        lo.min(p);
+        hi.max(p);
+      }
+      const cam = light.shadow.camera;
+      cam.left = lo.x;
+      cam.right = hi.x;
+      cam.bottom = lo.y;
+      cam.top = hi.y;
+      cam.near = Math.max(1, -hi.z - 50);
+      cam.far = -lo.z + 50;
+      cam.updateProjectionMatrix();
+      const w = shadowBox.mapWidth;
+      const h = Math.min(8192, Math.max(1024, Math.round((w * (hi.y - lo.y)) / (hi.x - lo.x))));
+      light.shadow.mapSize.set(w, h);
+      light.shadow.bias = -0.0002;
+      light.shadow.normalBias = 0.02;
+      light.shadow.radius = 1.6;
+      light.shadow.autoUpdate = true;
+    }
+    const out = { light, target };
+    lightCache.set(shadowBox, out);
+    return out;
+  }, [shadowBox]);
+
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(NanGuardShader));
+    const gtao = new GTAOPass(scene, camera, w, h);
+    gtao.blendIntensity = 0.8;
+    gtao.updateGtaoMaterial({ radius: 1.6, distanceExponent: 1.4, thickness: 1.6, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+    composer.addPass(withoutFx(gtao, camera));
+    const dof = withoutFx(new BokehPass(scene, camera, { focus: 20, aperture: 0.0, maxblur: 0.0 }), camera);
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.12, 0.55, 0.92);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const grade = new ShaderPass(GradeShader);
+    (grade.uniforms.uRes.value as Vector2).set(w, h);
+    composer.addPass(grade);
+    return { composer, gtao, dof, bloom, grade };
+  }, [gl, scene, camera, size.width, size.height]);
+
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...shot.pos);
+    const roll = shot.roll ?? 0;
+    cam.up.set(Math.sin(roll), Math.cos(roll), 0);
+    cam.lookAt(...shot.target);
+    cam.fov = shot.fov;
+    cam.near = shot.near;
+    cam.far = shot.far;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    cam.layers.enable(FX_LAYER);
+
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = look.exposure;
+    scene.background = new Color(look.background);
+    scene.environment = look.environment;
+    scene.environmentIntensity = look.envIntensity ?? 1;
+    scene.fog = look.fog ? new FogExp2(look.fog.color, look.fog.density) : null;
+    sun.light.visible = !!look.sun;
+    // the light may come from another direction in another world (the shadow frustum is
+    // only meaningful for the shadow box's own sun, which is where it returns to)
+    if (look.sun) sun.light.position.copy(sun.target.position).addScaledVector(new Vector3(...look.sun).normalize(), 3000);
+    sun.light.color.set(look.sunColor);
+    sun.light.intensity = look.sunI;
+
+    chain.gtao.enabled = look.ao > 0;
+    chain.gtao.blendIntensity = look.ao;
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    const ap = shot.aperture ?? 0;
+    chain.dof.enabled = ap > 0 && (shot.maxBlur ?? 0) > 0;
+    u.focus.value = shot.focus ?? 20;
+    u.aperture.value = ap;
+    u.maxblur.value = shot.maxBlur ?? 0;
+    chain.bloom.strength = look.bloom;
+    const g = chain.grade.uniforms;
+    g.uTime.value = frame % 997;
+    g.uHaze.value = look.haze;
+    g.uFlow.value = look.hazeFlow;
+    (g.uHazeColor.value as Color).set(look.hazeColor).convertLinearToSRGB();
+    g.uVignette.value = look.vignette;
+  }, [shot, look, camera, gl, scene, sun, chain, frame]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+
+  return (
+    <>
+      <primitive object={sun.target} />
+      <primitive object={sun.light} />
+      {children}
+    </>
+  );
+};
+
+==== 10301 src/kits/worldforge/surface.ts
+// Ground and prop shading for WORLDFORGE worlds (three.js material patches).
+//
+// Terrain: MeshStandardMaterial + vertex albedo, with
+//   · baked sun visibility on the direct light and baked AO on the ambient (aShade attribute),
+//   · two rotated scales of a seeded, tileable detail texture for grain and bump close to the
+//     camera (mipmapped + anisotropic, so it never shimmers),
+// Props on the ground (rocks, berms) get the same baked sun term per instance, so a boulder in
+// a crater's shadow is in shadow too. White architecture gets a red-dust skirt near the ground.
+
+import {
+  Color,
+  DataTexture,
+  LinearMipmapLinearFilter,
+  LinearFilter,
+  MeshStandardMaterial,
+  MeshPhysicalMaterial,
+  RepeatWrapping,
+  RGBAFormat,
+  UnsignedByteType,
+  type WebGLProgramParametersWithUniforms,
+} from "three";
+import { hash2, mulberry32 } from "./noise.ts";
+
+// ── Tileable detail texture ─────────────────────────────────────────────────
+// R: height (pebbles + periodic noise), G: crack/sand pattern, B: albedo variation.
+
+const periodicNoise = (x: number, y: number, period: number, seed: number) => {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const fx = x - xi, fy = y - yi;
+  const h = (i: number, j: number) => hash2(((i % period) + period) % period, ((j % period) + period) % period, seed);
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+  return (a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v) * 2 - 1;
+};
+
+let detailTex: DataTexture | null = null;
+
+export const getDetailTexture = (size = 512) => {
+  if (detailTex) return detailTex;
+  const H = new Float32Array(size * size);
+  const A = new Float32Array(size * size);
+  const Gc = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let h = 0, a = 0, amp = 1;
+      for (let o = 0; o < 5; o++) {
+        const p = 4 << o;
+        const s = size / p;
+        h += amp * periodicNoise(x / s, y / s, p, 11 + o);
+        a += amp * periodicNoise(x / s + 0.5, y / s + 0.5, p, 51 + o);
+        amp *= 0.55;
+      }
+      H[y * size + x] = h * 0.35;
+      A[y * size + x] = a * 0.3;
+      Gc[y * size + x] = Math.abs(periodicNoise(x / (size / 16), y / (size / 16), 16, 91));
+    }
+  }
+  // pebbles: little domes, each with its own albedo, wrapped across the tile edges
+  const rnd = mulberry32(0x9eb1e5);
+  for (let n = 0; n < 1400; n++) {
+    const cx = rnd() * size, cy = rnd() * size;
+    const r = 1.2 + Math.pow(rnd(), 2.2) * 7;
+    const tone = (rnd() - 0.55) * 0.8;
+    const R = Math.ceil(r);
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const d = Math.hypot(dx, dy) / r;
+        if (d >= 1) continue;
+        const px = (((Math.floor(cx) + dx) % size) + size) % size;
+        const py = (((Math.floor(cy) + dy) % size) + size) % size;
+        const k = py * size + px;
+        const dome = Math.sqrt(1 - d * d);
+        H[k] = Math.max(H[k], 0.25 + dome * 0.75 * Math.min(1, r / 4));
+        A[k] += tone * dome;
+      }
+    }
+  }
+  const data = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    data[i * 4] = Math.max(0, Math.min(255, Math.round((H[i] * 0.5 + 0.5) * 255)));
+    data[i * 4 + 1] = Math.round(Gc[i] * 255);
+    data[i * 4 + 2] = Math.max(0, Math.min(255, Math.round((A[i] * 0.5 + 0.5) * 255)));
+    data[i * 4 + 3] = 255;
+  }
+  const t = new DataTexture(data, size, size, RGBAFormat, UnsignedByteType);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.magFilter = LinearFilter;
+  t.minFilter = LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  detailTex = t;
+  return t;
+};
+
+// ── Shader snippets ─────────────────────────────────────────────────────────
+
+const PERTURB = /* glsl */ `
+vec3 wfPerturb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir) {
+  vec3 sx = normalize(dFdx(surf_pos)); vec3 sy = normalize(dFdy(surf_pos));
+  vec3 r1 = cross(sy, surf_norm); vec3 r2 = cross(surf_norm, sx);
+  float det = dot(sx, r1) * faceDir;
+  vec3 g = sign(det) * (dHdxy.x * r1 + dHdxy.y * r2);
+  return normalize(abs(det) * surf_norm - g);
+}`;
+
+const DETAIL = /* glsl */ `
+uniform sampler2D tDetail;
+uniform float uBump;
+uniform float uGrain;
+varying vec3 vWPos;
+const mat2 WF_ROT = mat2(0.8, -0.6, 0.6, 0.8);
+`;
+
+export type TerrainUniforms = { tDetail: { value: DataTexture }; uBump: { value: number }; uGrain: { value: number } };
+
+/** Ground material: vertex albedo × detail, baked sun/AO, close-range bump. */
+export const makeTerrainMaterial = () => {
+  const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: 1 });
+  const uniforms: TerrainUniforms = { tDetail: { value: getDetailTexture() }, uBump: { value: 0.9 }, uGrain: { value: 1 } };
+  m.onBeforeCompile = (sh: WebGLProgramParametersWithUniforms) => {
+    Object.assign(sh.uniforms, uniforms);
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec2 aShade;\nvarying vec2 vShade;\nvarying vec3 vWPos;")
+      .replace("#include <fog_vertex>", "#include <fog_vertex>\nvShade = aShade;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vShade;\n" + DETAIL + PERTURB)
+      .replace(
+        "#include <color_fragment>",
+        /* glsl */ `#include <color_fragment>
+        float wfDist = length(vWPos - cameraPosition);
+        float wfNear = 1.0 - smoothstep(30.0, 240.0, wfDist);
+        vec2 wfUA = vWPos.xz / 9.0;
+        vec2 wfUB = WF_ROT * vWPos.xz / 2.7;
+        vec2 wfUC = WF_ROT * WF_ROT * vWPos.xz / 41.0;
+        vec4 wfA = texture2D(tDetail, wfUA);
+        vec4 wfB = texture2D(tDetail, wfUB);
+        vec4 wfC = texture2D(tDetail, wfUC);
+        float wfAlb = wfA.b * 0.45 + wfB.b * 0.35 + wfC.b * 0.2;
+        diffuseColor.rgb *= 1.0 + (wfAlb - 0.5) * uGrain * (0.55 + 0.35 * wfNear);
+        diffuseColor.rgb *= 1.0 - wfB.g * 0.06 * wfNear;`,
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        /* glsl */ `#include <normal_fragment_maps>
+        {
+          vec2 dxA = dFdx(wfUA), dyA = dFdy(wfUA), dxB = dFdx(wfUB), dyB = dFdy(wfUB);
+          float h0 = wfA.r * 0.55 + wfB.r * 0.45;
+          float hx = texture2D(tDetail, wfUA + dxA).r * 0.55 + texture2D(tDetail, wfUB + dxB).r * 0.45;
+          float hy = texture2D(tDetail, wfUA + dyA).r * 0.55 + texture2D(tDetail, wfUB + dyB).r * 0.45;
+          normal = wfPerturb(-vViewPosition, normal, vec2(hx - h0, hy - h0) * uBump * wfNear, faceDirection);
+        }`,
+      )
+      .replace(
+        "#include <lights_fragment_end>",
+        /* glsl */ `#include <lights_fragment_end>
+        reflectedLight.directDiffuse *= vShade.x;
+        reflectedLight.directSpecular *= vShade.x;
+        reflectedLight.indirectDiffuse *= vShade.y;`,
+      );
+  };
+  m.customProgramCacheKey = () => "wf-terrain";
+  return { material: m, uniforms };
+};
+
+/**
+ * Rock material: per-instance baked sun (aSun) and a dust coat on upward faces.
+ * Instance colour (instanceColor) tints the albedo.
+ */
+export const makeRockMaterial = () => {
+  const m = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.9, metalness: 0, flatShading: false, envMapIntensity: 1 });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uDust = { value: new Color("#c8784a") };
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float aSun;\nvarying float vSun;\nvarying float vUp;")
+      .replace(
+        "#include <fog_vertex>",
+        "#include <fog_vertex>\nvSun = aSun;\nvUp = normalize((modelMatrix * instanceMatrix * vec4(objectNormal, 0.0)).xyz).y;",
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uDust;\nvarying float vSun;\nvarying float vUp;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDust, smoothstep(0.55, 0.92, vUp) * 0.55);")
+      .replace(
+        "#include <lights_fragment_end>",
+        "#include <lights_fragment_end>\nreflectedLight.directDiffuse *= vSun;\nreflectedLight.directSpecular *= vSun;",
+      );
+  };
+  m.customProgramCacheKey = () => "wf-rock";
+  return m;
+};
+
+/** Adds a red-dust skirt (rising from world height `ground`) to any standard/physical material. */
+export const dustSkirt = <M extends MeshStandardMaterial | MeshPhysicalMaterial>(m: M, ground: number, height = 1.7, amount = 0.6) => {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uSkirt = { value: new Color("#b8643a") };
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWPosD;")
+      .replace("#include <fog_vertex>", "#include <fog_vertex>\nvWPosD = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#ifdef USE_INSTANCING\nvWPosD = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#endif");
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>\nuniform vec3 uSkirt;\nvarying vec3 vWPosD;\nfloat wfH(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        /* glsl */ `#include <color_fragment>
+        {
+          vec2 q = vWPosD.xz * 1.7 + vWPosD.y * 0.6;
+          vec2 i = floor(q); vec2 f = fract(q); f = f * f * (3.0 - 2.0 * f);
+          float n = mix(mix(wfH(i), wfH(i + vec2(1, 0)), f.x), mix(wfH(i + vec2(0, 1)), wfH(i + vec2(1, 1)), f.x), f.y);
+          float dust = 1.0 - smoothstep(${ground.toFixed(3)}, ${(ground + height).toFixed(3)} + n * 0.5, vWPosD.y);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uSkirt, dust * ${amount.toFixed(3)} * (0.65 + 0.35 * n));
+        }`,
+      );
+  };
+  m.customProgramCacheKey = () => `wf-skirt-${ground.toFixed(2)}-${height}-${amount}`;
+  return m;
+};
+
+==== 2217 src/kits/worldforge/terrainMesh.ts
+// Grid → BufferGeometry (position, normal, colour, baked shade). Quads are split along the
+// diagonal that follows the terrain (shorter height difference), which keeps ridgelines and
+// dune crests crisp instead of zig-zagging.
+
+import { BufferAttribute, BufferGeometry, Sphere, Vector3 } from "three";
+import type { Grid } from "./heightfield.ts";
+
+export type GridMeshInput = {
+  grid: Grid;
+  normals: Float32Array;
+  color: Float32Array;
+  shade: Float32Array;
+  /** Return true to drop the quad whose lower-left vertex is (i, j). */
+  skip?: (x0: number, z0: number, x1: number, z1: number) => boolean;
+};
+
+export const gridGeometry = ({ grid, normals, color, shade, skip }: GridMeshInput) => {
+  const nx = grid.ax.n, nz = grid.az.n;
+  const pos = new Float32Array(nx * nz * 3);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      pos[k * 3] = grid.ax.coord[i];
+      pos[k * 3 + 1] = grid.h[k];
+      pos[k * 3 + 2] = grid.az.coord[j];
+    }
+  }
+  const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
+  let n = 0;
+  for (let j = 0; j < nz - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      if (skip && skip(grid.ax.coord[i], grid.az.coord[j], grid.ax.coord[i + 1], grid.az.coord[j + 1])) continue;
+      const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+      // counter-clockwise seen from above (+y): a(x0,z0) c(x0,z1) b(x1,z0)
+      if (Math.abs(grid.h[a] - grid.h[d]) < Math.abs(grid.h[b] - grid.h[c])) {
+        idx[n++] = a; idx[n++] = c; idx[n++] = d;
+        idx[n++] = a; idx[n++] = d; idx[n++] = b;
+      } else {
+        idx[n++] = a; idx[n++] = c; idx[n++] = b;
+        idx[n++] = b; idx[n++] = c; idx[n++] = d;
+      }
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute("position", new BufferAttribute(pos, 3));
+  g.setAttribute("normal", new BufferAttribute(normals, 3));
+  g.setAttribute("color", new BufferAttribute(color, 3));
+  g.setAttribute("aShade", new BufferAttribute(shade, 2));
+  g.setIndex(new BufferAttribute(idx.subarray(0, n), 1));
+  g.computeBoundingBox();
+  const bb = g.boundingBox!;
+  g.boundingSphere = new Sphere(bb.getCenter(new Vector3()), bb.getSize(new Vector3()).length() / 2);
+  return g;
+};
+
+==== 139 src/kits/worldforge/track.ts
+// Same keyframe tracks as the core (kept as a re-export so kit code can import "./track.ts").
+export * from "../../core/motion/track.ts";

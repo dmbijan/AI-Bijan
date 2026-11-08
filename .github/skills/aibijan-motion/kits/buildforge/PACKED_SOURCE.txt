@@ -1,0 +1,2574 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 875 scripts/buildforge-check.ts
+// BUILDFORGE construction-sequence QA (no GPU needed):
+//   node --experimental-strip-types scripts/buildforge-check.ts
+// Checks order (supports before loads, temporary works not struck while loaded), clashes between
+// installed solids, and that everything is in place before the end. Point it at your own film's
+// components and windows the same way (copy the three lines below per sequence).
+
+import { checkSequence, report } from "../src/kits/buildforge/assembly/check.ts";
+import { pavilionComponents } from "../src/kits/buildforge/example/pavilion.ts";
+import { END, WINDOWS } from "../src/kits/buildforge/example/sequence.ts";
+
+let ok = true;
+{
+  const r = checkSequence(pavilionComponents(), WINDOWS, { end: END, skip: (c) => c.phase === "setout" || c.phase === "strings" });
+  ok = report("pavilion-example", r, WINDOWS.length) && ok;
+}
+process.exit(ok ? 0 : 1);
+
+==== 4177 src/kits/buildforge/assembly/check.ts
+// Construction-sequence QA without a GPU. Schedules the components, then checks
+//  1. order — nothing starts before what it bears on (or must follow) is complete, and temporary
+//     works are not struck while something still bears on them;
+//  2. clashes — no two installed solids overlap in volume while both are on site (parts that
+//     legitimately touch share faces, which is not an overlap);
+//  3. timing — every component is in place before `end` (construction-clock units).
+// Rotations other than multiples of 90° are checked with their axis-aligned envelope.
+
+import { schedule, validate, type PhaseWindow, type Timeline } from "./schedule.ts";
+import type { Component, Vec3 } from "../types.ts";
+
+export type CheckResult = {
+  ok: boolean;
+  components: number;
+  timeline: Timeline;
+  order: string[];
+  clashes: string[];
+  late: string[];
+};
+
+type Box = { min: number[]; max: number[] };
+
+const toWorld = (c: Component, [a, b]: [Vec3, Vec3]): Box => {
+  const r = c.rotY ?? 0, cos = Math.cos(r), sin = Math.sin(r);
+  const xs: number[] = [], zs: number[] = [];
+  for (const x of [a[0], b[0]]) for (const z of [a[2], b[2]]) { xs.push(x * cos + z * sin + c.at[0]); zs.push(-x * sin + z * cos + c.at[2]); }
+  return { min: [Math.min(...xs), c.at[1] + a[1], Math.min(...zs)], max: [Math.max(...xs), c.at[1] + b[1], Math.max(...zs)] };
+};
+
+const boxesOf = (c: Component): [Vec3, Vec3][] =>
+  c.part.kind === "solid"
+    ? c.part.boxes ?? [[c.part.bounds.min, c.part.bounds.max]]
+    : c.part.pieces.filter((p) => !p.instant).map((p) => [p.c.map((v, k) => v - p.s[k] / 2) as Vec3, p.c.map((v, k) => v + p.s[k] / 2) as Vec3]);
+
+/**
+ * `skip` leaves components out of the clash test only (set-out on open ground, reinforcement cast
+ * into a slab, planting). Planting (`grow`) is always skipped.
+ */
+export const checkSequence = (components: Component[], windows: PhaseWindow[], o: { end: number; skip?: (c: Component) => boolean; eps?: number }): CheckResult => {
+  const timeline = schedule(components, windows);
+  const order = validate(components, timeline);
+  const EPS = o.eps ?? 0.004;
+  const skip = (c: Component) => c.method.kind === "grow" || (o.skip?.(c) ?? false);
+  const solids = components.filter((c) => !skip(c)).map((c) => {
+    const bs = boxesOf(c).map((b) => toWorld(c, b));
+    const env = { min: [0, 1, 2].map((k) => Math.min(...bs.map((b) => b.min[k]))), max: [0, 1, 2].map((k) => Math.max(...bs.map((b) => b.max[k]))) };
+    return { c, bs, env, s: timeline.get(c.id)! };
+  });
+  const hit = (a: Box, b: Box) => [0, 1, 2].every((k) => Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]) > EPS);
+  const clashes: string[] = [];
+  for (let i = 0; i < solids.length; i++)
+    for (let j = i + 1; j < solids.length; j++) {
+      const A = solids[i], B = solids[j];
+      const aOut = A.s.out?.[1] ?? Infinity, bOut = B.s.out?.[1] ?? Infinity;
+      if (A.s.start >= bOut || B.s.start >= aOut || !hit(A.env, B.env)) continue;
+      const pair = A.bs.flatMap((a) => B.bs.filter((b) => hit(a, b)).map((b) => [a, b] as const))[0];
+      if (pair) {
+        const ov = [0, 1, 2].map((k) => Math.min(pair[0].max[k], pair[1].max[k]) - Math.max(pair[0].min[k], pair[1].min[k]));
+        clashes.push(`${A.c.id} × ${B.c.id}  overlap ${ov.map((v) => v.toFixed(3)).join(" ")} at ${pair[0].min.map((v) => v.toFixed(2)).join(",")}`);
+      }
+    }
+  const late = components.filter((c) => timeline.get(c.id)!.end > o.end).map((c) => c.id);
+  return { ok: !order.length && !clashes.length && !late.length, components: components.length, timeline, order, clashes, late };
+};
+
+export const report = (id: string, r: CheckResult, windows: number) => {
+  console.log(`[${id}] ${r.components} components, ${windows} phases`);
+  for (const i of r.order) console.log(`order: ${i}`);
+  for (const c of r.clashes.slice(0, 40)) console.log(`clash ${c}`);
+  if (r.late.length) console.log(`finishes after the end: ${r.late.join(", ")}`);
+  console.log(r.ok ? `[${id}] OK: sequence is physically ordered, no clashes, finishes in time` : `[${id}] FAIL: ${r.order.length} order issues, ${r.clashes.length} clashes, ${r.late.length} late`);
+  return r.ok;
+};
+
+==== 4130 src/kits/buildforge/assembly/motion.ts
+// Construction timeline evaluation: given a component, its slot and the frame, where is it
+// and what does it look like. Pure functions of the frame number, so renders are
+// deterministic and any frame can be rendered alone.
+
+import { bezier, ease, remap } from "../motion/easing.ts";
+import type { Slot } from "./schedule.ts";
+import type { Component, Vec3 } from "../types.ts";
+
+export type RigState = { kind: "single" | "sling" | "four"; lift: number; alpha: number };
+
+export type CompState = {
+  visible: boolean;
+  /** Linear progress of the arrival (reversed while leaving). */
+  lin: number;
+  /** Eased progress for methods the renderer completes (spread, coat). */
+  u: number;
+  offset: Vec3;
+  scale: Vec3;
+  yaw: number;
+  opacity: number;
+  /** Fresh concrete: 1 just poured, 0 cured. */
+  wet: number;
+  ghost: number;
+  rig: RigState | null;
+};
+
+/** Crane set-down: steady descent, very long soft landing. */
+const craneDown = bezier(0.38, 0, 0.1, 1);
+const install = bezier(0.3, 0, 0.12, 1);
+export const RIG_LIFT = 11;
+export const GHOST_LEAD = 14;
+const CURE = 45;
+
+export const stateOf = (c: Component, slot: Slot, f: number): CompState => {
+  const m = c.method;
+  let lin = remap(f, slot.start, slot.end);
+  const leaving = slot.out && f > slot.out[0] ? remap(f, slot.out[0], slot.out[1]) : 0;
+  if (leaving > 0) lin = 1 - leaving;
+  const gone = slot.out !== undefined && f >= slot.out[1];
+  const s: CompState = {
+    visible: f > slot.start && !gone,
+    lin,
+    u: lin,
+    offset: [0, 0, 0],
+    scale: [1, 1, 1],
+    yaw: 0,
+    opacity: 1,
+    wet: 0,
+    ghost: 0,
+    rig: null,
+  };
+  const cure = () => (f < slot.start ? 0 : 1 - remap(f, slot.end, slot.end + CURE));
+
+  switch (m.kind) {
+    case "lower": {
+      const u = craneDown(lin);
+      // a suspended load swings a little and settles as it is guided onto its seat
+      const swing = (1 - lin) ** 2;
+      s.offset = [0.08 * Math.sin(lin * 9) * swing, m.height * (1 - u), 0.06 * Math.sin(lin * 7 + 1) * swing];
+      s.yaw = 0.05 * Math.sin(lin * 6.5) * swing;
+      s.opacity = remap(lin, 0, 0.1);
+      if (leaving > 0) s.rig = { kind: m.rig, lift: 0, alpha: s.opacity };
+      else if (f > slot.start && f < slot.end + RIG_LIFT) {
+        const lift = remap(f, slot.end, slot.end + RIG_LIFT);
+        s.rig = { kind: m.rig, lift: ease.in(lift), alpha: s.opacity * (1 - remap(lift, 0.25, 1)) };
+      }
+      break;
+    }
+    case "slide": {
+      const u = install(lin);
+      s.offset = [m.from[0] * (1 - u), m.from[1] * (1 - u), m.from[2] * (1 - u)];
+      s.opacity = remap(lin, 0, 0.25);
+      break;
+    }
+    case "fill":
+      s.u = ease.inOut(lin);
+      s.scale = [1, Math.max(1e-3, s.u), 1];
+      if (m.cure) s.wet = cure();
+      break;
+    case "spread":
+      s.u = ease.sine(lin);
+      if (m.cure) s.wet = cure();
+      break;
+    case "drive": {
+      // carried in and stood up (first 30 %), then three blows
+      const carry = remap(lin, 0, 0.3);
+      const k = remap(lin, 0.3, 1) * 3;
+      const blows = (Math.min(2, Math.floor(k)) + ease.out(remap(k - Math.min(2, Math.floor(k)), 0, 0.35))) / 3;
+      s.offset = [0, m.depth * (1 - blows) + 0.5 * (1 - ease.out(carry)), 0];
+      s.opacity = remap(lin, 0, 0.15);
+      break;
+    }
+    case "draw":
+      s.scale = [Math.max(1e-3, ease.inOut(lin)), 1, 1];
+      break;
+    case "grow": {
+      const g = 0.04 + 0.96 * ease.release(lin);
+      s.scale = [g, g, g];
+      s.opacity = remap(lin, 0, 0.12);
+      break;
+    }
+    case "coat":
+      s.u = ease.inOut(lin);
+      break;
+    case "lay":
+      break;
+  }
+  if (leaving > 0) s.opacity *= 1 - remap(leaving, 0.7, 1);
+  const ghosted = c.ghost ?? !["drive", "draw", "grow"].includes(m.kind);
+  if (ghosted && leaving === 0) s.ghost = remap(f, slot.start - GHOST_LEAD, slot.start) * (1 - remap(lin, 0.55, 0.97));
+  return s;
+};
+
+/** Per-piece move inside a "lay" component: returns local progress (0 hidden … 1 seated). */
+export const pieceProgress = (i: number, n: number, lin: number, each: number) => {
+  const t0 = n > 1 ? (i / (n - 1)) * (1 - each) : 0;
+  return remap(lin, t0, t0 + each);
+};
+
+==== 3418 src/kits/buildforge/assembly/schedule.ts
+// Assembly sequence → construction timeline. Each phase gets a window on the film clock; the
+// components of a phase are staggered across it by key. `validate` enforces the physical
+// rule: nothing starts before everything it bears on is in place, and temporary works are
+// not removed while something still bears on them.
+
+import type { Component } from "../types.ts";
+
+export type PhaseWindow = {
+  phase: string;
+  start: number;
+  end: number;
+  /** Frames one component's move takes inside the window. */
+  dur: number;
+};
+
+export type Slot = { start: number; end: number; out?: [number, number] };
+export type Timeline = Map<string, Slot>;
+
+const placeIn = (w: PhaseWindow, members: Component[], set: (c: Component, a: number, b: number) => void) => {
+  const keyOf = (c: Component, i: number) => c.key ?? i;
+  const keys = [...new Set(members.map(keyOf))].sort((a, b) => a - b);
+  const span = Math.max(0, w.end - w.dur - w.start);
+  members.forEach((c, i) => {
+    const r = keys.indexOf(keyOf(c, i));
+    const a = keys.length > 1 ? w.start + (span * r) / (keys.length - 1) : w.start;
+    set(c, a, a + w.dur);
+  });
+};
+
+export const schedule = (components: Component[], windows: PhaseWindow[]): Timeline => {
+  const win = new Map(windows.map((w) => [w.phase, w]));
+  const get = (phase: string) => {
+    const w = win.get(phase);
+    if (!w) throw new Error(`BUILDFORGE: no window for phase "${phase}"`);
+    if (w.dur > w.end - w.start) throw new Error(`BUILDFORGE: phase "${phase}" dur ${w.dur} exceeds its window`);
+    return w;
+  };
+  const slots: Timeline = new Map();
+  const group = (by: (c: Component) => string | undefined) => {
+    const m = new Map<string, Component[]>();
+    for (const c of components) {
+      const k = by(c);
+      if (k) m.set(k, [...(m.get(k) ?? []), c]);
+    }
+    return m;
+  };
+  for (const [phase, members] of group((c) => c.phase)) placeIn(get(phase), members, (c, a, b) => slots.set(c.id, { start: a, end: b }));
+  for (const [phase, members] of group((c) => c.exit)) placeIn(get(phase), members, (c, a, b) => (slots.get(c.id)!.out = [a, b]));
+  return slots;
+};
+
+export const validate = (components: Component[], slots: Timeline) => {
+  const issues: string[] = [];
+  const seen = new Set<string>();
+  for (const c of components) {
+    if (seen.has(c.id)) issues.push(`duplicate id ${c.id}`);
+    seen.add(c.id);
+  }
+  for (const c of components) {
+    const s = slots.get(c.id)!;
+    for (const r of c.rests ?? []) {
+      const t = slots.get(r);
+      if (!t) issues.push(`${c.id}: rests on unknown "${r}"`);
+      else {
+        if (t.end > s.start + 1e-6) issues.push(`${c.id} starts at ${s.start.toFixed(1)} before its support ${r} is in place (${t.end.toFixed(1)})`);
+        if (t.out && t.out[0] < (s.out ? s.out[1] : Infinity)) issues.push(`${r} is removed while ${c.id} still bears on it`);
+      }
+    }
+    for (const r of c.after ?? []) {
+      const t = slots.get(r);
+      if (!t) issues.push(`${c.id}: comes after unknown "${r}"`);
+      else if (t.end > s.start + 1e-6) issues.push(`${c.id} starts at ${s.start.toFixed(1)} before ${r} is done (${t.end.toFixed(1)})`);
+    }
+  }
+  return issues;
+};
+
+/** Frame at which the last component of a phase is in place. */
+export const phaseEnd = (components: Component[], slots: Timeline, phase: string) =>
+  Math.max(...components.filter((c) => c.phase === phase).map((c) => slots.get(c.id)!.end));
+
+==== 885 src/kits/buildforge/camera/director.ts
+// Camera director: a spherical rig (target, azimuth, elevation, distance, fov) sampled from
+// C1 keyframe tracks, so moves hand over without kinks and nothing depends on wall time.
+
+import { sample, type Key } from "../motion/track.ts";
+import type { Shot } from "../render/Post.tsx";
+
+const D = Math.PI / 180;
+
+/** Track channels: [targetX, targetY, targetZ, azimuthDeg, elevationDeg, distance, fovDeg]. */
+export type RigKeys = Key[];
+
+export const shotAt = (rig: RigKeys, frame: number, lens: { aperture: number; maxBlur: number; exposure: number }): Shot => {
+  const [tx, ty, tz, az, el, dist, fov] = sample(rig, frame);
+  const pos: [number, number, number] = [
+    tx + dist * Math.cos(el * D) * Math.sin(az * D),
+    ty + dist * Math.sin(el * D),
+    tz + dist * Math.cos(el * D) * Math.cos(az * D),
+  ];
+  return { pos, target: [tx, ty, tz], fov, focus: dist, ...lens };
+};
+
+==== 3706 src/kits/buildforge/environment/Sky.ts
+// Daylight sky: soft blue zenith, warm-white haze at the horizon, a sun glow, static cloud
+// layer (uShift drifts it for time-lapses). The same dome is rendered once into a PMREM so
+// glass and metal reflect the sky the camera sees.
+
+import { BackSide, Color, Mesh, PMREMGenerator, Scene, ShaderMaterial, SphereGeometry, Vector2, type Vector3, type WebGLRenderer, CircleGeometry, MeshBasicMaterial } from "three";
+
+export type SkyLook = { zenith: string; horizon: string; ground: string; sun: string; cloud: string };
+
+export const skyMaterial = (look: SkyLook, sunDir: Vector3) =>
+  new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      uZenith: { value: new Color(look.zenith) },
+      uHorizon: { value: new Color(look.horizon) },
+      uGround: { value: new Color(look.ground) },
+      uSun: { value: new Color(look.sun) },
+      uCloud: { value: new Color(look.cloud) },
+      uSunDir: { value: sunDir.clone().normalize() },
+      uShift: { value: new Vector2() },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main(){
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vDir = w.xyz - cameraPosition;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uGround; uniform vec3 uSun; uniform vec3 uSunDir; uniform vec3 uCloud; uniform vec2 uShift;
+      varying vec3 vDir;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p){
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      float fbm(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ s += a * vnoise(p); p = p * 2.03 + 7.1; a *= 0.5; } return s; }
+      void main(){
+        vec3 d = normalize(vDir);
+        float y = d.y;
+        vec3 c = mix(uHorizon, uZenith, pow(smoothstep(0.0, 0.65, y), 0.5));
+        c = mix(c, uGround, smoothstep(0.0, -0.12, y));
+        // soft fair-weather clouds on a flat layer (static: the sky never flickers)
+        if (y > 0.0) {
+          vec2 uv = d.xz / (y + 0.1) * 0.9 + vec2(4.0, 2.0) + uShift;
+          float cl = smoothstep(0.46, 0.8, fbm(uv)) * smoothstep(0.015, 0.1, y) * (1.0 - smoothstep(0.55, 0.9, y));
+          // lit tops, softly shaded undersides
+          vec3 cc = mix(uCloud * 0.86, uCloud, smoothstep(0.5, 0.75, fbm(uv + vec2(0.05, 0.12))));
+          c = mix(c, cc, cl * 0.85);
+        }
+        float s = max(dot(d, normalize(uSunDir)), 0.0);
+        c += uSun * (pow(s, 5.0) * 0.16 + pow(s, 60.0) * 0.3 + smoothstep(0.99955, 0.9998, s) * 5.0);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+
+export const createSky = (look: SkyLook, sunDir: Vector3, radius = 1800) => {
+  const m = new Mesh(new SphereGeometry(radius, 64, 32), skyMaterial(look, sunDir));
+  m.frustumCulled = false;
+  m.renderOrder = -10;
+  return m;
+};
+
+/** Environment map from the sky dome plus a sunlit ground disc (what a facade "sees"). */
+export const skyEnvironment = (gl: WebGLRenderer, look: SkyLook, sunDir: Vector3) => {
+  const scene = new Scene();
+  scene.add(new Mesh(new SphereGeometry(50, 48, 24), skyMaterial(look, sunDir)));
+  const ground = new Mesh(new CircleGeometry(49, 48), new MeshBasicMaterial({ color: new Color(look.ground).multiplyScalar(0.85) }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -1.5;
+  scene.add(ground);
+  const pm = new PMREMGenerator(gl);
+  const rt = pm.fromScene(scene, 0.02);
+  pm.dispose();
+  return rt.texture;
+};
+
+==== 9636 src/kits/buildforge/environment/Terrain.ts
+// The ground as a construction surface. Natural relief (contours, distant hills) → site
+// grading → excavation advancing behind a digging front → backfill → lawn spreading out from
+// the building. One height/colour field, evaluated on a grid that is fine on the site and has
+// grid lines on every cut edge so excavation walls are crisp.
+
+import { BufferAttribute, BufferGeometry, Color, Mesh, MeshStandardMaterial } from "three";
+import { fbm2 } from "../geometry/noise.ts";
+import { clamp, smoothstep } from "../motion/easing.ts";
+
+export type Area = { x0: number; x1: number; z0: number; z1: number };
+
+export type SiteSpec = {
+  /** Area levelled before construction. */
+  site: Area;
+  /** Excavation and its depth. */
+  pit: Area;
+  depth: number;
+  /** Footprint that stays excavated under the slab after backfill. */
+  slab: Area;
+  /** Planting beds (dark soil) and the decorative gravel strip around the building. */
+  beds: Area[];
+  gravelBand: number;
+};
+
+export type TerrainState = { contour: number; grade: number; dig: number; backfill: number; lawn: number };
+
+export type GroundLook = { meadow: string; meadowDry: string; soil: string; dug: string; lawn: string; lawnDeep: string; gravel: string; bed: string };
+
+const edge = (x: number, z: number, a: Area) => Math.min(x - a.x0, a.x1 - x, z - a.z0, a.z1 - z);
+const inside = (x: number, z: number, a: Area) => edge(x, z, a) >= 0;
+/** Distance from a point outside a rectangle to it (0 inside). */
+const outDist = (x: number, z: number, a: Area) => Math.hypot(Math.max(a.x0 - x, 0, x - a.x1), Math.max(a.z0 - z, 0, z - a.z1));
+
+export const naturalHeight = (x: number, z: number) => {
+  const r = Math.hypot(x, z);
+  let h = 0.55 * fbm2(x * 0.03 + 3.1, z * 0.03 - 2.2, 3) + 0.2 * fbm2(x * 0.11, z * 0.11, 2);
+  h += 3.2 * smoothstep((r - 30) / 90) * fbm2(x * 0.014 + 1.7, z * 0.014 + 4.2, 3);
+  h += 34 * smoothstep((r - 140) / 260) * (0.5 + fbm2(x * 0.0045 + 7, z * 0.0045 + 1, 3));
+  return h;
+};
+const H0 = naturalHeight(0, 0);
+
+const axis = (inner: number, step: number, outer: number, extra: number[]) => {
+  const v: number[] = [];
+  for (let x = -inner; x <= inner + 1e-6; x += step) v.push(x);
+  for (let s = step, x = inner; x < outer; ) {
+    s *= 1.14;
+    x += s;
+    v.push(x, -x);
+  }
+  v.push(...extra);
+  v.sort((a, b) => a - b);
+  return v.filter((x, i) => i === 0 || x - v[i - 1] > 0.004);
+};
+
+export class Terrain {
+  readonly mesh: Mesh;
+  private xs: number[];
+  private zs: number[];
+  private col: Float32Array;
+  private pos: Float32Array;
+  private key = "";
+  private look: Record<keyof GroundLook, Color>;
+  /** Cached per-vertex natural height and colour noise (they never change). */
+  private nat: Float32Array;
+  private nv: Float32Array;
+  private nv2: Float32Array;
+
+  private spec: SiteSpec;
+
+  constructor(spec: SiteSpec, look: GroundLook, inner = 30, outer = 900) {
+    this.spec = spec;
+    const cuts = (a: Area, k: "x" | "z") => (k === "x" ? [a.x0, a.x1] : [a.z0, a.z1]).flatMap((v) => [v - 0.025, v, v + 0.025]);
+    const areas = [spec.pit, spec.slab, ...spec.beds, { x0: spec.slab.x0 - spec.gravelBand, x1: spec.slab.x1 + spec.gravelBand, z0: spec.slab.z0 - spec.gravelBand, z1: spec.slab.z1 + spec.gravelBand }];
+    this.xs = axis(inner, 0.3, outer, areas.flatMap((a) => cuts(a, "x")));
+    this.zs = axis(inner, 0.3, outer, areas.flatMap((a) => cuts(a, "z")));
+    const nx = this.xs.length, nz = this.zs.length;
+    this.pos = new Float32Array(nx * nz * 3);
+    this.col = new Float32Array(nx * nz * 3);
+    this.nat = new Float32Array(nx * nz);
+    this.nv = new Float32Array(nx * nz);
+    this.nv2 = new Float32Array(nx * nz);
+    this.zs.forEach((z, j) =>
+      this.xs.forEach((x, i) => {
+        this.nat[j * nx + i] = naturalHeight(x, z) - H0;
+        this.nv[j * nx + i] = fbm2(x * 0.35, z * 0.35, 2);
+        this.nv2[j * nx + i] = fbm2(x * 0.06 + 9, z * 0.06, 2);
+      }),
+    );
+    const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
+    let k = 0;
+    for (let j = 0; j < nz - 1; j++)
+      for (let i = 0; i < nx - 1; i++) {
+        const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+        idx.set([a, c, b, b, c, d], k);
+        k += 6;
+      }
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(this.pos, 3));
+    g.setAttribute("color", new BufferAttribute(this.col, 3));
+    g.setIndex(new BufferAttribute(idx, 1));
+    this.look = Object.fromEntries(Object.entries(look).map(([k2, v]) => [k2, new Color(v)])) as Record<keyof GroundLook, Color>;
+    const mat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 });
+    const contour = { value: 0 };
+    mat.onBeforeCompile = (s) => {
+      s.uniforms.uContour = contour;
+      s.vertexShader = s.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vTw;")
+        .replace("#include <project_vertex>", "#include <project_vertex>\nvTw = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+      s.fragmentShader = s.fragmentShader.replace("#include <common>", /* glsl */ `#include <common>
+        varying vec3 vTw; uniform float uContour;
+        float th(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float tn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(th(i), th(i + vec2(1.0, 0.0)), f.x), mix(th(i + vec2(0.0, 1.0)), th(i + vec2(1.0, 1.0)), f.x), f.y); }`).replace(
+        "#include <color_fragment>",
+        /* glsl */ `#include <color_fragment>
+        {
+          // fine ground texture (grass tufts, soil grain) below the vertex-colour resolution
+          float fine = tn(vTw.xz * 2.7) * 0.55 + tn(vTw.xz * 9.0) * 0.3 + tn(vTw.xz * 31.0) * 0.15;
+          diffuseColor.rgb *= 0.9 + 0.2 * fine;
+        }
+        {
+          // survey contours every 0.25 m (every metre stronger), only near the site
+          float hh = (vTw.y - 0.125) / 0.25;
+          float w = max(fwidth(hh), 1e-4);
+          float minor = 1.0 - min(abs(fract(hh - 0.5) - 0.5) / (w * 1.1), 1.0);
+          float hm = (vTw.y - 0.125) / 1.0;
+          float wm = max(fwidth(hm), 1e-4);
+          float major = 1.0 - min(abs(fract(hm - 0.5) - 0.5) / (wm * 1.6), 1.0);
+          float near = 1.0 - smoothstep(35.0, 110.0, length(vTw.xz));
+          float l = max(minor * 0.6, major) * near * uContour;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 1.0, 0.97), l * 0.85);
+        }`,
+      );
+    };
+    mat.userData.contour = contour;
+    this.mesh = new Mesh(g, mat);
+    this.mesh.receiveShadow = true;
+    this.mesh.frustumCulled = false;
+  }
+
+  /** Height of the ground for a given construction state. */
+  height(x: number, z: number, st: TerrainState, n = naturalHeight(x, z) - H0) {
+    const sp = this.spec;
+    const graded = this.graded(x, z, st.grade);
+    let h = n * (1 - graded);
+    if (inside(x, z, sp.pit)) {
+      const front = sp.pit.x0 - 0.6 + (sp.pit.x1 - sp.pit.x0 + 1.2) * st.dig;
+      let d = sp.depth * clamp((front - x) / 0.6);
+      if (!inside(x, z, sp.slab)) d *= 1 - st.backfill;
+      h -= d;
+    }
+    return h;
+  }
+
+  private graded(x: number, z: number, grade: number) {
+    const s = this.spec.site;
+    const mask = smoothstep((edge(x, z, s) + 5) / 5);
+    const w = s.x1 - s.x0 + 22;
+    const local = clamp((grade * (w + 9) - (x - s.x0 + 11)) / 9);
+    return mask * local;
+  }
+
+  update(st: TerrainState) {
+    (this.mesh.material as MeshStandardMaterial).userData.contour.value = st.contour;
+    const key = [st.grade, st.dig, st.backfill, st.lawn].map((v) => v.toFixed(4)).join("|");
+    if (key === this.key) return;
+    this.key = key;
+    const sp = this.spec, L = this.look, nx = this.xs.length;
+    const c = new Color();
+    const band = { x0: sp.slab.x0 - sp.gravelBand, x1: sp.slab.x1 + sp.gravelBand, z0: sp.slab.z0 - sp.gravelBand, z1: sp.slab.z1 + sp.gravelBand };
+    this.zs.forEach((z, j) =>
+      this.xs.forEach((x, i) => {
+        const vi = j * nx + i, k = vi * 3;
+        const h = this.height(x, z, st, this.nat[vi]);
+        this.pos[k] = x;
+        this.pos[k + 1] = h;
+        this.pos[k + 2] = z;
+        const v = this.nv[vi], v2 = this.nv2[vi];
+        c.copy(L.meadow).lerp(L.meadowDry, clamp(0.5 + v2 * 1.6)).multiplyScalar(0.94 + v * 0.22);
+        const cleared = smoothstep(this.graded(x, z, Math.min(1, st.grade * 1.15)) * 1.4);
+        c.lerp(L.soil.clone().multiplyScalar(0.9 + v * 0.35 + v2 * 0.1), cleared * 0.92);
+        if (inside(x, z, sp.pit)) {
+          c.lerp(L.dug, smoothstep(clamp(-h / sp.depth) * 3));
+        }
+        if (st.lawn > 0) {
+          const site = smoothstep((edge(x, z, sp.site) + 5) / 5);
+          const dist = outDist(x, z, sp.slab);
+          const reach = smoothstep(clamp((st.lawn * 34 - dist) / 3));
+          if (inside(x, z, band)) c.lerp(L.gravel, reach);
+          else if (sp.beds.some((b) => inside(x, z, b))) c.lerp(L.bed, reach);
+          else {
+            // mown lawn: soft alternating stripes along the facade, plus natural patchiness
+            const stripe = smoothstep((Math.sin((x * Math.PI) / 1.4) + 0.3) / 0.6);
+            const lawn = L.lawn.clone().lerp(L.lawnDeep, clamp(0.5 + v * 2.2)).multiplyScalar(0.95 + v2 * 0.12 + stripe * 0.05);
+            // outside the site the lawn feathers into the meadow
+            c.lerp(lawn, reach * site);
+          }
+        }
+        this.col[k] = c.r;
+        this.col[k + 1] = c.g;
+        this.col[k + 2] = c.b;
+      }),
+    );
+    const g = this.mesh.geometry;
+    g.attributes.position.needsUpdate = true;
+    g.attributes.color.needsUpdate = true;
+    g.computeVertexNormals();
+  }
+}
+
+==== 6210 src/kits/buildforge/environment/Vegetation.ts
+// Planting geometry: trees and shrubs as soft, irregular foliage masses (noise-displaced
+// clusters with per-vertex colour: darker and cooler underneath, lighter where the sun hits).
+// Origin at the base, so "grow" scales them up out of the ground.
+
+import { BoxGeometry, BufferAttribute, CylinderGeometry, IcosahedronGeometry, type BufferGeometry, Color, Vector3 } from "three";
+import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { noise3, rng } from "../geometry/noise.ts";
+import type { SubMesh } from "../types.ts";
+
+export type Palette = { low: string; mid: string; high: string };
+
+const blob = (r: number, cx: number, cy: number, cz: number, seed: number, stretchY = 1, detail = 3) => {
+  const ico = new IcosahedronGeometry(r, detail);
+  ico.deleteAttribute("normal");
+  ico.deleteAttribute("uv");
+  // shared vertices → smooth normals after displacement (no faceted "low-poly toy" look)
+  const g = mergeVertices(ico);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 1 + 0.34 * noise3(x * 1.6 / r + seed, y * 1.6 / r, z * 1.6 / r) + 0.16 * noise3(x * 5 / r, y * 5 / r + seed, z * 5 / r) + 0.07 * noise3(x * 13 / r + seed, y * 13 / r, z * 13 / r);
+    p.setXYZ(i, cx + x * k, cy + y * k * stretchY, cz + z * k);
+  }
+  return g;
+};
+
+const merge = (gs: BufferGeometry[]) => mergeGeometries(gs, false)!;
+
+const paint = (g: BufferGeometry, pal: Palette, y0: number, y1: number, seed: number) => {
+  const lo = new Color(pal.low), mid = new Color(pal.mid), hi = new Color(pal.high), c = new Color();
+  const p = g.attributes.position;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.min(1, Math.max(0, (p.getY(i) - y0) / (y1 - y0)));
+    const n = noise3(p.getX(i) * 0.9 + seed, p.getY(i) * 0.9, p.getZ(i) * 0.9);
+    c.copy(lo).lerp(mid, Math.min(1, t * 1.6)).lerp(hi, Math.max(0, t - 0.55) * 1.6).multiplyScalar(0.92 + n * 0.3);
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  g.setAttribute("color", new BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+};
+
+/**
+ * Deciduous tree, `h` metres tall: a forked trunk under a crown built from many leaf masses.
+ * `spread` > 1 flattens and widens the crown (open-grown shade trees).
+ */
+export const roundTree = (h: number, seed: number, pal: Palette, spread = 1): SubMesh[] => {
+  const r = rng(seed);
+  const trunkH = h * 0.4;
+  const trunk = new CylinderGeometry(h * 0.016, h * 0.028, trunkH, 7);
+  trunk.translate(0, trunkH / 2, 0);
+  const crownR = h * 0.31, cy = trunkH + crownR * 0.7;
+  const limbs = [trunk];
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + r(), len = crownR * 0.9;
+    const limb = new CylinderGeometry(h * 0.006, h * 0.012, len, 5);
+    limb.translate(0, len / 2, 0);
+    limb.rotateZ(0.65);
+    limb.rotateY(a);
+    limb.translate(0, trunkH * 0.88, 0);
+    limbs.push(limb);
+  }
+  const masses = [];
+  for (let i = 0; i < 22; i++) {
+    // leaf masses fill an ellipsoid, the outer ones smaller so the silhouette breaks up
+    const a = r() * Math.PI * 2, u = r() * 2 - 1, d = Math.cbrt(0.25 + r() * 0.75);
+    const x = Math.cos(a) * Math.sqrt(1 - u * u) * d, y = u * d, z = Math.sin(a) * Math.sqrt(1 - u * u) * d;
+    const rr = crownR * (0.44 - d * 0.17) * (0.8 + r() * 0.4);
+    masses.push(blob(rr * (0.85 + 0.15 * spread), x * crownR * 0.8 * spread, cy + (y * crownR * 0.6) / spread, z * crownR * 0.8 * spread, seed * 7 + i, 0.88 / spread, 2));
+  }
+  const crown = paint(merge(masses), pal, cy - crownR * 0.8, cy + crownR * 0.9, seed);
+  return [{ geom: mergeGeometries(limbs.map((g) => g.toNonIndexed()))!, material: "bark" }, { geom: crown, material: "foliage" }];
+};
+
+/** Slender columnar tree (garden accent): stacked leaf masses on a short trunk. */
+export const columnTree = (h: number, seed: number, pal: Palette): SubMesh[] => {
+  const r = rng(seed);
+  const trunk = new CylinderGeometry(h * 0.01, h * 0.018, h * 0.3, 6);
+  trunk.translate(0, h * 0.15, 0);
+  const masses = [];
+  for (let i = 0; i < 9; i++) {
+    const t = i / 8, y = h * (0.26 + t * 0.62), w = h * 0.11 * Math.sin(Math.PI * (0.12 + t * 0.82));
+    const a = r() * 6.28;
+    masses.push(blob(w * (0.8 + r() * 0.3), Math.cos(a) * w * 0.25, y, Math.sin(a) * w * 0.25, seed * 5 + i, 1.25, 2));
+  }
+  return [{ geom: trunk, material: "bark" }, { geom: paint(merge(masses), pal, h * 0.2, h, seed), material: "foliage" }];
+};
+
+/** Low shrub clump of `n` rounded masses within radius `r`. */
+export const shrub = (r: number, seed: number, pal: Palette, n = 5): SubMesh[] => {
+  const q = rng(seed);
+  const parts = Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * Math.PI * 2 + q(), d = i === 0 ? 0 : r * 0.5;
+    const rr = r * (i === 0 ? 0.62 : 0.42 + q() * 0.2);
+    return blob(rr, Math.cos(a) * d, rr * 0.75, Math.sin(a) * d, seed + i, 0.85, 2);
+  });
+  return [{ geom: paint(merge(parts), pal, 0, r * 1.4, seed), material: "foliage" }];
+};
+
+/** Clipped hedge: a rounded box with a leafy, slightly uneven surface. Origin at the base centre. */
+export const hedge = (len: number, h: number, d: number, seed: number, pal: Palette): SubMesh[] => {
+  const box = new BoxGeometry(len, h, d, Math.ceil(len * 6), Math.ceil(h * 6), Math.ceil(d * 6));
+  box.deleteAttribute("normal");
+  box.deleteAttribute("uv");
+  const g = mergeVertices(box);
+  const p = g.attributes.position;
+  const half = new Vector3(len / 2, h / 2, d / 2), r = Math.min(h, d) * 0.16;
+  const v = new Vector3(), q = new Vector3(), n = new Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    q.set(Math.max(-half.x + r, Math.min(half.x - r, v.x)), Math.max(-half.y + r, Math.min(half.y - r, v.y)), Math.max(-half.z + r, Math.min(half.z - r, v.z)));
+    n.subVectors(v, q);
+    if (n.lengthSq() < 1e-9) continue;
+    n.normalize();
+    const k = r + 0.05 * noise3(v.x * 3 + seed, v.y * 3, v.z * 3) + 0.035 * noise3(v.x * 9, v.y * 9 + seed, v.z * 9);
+    v.copy(q).addScaledVector(n, k);
+    p.setXYZ(i, v.x, v.y + h / 2, v.z);
+  }
+  return [{ geom: paint(g, pal, 0, h, seed), material: "foliage" }];
+};
+
+==== 3001 src/kits/buildforge/example/BuildforgeExample.tsx
+// BUILDFORGE technical example — a garden pavilion assembled piece by piece in true 3D (10 s at any fps).
+// World, construction clock, camera rig, finishing chain and stage labels, all from src/kits/buildforge.
+// It is a technical check and a starting point, not a story: never reuse it as a buyer's film.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { useThree } from "@react-three/fiber";
+import { PCFShadowMap } from "three";
+import { FONT } from "../../../core/type/fonts.ts";
+import { shotAt } from "../camera/director.ts";
+import { StageLabel } from "../labels/StageLabel.tsx";
+import { CameraRig, Post } from "../render/Post.tsx";
+import { createWorld, sunLook } from "../world/createWorld.ts";
+import { SITE, pavilionComponents } from "./pavilion.ts";
+import { CLOCK, EXAMPLE_SECONDS, LENS, RIG, STAGES_S, WINDOWS, terrainAt } from "./sequence.ts";
+
+export const BUILDFORGE_EXAMPLE_SECONDS = EXAMPLE_SECONDS;
+
+const SUN: [number, number, number] = [-0.55, 0.62, 0.56];
+const DAYLIGHT = sunLook(SUN);
+
+/** Trees already standing around the site: [x, z, height]. Keep the camera's final view clear. */
+const WILD: [number, number, number][] = [
+  [-11, -16, 8], [-2, -19, 9], [8, -17, 7.5], [16, -14, 8.5], [-19, -12, 7], [21, -2, 8], [-22, 3, 7.5], [24, 9, 9],
+];
+
+const World: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) => {
+  const { gl, scene } = useThree();
+  const world = useMemo(
+    () =>
+      createWorld(gl, scene, {
+        components: pavilionComponents(),
+        windows: WINDOWS,
+        site: SITE,
+        terrainAt,
+        trees: WILD,
+        sunDir: SUN,
+        shadowSize: 22,
+      }),
+    [gl, scene],
+  );
+  // construction clock: CLOCK units per second, whatever the render fps
+  const c = (frame / fps) * CLOCK;
+  useLayoutEffect(() => world.update(c, DAYLIGHT), [world, c]);
+  const shot = useMemo(() => shotAt(RIG, c, LENS), [c]);
+  return (
+    <>
+      <primitive object={world.root} />
+      <CameraRig shot={shot} />
+      <Post shot={shot} frame={frame} aoRadius={0.45} />
+    </>
+  );
+};
+
+export const BuildforgeExample: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const stages = STAGES_S.map((s) => ({ ...s, from: Math.round(s.from * fps), to: Math.round(s.to * fps) }));
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#e8eef0" }}>
+      <ThreeCanvas width={width} height={height} shadows={{ type: PCFShadowMap }} dpr={1}
+        gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+        camera={{ fov: 36, near: 0.4, far: 2500, position: [0, 10, 40] }}>
+        <World frame={frame} fps={fps} />
+      </ThreeCanvas>
+      <StageLabel stages={stages} frame={frame} fps={fps} width={width} font={FONT} ink="#22292c" soft="#5f6b70" accent="#1fae95" />
+    </AbsoluteFill>
+  );
+};
+
+==== 12199 src/kits/buildforge/example/pavilion.ts
+// BUILDFORGE technical example: a small steel-and-timber garden pavilion (6 × 4 m), built in the order a
+// real crew would: set-out → excavation → pad footings → formwork → slab pour → steel columns → beams →
+// timber roof boards → roof cap → back glazing → slatted side screen → bench → path → planting.
+// It is a technical check and a starting point, not a story: never reuse it as a buyer's film.
+//
+// Every component has a seat, a placement method and what it bears on; timing lives in sequence.ts.
+
+import { glazing } from "../geometry/openings.ts";
+import { box, cast, merge, sub } from "../geometry/shapes.ts";
+import { columnTree, roundTree, shrub } from "../environment/Vegetation.ts";
+import type { SiteSpec } from "../environment/Terrain.ts";
+import type { Component, Method, Piece, Vec3 } from "../types.ts";
+import { LEAF } from "../presets/daylight.ts";
+
+/* ───────────────────────── plan (metres) ───────────────────────── */
+
+export const XS = [-3, 0, 3];
+export const ZS = [-2, 2];
+const HC = 0.08; // half column
+export const LV = { pit: -0.4, footingTop: -0.12, slabBottom: -0.12, floor: 0.18, colTop: 3.0, beamTop: 3.24, boardsTop: 3.29, capTop: 3.4 };
+export const SLAB = { x0: -3.5, x1: 3.5, z0: -2.5, z1: 2.5 };
+export const PIT = { x0: SLAB.x0 - 0.3, x1: SLAB.x1 + 0.3, z0: SLAB.z0 - 0.3, z1: SLAB.z1 + 0.3 };
+const COLUMNS: [number, number][] = XS.flatMap((x) => ZS.map((z) => [x, z] as [number, number]));
+
+export const GARDEN_TREES: { at: Vec3; h: number; kind: "round" | "column"; seed: number }[] = [
+  { at: [-6.6, 0, 1.2], h: 5.8, kind: "round", seed: 3 },
+  { at: [6.9, 0, -1.6], h: 6.4, kind: "column", seed: 5 },
+  { at: [6.4, 0, -4.6], h: 4.6, kind: "round", seed: 9 },
+];
+const SHRUBS: { at: Vec3; r: number; seed: number }[] = [
+  { at: [-4.7, 0, 3.4], r: 0.5, seed: 21 },
+  { at: [-2.0, 0, 3.7], r: 0.42, seed: 22 },
+  { at: [2.1, 0, 3.9], r: 0.44, seed: 23 },
+  { at: [4.4, 0, 3.0], r: 0.48, seed: 24 },
+];
+
+export const SITE: SiteSpec = {
+  site: { x0: -10, x1: 10, z0: -8, z1: 11 },
+  pit: PIT,
+  depth: -LV.pit,
+  slab: SLAB,
+  beds: GARDEN_TREES.map((t) => ({ x0: t.at[0] - 1.1, x1: t.at[0] + 1.1, z0: t.at[2] - 1.0, z1: t.at[2] + 1.0 })),
+  gravelBand: 0.35,
+};
+
+/* ───────────────────────── helpers ───────────────────────── */
+
+const lowered = (height: number, rig: "single" | "sling" | "four" = "sling"): Method => ({ kind: "lower", height, rig });
+
+/** A rigid element given by world min/max corners; its seat is the centre of its base. */
+const elem = (
+  id: string, phase: string, min: Vec3, max: Vec3,
+  extra: Partial<Component> & { method: Method; material: string },
+  make: (a: Vec3, b: Vec3) => ReturnType<typeof box> = cast,
+): Component => {
+  const at: Vec3 = [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2];
+  const lmin: Vec3 = [min[0] - at[0], 0, min[2] - at[2]];
+  const lmax: Vec3 = [max[0] - at[0], max[1] - at[1], max[2] - at[2]];
+  return { id, phase, at, part: { kind: "solid", build: () => [sub(make(lmin, lmax))], bounds: { min: lmin, max: lmax } }, ...extra };
+};
+
+/* ───────────────────────── 1 · set-out ───────────────────────── */
+
+const setOut = (): Component[] => {
+  const off = 1.2;
+  const lines: { id: string; a: [number, number]; b: [number, number] }[] = [
+    { id: "front", a: [SLAB.x0 - off, SLAB.z1], b: [SLAB.x1 + off, SLAB.z1] },
+    { id: "back", a: [SLAB.x1 + off, SLAB.z0], b: [SLAB.x0 - off, SLAB.z0] },
+    { id: "west", a: [SLAB.x0, SLAB.z0 - off], b: [SLAB.x0, SLAB.z1 + off] },
+    { id: "east", a: [SLAB.x1, SLAB.z1 + off], b: [SLAB.x1, SLAB.z0 - off] },
+  ];
+  const out: Component[] = [];
+  lines.forEach((l, li) =>
+    [l.a, l.b].forEach((p, pi) =>
+      out.push({
+        id: `stake-${l.id}-${pi}`, phase: "setout", exit: "setout-out", key: li * 2 + pi,
+        at: [p[0], 0, p[1]], material: "stake", method: { kind: "drive", depth: 0.35 },
+        part: {
+          kind: "solid",
+          build: () => [sub(box([-0.03, -0.35, -0.03], [0.03, 0.52, 0.03])), sub(box([-0.034, 0.5, -0.034], [0.034, 0.58, 0.034]), "marker")],
+          bounds: { min: [-0.034, -0.35, -0.034], max: [0.034, 0.58, 0.034] },
+        },
+      }),
+    ),
+  );
+  lines.forEach((l, li) => {
+    const dx = l.b[0] - l.a[0], dz = l.b[1] - l.a[1], L = Math.hypot(dx, dz);
+    out.push({
+      id: `string-${l.id}`, phase: "strings", exit: "strings-out", key: li,
+      at: [l.a[0], 0.44, l.a[1]], rotY: Math.atan2(-dz, dx), material: "string", method: { kind: "draw" }, shadow: false,
+      rests: [`stake-${l.id}-0`, `stake-${l.id}-1`],
+      part: { kind: "solid", build: () => [sub(box([0, -0.008, -0.008], [L, 0.008, 0.008]))], bounds: { min: [0, -0.008, -0.008], max: [L, 0.008, 0.008] } },
+    });
+  });
+  return out;
+};
+
+/* ───────────────────────── 2 · foundation ───────────────────────── */
+
+const PAD = 0.4;
+const foundation = (): Component[] => {
+  const out: Component[] = [];
+  COLUMNS.forEach(([x, z], i) =>
+    out.push(elem(`pad-${x}-${z}`, "footings", [x - PAD, LV.pit + 0.01, z - PAD], [x + PAD, LV.footingTop, z + PAD], { method: { kind: "fill", cure: true }, material: "concrete", key: i }, box)),
+  );
+  const pads = out.map((c) => c.id);
+  const fy0 = LV.slabBottom, fy1 = LV.floor + 0.06, t = 0.025;
+  const forms: [string, Vec3, Vec3][] = [
+    ["form-front", [SLAB.x0 - t, fy0, SLAB.z1], [SLAB.x1 + t, fy1, SLAB.z1 + t]],
+    ["form-back", [SLAB.x0 - t, fy0, SLAB.z0 - t], [SLAB.x1 + t, fy1, SLAB.z0]],
+    ["form-west", [SLAB.x0 - t, fy0, SLAB.z0], [SLAB.x0, fy1, SLAB.z1]],
+    ["form-east", [SLAB.x1, fy0, SLAB.z0], [SLAB.x1 + t, fy1, SLAB.z1]],
+  ];
+  forms.forEach(([id, a, b], i) =>
+    out.push(elem(id, "formwork", a, b, { method: { kind: "slide", from: [0, 1.1, 0] }, material: "plywood", exit: "strike", after: pads, key: i }, box)),
+  );
+  const s0: Vec3 = [SLAB.x0, 0, SLAB.z0], s1: Vec3 = [SLAB.x1, LV.floor - LV.slabBottom, SLAB.z1];
+  out.push({
+    id: "slab", phase: "slab", at: [0, LV.slabBottom, 0], material: "concrete",
+    method: { kind: "spread", axis: "x", dir: 1, ramp: 1.0, cure: true },
+    rests: pads, after: forms.map((f) => f[0]),
+    part: { kind: "solid", build: () => [sub(box(s0, s1, [72, 1, 1]))], bounds: { min: s0, max: s1 } },
+  });
+  return out;
+};
+
+/* ───────────────────────── 3 · steel frame and roof ───────────────────────── */
+
+const colId = (x: number, z: number) => `col-${x}-${z}`;
+const xBeam = (z: number) => `beam-x${z}`;
+const zBeam = (x: number) => `beam-z${x}`;
+
+const frame = (): Component[] => {
+  const out: Component[] = [];
+  COLUMNS.forEach(([x, z]) =>
+    out.push(elem(colId(x, z), "columns", [x - HC, LV.floor, z - HC], [x + HC, LV.colTop, z + HC], {
+      method: lowered(7, "single"), material: "steel", rests: ["slab"], key: XS.indexOf(x),
+    }, box)),
+  );
+  // two main beams along x, sitting on the column heads
+  ZS.forEach((z, i) =>
+    out.push(elem(xBeam(z), "beams", [XS[0] - 0.2, LV.colTop, z - 0.09], [XS[2] + 0.2, LV.beamTop, z + 0.09], {
+      method: lowered(8), material: "steel", rests: XS.map((x) => colId(x, z)), key: i,
+    }, box)),
+  );
+  // cross beams along z, between the main beams
+  XS.forEach((x, i) =>
+    out.push(elem(zBeam(x), "crossbeams", [x - 0.07, LV.colTop, ZS[0] + 0.09], [x + 0.07, LV.beamTop, ZS[1] - 0.09], {
+      method: lowered(7), material: "steel", rests: ZS.map(xBeam), key: i,
+    }, box)),
+  );
+  // timber roof boards laid one by one across the beams
+  const boards: Piece[] = [];
+  for (let x = -3.6, k = 0; x <= 3.6 + 1e-6; x += 0.2, k++)
+    boards.push({ c: [x, (LV.beamTop + LV.boardsTop) / 2, 0], s: [0.19, LV.boardsTop - LV.beamTop, 5.4], tone: 0.9 + ((k * 37) % 11) / 70 });
+  out.push({
+    id: "roof-boards", phase: "roof", at: [0, 0, 0], material: "woodPiece",
+    method: { kind: "lay", from: [0, 0.5, 0], each: 0.08 }, part: { kind: "pieces", pieces: boards },
+    rests: [...ZS.map(xBeam), ...XS.map(zBeam)],
+  });
+  // thin roof cap lifted onto the boards
+  out.push(elem("roof-cap", "cap", [-3.75, LV.boardsTop, -2.82], [3.75, LV.capTop, 2.82], {
+    method: lowered(9, "four"), material: "render", rests: ["roof-boards"],
+  }, (a, b) => cast(a, b, 0.02)));
+  return out;
+};
+
+/* ───────────────────────── 4 · infill and fit-out ───────────────────────── */
+
+const infill = (): Component[] => {
+  const out: Component[] = [];
+  const h = LV.colTop - LV.floor;
+  // back wall: two glazed bays between the columns (outside is −z, so the unit is turned 180°)
+  [[XS[0] + HC, XS[1] - HC], [XS[1] + HC, XS[2] - HC]].forEach(([x0, x1], i) => {
+    const w = x1 - x0;
+    out.push({
+      id: `glazing-${i}`, phase: "glazing", key: i, at: [x1, LV.floor, ZS[0]], rotY: Math.PI, material: "frame",
+      method: { kind: "slide", from: [0, 0, 1.6] },
+      part: { kind: "solid", build: () => glazing(w, h, { maxPane: 1.0 }), bounds: { min: [0, 0, -0.05], max: [w, h, 0.05] } },
+      rests: ["slab"], after: [xBeam(ZS[0])],
+    });
+  });
+  // west side: a slatted timber screen, two rails then vertical slats
+  const slats: Piece[] = [];
+  const z0 = ZS[0] + HC, z1 = ZS[1] - HC, x = XS[0];
+  for (const y of [LV.floor + 0.45, LV.colTop - 0.35]) slats.push({ c: [x + 0.045, y, (z0 + z1) / 2], s: [0.05, 0.05, z1 - z0], tone: 0.8 });
+  for (let z = z0 + 0.04, k = 0; z <= z1 - 0.039; z += 0.11, k++) slats.push({ c: [x, (LV.floor + LV.colTop) / 2, z], s: [0.04, h, 0.05], tone: 0.92 + ((k * 29) % 9) / 70 });
+  out.push({
+    id: "screen", phase: "screen", at: [0, 0, 0], material: "woodPiece",
+    method: { kind: "lay", from: [-0.8, 0, 0], each: 0.1 }, part: { kind: "pieces", pieces: slats },
+    rests: ["slab"], after: [zBeam(XS[0])],
+  });
+  // a timber bench in front of the glazing
+  const legs = [-1.8, 0, 1.8].map((lx) => box([lx - 0.05, 0, -0.18], [lx + 0.05, 0.4, 0.18]));
+  out.push({
+    id: "bench", phase: "bench", at: [0, LV.floor, -1.5], material: "wood",
+    method: { kind: "slide", from: [0, 0.4, 1.2] },
+    part: { kind: "solid", build: () => [sub(merge([...legs, box([-2, 0.4, -0.22], [2, 0.46, 0.22])]))], bounds: { min: [-2, 0, -0.22], max: [2, 0.46, 0.22] } },
+    rests: ["slab"], after: ["glazing-0", "glazing-1"],
+  });
+  // stepping-stone path to the front
+  const pavers: Piece[] = Array.from({ length: 7 }, (_, k) => ({ c: [0, 0.03, SLAB.z1 + 0.6 + k * 0.85], s: [1.4, 0.06, 0.6], tone: 0.95 + ((k * 7) % 5) / 50 }));
+  out.push({ id: "path", phase: "paving", at: [0, 0, 0], material: "paver", method: { kind: "lay", from: [0, 0.35, 0], each: 0.22 }, part: { kind: "pieces", pieces: pavers } });
+  return out;
+};
+
+/* ───────────────────────── 5 · planting ───────────────────────── */
+
+const tree = (t: (typeof GARDEN_TREES)[number]): Component["part"] => ({
+  kind: "solid",
+  build: () => (t.kind === "round" ? roundTree(t.h, t.seed, LEAF.garden) : columnTree(t.h, t.seed, LEAF.garden)),
+  bounds: { min: [-t.h * 0.3, 0, -t.h * 0.3], max: [t.h * 0.3, t.h, t.h * 0.3] },
+});
+
+const planting = (): Component[] => [
+  ...GARDEN_TREES.map((t, i): Component => ({ id: `tree-${i}`, phase: "trees", key: i, at: t.at, material: "foliage", method: { kind: "grow" }, part: tree(t) })),
+  ...SHRUBS.map((s, i): Component => ({
+    id: `shrub-${i}`, phase: "shrubs", key: i, at: s.at, material: "foliage", method: { kind: "grow" },
+    part: { kind: "solid", build: () => shrub(s.r, s.seed, LEAF.shrub), bounds: { min: [-s.r, 0, -s.r], max: [s.r, s.r * 1.4, s.r] } },
+  })),
+];
+
+export const pavilionComponents = (): Component[] => [...setOut(), ...foundation(), ...frame(), ...infill(), ...planting()];
+
+==== 3434 src/kits/buildforge/example/sequence.ts
+// Assembly sequence of the pavilion example. Phase windows are written in seconds of film time and
+// converted to the construction clock (CLOCK units per second), so motion constants keep their
+// real-time feel at any render frame rate. Which component belongs to which phase lives in
+// pavilion.ts; the per-component timeline is derived by schedule(); scripts/buildforge-check.ts
+// proves the sequence is physically ordered and clash-free.
+
+import type { PhaseWindow } from "../assembly/schedule.ts";
+import type { TerrainState } from "../environment/Terrain.ts";
+import type { Stage } from "../labels/StageLabel.tsx";
+import { ease, remap } from "../motion/easing.ts";
+import { keys } from "../motion/track.ts";
+
+/** Construction-clock units per second (the engine's motion constants assume 30). */
+export const CLOCK = 30;
+export const EXAMPLE_SECONDS = 10;
+/** Seconds → clock units, rounded so windows written in seconds never lose a hair to float error. */
+const sec = (v: number) => Math.round(v * CLOCK * 1000) / 1000;
+const w = (phase: string, a: number, b: number, dur: number): PhaseWindow => ({ phase, start: sec(a), end: sec(b), dur: sec(dur) });
+
+export const WINDOWS: PhaseWindow[] = [
+  // 1 · the land
+  w("setout", 0.6, 1.5, 0.3),
+  w("strings", 1.3, 1.9, 0.3),
+  // 2 · foundation
+  w("footings", 2.6, 3.3, 0.35),
+  w("strings-out", 3.2, 3.45, 0.15),
+  w("setout-out", 3.45, 3.75, 0.2),
+  w("formwork", 3.3, 3.75, 0.3),
+  w("slab", 3.75, 4.6, 0.8),
+  w("strike", 4.7, 5.0, 0.25),
+  // 3 · frame
+  w("columns", 4.9, 5.7, 0.4),
+  w("beams", 5.7, 6.2, 0.4),
+  w("crossbeams", 6.2, 6.6, 0.3),
+  // 4 · roof and walls
+  w("roof", 6.6, 7.4, 0.8),
+  w("cap", 7.4, 7.9, 0.5),
+  w("glazing", 6.7, 7.4, 0.45),
+  w("screen", 7.4, 8.2, 0.8),
+  // 5 · finished
+  w("bench", 8.0, 8.4, 0.35),
+  w("paving", 8.1, 8.9, 0.8),
+  w("trees", 8.2, 9.2, 0.8),
+  w("shrubs", 8.5, 9.3, 0.5),
+];
+
+/** Ground operations (not components). */
+export const terrainAt = (c: number): TerrainState => ({
+  contour: 1 - remap(c, sec(0.2), sec(0.9)),
+  grade: ease.inOut(remap(c, sec(0.5), sec(1.3))),
+  dig: ease.inOut(remap(c, sec(1.9), sec(3.0))),
+  backfill: ease.inOut(remap(c, sec(4.7), sec(5.2))),
+  lawn: ease.out(remap(c, sec(8.0), sec(9.3))),
+});
+
+/** Everything must be in place before this clock value (a short hold at the end). */
+export const END = sec(9.6);
+
+/** Stage labels, in seconds (the film converts them to frames). */
+export const STAGES_S: Stage[] = [
+  { from: 0, to: 1.9, n: "01", label: "LAHAN" },
+  { from: 1.9, to: 4.8, n: "02", label: "FONDASI" },
+  { from: 4.8, to: 6.6, n: "03", label: "RANGKA" },
+  { from: 6.6, to: 8.0, n: "04", label: "ATAP & DINDING" },
+  { from: 8.0, to: EXAMPLE_SECONDS, n: "05", label: "SELESAI" },
+];
+
+/**
+ * Camera: one continuous move on the construction clock.
+ * [clock, targetX, targetY, targetZ, azimuth°, elevation°, distance, fov°]; azimuth 0 looks at the
+ * front (+z), positive swings the camera east (+x).
+ */
+export const RIG = keys(
+  [sec(0), 0, 0.4, 1, -38, 22, 36, 36],
+  [sec(1.6), 0, 0.0, 0.5, -30, 34, 29, 36],
+  [sec(3.4), 0, -0.2, 0, -18, 42, 27, 36],
+  [sec(4.7), 0, 0.4, 0, -6, 34, 27, 36],
+  [sec(5.9), 0.2, 1.6, 0, 10, 25, 28, 36],
+  [sec(7.2), 0.2, 2.2, 0, 22, 19, 30, 36],
+  [sec(8.4), 0, 2.3, 0.6, 30, 14, 31, 36],
+  [sec(EXAMPLE_SECONDS), 0, 2.2, 1.0, 34, 11, 33, 36],
+);
+
+export const LENS = { aperture: 0.00011, maxBlur: 0.0032, exposure: 1.0 };
+
+==== 1590 src/kits/buildforge/geometry/noise.ts
+// Seeded randomness and smooth value noise. Everything procedural derives from fixed seeds,
+// so a frame renders identically on every machine and every render pass.
+
+export const rng = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const hash2 = (x: number, y: number) => {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+const fade = (t: number) => t * t * (3 - 2 * t);
+
+/** 2D value noise in [0, 1]. */
+export const noise2 = (x: number, y: number) => {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = fade(x - xi), yf = fade(y - yi);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
+};
+
+/** Fractal noise centred on 0, roughly in [-0.5, 0.5]. */
+export const fbm2 = (x: number, y: number, octaves = 4) => {
+  let s = 0, amp = 0.5, f = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    s += amp * (noise2(x * f + i * 17.3, y * f - i * 9.1) - 0.5);
+    norm += amp;
+    amp *= 0.5;
+    f *= 2.03;
+  }
+  return s / norm;
+};
+
+/** Cheap 3D noise for organic displacement (foliage), in [-0.5, 0.5]. */
+export const noise3 = (x: number, y: number, z: number) => (noise2(x + z * 1.7, y - z * 0.6) + noise2(y * 1.3 - z, x * 0.8 + z * 1.1)) * 0.5 - 0.5;
+
+==== 2411 src/kits/buildforge/geometry/openings.ts
+// Installable units that fill openings: glazing, doors, balustrades. Local origin is the
+// bottom-left corner of the opening; the unit's mid-plane sits on z = 0, outside is +z.
+
+import { box, merge, sub } from "./shapes.ts";
+import type { SubMesh } from "../types.ts";
+
+export type GlazingOpts = { frame?: number; depth?: number; maxPane?: number; transom?: number };
+
+/** Aluminium frame with mullions every ≤ maxPane metres, an optional transom, and glass. */
+export const glazing = (w: number, h: number, o: GlazingOpts = {}): SubMesh[] => {
+  const f = o.frame ?? 0.06, d = (o.depth ?? 0.07) / 2, maxPane = o.maxPane ?? 1.5;
+  const gap = 0.002;
+  const W = w - gap * 2, H = h - gap * 2;
+  const x0 = gap, y0 = gap;
+  const n = Math.max(1, Math.ceil(W / maxPane));
+  const parts = [
+    box([x0, y0, -d], [x0 + f, y0 + H, d]),
+    box([x0 + W - f, y0, -d], [x0 + W, y0 + H, d]),
+    box([x0 + f, y0, -d], [x0 + W - f, y0 + f, d]),
+    box([x0 + f, y0 + H - f, -d], [x0 + W - f, y0 + H, d]),
+  ];
+  for (let i = 1; i < n; i++) {
+    const x = x0 + (W * i) / n;
+    parts.push(box([x - f * 0.4, y0 + f, -d * 0.9], [x + f * 0.4, y0 + H - f, d * 0.9]));
+  }
+  if (o.transom) parts.push(box([x0 + f, y0 + o.transom - f * 0.4, -d * 0.9], [x0 + W - f, y0 + o.transom + f * 0.4, d * 0.9]));
+  const glass = box([x0 + f * 0.5, y0 + f * 0.5, -0.006], [x0 + W - f * 0.5, y0 + H - f * 0.5, 0.006]);
+  return [sub(merge(parts), "frame"), sub(glass, "glass")];
+};
+
+/** Full-height pivot door: slim frame, solid timber leaf, long steel pull. */
+export const pivotDoor = (w: number, h: number): SubMesh[] => {
+  const f = 0.05, d = 0.04, gap = 0.002;
+  const frame = merge([
+    box([gap, gap, -d], [gap + f, h - gap, d]),
+    box([w - gap - f, gap, -d], [w - gap, h - gap, d]),
+    box([gap + f, h - gap - f, -d], [w - gap - f, h - gap, d]),
+  ]);
+  const leaf = box([gap + f + 0.004, 0.01, -0.03], [w - gap - f - 0.004, h - gap - f - 0.004, 0.03]);
+  const pull = merge([
+    box([w - 0.32, 0.75, 0.03], [w - 0.29, 1.95, 0.065]),
+    box([w - 0.32, 0.8, 0.03], [w - 0.29, 0.84, 0.065]),
+  ]);
+  return [sub(frame, "frame"), sub(leaf, "wood"), sub(pull, "steel")];
+};
+
+/** Frameless glass balustrade panel in a steel base shoe. */
+export const balustrade = (w: number, h: number): SubMesh[] => [
+  sub(box([0, 0, -0.05], [w, 0.1, 0.05]), "steel"),
+  sub(box([0.004, 0.06, -0.008], [w - 0.004, h, 0.008]), "glass"),
+];
+
+==== 7092 src/kits/buildforge/geometry/shapes.ts
+// Building-geometry primitives in metres. UVs are metric (1 unit = 1 m) so textures keep
+// one density on every element, whatever its size.
+
+import { BoxGeometry, BufferGeometry, Float32BufferAttribute } from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import type { Piece, SubMesh, Vec3 } from "../types.ts";
+
+/** Planar UVs from the dominant normal axis, in metres. */
+export const metricUV = (g: BufferGeometry) => {
+  const p = g.attributes.position, n = g.attributes.normal;
+  const uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    const [u, v] = ax >= ay && ax >= az ? [p.getZ(i), p.getY(i)] : ay >= az ? [p.getX(i), p.getZ(i)] : [p.getX(i), p.getY(i)];
+    uv[i * 2] = u;
+    uv[i * 2 + 1] = v;
+  }
+  g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+  return g;
+};
+
+export const merge = (gs: BufferGeometry[]) => {
+  const m = mergeGeometries(gs.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  if (!m) throw new Error("merge failed");
+  return m;
+};
+
+const size = (min: Vec3, max: Vec3): Vec3 => [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+const centre = (min: Vec3, max: Vec3): Vec3 => [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+
+/** Axis-aligned box between two corners. `segs` subdivides (a pour front needs vertices to bend). */
+export const box = (min: Vec3, max: Vec3, segs: [number, number, number] = [1, 1, 1]) => {
+  const s = size(min, max), c = centre(min, max);
+  const g = new BoxGeometry(s[0], s[1], s[2], ...segs);
+  g.translate(...c);
+  return metricUV(g);
+};
+
+/** Precast element: a box with a small arris radius so the edges catch light like real cast concrete. */
+export const cast = (min: Vec3, max: Vec3, radius = 0.012) => {
+  const s = size(min, max), c = centre(min, max);
+  const g = new RoundedBoxGeometry(s[0], s[1], s[2], 2, Math.min(radius, Math.min(...s) * 0.3));
+  g.translate(...c);
+  return metricUV(g);
+};
+
+/** Opening in wall coordinates: [x0, x1, y0, y1], x along the wall, y up from the floor. */
+export type Rect = [number, number, number, number];
+
+/** Solid parts of an L × H rectangle minus openings, as non-overlapping vertical strips. */
+export const solidRects = (L: number, H: number, holes: Rect[]): Rect[] => {
+  const cl = (v: number) => Math.min(L, Math.max(0, v));
+  const xs = [...new Set([0, L, ...holes.flatMap((h) => [cl(h[0]), cl(h[1])])])].sort((a, b) => a - b);
+  const out: Rect[] = [];
+  for (let i = 0; i < xs.length - 1; i++) {
+    const a = xs[i], b = xs[i + 1];
+    if (b - a < 1e-4) continue;
+    const mid = (a + b) / 2;
+    const cuts = holes
+      .filter((h) => h[0] < mid && h[1] > mid)
+      .map((h) => [Math.max(0, h[2]), Math.min(H, h[3])])
+      .sort((p, q) => p[0] - q[0]);
+    let y = 0;
+    for (const [y0, y1] of cuts) {
+      if (y0 - y > 1e-4) out.push([a, b, y, y0]);
+      y = Math.max(y, y1);
+    }
+    if (H - y > 1e-4) out.push([a, b, y, H]);
+  }
+  return out;
+};
+
+/** Flat panel (render coat, cladding board) with openings, between local z0 and z1. */
+export const panelBoxes = (L: number, H: number, z0: number, z1: number, holes: Rect[]): [Vec3, Vec3][] =>
+  solidRects(L, H, holes).map((r) => [[r[0], r[2], z0], [r[1], r[3], z1]]);
+export const panel = (L: number, H: number, z0: number, z1: number, holes: Rect[]) => merge(panelBoxes(L, H, z0, z1, holes).map(([a, b]) => box(a, b)));
+
+type Span = [number, number];
+const subtract = (span: Span, cuts: Span[]): Span[] => {
+  let out: Span[] = [span];
+  for (const [c0, c1] of cuts) {
+    out = out.flatMap(([a, b]) => {
+      if (c1 <= a || c0 >= b) return [[a, b] as Span];
+      const r: Span[] = [];
+      if (c0 > a) r.push([a, c0]);
+      if (c1 < b) r.push([c1, b]);
+      return r;
+    });
+  }
+  return out.filter(([a, b]) => b - a > 1e-3);
+};
+
+/**
+ * Running-bond blockwork filling an L × H bay around openings (opening edges sit on course
+ * lines), a precast lintel over every opening that stops below the top, and a recessed mortar
+ * bed per course. Pieces come out in laying order: course by course, along the wall.
+ */
+export const masonry = (L: number, H: number, z0: number, z1: number, holes: Rect[], o = { block: 0.4, course: 0.2, joint: 0.01 }) => {
+  const pieces: Piece[] = [];
+  const t = z1 - z0, zc = (z0 + z1) / 2;
+  const lintels = holes.filter((h) => h[3] < H - 1e-3).map((h) => ({ x0: Math.max(0, h[0] - 0.2), x1: Math.min(L, h[1] + 0.2), y0: h[3], y1: Math.min(H, h[3] + o.course), done: false }));
+  let tone = 0.37;
+  for (let k = 0, y = 0; y < H - 1e-4; k++, y += o.course) {
+    const y1 = Math.min(H, y + o.course), h = y1 - y;
+    const blocked: Span[] = holes.filter((q) => q[2] < y1 - 1e-4 && q[3] > y + 1e-4).map((q) => [q[0], q[1]]);
+    const course: Piece[] = [];
+    for (const l of lintels) {
+      if (l.y0 < y1 - 1e-4 && l.y1 > y + 1e-4) {
+        blocked.push([l.x0, l.x1]);
+        if (!l.done) {
+          course.push({ c: [(l.x0 + l.x1) / 2, (l.y0 + l.y1 - o.joint) / 2, zc], s: [l.x1 - l.x0 - o.joint, l.y1 - l.y0 - o.joint, t], tone: 1.06 });
+          l.done = true;
+        }
+      }
+    }
+    const offset = (k % 2) * (o.block / 2);
+    const spans = subtract([0, L], blocked);
+    for (const [a, b] of spans) {
+      const cuts = [a];
+      for (let g = Math.ceil((a + offset) / o.block) * o.block - offset; g < b - 0.05; g += o.block) if (g > a + 0.05) cuts.push(g);
+      cuts.push(b);
+      for (let i = 0; i < cuts.length - 1; i++) {
+        tone = (tone * 9301 + 49297) % 233280 / 233280;
+        course.push({ c: [(cuts[i] + cuts[i + 1]) / 2, y + (h - o.joint) / 2, zc], s: [cuts[i + 1] - cuts[i] - o.joint, h - o.joint, t], tone: 0.93 + tone * 0.1 });
+      }
+    }
+    course.sort((p, q) => p.c[0] - q.c[0]);
+    pieces.push(...course);
+    // mortar bed: recessed, appears once the course is complete so open joints never show daylight
+    for (const [a, b] of spans) pieces.push({ c: [(a + b) / 2, y + h / 2, zc], s: [b - a, h, t - 0.024], tone: 0.82, instant: true });
+  }
+  return pieces;
+};
+
+/** Local bounds of a piece list. */
+export const pieceBounds = (pieces: Piece[]) => {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const p of pieces)
+    for (let a = 0; a < 3; a++) {
+      min[a] = Math.min(min[a], p.c[a] - p.s[a] / 2);
+      max[a] = Math.max(max[a], p.c[a] + p.s[a] / 2);
+    }
+  return { min, max };
+};
+
+/** Bounds of a set of boxes given as [min, max] corners. */
+export const boundsOf = (...boxes: [Vec3, Vec3][]) => {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const [a, b] of boxes)
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], a[i]);
+      max[i] = Math.max(max[i], b[i]);
+    }
+  return { min, max };
+};
+
+export const sub = (geom: BufferGeometry, material?: string): SubMesh => ({ geom, material });
+
+==== 2339 src/kits/buildforge/labels/StageLabel.tsx
+// Stage label: a small numbered caption and a five-stop progress rail. Deliberately quiet;
+// the construction carries the story. Laid out at 1080 × 1920 and scaled to the render size.
+
+import React from "react";
+import { ease, remap } from "../motion/easing.ts";
+
+export type Stage = { from: number; to: number; n: string; label: string };
+
+export const StageLabel: React.FC<{
+  stages: Stage[]; frame: number; fps?: number; show?: number; width: number; font: string; ink: string; soft: string; accent: string;
+}> = ({ stages, frame, fps = 30, show = 1, width, font, ink, soft, accent }) => {
+  const k = width / 1080;
+  const r = fps / 30; // timings are authored at 30 fps
+  const T = 14 * r;
+  const intro = ease.type(remap(frame, 6 * r, 30 * r)) * show;
+  const total = stages[stages.length - 1].to;
+  if (intro <= 0.001) return null;
+  return (
+    <div style={{ position: "absolute", inset: 0, width: 1080, height: 1920, transform: `scale(${k})`, transformOrigin: "0 0", fontFamily: font, opacity: intro }}>
+      {stages.map((s, i) => {
+        const inK = i === 0 ? 1 : ease.type(remap(frame, s.from, s.from + T));
+        const outK = i === stages.length - 1 ? 0 : ease.type(remap(frame, s.to - 4 * r, s.to + T - 6 * r));
+        const v = inK * (1 - outK);
+        if (v <= 0.001) return null;
+        return (
+          <div key={s.n} style={{ position: "absolute", left: 92, top: 132, opacity: v, transform: `translateY(${(1 - inK) * 22 - outK * 18}px)` }}>
+            <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: "0.32em", color: accent }}>{s.n}</div>
+            <div style={{ marginTop: 6, fontSize: 40, fontWeight: 500, letterSpacing: "0.2em", color: ink }}>{s.label}</div>
+          </div>
+        );
+      })}
+      <div style={{ position: "absolute", left: 92, top: 252, width: 300, height: 3, background: soft, opacity: 0.35 }} />
+      <div style={{ position: "absolute", left: 92, top: 252, width: 300 * Math.min(1, frame / total), height: 3, background: accent }} />
+      {stages.map((s, i) => (
+        <div key={`t${s.n}`} style={{ position: "absolute", left: 92 + (300 * s.from) / total - 3, top: 249, width: 9, height: 9, borderRadius: 9, background: frame >= s.from ? accent : soft, opacity: frame >= s.from ? 1 : 0.4, display: i === 0 ? "none" : "block" }} />
+      ))}
+    </div>
+  );
+};
+
+==== 7142 src/kits/buildforge/materials/library.ts
+// Material system. Every construction material is a MeshStandardMaterial extended with three
+// state channels, all driven from the timeline:
+//   wet    — fresh concrete reads darker and glossier, then cures;
+//   coat   — a finish coat exists only below a rising front (fragments above are discarded);
+//   finish — a shared world-space sweep turns raw surfaces into their finish material behind
+//            a travelling front (a change of surface, never a crossfade).
+
+import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector3, type Material } from "three";
+import { texture } from "./textures.ts";
+
+export type Look = {
+  color: string;
+  roughness: number;
+  metalness?: number;
+  tex?: "concrete" | "wood" | "gravel";
+  /** Metres per texture tile (metric UVs); 1 for instanced pieces (unit UVs). */
+  tile?: number;
+  vertexColors?: boolean;
+  env?: number;
+  /** Foliage: leaf-clump shading (noise-perturbed normals and tone) instead of smooth blobs. */
+  leaf?: boolean;
+  /** Light fitting: emissive colour, switched on through `lamps`. */
+  emissive?: string;
+};
+
+export type Sweep = { front: { value: number }; dir: { value: Vector3 }; soft: { value: number } };
+export const makeSweep = (dir: [number, number, number], soft: number): Sweep => ({
+  front: { value: -1e5 },
+  dir: { value: new Vector3(...dir).normalize() },
+  soft: { value: soft },
+});
+
+export type BuildUniforms = {
+  uWet: { value: number };
+  uCoat: { value: number };
+  uFinColor: { value: Color };
+  uFinRough: { value: number };
+  uFinOn: { value: number };
+  uFront: { value: number };
+  uDir: { value: Vector3 };
+  uSoft: { value: number };
+};
+
+const VERT_HEAD = /* glsl */ `
+varying vec3 vBfWorld;
+#ifdef BF_IALPHA
+attribute float aAlpha;
+varying float vBfAlpha;
+#endif
+#ifdef BF_FADE
+varying float vBfFade;
+#endif
+`;
+const VERT_BODY = /* glsl */ `
+#include <project_vertex>
+{
+  vec4 bfp = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+  bfp = instanceMatrix * bfp;
+  #endif
+  vBfWorld = (modelMatrix * bfp).xyz;
+}
+#ifdef BF_IALPHA
+vBfAlpha = aAlpha;
+#endif
+#ifdef BF_FADE
+vBfFade = position.y + 0.5;
+#endif
+`;
+const FRAG_HEAD = /* glsl */ `
+uniform float uWet; uniform float uCoat; uniform vec3 uFinColor; uniform float uFinRough; uniform float uFinOn;
+uniform float uFront; uniform vec3 uDir; uniform float uSoft;
+varying vec3 vBfWorld;
+#ifdef BF_IALPHA
+varying float vBfAlpha;
+#endif
+#ifdef BF_FADE
+varying float vBfFade;
+#endif
+#ifdef BF_LEAF
+float bfh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float bfn(vec3 p){
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(bfh(i), bfh(i + vec3(1.0, 0.0, 0.0)), f.x), mix(bfh(i + vec3(0.0, 1.0, 0.0)), bfh(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(bfh(i + vec3(0.0, 0.0, 1.0)), bfh(i + vec3(1.0, 0.0, 1.0)), f.x), mix(bfh(i + vec3(0.0, 1.0, 1.0)), bfh(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
+#endif
+`;
+const FRAG_CLIP = /* glsl */ `
+#include <clipping_planes_fragment>
+if (vBfWorld.y > uCoat) discard;
+`;
+const FRAG_COLOR = /* glsl */ `
+#include <map_fragment>
+float bfFin = uFinOn * (1.0 - smoothstep(uFront - uSoft, uFront + uSoft, dot(vBfWorld, uDir)));
+diffuseColor.rgb = mix(diffuseColor.rgb, uFinColor, bfFin);
+diffuseColor.rgb *= mix(1.0, 0.62, uWet);
+// the freshest band of a coat, just under its front, is still damp
+diffuseColor.rgb *= 1.0 - 0.12 * (1.0 - smoothstep(0.0, 0.45, uCoat - vBfWorld.y));
+#ifdef BF_IALPHA
+diffuseColor.a *= vBfAlpha;
+#endif
+#ifdef BF_FADE
+// crane cable dissolves upward: the crane itself stays out of the story
+diffuseColor.a *= 1.0 - smoothstep(0.004, 0.045, vBfFade);
+#endif
+#ifdef BF_LEAF
+diffuseColor.rgb *= 0.78 + 0.42 * bfn(vBfWorld * 4.5) * (0.6 + 0.4 * bfn(vBfWorld * 13.0));
+#endif
+`;
+const FRAG_NORMAL = /* glsl */ `
+#include <normal_fragment_maps>
+#ifdef BF_LEAF
+{
+  vec3 q = vBfWorld * 6.5;
+  vec3 g = vec3(bfn(q), bfn(q + 17.3), bfn(q + 41.9)) - 0.5;
+  normal = normalize(normal + (viewMatrix * vec4(g, 0.0)).xyz * 1.3);
+}
+#endif
+`;
+const FRAG_ROUGH = /* glsl */ `
+#include <roughnessmap_fragment>
+roughnessFactor = mix(roughnessFactor, uFinRough, bfFin);
+roughnessFactor = mix(roughnessFactor, 0.2, uWet);
+`;
+
+export type MakeOpts = { finish?: { material: string; sweep: string }; pieces?: boolean; fade?: boolean };
+
+export const createLibrary = (looks: Record<string, Look>, sweeps: Record<string, Sweep>) => {
+  /** Every light-fitting material made, so the film can switch them on together. */
+  const lamps: MeshStandardMaterial[] = [];
+  const glass = () =>
+    new MeshPhysicalMaterial({
+      color: new Color("#a9c3cb"),
+      metalness: 0.05,
+      roughness: 0.035,
+      transparent: true,
+      opacity: 0.42,
+      envMapIntensity: 2.2,
+      ior: 1.5,
+      specularIntensity: 1,
+      depthWrite: false,
+    });
+
+  const make = (id: string, o: MakeOpts = {}): Material => {
+    if (id === "glass") return glass();
+    const look = looks[id];
+    if (!look) throw new Error(`BUILDFORGE: unknown material "${id}"`);
+    const m = new MeshStandardMaterial({
+      color: new Color(look.color),
+      roughness: look.roughness,
+      metalness: look.metalness ?? 0,
+      map: look.tex ? texture(look.tex, look.tile ?? 1) : null,
+      vertexColors: look.vertexColors ?? false,
+      envMapIntensity: look.env ?? 1,
+    });
+    if (look.emissive) {
+      m.emissive = new Color(look.emissive);
+      m.emissiveIntensity = 0;
+      lamps.push(m);
+    }
+    const fin = o.finish ? looks[o.finish.material] : undefined;
+    const sw = o.finish ? sweeps[o.finish.sweep] : undefined;
+    if (o.finish && (!fin || !sw)) throw new Error(`BUILDFORGE: bad finish ${JSON.stringify(o.finish)}`);
+    const u: BuildUniforms = {
+      uWet: { value: 0 },
+      uCoat: { value: 1e5 },
+      uFinColor: { value: new Color(fin?.color ?? "#ffffff") },
+      uFinRough: { value: fin?.roughness ?? 1 },
+      uFinOn: { value: fin ? 1 : 0 },
+      uFront: sw?.front ?? { value: -1e5 },
+      uDir: sw?.dir ?? { value: new Vector3(0, 1, 0) },
+      uSoft: sw?.soft ?? { value: 1 },
+    };
+    m.defines = {};
+    if (o.pieces) m.defines.BF_IALPHA = "";
+    if (o.fade) m.defines.BF_FADE = "";
+    if (look.leaf) m.defines.BF_LEAF = "";
+    m.onBeforeCompile = (s) => {
+      Object.assign(s.uniforms, u);
+      s.vertexShader = s.vertexShader.replace("#include <common>", `#include <common>\n${VERT_HEAD}`).replace("#include <project_vertex>", VERT_BODY);
+      s.fragmentShader = s.fragmentShader
+        .replace("#include <common>", `#include <common>\n${FRAG_HEAD}`)
+        .replace("#include <clipping_planes_fragment>", FRAG_CLIP)
+        .replace("#include <map_fragment>", FRAG_COLOR)
+        .replace("#include <normal_fragment_maps>", FRAG_NORMAL)
+        .replace("#include <roughnessmap_fragment>", FRAG_ROUGH);
+    };
+    m.customProgramCacheKey = () => `bf-${Object.keys(m.defines ?? {}).join("-")}`;
+    m.userData.bf = u;
+    return m;
+  };
+  const setLamps = (on: number) => lamps.forEach((m) => (m.emissiveIntensity = on * 6));
+  return { make, looks, sweeps, setLamps };
+};
+
+export type Library = ReturnType<typeof createLibrary>;
+
+==== 3909 src/kits/buildforge/materials/textures.ts
+// Procedural, seamless surface textures drawn once on canvas from fixed seeds. They are
+// near-white so the material colour sets the tone and the map only adds life.
+
+import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Texture } from "three";
+import { rng } from "../geometry/noise.ts";
+
+const canvas = (w: number, h: number) => {
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  return { cv, g: cv.getContext("2d")! };
+};
+
+const finish = (cv: HTMLCanvasElement) => {
+  const t = new CanvasTexture(cv);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+};
+
+/** Dabs drawn with wrap-around so the tile is seamless. */
+const dabs = (g: CanvasRenderingContext2D, w: number, h: number, n: number, r: () => number, rad: [number, number], alpha: number) => {
+  for (let i = 0; i < n; i++) {
+    const x = r() * w, y = r() * h, rr = rad[0] + r() * (rad[1] - rad[0]);
+    g.fillStyle = r() < 0.5 ? `rgba(0,0,0,${r() * alpha})` : `rgba(255,255,255,${r() * alpha})`;
+    for (const dx of [-w, 0, w])
+      for (const dy of [-h, 0, h]) {
+        g.beginPath();
+        g.arc(x + dx, y + dy, rr, 0, Math.PI * 2);
+        g.fill();
+      }
+  }
+};
+
+const grain = (g: CanvasRenderingContext2D, w: number, h: number, r: () => number, amp: number) => {
+  const img = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const d = (r() - 0.5) * amp;
+    img.data[i] += d;
+    img.data[i + 1] += d;
+    img.data[i + 2] += d;
+  }
+  g.putImageData(img, 0, 0);
+};
+
+export const concreteTexture = () => {
+  const { cv, g } = canvas(512, 512);
+  const r = rng(11);
+  g.fillStyle = "#f2f2f2";
+  g.fillRect(0, 0, 512, 512);
+  dabs(g, 512, 512, 900, r, [10, 70], 0.035);
+  dabs(g, 512, 512, 2600, r, [1, 3], 0.12);
+  grain(g, 512, 512, r, 10);
+  return finish(cv);
+};
+
+export const woodTexture = () => {
+  const { cv, g } = canvas(256, 512);
+  const r = rng(23);
+  const img = g.createImageData(256, 512);
+  const phase = Array.from({ length: 6 }, () => r() * 6.28);
+  for (let x = 0; x < 256; x++) {
+    // grain runs along v (the board's length)
+    for (let y = 0; y < 512; y++) {
+      const wob = Math.sin((y / 512) * 6.283 * 2 + phase[0]) * 3 + Math.sin((y / 512) * 6.283 * 5 + phase[1]) * 1.2;
+      const xx = x + wob;
+      const ring = 0.5 + 0.5 * Math.sin((xx / 256) * 6.283 * 9 + Math.sin((xx / 256) * 6.283 * 2 + phase[2]) * 2.2);
+      const fine = 0.5 + 0.5 * Math.sin((xx / 256) * 6.283 * 41 + phase[3]);
+      const v = 0.8 + ring * 0.13 + fine * 0.05 + (r() - 0.5) * 0.04;
+      const i = (y * 256 + x) * 4;
+      img.data[i] = 255 * Math.min(1, v * 1.02);
+      img.data[i + 1] = 255 * Math.min(1, v * 0.97);
+      img.data[i + 2] = 255 * Math.min(1, v * 0.9);
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return finish(cv);
+};
+
+export const gravelTexture = () => {
+  const { cv, g } = canvas(256, 256);
+  const r = rng(37);
+  g.fillStyle = "#d8d8d8";
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1400; i++) {
+    const x = r() * 256, y = r() * 256, rr = 1.5 + r() * 4.5, v = 150 + r() * 105;
+    g.fillStyle = `rgb(${v},${v * 0.98},${v * 0.94})`;
+    for (const dx of [-256, 0, 256])
+      for (const dy of [-256, 0, 256]) {
+        g.beginPath();
+        g.ellipse(x + dx, y + dy, rr, rr * (0.6 + r() * 0.4), r() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+  }
+  return finish(cv);
+};
+
+const cache = new Map<string, Texture>();
+export const texture = (id: "concrete" | "wood" | "gravel", tile: number) => {
+  const key = `${id}@${tile}`;
+  let t = cache.get(key);
+  if (!t) {
+    const base = cache.get(id) ?? (id === "concrete" ? concreteTexture() : id === "wood" ? woodTexture() : gravelTexture());
+    cache.set(id, base);
+    t = base.clone();
+    t.repeat.set(1 / tile, 1 / tile);
+    t.needsUpdate = true;
+    cache.set(key, t);
+  }
+  return t;
+};
+
+==== 2920 src/kits/buildforge/motion/easing.ts
+// PRECISION easing vocabulary. Every curve is a pure function of normalised time, so the
+// whole film stays deterministic: same frame in, same pose out.
+
+export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
+export const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+export const remap = (x: number, a: number, b: number) => clamp((x - a) / (b - a));
+
+export const smoothstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * (3 - 2 * x);
+};
+
+/** C2-continuous: zero velocity and acceleration at both ends. */
+export const smootherstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/** CSS-style cubic bezier easing (x1,y1,x2,y2), solved by Newton + bisection. */
+export const bezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t: number) => ((ay * t + by) * t + cy) * t;
+  const dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    const X = clamp(x);
+    let t = X;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - X;
+      const d = dx(t);
+      if (Math.abs(e) < 1e-6) return sy(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1;
+    t = X;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - X) < 1e-6) break;
+      if (v < X) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+};
+
+// Named curves, tuned for product cinematography (long, confident tails; no bounce).
+export const ease = {
+  /** Default move: decisive start, very long settle. */
+  glide: bezier(0.45, 0, 0.12, 1),
+  /** Symmetric, weighty. Camera and large objects. */
+  inOut: bezier(0.65, 0, 0.35, 1),
+  /** Soft symmetric for subtle drifts. */
+  sine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t)),
+  /** Starts with energy (a magnet letting go), long deceleration. */
+  release: bezier(0.2, 0.7, 0.1, 1),
+  /** Gathers speed and arrives fast (magnetic pull into a dock). */
+  attract: bezier(0.55, 0, 0.95, 0.55),
+  /** Typographic reveal. */
+  type: bezier(0.2, 0, 0, 1),
+  out: bezier(0, 0, 0.2, 1),
+  in: bezier(0.6, 0, 1, 1),
+  smoother: smootherstep,
+};
+
+/** Eased progress of `frame` through [start, end]. */
+export const seg = (frame: number, start: number, end: number, curve: (t: number) => number = ease.inOut) =>
+  curve(remap(frame, start, end));
+
+/**
+ * Critically damped settle used after a mechanical stop: decays to zero with at most one
+ * tiny overshoot. `t` in frames since the stop, `amp` the initial offset.
+ */
+export const settle = (t: number, amp: number, freq = 0.11, damping = 0.16) =>
+  t <= 0 ? 0 : amp * Math.exp(-damping * t) * Math.cos(freq * t * Math.PI);
+
+==== 2286 src/kits/buildforge/motion/track.ts
+// Keyframe tracks with C1 continuity. Interior keys pass through with Catmull-Rom tangents
+// (so a camera never "kinks" when one move hands over to the next); `hold` keys and the
+// ends get zero tangents (a soft ease in/out). Tangents are clamped Fritsch–Carlson style
+// so a curve never overshoots its keys — no accidental bounces.
+
+/**
+ * `m` overrides the tangent (units per frame), e.g. to arrive at speed for a magnetic snap;
+ * `stop` makes the key an impact: it is reached at `m` and left at rest.
+ */
+export type Key = { f: number; v: number[]; hold?: boolean; m?: number[]; stop?: boolean };
+
+const hermite = (p0: number, p1: number, m0: number, m1: number, t: number, h: number) => {
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * h * m1;
+};
+
+const tangent = (keys: Key[], i: number, c: number) => {
+  const k = keys[i];
+  if (k.m) return k.m[c];
+  if (k.hold || i === 0 || i === keys.length - 1) return 0;
+  const a = keys[i - 1], b = keys[i + 1];
+  const m = (b.v[c] - a.v[c]) / (b.f - a.f);
+  // Monotone clamp: no overshoot past either neighbour.
+  const d0 = (k.v[c] - a.v[c]) / (k.f - a.f);
+  const d1 = (b.v[c] - k.v[c]) / (b.f - k.f);
+  if (d0 * d1 <= 0) return 0;
+  const lim = 3 * Math.min(Math.abs(d0), Math.abs(d1));
+  return Math.sign(m) * Math.min(Math.abs(m), lim);
+};
+
+/** Sample a multi-channel track at `frame`. */
+export const sample = (keys: Key[], frame: number): number[] => {
+  if (frame <= keys[0].f) return keys[0].v.slice();
+  const last = keys[keys.length - 1];
+  if (frame >= last.f) return last.v.slice();
+  let i = 0;
+  while (i < keys.length - 2 && frame >= keys[i + 1].f) i++;
+  const a = keys[i], b = keys[i + 1];
+  const h = b.f - a.f;
+  const t = (frame - a.f) / h;
+  return a.v.map((_, c) =>
+    hermite(a.v[c], b.v[c], a.stop ? 0 : tangent(keys, i, c), tangent(keys, i + 1, c), t, h),
+  );
+};
+
+/** Convenience: build keys from [frame, ...values] tuples; append "hold" to pin a key. */
+export const keys = (...rows: (number | "hold")[][]): Key[] =>
+  rows.map((r) => {
+    const hold = r[r.length - 1] === "hold";
+    const nums = r.filter((x): x is number => typeof x === "number");
+    return { f: nums[0], v: nums.slice(1), hold };
+  });
+
+==== 2624 src/kits/buildforge/presets/daylight.ts
+// BUILDFORGE daylight preset: warm white, soft beige, natural wood, light-grey concrete,
+// mint landscaping, soft blue sky, warm sun.
+
+import type { Look } from "../materials/library.ts";
+import type { GroundLook } from "../environment/Terrain.ts";
+import type { SkyLook } from "../environment/Sky.ts";
+import type { Palette } from "../environment/Vegetation.ts";
+
+export const LOOKS: Record<string, Look> = {
+  precast: { color: "#c4c0b8", roughness: 0.86, tex: "concrete", tile: 2.4 },
+  concrete: { color: "#cfcbc3", roughness: 0.9, tex: "concrete", tile: 3 },
+  block: { color: "#bdb7ac", roughness: 0.95, tex: "concrete", tile: 1 },
+  fair: { color: "#d3cfc7", roughness: 0.78, tex: "concrete", tile: 2.4 },
+  plaster: { color: "#f1ede6", roughness: 0.9 },
+  render: { color: "#f5f1ea", roughness: 0.84 },
+  wood: { color: "#c38b5a", roughness: 0.6, tex: "wood", tile: 0.9 },
+  woodPiece: { color: "#c48d5d", roughness: 0.62, tex: "wood", tile: 1 },
+  plywood: { color: "#d8b783", roughness: 0.78, tex: "wood", tile: 1.4 },
+  gravel: { color: "#b3ab9e", roughness: 1, tex: "gravel", tile: 0.7 },
+  rebar: { color: "#7d5947", roughness: 0.5, metalness: 0.55 },
+  frame: { color: "#34322f", roughness: 0.36, metalness: 0.6 },
+  steel: { color: "#3c3b38", roughness: 0.38, metalness: 0.7 },
+  hook: { color: "#e7ab3c", roughness: 0.45, metalness: 0.25 },
+  cable: { color: "#2b2b2a", roughness: 0.5, metalness: 0.5 },
+  stake: { color: "#c99b65", roughness: 0.8, tex: "wood", tile: 1 },
+  marker: { color: "#ef8a3c", roughness: 0.6 },
+  string: { color: "#fbfaf6", roughness: 0.6 },
+  soil: { color: "#a98a6a", roughness: 1 },
+  bed: { color: "#7a6450", roughness: 1 },
+  paver: { color: "#e6dfd2", roughness: 0.82, tex: "concrete", tile: 1.5 },
+  foliage: { color: "#ffffff", roughness: 0.95, vertexColors: true, env: 0.5, leaf: true },
+  bark: { color: "#8e7a67", roughness: 0.92 },
+  fabric: { color: "#ece6db", roughness: 0.95 },
+  lamp: { color: "#f6efe2", roughness: 0.4, emissive: "#ffcf92" },
+};
+
+export const SKY: SkyLook = { zenith: "#5f9ad6", horizon: "#e6eeef", ground: "#cbc8b3", sun: "#fff0d6", cloud: "#fdfcf9" };
+export const FOG = "#e9ede8";
+
+export const GROUND: GroundLook = {
+  meadow: "#afc08a",
+  meadowDry: "#c9c79c",
+  soil: "#d8c7a8",
+  dug: "#a88b6c",
+  lawn: "#a6c89c",
+  lawnDeep: "#8fb68b",
+  gravel: "#dcd6ca",
+  bed: "#7f6a55",
+};
+
+export const LEAF: Record<"garden" | "wild" | "shrub", Palette> = {
+  garden: { low: "#5f8f6c", mid: "#83b98e", high: "#b8dcb2" },
+  wild: { low: "#68825a", mid: "#8fa979", high: "#bccb9b" },
+  shrub: { low: "#5a8a66", mid: "#7fb68a", high: "#aed6a6" },
+};
+
+==== 5940 src/kits/buildforge/render/Post.tsx
+// Camera + finishing chain (metre scale, exterior daylight). The rig applies the shot for this frame before R3F advances,
+// then the composer renders: scene (MSAA) → ground-truth AO → sanitize → depth of field → restrained
+// bloom → Khronos PBR Neutral tone mapping → grade (warmth, vignette, fine grain).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { HalfFloatType, NeutralToneMapping, PerspectiveCamera, Vector2, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+
+export type Shot = {
+  pos: [number, number, number];
+  target: [number, number, number];
+  fov: number;
+  roll?: number;
+  /** Focus distance (world units) and lens aperture for the bokeh pass. */
+  focus: number;
+  aperture: number;
+  maxBlur: number;
+  exposure: number;
+};
+
+export const CameraRig: React.FC<{ shot: Shot }> = ({ shot }) => {
+  const { camera, gl } = useThree();
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...shot.pos);
+    cam.up.set(Math.sin(shot.roll ?? 0), Math.cos(shot.roll ?? 0), 0);
+    cam.lookAt(...shot.target);
+    cam.fov = shot.fov;
+    cam.near = 0.4;
+    cam.far = 2500;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = shot.exposure;
+  }, [shot, camera, gl]);
+  return null;
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.14 },
+    uGrain: { value: 0.012 },
+    uRes: { value: new Vector2(1080, 1920) },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uGrain; uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      // ivory highlights, a breath of cool in the shadows
+      c.rgb += smoothstep(0.6, 1.0, l) * vec3(0.002, 0.001, -0.003);
+      c.rgb += (1.0 - smoothstep(0.0, 0.5, l)) * vec3(-0.004, 0.0, 0.006);
+      // gentle S-curve: deeper form shadows without crushing the whites
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.24);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.25);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.35, 0.95, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain;
+      gl_FragColor = c;
+    }`,
+};
+
+/** Keeps the HDR buffer finite before depth of field and bloom: one NaN or overflowing pixel (a sliver seen
+ * edge-on, a custom shader) would otherwise be smeared over the whole frame by the bloom blur. */
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null }, uMax: { value: 16 } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uMax; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, uMax), clamp(c.a, 0.0, 1.0));
+    }`,
+};
+
+export const Post: React.FC<{ shot: Shot; frame: number; ao?: boolean; aoRadius?: number }> = ({ shot, frame, ao = true, aoRadius = 0.28 }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    if (ao) {
+      const gtao = new GTAOPass(scene, camera, w, h);
+      gtao.blendIntensity = 1.0;
+      gtao.updateGtaoMaterial({ radius: aoRadius, distanceExponent: 1.8, thickness: 0.5, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+      composer.addPass(gtao);
+    }
+    composer.addPass(new ShaderPass(SanitizeShader));
+    const dof = new BokehPass(scene, camera, { focus: 10, aperture: 0.002, maxblur: 0.008 });
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.14, 0.45, 2.2);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const grade = new ShaderPass(GradeShader);
+    grade.uniforms.uRes.value.set(w, h);
+    composer.addPass(grade);
+    return { composer, dof, grade };
+  }, [gl, scene, camera, size.width, size.height, ao, aoRadius]);
+
+  useLayoutEffect(() => {
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    u.focus.value = shot.focus;
+    u.aperture.value = shot.aperture;
+    u.maxblur.value = shot.maxBlur;
+    chain.dof.enabled = shot.maxBlur > 0 && shot.aperture > 0;
+    chain.grade.uniforms.uTime.value = frame % 997;
+  }, [frame, chain, shot]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+==== 12386 src/kits/buildforge/render/Site.ts
+// Turns a component list + construction timeline into a three.js scene graph and poses it for
+// any frame. Built once (imperatively, no React per component); `update(frame)` is pure in
+// the frame: it sets transforms, material state, blueprint ghosts and crane rigging.
+
+import {
+  BoxGeometry, Color, CylinderGeometry, DynamicDrawUsage, EdgesGeometry, Group, InstancedBufferAttribute, InstancedMesh,
+  LineBasicMaterial, LineSegments, Matrix4, Mesh, Quaternion, Vector3, type BufferGeometry, type Material,
+} from "three";
+import { pieceProgress, stateOf, type RigState } from "../assembly/motion.ts";
+import type { Slot, Timeline } from "../assembly/schedule.ts";
+import { pieceBounds } from "../geometry/shapes.ts";
+import type { Library, BuildUniforms } from "../materials/library.ts";
+import { ease } from "../motion/easing.ts";
+import type { Component, Piece, Vec3 } from "../types.ts";
+
+type Bounds = { min: Vec3; max: Vec3 };
+type Base = { opacity: number; transparent: boolean; cast: boolean };
+type Common = { c: Component; slot: Slot; root: Group; inner: Group; bounds: Bounds; ghost: LineSegments; ghostMat: LineBasicMaterial };
+type SolidItem = Common & {
+  kind: "solid";
+  meshes: Mesh[];
+  mats: Material[];
+  base: Base[];
+  spread?: { geom: BufferGeometry; rest: Float32Array };
+};
+type PiecesItem = Common & { kind: "pieces"; mesh: InstancedMesh; mat: Material; alpha: InstancedBufferAttribute; pieces: Piece[]; settled: boolean };
+type Item = SolidItem | PiecesItem;
+
+const GHOST = new Color("#1fae95");
+const CABLE_R = 0.016;
+const MAX_CABLES = 240;
+const MAX_HOOKS = 60;
+
+const bfOf = (m: Material) => m.userData.bf as BuildUniforms | undefined;
+
+const ghostFor = (b: Bounds) => {
+  const size = b.max.map((v, i) => v - b.min[i]);
+  const g = new EdgesGeometry(new BoxGeometry(size[0] + 0.03, size[1] + 0.03, size[2] + 0.03));
+  const mat = new LineBasicMaterial({ color: GHOST, transparent: true, opacity: 0, depthWrite: false, fog: false });
+  const l = new LineSegments(g, mat);
+  l.position.set(...(b.min.map((v, i) => (v + b.max[i]) / 2) as Vec3));
+  l.renderOrder = 2;
+  return { ghost: l, ghostMat: mat };
+};
+
+export class Site {
+  readonly group = new Group();
+  private items: Item[] = [];
+  private cables: InstancedMesh;
+  private mains: InstancedMesh;
+  private hooks: InstancedMesh;
+
+  constructor(components: Component[], timeline: Timeline, lib: Library) {
+    for (const c of components) {
+      const slot = timeline.get(c.id)!;
+      const root = new Group();
+      root.position.set(...c.at);
+      root.rotation.y = c.rotY ?? 0;
+      const inner = new Group();
+      root.add(inner);
+      this.group.add(root);
+      if (c.part.kind === "solid") {
+        const bounds = c.part.bounds;
+        const subs = c.part.build();
+        const meshes: Mesh[] = [], mats: Material[] = [], base: Base[] = [];
+        for (const s of subs) {
+          const id = s.material ?? c.material;
+          const mat = lib.make(id, { finish: id === c.material ? c.finish : undefined });
+          const mesh = new Mesh(s.geom, mat);
+          const cast = c.shadow !== false && id !== "glass" && c.method.kind !== "coat";
+          mesh.receiveShadow = true;
+          inner.add(mesh);
+          meshes.push(mesh);
+          mats.push(mat);
+          base.push({ opacity: mat.opacity, transparent: mat.transparent, cast });
+        }
+        const item: SolidItem = { kind: "solid", c, slot, root, inner, bounds, meshes, mats, base, ...ghostFor(bounds) };
+        if (c.method.kind === "spread") item.spread = { geom: subs[0].geom, rest: (subs[0].geom.attributes.position.array as Float32Array).slice() };
+        root.add(item.ghost);
+        this.items.push(item);
+      } else {
+        if (c.method.kind !== "lay") throw new Error(`BUILDFORGE: pieces component ${c.id} must use "lay"`);
+        const pieces = c.part.pieces;
+        const bounds = pieceBounds(pieces);
+        const mat = lib.make(c.material, { finish: c.finish, pieces: true });
+        const mesh = new InstancedMesh(new BoxGeometry(1, 1, 1), mat, pieces.length);
+        mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+        const alpha = new InstancedBufferAttribute(new Float32Array(pieces.length).fill(1), 1);
+        alpha.setUsage(DynamicDrawUsage);
+        mesh.geometry.setAttribute("aAlpha", alpha);
+        const tone = new Color();
+        pieces.forEach((p, i) => mesh.setColorAt(i, tone.setScalar(p.tone ?? 1)));
+        mesh.castShadow = c.shadow !== false;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        inner.add(mesh);
+        const item: PiecesItem = { kind: "pieces", c, slot, root, inner, bounds, mesh, mat, alpha, pieces, settled: false, ...ghostFor(bounds) };
+        root.add(item.ghost);
+        this.items.push(item);
+      }
+    }
+    // crane rigging: one pool of cable segments and hook blocks shared by every lift
+    const pool = (geom: BufferGeometry, mat: Material, n: number) => {
+      mat.transparent = true;
+      const m = new InstancedMesh(geom, mat, n);
+      m.geometry.setAttribute("aAlpha", new InstancedBufferAttribute(new Float32Array(n), 1));
+      m.frustumCulled = false;
+      m.instanceMatrix.setUsage(DynamicDrawUsage);
+      this.group.add(m);
+      return m;
+    };
+    // slings, the main hoist line (fades out upward, so the crane stays implied) and hook blocks
+    this.cables = pool(new CylinderGeometry(1, 1, 1, 6, 1, true), lib.make("cable", { pieces: true }), MAX_CABLES);
+    this.mains = pool(new CylinderGeometry(1, 1, 1, 6, 1, true), lib.make("cable", { pieces: true, fade: true }), MAX_HOOKS);
+    this.hooks = pool(new BoxGeometry(0.26, 0.36, 0.2), lib.make("hook", { pieces: true }), MAX_HOOKS);
+  }
+
+  /**
+   * Pose everything for construction-clock value `frame`. `blueprint` (0..1) draws the plan
+   * outline over every installed element, bottom to top — the drawing behind the building.
+   */
+  update(frame: number, blueprint = 0) {
+    const rigs: { item: Item; rig: RigState }[] = [];
+    for (const item of this.items) {
+      const s = stateOf(item.c, item.slot, frame);
+      item.inner.visible = s.visible;
+      let ghost = s.ghost;
+      if (blueprint > 0 && s.visible && s.lin >= 1 && !item.c.exit && !["grow", "drive", "draw"].includes(item.c.method.kind)) {
+        const h = (item.c.at[1] + item.bounds.min[1] + 0.5) / 8;
+        ghost = Math.max(ghost, Math.min(1, Math.max(0, blueprint * 1.6 - h * 0.6)));
+      }
+      item.ghostMat.opacity = ghost * 0.95;
+      item.ghost.visible = ghost > 0.003;
+      item.inner.position.set(...s.offset);
+      item.inner.scale.set(...s.scale);
+      item.inner.rotation.y = s.yaw;
+      if (item.kind === "solid") this.poseSolid(item, s.opacity, s.wet, s.u, s.lin);
+      else this.posePieces(item, s.lin);
+      if (s.rig && s.visible) rigs.push({ item, rig: s.rig });
+    }
+    this.group.updateMatrixWorld(true);
+    this.poseRigs(rigs);
+  }
+
+  private poseSolid(item: SolidItem, opacity: number, wet: number, u: number, lin: number) {
+    item.mats.forEach((m, i) => {
+      const b = item.base[i];
+      const tr = b.transparent || opacity < 0.999;
+      if (m.transparent !== tr) {
+        m.transparent = tr;
+        m.needsUpdate = true;
+      }
+      m.opacity = b.opacity * opacity;
+      const bf = bfOf(m);
+      if (bf) {
+        bf.uWet.value = wet;
+        if (item.c.method.kind === "coat") {
+          const y0 = item.c.at[1] + item.bounds.min[1], y1 = item.c.at[1] + item.bounds.max[1];
+          bf.uCoat.value = lin >= 1 ? 1e5 : y0 - 0.02 + u * (y1 - y0 + 0.04);
+        }
+      }
+    });
+    item.meshes.forEach((mesh, i) => (mesh.castShadow = item.base[i].cast && opacity > 0.3));
+    if (item.spread) this.deformPour(item, u);
+  }
+
+  /** Pour front: top vertices ahead of the front sink below the base, a ramp leads it. */
+  private deformPour(item: SolidItem, u: number) {
+    const m = item.c.method;
+    if (m.kind !== "spread" || !item.spread) return;
+    const { geom, rest } = item.spread;
+    const pos = geom.attributes.position.array as Float32Array;
+    const a = m.axis === "x" ? 0 : 2;
+    const lo = item.bounds.min[a], hi = item.bounds.max[a], y0 = item.bounds.min[1], sink = y0 - 0.06;
+    const front = m.dir > 0 ? lo + (hi - lo + m.ramp) * u : hi - (hi - lo + m.ramp) * u;
+    for (let i = 0; i < pos.length; i += 3) {
+      const x = rest[i + a], y = rest[i + 1];
+      const k = u >= 1 ? 1 : Math.min(1, Math.max(0, (m.dir > 0 ? front - x : x - front) / m.ramp));
+      pos[i] = rest[i];
+      pos[i + 2] = rest[i + 2];
+      pos[i + 1] = y > y0 + 1e-4 ? sink + (y - sink) * k : y;
+    }
+    geom.attributes.position.needsUpdate = true;
+    geom.computeVertexNormals();
+    geom.computeBoundingSphere();
+  }
+
+  private posePieces(item: PiecesItem, lin: number) {
+    const m = item.c.method;
+    if (m.kind !== "lay") return;
+    const n = item.pieces.length;
+    const done = lin >= 1;
+    if (done && item.settled) return;
+    const mtx = new Matrix4(), q = new Quaternion(), p = new Vector3(), sc = new Vector3();
+    let fading = false;
+    item.pieces.forEach((pc, i) => {
+      const t = pieceProgress(i, n, lin, m.each);
+      let a = 1;
+      if (pc.instant ? t < 1 : t <= 0) sc.set(0, 0, 0);
+      else sc.set(...pc.s);
+      const e = pc.instant ? 1 : ease.glide(t);
+      p.set(pc.c[0] + m.from[0] * (1 - e), pc.c[1] + m.from[1] * (1 - e), pc.c[2] + m.from[2] * (1 - e));
+      if (!pc.instant) a = Math.min(1, t / 0.3);
+      if (a < 1 && t > 0) fading = true;
+      mtx.compose(p, q, sc);
+      item.mesh.setMatrixAt(i, mtx);
+      item.alpha.setX(i, a);
+    });
+    item.mesh.instanceMatrix.needsUpdate = true;
+    item.alpha.needsUpdate = true;
+    if (item.mat.transparent !== fading) {
+      item.mat.transparent = fading;
+      item.mat.needsUpdate = true;
+    }
+    item.settled = done;
+  }
+
+  private poseRigs(rigs: { item: Item; rig: RigState }[]) {
+    const n = { cables: 0, mains: 0, hooks: 0 };
+    const mtx = new Matrix4(), q = new Quaternion(), up = new Vector3(0, 1, 0), d = new Vector3(), mid = new Vector3(), sc = new Vector3();
+    const put = (key: "cables" | "mains" | "hooks", alpha: number) => {
+      const mesh = this[key];
+      if (n[key] >= (key === "cables" ? MAX_CABLES : MAX_HOOKS)) return;
+      mesh.setMatrixAt(n[key], mtx);
+      (mesh.geometry.attributes.aAlpha as InstancedBufferAttribute).setX(n[key]++, alpha);
+    };
+    const seg = (a: Vector3, b: Vector3, alpha: number, key: "cables" | "mains") => {
+      d.subVectors(b, a);
+      const len = d.length();
+      q.setFromUnitVectors(up, d.normalize());
+      mid.addVectors(a, b).multiplyScalar(0.5);
+      mtx.compose(mid, q, sc.set(CABLE_R, len, CABLE_R));
+      put(key, alpha);
+    };
+    for (const { item, rig } of rigs) {
+      const { min, max } = item.bounds;
+      const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2, top = max[1];
+      const lx = max[0] - min[0], lz = max[2] - min[2];
+      const local: Vec3[] =
+        rig.kind === "single"
+          ? [[cx, top, cz]]
+          : rig.kind === "sling"
+            ? lx >= lz
+              ? [[cx - 0.38 * lx, top, cz], [cx + 0.38 * lx, top, cz]]
+              : [[cx, top, cz - 0.38 * lz], [cx, top, cz + 0.38 * lz]]
+            : [[cx - 0.4 * lx, top, cz - 0.4 * lz], [cx + 0.4 * lx, top, cz - 0.4 * lz], [cx + 0.4 * lx, top, cz + 0.4 * lz], [cx - 0.4 * lx, top, cz + 0.4 * lz]];
+      const lift = new Vector3(0, rig.lift * 7, 0);
+      const ends = local.map((v) => item.inner.localToWorld(new Vector3(...v)).add(lift));
+      const centre = item.inner.localToWorld(new Vector3(cx, top, cz)).add(lift);
+      const span = Math.max(lx, lz);
+      const rise = rig.kind === "single" ? 0.45 : Math.min(rig.kind === "four" ? 4.2 : 3.2, 0.46 * span) + 0.2;
+      const hook = centre.clone().add(new Vector3(0, rise, 0));
+      for (const e of ends) seg(e, hook, rig.alpha, "cables");
+      seg(hook.clone().add(new Vector3(0, 0.36, 0)), hook.clone().add(new Vector3(0, 80, 0)), rig.alpha, "mains");
+      mtx.compose(hook.clone().add(new Vector3(0, 0.18, 0)), new Quaternion(), sc.set(1, 1, 1));
+      put("hooks", rig.alpha);
+    }
+    for (const key of ["cables", "mains", "hooks"] as const) {
+      const mesh = this[key];
+      mesh.count = n[key];
+      mesh.visible = n[key] > 0;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.geometry.attributes.aAlpha.needsUpdate = true;
+    }
+  }
+}
+
+==== 3613 src/kits/buildforge/types.ts
+// BUILDFORGE core vocabulary. A structure is a flat list of components; each one knows its
+// seat (final pose), how it physically arrives there (method), what it bears on, and which
+// phase installs it. Timing lives in the assembly sequence, never in the component.
+
+import type { BufferGeometry } from "three";
+
+export type Vec3 = [number, number, number];
+
+/** One physical piece of a multi-piece component (a block, a slat, a board): local centre and size, metres. */
+export type Piece = {
+  c: Vec3;
+  s: Vec3;
+  /** Brightness multiplier (natural variation between blocks or boards). */
+  tone?: number;
+  /** Bedding material: appears in place when its turn comes instead of being carried in. */
+  instant?: boolean;
+};
+
+/** A sub-mesh of a solid component; `material` overrides the component's own. */
+export type SubMesh = { geom: BufferGeometry; material?: string };
+
+export type Part =
+  /**
+   * One rigid element (column, beam, plank, window unit…). Built lazily: the check script never
+   * needs GL. `boxes` is an exact box decomposition for clash checks when bounds would lie
+   * (a coat with openings, a planter around its soil).
+   */
+  | { kind: "solid"; build: () => SubMesh[]; bounds: { min: Vec3; max: Vec3 }; boxes?: [Vec3, Vec3][] }
+  /** Many identical small elements placed one after another (masonry, cladding slats, deck boards). */
+  | { kind: "pieces"; pieces: Piece[] };
+
+/** How a component physically reaches its seat. Offsets are in the component's local frame. */
+export type Method =
+  /** Crane lift: hangs from a hook, comes straight down, the rigging lifts away after set-down. */
+  | { kind: "lower"; height: number; rig: "single" | "sling" | "four" }
+  /** Carried in by installers along an offset (windows into openings, boards into place). */
+  | { kind: "slide"; from: Vec3 }
+  /** Poured or placed material rising from the bottom of its form (footings, gravel). */
+  | { kind: "fill"; cure?: boolean }
+  /** A pour front advancing across the form, with a sloped leading edge (slabs). Needs a geometry subdivided along `axis`. */
+  | { kind: "spread"; axis: "x" | "z"; dir: 1 | -1; ramp: number; cure?: boolean }
+  /** Hammered into the ground in blows (survey stakes). */
+  | { kind: "drive"; depth: number }
+  /** A line pulled taut from its start (local x) to its end. */
+  | { kind: "draw" }
+  /** Planting growing from its base. */
+  | { kind: "grow" }
+  /** A finish coat applied bottom → top behind a travelling front (render, plaster). */
+  | { kind: "coat" }
+  /** Pieces laid one by one; `each` = share of the component window one piece's move takes. */
+  | { kind: "lay"; from: Vec3; each: number };
+
+export type Component = {
+  id: string;
+  /** Assembly phase that installs it; the sequence gives each phase a time window. */
+  phase: string;
+  part: Part;
+  /** Seat: world position of the part's local origin once installed. */
+  at: Vec3;
+  rotY?: number;
+  material: string;
+  method: Method;
+  /** Components this one bears on or is fixed to: they must be complete before it starts. */
+  rests?: string[];
+  /** Procedural predecessors that carry no load (e.g. the slab is poured after the formwork is set). */
+  after?: string[];
+  /** Order inside its phase window; equal keys start together. Defaults to list order. */
+  key?: number;
+  /** Temporary works (stakes, formwork, spoil) leave the site during this phase, by the reverse of `method`. */
+  exit?: string;
+  /** Surface turns into this material when the named finish sweep passes over it. */
+  finish?: { material: string; sweep: string };
+  ghost?: boolean;
+  shadow?: boolean;
+};
+
+==== 7474 src/kits/buildforge/world/createWorld.ts
+// Generic BUILDFORGE world: sky, sun with soft shadows, graded terrain, the structure's components on
+// their construction timeline, and existing trees around the site. Built once; `update(c, look)` poses
+// the build for construction-clock value `c` and sets the light of the moment.
+//
+// A film supplies its own components, phase windows, site spec and terrain/finish timing; everything
+// else (looks, sky, ground, foliage palettes) defaults to the daylight preset.
+
+import { Color, DirectionalLight, Fog, Group, HemisphereLight, Mesh, Vector3, type Material, type Scene, type ShaderMaterial, type WebGLRenderer } from "three";
+import { schedule, type PhaseWindow, type Timeline } from "../assembly/schedule.ts";
+import { createSky, skyEnvironment, type SkyLook } from "../environment/Sky.ts";
+import { Terrain, type GroundLook, type SiteSpec, type TerrainState } from "../environment/Terrain.ts";
+import { roundTree, shrub, type Palette } from "../environment/Vegetation.ts";
+import { rng } from "../geometry/noise.ts";
+import { createLibrary, makeSweep, type Library, type Look, type Sweep } from "../materials/library.ts";
+import { Site } from "../render/Site.ts";
+import type { Component, SubMesh } from "../types.ts";
+import { FOG, GROUND, LEAF, LOOKS, SKY } from "../presets/daylight.ts";
+
+export type WorldLook = {
+  /** Sun azimuth (0 = front/+z, positive toward +x) and elevation, degrees. */
+  sunAz: number;
+  sunEl: number;
+  /** 0 = neutral daylight, 1 = warm late-afternoon light. */
+  warmth: number;
+  cloudShift: number;
+  /** Light fittings (materials with `emissive` in their look), 0..1. */
+  lamps: number;
+  /** Blueprint ghosts of every component not yet installed, 0..1. */
+  blueprint: number;
+};
+
+export const sunLook = (dir: [number, number, number], over: Partial<WorldLook> = {}): WorldLook => {
+  const v = new Vector3(...dir).normalize();
+  return {
+    sunAz: (Math.atan2(v.x, v.z) * 180) / Math.PI,
+    sunEl: (Math.asin(v.y) * 180) / Math.PI,
+    warmth: 0,
+    cloudShift: 0,
+    lamps: 0,
+    blueprint: 0,
+    ...over,
+  };
+};
+
+export type WorldSpec = {
+  /** Every component of the structure (and plantings), and the phase windows on the construction clock. */
+  components: Component[];
+  windows: PhaseWindow[];
+  site: SiteSpec;
+  /** Ground operations over the construction clock (contours, grading, excavation, backfill, lawn). */
+  terrainAt: (c: number) => TerrainState;
+  /** Finish sweeps: id → direction/softness, and the front's position over the clock. */
+  sweeps?: Record<string, { dir: [number, number, number]; soft: number; front: (c: number) => number }>;
+  looks?: Record<string, Look>;
+  sky?: SkyLook;
+  fog?: string;
+  ground?: GroundLook;
+  /** Existing trees: [x, z, height]. Those within `shadowRadius` of the origin cast shadows. */
+  trees?: [number, number, number][];
+  treeLeaf?: Palette;
+  /** Extra distant trees scattered on a ring (count, inner radius, outer radius). */
+  scatter?: [number, number, number];
+  /** Sun direction used for the sky's environment lighting; half-size of the shadow frustum. */
+  sunDir?: [number, number, number];
+  shadowSize?: number;
+  shadowRadius?: number;
+};
+
+export type World = {
+  root: Group;
+  components: Component[];
+  timeline: Timeline;
+  lib: Library;
+  terrain: Terrain;
+  update: (c: number, look: WorldLook) => void;
+};
+
+const D = Math.PI / 180;
+
+export const createWorld = (gl: WebGLRenderer, scene: Scene, spec: WorldSpec): World => {
+  const looks = spec.looks ?? LOOKS;
+  const skyLook = spec.sky ?? SKY;
+  const sunDir = new Vector3(...(spec.sunDir ?? [-0.55, 0.62, 0.56])).normalize();
+  const root = new Group();
+  scene.fog = new Fog(new Color(spec.fog ?? FOG), 110, 1300);
+  scene.environment = skyEnvironment(gl, skyLook, sunDir);
+  scene.environmentIntensity = 0.42;
+  const sky = createSky(skyLook, sunDir);
+  root.add(sky);
+  const skyU = (sky.material as ShaderMaterial).uniforms;
+
+  const DAY = new Color("#ffeed6"), WARM = new Color("#ffd8a4");
+  const sun = new DirectionalLight(DAY.clone(), 3.1);
+  const s = spec.shadowSize ?? 24;
+  const aim = new Vector3(0, 0, 0);
+  sun.position.copy(aim).addScaledVector(sunDir, 100);
+  sun.target.position.copy(aim);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(4096, 4096);
+  Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 30, far: 190 });
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.bias = -0.0002;
+  sun.shadow.normalBias = 0.03;
+  sun.shadow.radius = 2.5;
+  root.add(sun, sun.target, new HemisphereLight(new Color("#d4e4f3"), new Color("#d6caae"), 0.36));
+
+  const terrain = new Terrain(spec.site, spec.ground ?? GROUND);
+  root.add(terrain.mesh);
+
+  const sweepDefs = spec.sweeps ?? {};
+  const sweeps: Record<string, Sweep> = Object.fromEntries(Object.entries(sweepDefs).map(([id, d]) => [id, makeSweep(d.dir, d.soft)]));
+  const lib = createLibrary(looks, sweeps);
+  const components = spec.components;
+  const timeline = schedule(components, spec.windows);
+  const site = new Site(components, timeline, lib);
+  root.add(site.group);
+
+  // existing trees: a few shared variants, scaled and turned
+  const leaf = spec.treeLeaf ?? LEAF.wild;
+  const mats: Record<string, Material> = { bark: lib.make("bark"), foliage: lib.make("foliage") };
+  const variants = [3, 7, 11, 17, 23].map((seed) => roundTree(10, seed, leaf, 1.25));
+  const ground0 = spec.terrainAt(0);
+  const placeTree = (subs: SubMesh[], x: number, z: number, h: number, yaw: number, cast: boolean) => {
+    const y = terrain.height(x, z, ground0) - 0.1;
+    for (const sm of subs) {
+      const m = new Mesh(sm.geom, mats[sm.material ?? "foliage"]);
+      m.position.set(x, y, z);
+      m.scale.setScalar(h / 10);
+      m.rotation.y = yaw;
+      m.castShadow = cast;
+      m.receiveShadow = true;
+      root.add(m);
+    }
+  };
+  const r = rng(77);
+  const near = spec.shadowRadius ?? 45;
+  (spec.trees ?? []).forEach(([x, z, h], i) => placeTree(variants[i % variants.length], x, z, h, r() * 6.28, Math.hypot(x, z) < near));
+  const [count, r0, r1] = spec.scatter ?? [30, 80, 260];
+  for (let i = 0; i < count; i++) {
+    const a = r() * Math.PI * 2, d = r0 + r() * (r1 - r0);
+    placeTree(variants[i % variants.length], Math.cos(a) * d, Math.sin(a) * d, 7 + r() * 6, r() * 6.28, false);
+  }
+  // low meadow scrub outside the site, for scale
+  const scrub = [41, 42, 43].map((seed) => shrub(0.7, seed, leaf, 4));
+  const a = spec.site.site;
+  for (let i = 0; i < 26; i++) {
+    const ang = r() * Math.PI * 2, d = 22 + r() * 60;
+    const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
+    if (x > a.x0 - 3 && x < a.x1 + 3 && z > a.z0 - 3 && z < a.z1 + 3) continue;
+    placeTree(scrub[i % 3], x, z, 10 * (0.6 + r() * 0.8), r() * 6.28, d < near);
+  }
+
+  const dir = new Vector3();
+  return {
+    root,
+    components,
+    timeline,
+    lib,
+    terrain,
+    update(c: number, look: WorldLook) {
+      terrain.update(spec.terrainAt(c));
+      for (const [id, d] of Object.entries(sweepDefs)) sweeps[id].front.value = d.front(c);
+      site.update(c, look.blueprint);
+      lib.setLamps(look.lamps);
+      const az = look.sunAz * D, el = look.sunEl * D;
+      dir.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+      sun.position.copy(aim).addScaledVector(dir, 100);
+      sun.color.copy(DAY).lerp(WARM, look.warmth);
+      skyU.uSunDir.value.copy(dir);
+      skyU.uShift.value.set(look.cloudShift, look.cloudShift * 0.35);
+    },
+  };
+};

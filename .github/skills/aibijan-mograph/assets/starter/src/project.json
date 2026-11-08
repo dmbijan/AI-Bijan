@@ -1,0 +1,18 @@
+{
+  "title": "Your Story",
+  "brand": "YOUR BRAND",
+  "fps": 60,
+  "durationSeconds": 12,
+  "voiceoverFile": null,
+  "musicFile": null,
+  "musicVolume": 0.24,
+  "musicAutomation": [],
+  "scorelessReason": null,
+  "needsStoryboard": true,
+  "needsSoundDesign": true,
+  "beats": [
+    {"type": "hook", "start": 0, "end": 4, "title": "WHAT IF?", "caption": "Bayangkan perubahan besar..."},
+    {"type": "mechanism", "start": 4, "end": 8, "title": "HOW IT WORKS", "caption": "Semuanya punya sebab dan akibat."},
+    {"type": "payoff", "start": 8, "end": 12, "title": "THE REVEAL", "caption": "Ini yang perlu kamu ketahui."}
+  ]
+}

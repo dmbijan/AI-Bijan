@@ -1,0 +1,24 @@
+{
+  "id": "menunda",
+  "title": "Kenapa kita suka menunda?",
+  "vo": { "file": "audio/menunda.mp3", "offset": 0.4 },
+  "words": "words.json",
+  "env": "bedroom",
+  "time": "day",
+  "cast": [ { "id": "naya", "look": "naya", "prop": "phone" } ],
+  "start": { "naya": "sit" },
+  "mood": "playful",
+  "beats": [
+    { "at": "kenapa", "do": "think", "thought": { "text": "Nanti aja deh…" } },
+    { "at": "tugas", "do": "overwhelmed" },
+    { "at": "tangan", "do": "phone" },
+    { "at": "otak", "do": "think", "thought": { "text": "Hadiah cepat!" } },
+    { "at": "video", "do": "laugh" },
+    { "at": "sedangkan", "do": "sad" },
+    { "at": "jadi", "do": "standUp" },
+    { "at": "coba", "do": "explain" },
+    { "at": "kerjakan", "do": "point" },
+    { "at": "biasanya", "do": "proud" }
+  ],
+  "highlights": ["menunda", "hadiah yang cepat", "langkah kecil", "lima menit", "lanjut sendiri"]
+}

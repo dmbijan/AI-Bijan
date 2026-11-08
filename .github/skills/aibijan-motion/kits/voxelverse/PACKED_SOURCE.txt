@@ -1,0 +1,2143 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 6188 src/kits/voxelverse/camera/Post.tsx
+// Camera + finishing. The rig applies the camera state for this frame before R3F advances, then a
+// composer renders: scene → ground-truth AO → depth of field → restrained bloom →
+// tone mapping → grade (vignette, black lift, grain). AO and DoF read depth from
+// layer 0 only, so rain, halos and light cones never confuse them.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { HalfFloatType, PerspectiveCamera, Vector2, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import type { CamState } from "./rig";
+import { FX_LAYER } from "../lib/layers";
+
+export const CameraRig: React.FC<{ cam: CamState }> = ({ cam: c }) => {
+  const { camera, gl } = useThree();
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...c.pos);
+    cam.lookAt(...c.at);
+    cam.fov = c.fov;
+    cam.near = 0.03;
+    cam.far = 600;
+    cam.layers.enable(FX_LAYER);
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    gl.toneMappingExposure = c.exposure;
+  }, [c, camera, gl]);
+  return null;
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.32 },
+    uLift: { value: 0.022 },
+    uGrain: { value: 0.035 },
+    uRes: { value: new Vector2(1080, 1920) },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uLift; uniform float uGrain; uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      // gentle split-tone: teal in the shadows, warmth in the highlights
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb += (1.0 - smoothstep(0.0, 0.45, l)) * vec3(-0.006, 0.006, 0.008);
+      c.rgb += smoothstep(0.55, 1.0, l) * vec3(0.012, 0.004, -0.01);
+      // lift the floor so shadows stay readable on a phone
+      c.rgb = uLift + c.rgb * (1.0 - uLift);
+      // vignette (elliptical for 9:16)
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.35);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.25, 0.85, length(d));
+      // film grain, seeded by the frame (deterministic)
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain * (0.6 + 0.4 * (1.0 - l));
+      gl_FragColor = c;
+    }`,
+};
+
+/** Replaces NaN/Inf (half-float overflow) before blur-based passes can spread it. */
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), 1.0);
+    }`,
+};
+
+/** `frame` seeds the grain; `mask` lists the passes to run (drop "ao" or "dof" to isolate a problem). */
+export const Post: React.FC<{ cam: CamState; frame: number; mask?: string }> = ({ cam, frame, mask = "ao,sanitize,dof,bloom,grade" }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    const render = new RenderPass(scene, camera);
+    const ao = new GTAOPass(scene, camera, w, h);
+    ao.blendIntensity = 0.85;
+    ao.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.4, thickness: 1.0, scale: 1.0, samples: 12, distanceFallOff: 1.0, screenSpaceRadius: false });
+    ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+    const dof = new BokehPass(scene, camera, { focus: 3, aperture: 0.002, maxblur: 0.009 });
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.32, 0.55, 0.92);
+    const output = new OutputPass();
+    const grade = new ShaderPass(GradeShader);
+    grade.uniforms.uRes.value.set(w, h);
+    // depth-reading passes see layer 0 only
+    for (const p of [ao, dof]) {
+      const orig = p.render.bind(p);
+      p.render = (...args: Parameters<typeof orig>) => {
+        const mask = camera.layers.mask;
+        camera.layers.disable(FX_LAYER);
+        orig(...args);
+        camera.layers.mask = mask;
+      };
+    }
+    const on = (k: string) => mask.split(",").includes(k);
+    composer.addPass(render);
+    if (on("ao")) composer.addPass(ao);
+    if (on("sanitize")) composer.addPass(new ShaderPass(SanitizeShader));
+    if (on("dof")) composer.addPass(dof);
+    if (on("bloom")) composer.addPass(bloom);
+    composer.addPass(output);
+    if (on("grade")) composer.addPass(grade);
+    return { composer, dof, grade, bloom };
+  }, [gl, scene, camera, size.width, size.height, mask]);
+
+  useLayoutEffect(() => {
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    u.focus.value = cam.focusDist;
+    u.aperture.value = cam.aperture;
+    u.maxblur.value = cam.maxBlur;
+    chain.grade.uniforms.uTime.value = Math.floor(frame) % 997;
+  }, [frame, chain, cam]);
+
+  // priority 1: we own the render
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+==== 3439 src/kits/voxelverse/camera/rig.ts
+// Camera language for VOXELVERSE films. A film is a list of shots; each shot is a list of timed keys
+// (position, aim, lens). Between keys the move is a time-based Hermite spline with Catmull-Rom tangents,
+// so speed carries through a key instead of stopping; the shot's first and last keys ease in and out.
+// Focus is a world point per frame. `cameraAt(shots, f)` is pure: any frame renders alone.
+// Frames here are film frames on a 60 fps clock (pass `frame / fps * 60`).
+
+import { fbm1 } from "../core/noise";
+import type { V3 } from "../lib/voxel";
+
+export type CamKey = {
+  f: number;
+  pos: V3;
+  at: V3;
+  /** vertical field of view, degrees */
+  fov: number;
+};
+
+export type Shot = {
+  name: string;
+  from: number;
+  to: number;
+  keys: CamKey[];
+  /** what the lens focuses on (world point), as a function of frame */
+  focus: (f: number) => V3;
+  /** bokeh strength: blur per unit of depth away from the focus plane */
+  aperture: number | ((f: number) => number);
+  /** largest blur radius, as a fraction of the frame */
+  maxBlur?: number;
+  /** exposure multiplier (1 = neutral) */
+  exposure: number;
+  /** exponential fog density for this shot (thicker at street level, thinner for wides) */
+  fog: number;
+  /** handheld drift amplitude on the aim point (fraction of the aim distance) */
+  handheld?: number;
+};
+
+export type CamState = { pos: V3; at: V3; fov: number; focusDist: number; aperture: number; maxBlur: number; exposure: number; fog: number; shot: Shot };
+
+/** Hermite interpolation of a scalar sampled at key times, Catmull-Rom tangents, eased ends. */
+const herm = (f: number, ts: number[], vs: number[]) => {
+  const n = ts.length;
+  if (f <= ts[0]) return vs[0];
+  if (f >= ts[n - 1]) return vs[n - 1];
+  let i = 0;
+  while (f > ts[i + 1]) i++;
+  const t0 = ts[i], t1 = ts[i + 1];
+  const h = t1 - t0;
+  const u = (f - t0) / h;
+  const m = (k: number) => (k === 0 || k === n - 1 ? 0 : (vs[k + 1] - vs[k - 1]) / (ts[k + 1] - ts[k - 1]));
+  const m0 = m(i) * h, m1 = m(i + 1) * h;
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * vs[i] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * vs[i + 1] + (u3 - u2) * m1;
+};
+
+export const shotAt = (shots: Shot[], f: number) => shots.find((sh) => f >= sh.from && f < sh.to) ?? shots[shots.length - 1];
+
+export const cameraAt = (shots: Shot[], f: number): CamState => {
+  const sh = shotAt(shots, f);
+  const ts = sh.keys.map((k) => k.f);
+  const comp = (sel: (k: CamKey) => number) => herm(f, ts, sh.keys.map(sel));
+  const pos: V3 = [comp((k) => k.pos[0]), comp((k) => k.pos[1]), comp((k) => k.pos[2])];
+  const at: V3 = [comp((k) => k.at[0]), comp((k) => k.at[1]), comp((k) => k.at[2])];
+  const hh = sh.handheld ?? 0;
+  if (hh) {
+    // operator drift: slow, low-amplitude, never a loop
+    const d = Math.hypot(at[0] - pos[0], at[1] - pos[1], at[2] - pos[2]);
+    at[0] += fbm1(f / 70, 11) * hh * d;
+    at[1] += fbm1(f / 80, 12) * hh * d * 0.7;
+  }
+  const fv = sh.focus(f);
+  const dir = [at[0] - pos[0], at[1] - pos[1], at[2] - pos[2]];
+  const dl = Math.hypot(dir[0], dir[1], dir[2]);
+  const focusDist = Math.max(0.1, ((fv[0] - pos[0]) * dir[0] + (fv[1] - pos[1]) * dir[1] + (fv[2] - pos[2]) * dir[2]) / dl);
+  const aperture = typeof sh.aperture === "number" ? sh.aperture : sh.aperture(f);
+  return { pos, at, fov: comp((k) => k.fov), focusDist, aperture, maxBlur: sh.maxBlur ?? 0.01, exposure: sh.exposure, fog: sh.fog, shot: sh };
+};
+
+==== 3379 src/kits/voxelverse/core/motion.ts
+// Deterministic motion primitives. Every function is a pure function of the frame,
+// so any frame can be rendered in isolation and in any order.
+
+export type Ease = (t: number) => number;
+
+export const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const invLerp = (a: number, b: number, v: number) => clamp((v - a) / (b - a));
+export const remap = (v: number, a: number, b: number, c: number, d: number, ease: Ease = linear) =>
+  lerp(c, d, ease(invLerp(a, b, v)));
+
+export const linear: Ease = (t) => t;
+
+// Curves are named by intent so scenes read like direction notes.
+export const ease = {
+  linear,
+  // Camera: long, heavy, no visible start or stop.
+  camera: (t: number) => (t < 0.5 ? 16 * t ** 5 : 1 - (-2 * t + 2) ** 5 / 2),
+  cameraSoft: (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2),
+  // Arrivals: fast in, long settle.
+  arrive: (t: number) => (t === 1 ? 1 : 1 - 2 ** (-10 * t)),
+  arriveSoft: (t: number) => 1 - (1 - t) ** 3,
+  // Departures: slow start, accelerating exit.
+  depart: (t: number) => (t === 0 ? 0 : 2 ** (10 * t - 10)),
+  departSoft: (t: number) => t ** 3,
+  // Mechanical lock with a small overshoot.
+  lock: (t: number) => {
+    const c1 = 1.4;
+    const c3 = c1 + 1;
+    return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+  },
+  // Organic in-out for body motion.
+  body: (t: number) => -(Math.cos(Math.PI * t) - 1) / 2,
+  // Snappy anticipation: dips below 0 before going.
+  anticipate: (t: number) => {
+    const c = 1.7;
+    return t * t * ((c + 1) * t - c);
+  },
+  smooth: (t: number) => t * t * (3 - 2 * t),
+} satisfies Record<string, Ease>;
+
+/** 0→1 progress between two frames with an easing curve. */
+export const ramp = (frame: number, from: number, to: number, e: Ease = linear) =>
+  e(invLerp(from, to, frame));
+
+export type Key = { f: number; v: number; e?: Ease };
+
+/** Piecewise keyframes; each key's easing shapes the segment that ends on it. */
+export const keys = (frame: number, ks: Key[]): number => {
+  if (frame <= ks[0].f) return ks[0].v;
+  for (let i = 1; i < ks.length; i++) {
+    const a = ks[i - 1];
+    const b = ks[i];
+    if (frame <= b.f) {
+      const t = (frame - a.f) / (b.f - a.f);
+      return lerp(a.v, b.v, (b.e ?? ease.body)(t));
+    }
+  }
+  return ks[ks.length - 1].v;
+};
+
+/**
+ * Damped spring that chases a driver signal, simulated from `start` to `frame`.
+ * Used for follow-through on secondary parts (cowlick, antennae, hanging cards):
+ * they respond to the parent's motion instead of running their own loop.
+ */
+export const springFollow = (
+  driver: (f: number) => number,
+  frame: number,
+  { start = 0, stiffness = 180, damping = 12, mass = 1, fps = 60, substeps = 2 } = {},
+) => {
+  let x = driver(start);
+  let v = 0;
+  const dt = 1 / fps / substeps;
+  const end = Math.max(start, Math.floor(frame));
+  for (let f = start; f < end; f++) {
+    const target = driver(f + 1);
+    for (let s = 0; s < substeps; s++) {
+      const a = (-stiffness * (x - target) - damping * v) / mass;
+      v += a * dt;
+      x += v * dt;
+    }
+  }
+  return { value: x, offset: x - driver(end), velocity: v };
+};
+
+/** Step a continuous value to a limited frame rate, the way sprite animation holds poses. */
+export const onTwos = (frame: number, step = 2) => Math.floor(frame / step) * step;
+
+==== 1536 src/kits/voxelverse/core/noise.ts
+// Seeded randomness and smooth noise. No Math.random anywhere in the system.
+
+export const hash = (n: number) => {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+};
+
+export const hash2 = (a: number, b: number) => hash(Math.imul(a | 0, 73856093) ^ Math.imul(b | 0, 19349663));
+
+/** Seeded generator for building sets (book spines, tile orders, star fields). */
+export const rng = (seed: number) => {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+};
+
+const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+
+/** 1D value noise in [-1, 1]. */
+export const noise1 = (x: number, seed = 0) => {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = hash(i + seed * 1013) * 2 - 1;
+  const b = hash(i + 1 + seed * 1013) * 2 - 1;
+  return a + (b - a) * fade(f);
+};
+
+/** Fractal 1D noise, for drifts and flicker that never visibly loop. */
+export const fbm1 = (x: number, seed = 0, octaves = 3) => {
+  let sum = 0;
+  let amp = 0.5;
+  let freq = 1;
+  for (let o = 0; o < octaves; o++) {
+    sum += noise1(x * freq, seed + o * 17) * amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum;
+};
+
+// 4×4 Bayer matrix, normalised to (0,1). Used to dither between colour-ramp steps.
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+export const bayer = (x: number, y: number) => (BAYER4[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+
+==== 8987 src/kits/voxelverse/example/VoxelverseExample.tsx
+// VOXELVERSE technical example — a small voxel street at dusk on its diorama plinth, 8 s at any fps.
+// Spec-driven buildings, street lamps, windows that light up in a sweep from west to east, rain that
+// starts, and one continuous crane move from street level back and up until the cut-away plinth shows.
+// It is a technical check and a starting point, not a story: never reuse it as a buyer's film.
+//
+// Every time below is a film frame on a 60 fps clock (`f`), so preview (30 fps) and final (60 fps) match.
+
+import React, { useCallback } from "react";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { PCFShadowMap } from "three";
+import { clamp, ease, lerp, ramp } from "../core/motion";
+import { hash } from "../core/noise";
+import { C } from "../lib/palette";
+import { GlowPanes, VoxModel, type Pane } from "../lib/components";
+import type { V3, Vox } from "../lib/voxel";
+import { cameraAt, type Shot } from "../camera/rig";
+import { CameraRig, Post } from "../camera/Post";
+import { DuskLight, Environment, Fog, Sky } from "../world/Atmosphere";
+import { Plinth, type PlinthSpec } from "../world/Plinth";
+import { Buildings, buildingHeight, type BuildingSpec, type GlowFn, type Placement } from "../world/Building";
+import { Rain } from "../world/Rain";
+
+export const VOXELVERSE_EXAMPLE_SECONDS = 8;
+const FILM_FPS = 60;
+const s = (sec: number) => Math.round(sec * FILM_FPS);
+
+const PLINTH: PlinthSpec = {
+  minX: -12, maxX: 12, minZ: -13, maxZ: 13,
+  roadHalf: 2.6, curb: 0.15, walkOuter: 5, baseDepth: 3.2, crossingX: 3.5,
+  puddles: [[-6.5, 1.2, 1.6, 0.6], [2.0, -1.9, 1.2, 0.5], [8.5, 1.6, 1.4, 0.5], [-1.0, 3.6, 0.9, 0.4]],
+};
+
+const FRONT = PLINTH.walkOuter;
+const north = (cx: number): Placement => ({ pos: [cx, 0, -FRONT], rotY: 0 });
+const south = (cx: number): Placement => ({ pos: [cx, 0, FRONT], rotY: Math.PI });
+
+const STREET: { spec: BuildingSpec; at: Placement }[] = [
+  { at: north(-8), spec: { w: 7, depth: 7.5, ground: 4.0, floors: [3.2], wall: "brick", wallColor: C.brickDark, trim: C.stoneLight, win: "arched", bays: 4, winW: 1.1, winH: 2.2, roof: "saw", roofColor: C.copperPatina, shop: "depot", extras: ["chimney"], seed: 11 } },
+  { at: north(-1.75), spec: { w: 5.5, depth: 7, ground: 3.4, floors: [3.0, 3.0, 3.0], wall: "plaster", wallColor: C.cream, trim: C.teal, win: "tall", bays: 2, winW: 0.9, winH: 1.9, roof: "mansard", roofColor: C.tealDeep, shop: "bakery", shopColor: C.copper, extras: ["balconies", "plants", "shutters"], seed: 12 } },
+  { at: north(4.25), spec: { w: 6.5, depth: 7.5, ground: 3.6, floors: [3.2, 3.2], wall: "stone", wallColor: C.stoneLight, trim: C.stoneDark, win: "band", bays: 3, winW: 1.0, winH: 1.6, roof: "stepped", roofColor: C.stone, shop: "arcade", shopColor: C.stoneDark, extras: ["ac"], seed: 13 } },
+  { at: north(9.7), spec: { w: 4.4, depth: 7, ground: 3.4, floors: [3.0, 3.0, 3.0, 3.0], wall: "brick", wallColor: C.brick, trim: C.cream, win: "tall", bays: 2, winW: 0.95, winH: 1.8, roof: "flat", roofColor: C.stoneDark, shop: "none", extras: ["fireEscape", "tank", "plants"], seed: 14 } },
+  { at: south(-7.8), spec: { w: 8, depth: 7.5, ground: 4.6, floors: [], wall: "stone", wallColor: C.stone, trim: C.copper, win: "arched", bays: 4, winW: 1.4, winH: 2.6, roof: "gable", roofColor: C.copperPatina, shop: "market", shopColor: C.copper, seed: 21 } },
+  { at: south(-0.8), spec: { w: 6, depth: 7, ground: 3.8, floors: [3.2, 3.2], wall: "brick", wallColor: C.brickLight, trim: C.cream, win: "arched", bays: 3, winW: 1.1, winH: 1.9, roof: "mansard", roofColor: C.copperDark, shop: "bakery", shopColor: C.teal, extras: ["shutters", "plants", "chimney"], seed: 22 } },
+  { at: south(7.0), spec: { w: 9.6, depth: 7.5, ground: 3.6, floors: [3.1, 3.1], wall: "plaster", wallColor: C.plasterRose, trim: C.creamDark, win: "pair", bays: 3, winW: 1.5, winH: 1.5, roof: "flat", roofColor: C.copperPatina, shop: "workshop", shopColor: C.tealDeep, extras: ["tower", "ac"], seed: 23 } },
+];
+
+/** Rain stays out of the buildings: a point is blocked if it is inside a footprint below the roofline. */
+const FOOTPRINTS = STREET.map(({ spec, at }) => {
+  const zs = [at.pos[2], at.pos[2] - Math.cos(at.rotY) * spec.depth];
+  return { x0: at.pos[0] - spec.w / 2, x1: at.pos[0] + spec.w / 2, z0: Math.min(...zs), z1: Math.max(...zs), top: buildingHeight(spec) + 3 };
+});
+const blocked = (x: number, y: number, z: number) => FOOTPRINTS.some((b) => x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && y < b.top);
+const groundY = (_x: number, z: number) => (Math.abs(z) > PLINTH.roadHalf ? PLINTH.curb : 0.035);
+
+/** Windows light up in a sweep from west to east between 1.2 s and 4.5 s; a few are lit from the start. */
+const windowGlow: GlowFn = ({ pos, floor, seed, shop }) => {
+  const strength = shop ? 1 : 0.75 + hash(seed * 7) * 0.6;
+  if (!shop && hash(seed * 3 + 1) < 0.12) return () => strength;
+  if (!shop && hash(seed * 5 + 2) > 0.85) return () => 0;
+  const start = s(1.2) + ((pos[0] - PLINTH.minX) / (PLINTH.maxX - PLINTH.minX)) * s(3.0) + floor * 6 + hash(seed) * 24;
+  // a switch-on with one quick flicker, then steady
+  return (f) => {
+    const t = f - start;
+    if (t < 0) return 0;
+    if (t < 3) return strength * 0.6;
+    if (t < 6) return strength * 0.15;
+    return strength * Math.min(1, 0.6 + (t - 6) * 0.05);
+  };
+};
+
+/* street lamps: a post on each walk, lamp heads as glow panes, real point lights for the pools */
+const LAMPS: [number, number][] = [[-6, -1], [-1.5, 1], [4.5, -1], [9.5, 1]].map(([x, side]) => [x, side * (PLINTH.roadHalf + 0.45)]);
+const lampPosts = (v: Vox) => {
+  for (const [x, z] of LAMPS) {
+    const out = z < 0 ? 1 : -1; // the arm reaches over the road
+    v.prism([x, PLINTH.curb + 0.15, z], 0.16, 0.3, C.ink, { sides: 8, mat: "metal" });
+    v.span([x - 0.05, PLINTH.curb, z - 0.05], [x + 0.05, 4.2, z + 0.05], C.ink, { mat: "metal", r: 0.015 });
+    v.span([x - 0.04, 4.1, z], [x + 0.04, 4.18, z + out * 0.8], C.ink, { mat: "metal", r: 0.01 });
+    v.span([x - 0.16, 3.98, z + out * 0.62], [x + 0.16, 4.1, z + out * 0.98], C.ink, { mat: "metal", r: 0.02 });
+  }
+};
+const LAMP_ON = s(0.8);
+const lampLevel = (f: number) => {
+  const t = f - LAMP_ON;
+  return t < 0 ? 0 : t < 3 ? 0.5 : t < 6 ? 0.1 : clamp(0.5 + (t - 6) * 0.04);
+};
+const LAMP_PANES: Pane[] = LAMPS.map(([x, z]): Pane => {
+  const out = z < 0 ? 1 : -1;
+  const pos: V3 = [x, 3.975, z + out * 0.8];
+  return { pos, size: [0.28, 0.3], rotY: 0, tint: 0xffcf86, glow: (f) => 3 * lampLevel(f) };
+});
+
+/* camera: one continuous crane from street level, back past the plinth edge and up */
+const SHOTS: Shot[] = [
+  {
+    name: "street to diorama",
+    from: 0,
+    to: s(VOXELVERSE_EXAMPLE_SECONDS),
+    keys: [
+      { f: 0, pos: [-9.5, 1.7, -3.6], at: [-2, 3.2, 5], fov: 44 },
+      { f: s(3.0), pos: [-11, 3.4, -2.5], at: [-1, 3.4, 4], fov: 43 },
+      { f: s(5.4), pos: [-23, 13, 1], at: [1, 2, 1], fov: 41 },
+      { f: s(VOXELVERSE_EXAMPLE_SECONDS), pos: [-44, 32, 5], at: [2, 0, 0], fov: 40 },
+    ],
+    focus: (f) => (f < s(3) ? [-2, 3, 5] : [0, 1.5, 0]),
+    aperture: (f) => lerp(0.0018, 0.0004, clamp((f - s(2.5)) / s(3))),
+    maxBlur: 0.01,
+    exposure: 1.0,
+    fog: 0.012,
+    handheld: 0.004,
+  },
+];
+
+const World: React.FC<{ f: number }> = ({ f }) => {
+  const cam = cameraAt(SHOTS, f);
+  const k = ease.cameraSoft(clamp(f / s(VOXELVERSE_EXAMPLE_SECONDS)));
+  const glow = useCallback<GlowFn>((p) => windowGlow(p), []);
+  const rain = ramp(f, s(2.2), s(3.6));
+  const lamp = lampLevel(f);
+  return (
+    <>
+      <CameraRig cam={cam} />
+      <Sky boost={1 - 0.3 * k} />
+      <Environment />
+      <Fog density={lerp(0.014, 0.0028, k)} />
+      <DuskLight from={[-16, 30, 26]} size={22} intensity={1.1 - 0.3 * k} />
+      <Plinth spec={PLINTH} />
+      <Buildings list={STREET} glow={glow} f={f} />
+      <VoxModel build={lampPosts} seed={31} />
+      <GlowPanes panes={LAMP_PANES} f={f} />
+      {LAMPS.map(([x, z], i) => (
+        <pointLight key={i} position={[x, 3.7, z + (z < 0 ? 0.8 : -0.8)]} color={C.lampWarm} intensity={lamp * 7} distance={7} decay={2} />
+      ))}
+      <Rain cam={cam} f={f} amount={rain * 0.55} wide={rain * k * 0.7} bounds={{ minX: PLINTH.minX, maxX: PLINTH.maxX, minZ: PLINTH.minZ, maxZ: PLINTH.maxZ, height: 22 }} blocked={blocked} groundY={groundY} />
+      <Post cam={cam} frame={f} />
+    </>
+  );
+};
+
+export const VoxelverseExample: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const f = (frame / fps) * FILM_FPS;
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#1d2a2b" }}>
+      <ThreeCanvas width={width} height={height} shadows={{ type: PCFShadowMap }} dpr={1}
+        gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+        camera={{ fov: 44, near: 0.03, far: 600, position: [0, 3, 10] }}>
+        <World f={f} />
+      </ThreeCanvas>
+    </AbsoluteFill>
+  );
+};
+
+==== 3686 src/kits/voxelverse/lib/anim.ts
+// Character-animation helpers on top of the engine's motion primitives.
+
+import { Quaternion, Vector3 } from "three";
+import { clamp, lerp, ease } from "../core/motion";
+import type { V3 } from "./voxel";
+
+export const v3lerp = (a: V3, b: V3, t: number): V3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+
+/** Yaw (about +Y, 0 = facing +Z) and pitch (positive = looking up) from one point to another. */
+export const lookAngles = (from: V3, to: V3) => {
+  const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
+  return { yaw: Math.atan2(dx, dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) };
+};
+
+/**
+ * Look-target schedule: each entry takes over at `f` and is blended in over `blend`
+ * frames, so attention shifts read as decisions, not interpolation.
+ */
+export type LookKey = { f: number; at: (frame: number) => V3; blend?: number };
+export const lookTarget = (frame: number, keys: LookKey[]): V3 => {
+  let cur = keys[0].at(frame);
+  for (let i = 1; i < keys.length; i++) {
+    const k = keys[i];
+    if (frame < k.f) break;
+    const t = ease.body(clamp((frame - k.f) / (k.blend ?? 12)));
+    cur = v3lerp(cur, k.at(frame), t);
+  }
+  return cur;
+};
+
+/** 0 = open, 1 = shut. Quick close, short hold, slower open. */
+export const blink = (frame: number, at: number[]) => {
+  for (const b of at) {
+    const t = frame - b;
+    if (t < 0 || t > 9) continue;
+    if (t < 2) return t / 2;
+    if (t < 4) return 1;
+    return 1 - (t - 4) / 5;
+  }
+  return 0;
+};
+
+/** Squash-and-stretch for a hop: returns {y, sy} given takeoff and landing frames. */
+export const hop = (frame: number, takeoff: number, land: number, height: number) => {
+  const pre = 7; // anticipation squash
+  const post = 9; // landing squash + recovery
+  if (frame < takeoff - pre || frame > land + post) return { y: 0, sy: 1 };
+  if (frame < takeoff) {
+    const t = (frame - (takeoff - pre)) / pre;
+    return { y: 0, sy: 1 - 0.2 * ease.body(t) };
+  }
+  if (frame <= land) {
+    const t = (frame - takeoff) / (land - takeoff);
+    const y = 4 * height * t * (1 - t);
+    const sy = 1 + 0.16 * (1 - Math.abs(t * 2 - 1)) * (t < 0.5 ? 1 : 0.6);
+    return { y, sy };
+  }
+  const t = (frame - land) / post;
+  return { y: 0, sy: 1 - 0.18 * Math.sin(Math.PI * t) * (1 - t * 0.5) };
+};
+
+const _a = new Vector3();
+const _b = new Vector3();
+const _p = new Vector3();
+const _q = new Quaternion();
+const DOWN = new Vector3(0, -1, 0);
+
+/**
+ * Two-bone IK in the parent's space. Bones hang along -Y at rest.
+ * Returns quaternions for the upper bone (in parent space) and the lower bone
+ * (in upper-bone space). `pole` is the direction the elbow/knee should point.
+ */
+export const twoBoneIK = (shoulder: V3, target: V3, l1: number, l2: number, pole: V3) => {
+  const S = new Vector3(...shoulder);
+  const T = new Vector3(...target);
+  const dir = _a.copy(T).sub(S);
+  let d = dir.length();
+  d = clamp(d, Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+  dir.normalize();
+  const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
+  const sinA = Math.sqrt(1 - cosA * cosA);
+  const P = _p.set(...pole).normalize();
+  const poleP = _b.copy(P).sub(dir.clone().multiplyScalar(P.dot(dir))).normalize();
+  const E = S.clone().add(dir.clone().multiplyScalar(l1 * cosA)).add(poleP.clone().multiplyScalar(l1 * sinA));
+  const upperDir = E.clone().sub(S).normalize();
+  const qU = new Quaternion().setFromUnitVectors(DOWN, upperDir);
+  const W = S.clone().add(dir.clone().multiplyScalar(d)); // reachable wrist point
+  const lowerDir = W.sub(E).normalize().applyQuaternion(_q.copy(qU).invert());
+  const qL = new Quaternion().setFromUnitVectors(DOWN, lowerDir);
+  return { qU, qL };
+};
+
+==== 3463 src/kits/voxelverse/lib/components.tsx
+// React wrappers around the voxel kit and the instanced glow panes.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, PlaneGeometry, Quaternion, Euler, Vector3, Texture } from "three";
+import { useCurrentFrame } from "remotion";
+import { mats, makeGlowPaneMaterial } from "./materials";
+import { Vox } from "./voxel";
+
+/** A static voxel model: authored once, merged per material, shadows on. */
+export const VoxModel: React.FC<{
+  build: (v: Vox) => void;
+  seed?: number;
+  castShadow?: boolean;
+  receiveShadow?: boolean;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+}> = ({ build, seed = 1, castShadow = true, receiveShadow = true, position, rotation }) => {
+  const parts = useMemo(() => {
+    const v = new Vox(seed);
+    build(v);
+    return v.build();
+    // Models are authored once; `build` is a stable module-level function.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const m = mats();
+  return (
+    <group position={position} rotation={rotation}>
+      {parts.map(([k, g]) => (
+        <mesh key={k} geometry={g} material={m[k]} castShadow={castShadow} receiveShadow={receiveShadow} />
+      ))}
+    </group>
+  );
+};
+
+export type Pane = {
+  pos: [number, number, number];
+  size: [number, number];
+  /** rotation about Y (0 = facing +Z) */
+  rotY: number;
+  tint: number | Color;
+  cell?: 0 | 1 | 2 | 3;
+  /** emission as a pure function of the frame */
+  glow: (frame: number) => number;
+};
+
+const CELLS: [number, number][] = [
+  [0, 0],
+  [0.5, 0],
+  [0, 0.5],
+  [0.5, 0.5],
+];
+
+/**
+ * Every lit-able window or bulb in a set of panes, as one instanced draw call. `f` is the clock passed to
+ * each pane's `glow` (pass film frames on a 60 fps clock so preview and final match); defaults to the
+ * composition frame.
+ */
+export const GlowPanes: React.FC<{ panes: Pane[]; atlas?: Texture | null; base?: number; castShadow?: boolean; f?: number }> = ({
+  panes,
+  atlas = null,
+  base,
+  f,
+}) => {
+  const current = useCurrentFrame();
+  const frame = f ?? current;
+  const { mesh, glow } = useMemo(() => {
+    const geo = new PlaneGeometry(1, 1);
+    const n = panes.length;
+    const glowAttr = new InstancedBufferAttribute(new Float32Array(n), 1);
+    const tint = new Float32Array(n * 3);
+    const cell = new Float32Array(n * 2);
+    const mesh = new InstancedMesh(geo, makeGlowPaneMaterial(atlas, base), n);
+    const m = new Matrix4();
+    const q = new Quaternion();
+    const e = new Euler();
+    const c = new Color();
+    panes.forEach((p, i) => {
+      m.compose(new Vector3(...p.pos), q.setFromEuler(e.set(0, p.rotY, 0)), new Vector3(p.size[0], p.size[1], 1));
+      mesh.setMatrixAt(i, m);
+      c.set(p.tint as Color);
+      tint.set([c.r, c.g, c.b], i * 3);
+      cell.set(CELLS[p.cell ?? 0], i * 2);
+    });
+    geo.setAttribute("aGlow", glowAttr);
+    geo.setAttribute("aTint", new InstancedBufferAttribute(tint, 3));
+    geo.setAttribute("aCell", new InstancedBufferAttribute(cell, 2));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.receiveShadow = false;
+    mesh.castShadow = false;
+    mesh.frustumCulled = false;
+    return { mesh, glow: glowAttr };
+  }, [panes, atlas, base]);
+
+  useLayoutEffect(() => {
+    for (let i = 0; i < panes.length; i++) glow.array[i] = panes[i].glow(frame);
+    glow.needsUpdate = true;
+  }, [frame, panes, glow]);
+
+  return <primitive object={mesh} />;
+};
+
+==== 7145 src/kits/voxelverse/lib/kit.ts
+// Reusable architectural pieces for the voxel kit: brick walls with openings,
+// window frames, sills, planters. Authored in a local frame where the wall plane
+// is z = 0 and the outside faces +Z; place them with `v.at(...)`.
+
+import { C } from "./palette";
+import type { Vox, V3 } from "./voxel";
+
+export type Hole = [number, number, number, number]; // x0, x1, y0, y1
+
+const BRICKS = [C.brick, C.brick, C.brickLight, C.brickDark, C.brick, 0xa65a3f];
+
+/** Running-bond brick skin with mortar backing; openings are cut cleanly. */
+export const brickWall = (
+  v: Vox,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  holes: Hole[] = [],
+  { len = 0.42, h = 0.2, gap = 0.028, depth = 0.1, back = 0.24, palette = BRICKS as number[] } = {},
+) => {
+  // Mortar backing as solid slabs around the holes.
+  slabWithHoles(v, x0, x1, y0, y1, -back, 0, holes, C.mortar);
+  const pitch = h + gap;
+  let row = 0;
+  for (let y = y0 + gap / 2; y + h <= y1 + 1e-6; y += pitch, row++) {
+    const yc0 = y, yc1 = y + h;
+    const off = row % 2 === 0 ? 0 : len / 2;
+    for (let bx = x0 - off; bx < x1; bx += len + gap) {
+      let segs: [number, number][] = [[Math.max(x0, bx), Math.min(x1, bx + len)]];
+      for (const [hx0, hx1, hy0, hy1] of holes) {
+        if (yc1 <= hy0 || yc0 >= hy1) continue;
+        segs = segs.flatMap(([a, b]) => {
+          const out: [number, number][] = [];
+          if (a < hx0) out.push([a, Math.min(b, hx0 - gap / 2)]);
+          if (b > hx1) out.push([Math.max(a, hx1 + gap / 2), b]);
+          return out;
+        });
+      }
+      for (const [a, b] of segs) {
+        if (b - a < 0.06) continue;
+        const col = palette[Math.floor(v.rand() * palette.length)];
+        // Bricks sit a hair proud or recessed at random: hand-laid, not extruded.
+        const proud = depth / 2 + (v.rand() - 0.5) * 0.012;
+        v.box([(a + b) / 2, (yc0 + yc1) / 2, proud - depth / 2 + 0.0], [b - a, h, depth], col, {
+          jitter: 0.07,
+          r: 0.022,
+        });
+      }
+    }
+  }
+};
+
+/** Solid slab between z0..z1 covering a rectangle minus rectangular holes. */
+export const slabWithHoles = (
+  v: Vox,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z0: number,
+  z1: number,
+  holes: Hole[],
+  color: number,
+  mat: "matte" | "satin" = "matte",
+) => {
+  // Split into horizontal bands at every hole edge, then fill each band between holes.
+  const ys = [...new Set([y0, y1, ...holes.flatMap((h) => [h[2], h[3]])])].filter((y) => y >= y0 && y <= y1).sort((a, b) => a - b);
+  for (let i = 0; i < ys.length - 1; i++) {
+    const ya = ys[i], yb = ys[i + 1];
+    const inBand = holes.filter((h) => h[2] < yb - 1e-6 && h[3] > ya + 1e-6).sort((a, b) => a[0] - b[0]);
+    let x = x0;
+    for (const h of inBand) {
+      if (h[0] > x + 1e-6) v.span([x, ya, z0], [h[0], yb, z1], color, { r: 0.01, mat });
+      x = Math.max(x, h[1]);
+    }
+    if (x < x1 - 1e-6) v.span([x, ya, z0], [x1, yb, z1], color, { r: 0.01, mat });
+  }
+};
+
+/** Window frame with mullions and a transom, set into an opening. */
+export const windowFrame = (
+  v: Vox,
+  [x0, x1, y0, y1]: Hole,
+  {
+    color = C.tealDeep as number,
+    t = 0.08,
+    depth = 0.14,
+    z = -0.12,
+    mullions = [] as readonly number[],
+    transom = null as number | null,
+  } = {},
+) => {
+  const o = { mat: "satin" as const, r: 0.015 };
+  v.span([x0, y0, z - depth / 2], [x1, y0 + t, z + depth / 2], color, o);
+  v.span([x0, y1 - t, z - depth / 2], [x1, y1, z + depth / 2], color, o);
+  v.span([x0, y0, z - depth / 2], [x0 + t, y1, z + depth / 2], color, o);
+  v.span([x1 - t, y0, z - depth / 2], [x1, y1, z + depth / 2], color, o);
+  for (const m of mullions) v.span([m - t / 2, y0, z - depth / 2], [m + t / 2, y1, z + depth / 2], color, o);
+  if (transom !== null) v.span([x0, transom - t / 2, z - depth / 2], [x1, transom + t / 2, z + depth / 2], color, o);
+};
+
+/** Projecting stone sill below an opening. */
+export const sill = (v: Vox, x0: number, x1: number, y: number, color: number = C.stoneLight, out = 0.2) => {
+  v.span([x0 - 0.12, y - 0.12, -0.05], [x1 + 0.12, y, out], color, { mat: "wet", r: 0.02, jitter: 0.03 });
+};
+
+/** Small leafy cluster — a few offset cubes, darker inside, lighter on top. */
+export const shrub = (v: Vox, [x, y, z]: V3, size = 0.3, seedShift = 0) => {
+  const n = 7 + Math.floor(v.rand() * 4);
+  for (let i = 0; i < n; i++) {
+    const s = size * (0.45 + v.rand() * 0.4);
+    const px = x + (v.rand() - 0.5) * size * 1.2;
+    const py = y + v.rand() * size * 0.9;
+    const pz = z + (v.rand() - 0.5) * size * 1.0;
+    const top = py > y + size * 0.45;
+    v.box([px, py, pz], [s, s * 0.85, s], top ? C.leafLight : (i + seedShift) % 2 ? C.leaf : C.leafDark, {
+      mat: "foliage",
+      jitter: 0.1,
+      rot: [0, v.rand() * 0.6, 0],
+    });
+  }
+};
+
+/** Copper downpipe with brackets, from top to bottom along Y. */
+export const downpipe = (v: Vox, [x, z]: [number, number], yTop: number, yBottom: number) => {
+  v.span([x - 0.06, yBottom + 0.2, z - 0.06], [x + 0.06, yTop, z + 0.06], C.copper, { mat: "metal", r: 0.02 });
+  v.span([x - 0.07, yBottom, z - 0.07], [x + 0.07, yBottom + 0.22, z + 0.2], C.copper, { mat: "metal", r: 0.02 });
+  for (let y = yBottom + 1.1; y < yTop - 0.3; y += 1.5) {
+    v.span([x - 0.09, y, z - 0.12], [x + 0.09, y + 0.05, z + 0.08], C.copperDark, { mat: "metal", r: 0.01 });
+  }
+};
+
+/** Herb pot detail for close-ups: stems with pairs of flat leaves, turned outward. */
+export const herbs = (v: Vox, [x, y, z]: V3, height = 0.22, stems = 5, color: number = C.leaf) => {
+  for (let i = 0; i < stems; i++) {
+    const a = (i / stems) * Math.PI * 2 + v.rand() * 0.6;
+    const lean = 0.12 + v.rand() * 0.25;
+    const h = height * (0.65 + v.rand() * 0.45);
+    const top: V3 = [x + Math.cos(a) * h * lean, y + h, z + Math.sin(a) * h * lean];
+    v.rod([x, y, z], top, 0.012, C.leafDark, { mat: "foliage" });
+    const pairs = 2 + Math.floor(v.rand() * 2);
+    for (let k = 0; k < pairs; k++) {
+      const t = 0.45 + (k / pairs) * 0.55;
+      const p: V3 = [x + (top[0] - x) * t, y + (top[1] - y) * t, z + (top[2] - z) * t];
+      for (const side of [-1, 1]) {
+        const ya = a + side * 1.3 + k * 0.7;
+        const s = 0.05 + (1 - k / pairs) * 0.03;
+        v.at(p, [0.35 * side, ya, 0.25], () =>
+          v.box([s * 0.55, 0, 0], [s, 0.011, s * 0.62], k === pairs - 1 ? C.leafLight : color, { mat: "foliage", jitter: 0.08, r: 0.004 }),
+        );
+      }
+    }
+    v.box([top[0], top[1] + 0.012, top[2]], [0.04, 0.012, 0.035], C.leafLight, { mat: "foliage", rot: [0, a, 0], r: 0.004 });
+  }
+};
+
+/** Trailing ivy spilling over an edge and hanging down. */
+export const ivy = (v: Vox, [x, y, z]: V3, length = 0.4) => {
+  let p: V3 = [x, y, z];
+  const n = Math.round(length / 0.045);
+  for (let i = 0; i < n; i++) {
+    const q: V3 = [p[0] + (v.rand() - 0.5) * 0.03, p[1] - 0.045, p[2] + 0.004];
+    v.rod(p, q, 0.008, C.leafDark, { mat: "foliage" });
+    if (i % 2 === 0) v.box([q[0] + (i % 4 === 0 ? 0.022 : -0.022), q[1], q[2] + 0.01], [0.04, 0.034, 0.008], i % 3 ? C.leaf : C.leafLight, { mat: "foliage", rot: [0.3, 0, i % 4 === 0 ? -0.5 : 0.5], r: 0.003 });
+    p = q;
+  }
+};
+
+==== 173 src/kits/voxelverse/lib/layers.ts
+// Render layers. Additive light effects (cones, halos, rain, pulses) live on FX_LAYER
+// so depth-based passes (AO, depth of field) ignore them.
+export const FX_LAYER = 1;
+
+==== 4133 src/kits/voxelverse/lib/materials.ts
+// Shared materials. Surfaces are grouped by how they respond to light, not by what
+// they depict: colour lives in the vertex data, response lives here.
+
+import {
+  AdditiveBlending,
+  Color,
+  DoubleSide,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  ShaderMaterial,
+  Texture,
+} from "three";
+import type { MatKey } from "./voxel";
+
+const std = (roughness: number, metalness = 0, extra: Partial<MeshStandardMaterial> = {}) =>
+  Object.assign(new MeshStandardMaterial({ vertexColors: true, roughness, metalness }), extra);
+
+let cache: Record<MatKey, MeshStandardMaterial> | null = null;
+export const mats = () =>
+  (cache ??= {
+    matte: std(0.86),
+    fabric: std(0.97),
+    foliage: std(0.75),
+    satin: std(0.48),
+    // Rain-soaked horizontal surfaces: low roughness so lamps leave real highlights.
+    wet: std(0.24, 0, { envMapIntensity: 1.25 }),
+    metal: std(0.34, 0.85),
+    gloss: std(0.1, 0, { envMapIntensity: 1.4 }),
+  });
+
+/**
+ * Instanced emissive panes (windows, bulbs, signs). Each instance carries
+ *   aGlow  — emission strength, animated per frame
+ *   aTint  — linear RGB colour of the light behind the pane
+ *   aCell  — atlas cell offset (u, v) into a 2×2 interior atlas
+ * Unlit panes keep a dark, reflective glass response.
+ */
+export const makeGlowPaneMaterial = (atlas: Texture | null, base = 0x1b2426) => {
+  const m = new MeshStandardMaterial({
+    color: base,
+    roughness: 0.14,
+    metalness: 0.0,
+    emissive: new Color(1, 1, 1),
+    emissiveMap: atlas,
+    envMapIntensity: 1.1,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+attribute float aGlow; attribute vec3 aTint; attribute vec2 aCell;
+varying float vGlow; varying vec3 vTint; varying vec2 vCell;`,
+      )
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n vGlow = aGlow; vTint = aTint; vCell = aCell;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying float vGlow; varying vec3 vTint; varying vec2 vCell;`,
+      )
+      .replace(
+        "#include <emissivemap_fragment>",
+        atlas
+          ? `vec3 interior = texture2D(emissiveMap, vCell + vEmissiveMapUv * 0.5).rgb;
+totalEmissiveRadiance = interior * vTint * vGlow;
+diffuseColor.rgb *= 1.0 - clamp(vGlow, 0.0, 1.0) * 0.85;`
+          : `totalEmissiveRadiance = vTint * vGlow;
+diffuseColor.rgb *= 1.0 - clamp(vGlow, 0.0, 1.0) * 0.85;`,
+      );
+  };
+  m.customProgramCacheKey = () => (atlas ? "glowpane-atlas" : "glowpane");
+  return m;
+};
+
+/** Unlit additive glow (light cones, wet-road streaks, halos). Opacity is driven per object. */
+export const additive = (map: Texture, color: number | Color, opacity = 1) =>
+  new MeshBasicMaterial({
+    map,
+    color,
+    transparent: true,
+    opacity,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    side: DoubleSide,
+    toneMapped: true,
+    fog: false,
+  });
+
+/** Soft volumetric cone under a lamp: fades along its length and towards its silhouette. */
+export const makeConeMaterial = (color: number) =>
+  new ShaderMaterial({
+    uniforms: { uColor: { value: new Color(color) }, uIntensity: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying float vH; varying vec3 vN; varying vec3 vView;
+      void main() {
+        vH = uv.y;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor; uniform float uIntensity;
+      varying float vH; varying vec3 vN; varying vec3 vView;
+      void main() {
+        float facing = abs(dot(normalize(vN), normalize(vView)));
+        float edge = smoothstep(0.0, 0.85, facing);
+        float along = pow(vH, 1.6);           // uv.y = 1 at the lamp, 0 at the ground
+        float a = edge * along * uIntensity;
+        gl_FragColor = vec4(uColor * a, 1.0);
+      }`,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    side: DoubleSide,
+  });
+
+==== 1139 src/kits/voxelverse/lib/palette.ts
+// Palette: warm copper, amber, muted teal, stone grey, cream, one orange accent.
+// sRGB hex; three converts to linear on use.
+
+export const C = {
+  // Warm metals and light
+  copper: 0xb36a40,
+  copperDark: 0x7a4429,
+  copperPatina: 0x6f9a8a,
+  amber: 0xf2a33a,
+  amberHot: 0xffcf86,
+  lampWarm: 0xffb469,
+  // Muted teal family
+  teal: 0x4f7f7b,
+  tealDeep: 0x2f4d4c,
+  tealSoft: 0x86aca6,
+  tealPale: 0xb4ccc4,
+  // Stone
+  stone: 0x8b8880,
+  stoneDark: 0x5c5a56,
+  stoneLight: 0xb2ada2,
+  asphalt: 0x3d4140,
+  cobble: 0x585b5b,
+  mortar: 0x9a948a,
+  // Cream / plaster
+  cream: 0xe6d9bf,
+  creamDark: 0xc9b998,
+  plasterWarm: 0xd8b48e,
+  plasterRose: 0xc98d74,
+  // Brick
+  brick: 0x9e5137,
+  brickLight: 0xb2674a,
+  brickDark: 0x7f3f2d,
+  // Wood
+  wood: 0x80583a,
+  woodDark: 0x553a26,
+  woodLight: 0xa77d55,
+  // Foliage
+  leaf: 0x5f7e4e,
+  leafDark: 0x415c3a,
+  leafLight: 0x86a160,
+  // Characters
+  orange: 0xe8742a,
+  orangeDark: 0xb5561d,
+  skin: 0xe2ad84,
+  skinShade: 0xc98f69,
+  hair: 0x3a2a22,
+  ink: 0x1d2224,
+  // Atmosphere
+  hazeTop: 0x355052,
+  haze: 0x6a8483,
+  horizon: 0xc09474,
+  glassDark: 0x1b2426,
+} as const;
+
+==== 4261 src/kits/voxelverse/lib/textures.ts
+// Procedural canvas textures. All drawing is seeded, so every render tab produces
+// identical pixels.
+
+import { CanvasTexture, LinearFilter, SRGBColorSpace } from "three";
+import { rng } from "../core/noise";
+
+const canvas = (w: number, h: number) => {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext("2d")!] as const;
+};
+
+const tex = (c: HTMLCanvasElement, srgb = true) => {
+  const t = new CanvasTexture(c);
+  if (srgb) t.colorSpace = SRGBColorSpace;
+  t.minFilter = LinearFilter;
+  t.generateMipmaps = false;
+  return t;
+};
+
+const memo = <T,>(fn: () => T) => {
+  let v: T | null = null;
+  return () => (v ??= fn());
+};
+
+/** Soft round falloff, white → transparent (halos, ground pools). */
+export const radialTex = memo(() => {
+  const [c, g] = canvas(128, 128);
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, "rgba(255,255,255,1)");
+  gr.addColorStop(0.25, "rgba(255,255,255,0.55)");
+  gr.addColorStop(0.6, "rgba(255,255,255,0.12)");
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 128);
+  return tex(c);
+});
+
+/** Long vertical smear for lamp reflections on wet asphalt. */
+export const streakTex = memo(() => {
+  const [c, g] = canvas(64, 256);
+  const img = g.createImageData(64, 256);
+  const r = rng(11);
+  for (let y = 0; y < 256; y++) {
+    const v = y / 255;
+    const along = Math.pow(Math.sin(Math.PI * Math.min(1, v * 1.15)), 1.4) * (1 - v * 0.55);
+    // broken by ripples: a few horizontal gaps
+    const ripple = 0.75 + 0.25 * Math.sin(y * 0.9 + r() * 0.5) * Math.sin(y * 0.23);
+    for (let x = 0; x < 64; x++) {
+      const u = (x - 31.5) / 32;
+      const a = Math.exp(-u * u * 7) * along * ripple;
+      const i = (y * 64 + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return tex(c);
+});
+
+/**
+ * 2×2 atlas of lit interiors seen through a window, each 128² cell:
+ *  (0,0) ceiling lamp + shelf  (0.5,0) half-drawn curtains
+ *  (0,0.5) venetian blinds     (0.5,0.5) plant on the sill + table lamp
+ * Brightness is baked as a soft gradient so a lit pane never reads as a flat card.
+ */
+export const interiorAtlas = memo(() => {
+  const S = 128;
+  const [c, g] = canvas(S * 2, S * 2);
+  const base = (ox: number, oy: number, hot: number) => {
+    const gr = g.createRadialGradient(ox + S * 0.5, oy + S * 0.18, 4, ox + S * 0.5, oy + S * 0.4, S * 0.9);
+    gr.addColorStop(0, `rgba(255,236,200,1)`);
+    gr.addColorStop(0.35, `rgba(${Math.round(230 * hot)},${Math.round(170 * hot)},${Math.round(110 * hot)},1)`);
+    gr.addColorStop(1, "rgba(70,40,26,1)");
+    g.fillStyle = gr;
+    g.fillRect(ox, oy, S, S);
+  };
+  // Cell A: lamp + shelf silhouette
+  base(0, 0, 1);
+  g.fillStyle = "rgba(60,35,22,0.75)";
+  g.fillRect(12, 70, 46, 8);
+  g.fillRect(16, 52, 8, 18);
+  g.fillRect(28, 56, 10, 14);
+  g.fillRect(86, 88, 30, 40);
+  // Cell B: curtains
+  base(S, 0, 1.05);
+  g.fillStyle = "rgba(120,52,38,0.9)";
+  for (let i = 0; i < 4; i++) {
+    g.fillRect(S + i * 8, 0, 7, S);
+    g.fillRect(S * 2 - 8 - i * 8, 0, 7, S);
+  }
+  // Cell C: blinds
+  base(0, S, 0.95);
+  g.fillStyle = "rgba(80,50,30,0.55)";
+  for (let y = 0; y < S; y += 11) g.fillRect(0, S + y, S, 4);
+  // Cell D: plant + table lamp
+  base(S, S, 1.0);
+  g.fillStyle = "rgba(40,48,30,0.85)";
+  const r = rng(5);
+  for (let i = 0; i < 18; i++) g.fillRect(S + 10 + r() * 34, S + 64 + r() * 40, 9, 9);
+  g.fillRect(S + 22, S + 100, 14, 28);
+  g.fillStyle = "rgba(255,226,170,1)";
+  g.fillRect(S + 88, S + 70, 18, 12);
+  g.fillStyle = "rgba(60,35,22,0.8)";
+  g.fillRect(S + 95, S + 82, 4, 26);
+  g.fillRect(S + 70, S + 106, 54, 22);
+  return tex(c);
+});
+
+export type Glyph = { text: string; color: string };
+
+/** Sign with emissive lettering on a dark panel (café, cinema). */
+export const signTex = (text: string, w: number, h: number, font: string, color = "#ffd59a") => {
+  const [c, g] = canvas(w, h);
+  g.fillStyle = "#000";
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = color;
+  g.font = font;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(text, w / 2, h / 2 + h * 0.04);
+  return tex(c);
+};
+
+==== 9612 src/kits/voxelverse/lib/voxel.ts
+// Voxel modelling kit. Models are authored as lists of chamfered boxes inside a
+// transform stack, then merged into one BufferGeometry per material class, with
+// per-box vertex colour. A small chamfer on every edge is what makes the world read
+// as a crafted miniature instead of default unlit cubes: each edge catches light.
+
+import { BufferAttribute, BufferGeometry, Color, Euler, Matrix3, Matrix4, Quaternion, Vector3 } from "three";
+import { rng } from "../core/noise";
+
+export type V3 = [number, number, number];
+export type MatKey = "matte" | "satin" | "wet" | "metal" | "gloss" | "fabric" | "foliage";
+export type ColorIn = number | string | Color;
+
+type Tri = { p: number[]; n: number[] }; // non-indexed triangles for a unit template
+
+/** Flat-shaded chamfered box template, centred, with half extents and chamfer r. */
+const template = (() => {
+  const cache = new Map<string, Tri>();
+  return (hx: number, hy: number, hz: number, r: number): Tri => {
+    const key = `${hx.toFixed(4)}|${hy.toFixed(4)}|${hz.toFixed(4)}|${r.toFixed(4)}`;
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const p: number[] = [];
+    const n: number[] = [];
+    const poly = (pts: number[][], nx: number, ny: number, nz: number) => {
+      const len = Math.hypot(nx, ny, nz);
+      const N = [nx / len, ny / len, nz / len];
+      // Fix winding so the polygon faces its outward normal.
+      const [a, b, c] = pts;
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+      const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+      const ordered = cx * N[0] + cy * N[1] + cz * N[2] < 0 ? [...pts].reverse() : pts;
+      for (let i = 1; i < ordered.length - 1; i++) {
+        for (const q of [ordered[0], ordered[i], ordered[i + 1]]) {
+          p.push(q[0], q[1], q[2]);
+          n.push(N[0], N[1], N[2]);
+        }
+      }
+    };
+    if (r <= 0) {
+      for (const s of [1, -1]) {
+        poly([[s * hx, -hy, -hz], [s * hx, hy, -hz], [s * hx, hy, hz], [s * hx, -hy, hz]], s, 0, 0);
+        poly([[-hx, s * hy, -hz], [hx, s * hy, -hz], [hx, s * hy, hz], [-hx, s * hy, hz]], 0, s, 0);
+        poly([[-hx, -hy, s * hz], [hx, -hy, s * hz], [hx, hy, s * hz], [-hx, hy, s * hz]], 0, 0, s);
+      }
+    } else {
+      const ix = hx - r, iy = hy - r, iz = hz - r;
+      for (const s of [1, -1]) {
+        poly([[s * hx, -iy, -iz], [s * hx, iy, -iz], [s * hx, iy, iz], [s * hx, -iy, iz]], s, 0, 0);
+        poly([[-ix, s * hy, -iz], [ix, s * hy, -iz], [ix, s * hy, iz], [-ix, s * hy, iz]], 0, s, 0);
+        poly([[-ix, -iy, s * hz], [ix, -iy, s * hz], [ix, iy, s * hz], [-ix, iy, s * hz]], 0, 0, s);
+      }
+      for (const a of [1, -1])
+        for (const b of [1, -1]) {
+          // X-Y edges run along Z
+          poly([[a * hx, b * iy, -iz], [a * ix, b * hy, -iz], [a * ix, b * hy, iz], [a * hx, b * iy, iz]], a, b, 0);
+          // X-Z edges run along Y
+          poly([[a * hx, -iy, b * iz], [a * ix, -iy, b * hz], [a * ix, iy, b * hz], [a * hx, iy, b * iz]], a, 0, b);
+          // Y-Z edges run along X
+          poly([[-ix, a * hy, b * iz], [-ix, a * iy, b * hz], [ix, a * iy, b * hz], [ix, a * hy, b * iz]], 0, a, b);
+        }
+      for (const a of [1, -1])
+        for (const b of [1, -1])
+          for (const c of [1, -1])
+            poly([[a * hx, b * iy, c * iz], [a * ix, b * hy, c * iz], [a * ix, b * iy, c * hz]], a, b, c);
+    }
+    const t = { p, n };
+    cache.set(key, t);
+    return t;
+  };
+})();
+
+class Buf {
+  data = new Float32Array(1 << 14);
+  len = 0;
+  push3(a: number, b: number, c: number) {
+    if (this.len + 3 > this.data.length) {
+      const next = new Float32Array(this.data.length * 2);
+      next.set(this.data);
+      this.data = next;
+    }
+    this.data[this.len++] = a;
+    this.data[this.len++] = b;
+    this.data[this.len++] = c;
+  }
+  out() {
+    return this.data.slice(0, this.len);
+  }
+}
+
+export type BoxOpts = {
+  mat?: MatKey;
+  /** chamfer size; default scales with the smallest side */
+  r?: number;
+  rot?: V3;
+  /** ± lightness variation, 0..1 */
+  jitter?: number;
+};
+
+const _m = new Matrix4();
+const _q = new Quaternion();
+const _e = new Euler();
+const _v = new Vector3();
+const _n = new Vector3();
+const _c = new Color();
+const _s = new Vector3(1, 1, 1);
+
+export class Vox {
+  private parts = new Map<MatKey, { p: Buf; n: Buf; c: Buf }>();
+  private stack: Matrix4[] = [new Matrix4()];
+  readonly rand: () => number;
+  count = 0;
+
+  constructor(seed = 1) {
+    this.rand = rng(seed);
+  }
+
+  private get top() {
+    return this.stack[this.stack.length - 1];
+  }
+
+  /** Run `fn` inside a local transform (translate, then rotate XYZ). */
+  at(pos: V3, rot: V3 | number, fn: () => void) {
+    const r: V3 = typeof rot === "number" ? [0, rot, 0] : rot;
+    _q.setFromEuler(_e.set(r[0], r[1], r[2]));
+    const local = new Matrix4().compose(_v.set(pos[0], pos[1], pos[2]), _q, _s);
+    this.stack.push(this.top.clone().multiply(local));
+    fn();
+    this.stack.pop();
+  }
+
+  /** Box centred at p with full size `size`. */
+  box(p: V3, size: V3, color: ColorIn, o: BoxOpts = {}) {
+    const [w, h, d] = size;
+    const minSide = Math.min(w, h, d);
+    const r = Math.min(o.r ?? Math.min(0.045, minSide * 0.18), minSide * 0.45);
+    const t = template(w / 2, h / 2, d / 2, r);
+    const rot = o.rot ?? [0, 0, 0];
+    _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]));
+    _m.compose(_v.set(p[0], p[1], p[2]), _q, _s).premultiply(this.top);
+    const nm = new Matrix3().getNormalMatrix(_m);
+    _c.set(color as Color);
+    if (o.jitter) {
+      const k = 1 + (this.rand() - 0.5) * 2 * o.jitter;
+      _c.multiplyScalar(k);
+    }
+    const key = o.mat ?? "matte";
+    let part = this.parts.get(key);
+    if (!part) {
+      part = { p: new Buf(), n: new Buf(), c: new Buf() };
+      this.parts.set(key, part);
+    }
+    for (let i = 0; i < t.p.length; i += 3) {
+      _v.set(t.p[i], t.p[i + 1], t.p[i + 2]).applyMatrix4(_m);
+      _n.set(t.n[i], t.n[i + 1], t.n[i + 2]).applyMatrix3(nm).normalize();
+      part.p.push3(_v.x, _v.y, _v.z);
+      part.n.push3(_n.x, _n.y, _n.z);
+      part.c.push3(_c.r, _c.g, _c.b);
+    }
+    this.count++;
+  }
+
+  /** Square-section bar from point a to point b (arms, struts, cables). */
+  rod(a: V3, b: V3, t: number, color: ColorIn, o: BoxOpts = {}) {
+    const d = new Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const len = d.length();
+    const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), d.normalize());
+    const e = new Euler().setFromQuaternion(q);
+    this.box([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], [t, len, t], color, { ...o, rot: [e.x, e.y, e.z] });
+  }
+
+  /** Prism whose axis points along `dir` (lamp shades, nozzles). */
+  prismAlong(p: V3, dir: V3, radius: number, height: number, color: ColorIn, o: BoxOpts & { sides?: number } = {}) {
+    const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(...dir).normalize());
+    const e = new Euler().setFromQuaternion(q);
+    this.prism(p, radius, height, color, { ...o, rot: [e.x, e.y, e.z] });
+  }
+
+  /** Axis-aligned box from min corner to max corner. */
+  span(a: V3, b: V3, color: ColorIn, o?: BoxOpts) {
+    this.box(
+      [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2],
+      [Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), Math.abs(b[2] - a[2])],
+      color,
+      o,
+    );
+  }
+
+  /** Flat-shaded N-sided prism along local Y — tanks, pipes, lenses, wheels. */
+  prism(p: V3, radius: number, height: number, color: ColorIn, o: BoxOpts & { sides?: number } = {}) {
+    const sides = o.sides ?? 8;
+    const rot = o.rot ?? [0, 0, 0];
+    _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]));
+    _m.compose(_v.set(p[0], p[1], p[2]), _q, _s).premultiply(this.top);
+    const nm = new Matrix3().getNormalMatrix(_m);
+    _c.set(color as Color);
+    if (o.jitter) _c.multiplyScalar(1 + (this.rand() - 0.5) * 2 * o.jitter);
+    const key = o.mat ?? "matte";
+    let part = this.parts.get(key);
+    if (!part) {
+      part = { p: new Buf(), n: new Buf(), c: new Buf() };
+      this.parts.set(key, part);
+    }
+    const P = part;
+    const h = height / 2;
+    const ang = (i: number) => (i / sides) * Math.PI * 2 + Math.PI / sides;
+    const emit = (pts: number[][], nx: number, ny: number, nz: number) => {
+      _n.set(nx, ny, nz).applyMatrix3(nm).normalize();
+      for (const q of pts) {
+        _v.set(q[0], q[1], q[2]).applyMatrix4(_m);
+        P.p.push3(_v.x, _v.y, _v.z);
+        P.n.push3(_n.x, _n.y, _n.z);
+        P.c.push3(_c.r, _c.g, _c.b);
+      }
+    };
+    for (let i = 0; i < sides; i++) {
+      const a0 = ang(i), a1 = ang(i + 1), am = (a0 + a1) / 2;
+      const x0 = Math.cos(a0) * radius, z0 = Math.sin(a0) * radius;
+      const x1 = Math.cos(a1) * radius, z1 = Math.sin(a1) * radius;
+      const nx = Math.cos(am), nz = Math.sin(am);
+      emit([[x0, -h, z0], [x1, h, z1], [x1, -h, z1]], nx, 0, nz);
+      emit([[x0, -h, z0], [x0, h, z0], [x1, h, z1]], nx, 0, nz);
+      emit([[0, h, 0], [x1, h, z1], [x0, h, z0]], 0, 1, 0);
+      emit([[0, -h, 0], [x0, -h, z0], [x1, -h, z1]], 0, -1, 0);
+    }
+    this.count++;
+  }
+
+  build(): [MatKey, BufferGeometry][] {
+    return [...this.parts.entries()].map(([k, part]) => {
+      const g = new BufferGeometry();
+      g.setAttribute("position", new BufferAttribute(part.p.out(), 3));
+      g.setAttribute("normal", new BufferAttribute(part.n.out(), 3));
+      g.setAttribute("color", new BufferAttribute(part.c.out(), 3));
+      g.computeBoundingSphere();
+      g.computeBoundingBox();
+      return [k, g];
+    });
+  }
+}
+
+==== 5022 src/kits/voxelverse/world/Atmosphere.tsx
+// Overcast dusk: a sky dome with slow cloud banks, an image-based environment (sky plus warm and cool
+// light boxes) so wet and glossy voxels have something to reflect, a cool key light with soft shadows,
+// a hemisphere fill and exponential fog. Everything is driven by props: no film-specific state.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import { BackSide, BoxGeometry, Color, FogExp2, Mesh, MeshBasicMaterial, PMREMGenerator, Scene, ShaderMaterial, SphereGeometry } from "three";
+import { C } from "../lib/palette";
+import type { V3 } from "../lib/voxel";
+
+export type SkyLook = { top: number; mid: number; low: number };
+export const DUSK: SkyLook = { top: C.hazeTop, mid: C.haze, low: C.horizon };
+
+const skyMaterial = (look: SkyLook) =>
+  new ShaderMaterial({
+    uniforms: {
+      uTop: { value: new Color(look.top) },
+      uMid: { value: new Color(look.mid) },
+      uLow: { value: new Color(look.low) },
+      uBoost: { value: 1 },
+    },
+    vertexShader: /* glsl */ `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; uniform float uBoost; varying vec3 vDir;
+      float h(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+      float n(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
+      void main(){
+        float y = vDir.y;
+        vec3 c = mix(uMid, uTop, smoothstep(0.05, 0.6, y));
+        c = mix(uLow, c, smoothstep(-0.12, 0.16, y));
+        c = mix(vec3(0.016, 0.026, 0.027), c, smoothstep(-0.55, -0.04, y));
+        float az = atan(vDir.z, vDir.x);
+        float cl = n(vec2(az * 3.0, y * 9.0)) * 0.6 + n(vec2(az * 7.0, y * 21.0)) * 0.4;
+        c *= 0.9 + 0.16 * cl * smoothstep(0.0, 0.35, y);
+        gl_FragColor = vec4(c * uBoost, 1.0);
+      }`,
+    side: BackSide,
+    depthWrite: false,
+    fog: false,
+  });
+
+/** Sky dome. `boost` < 1 deepens the dusk (e.g. as windows light up). */
+export const Sky: React.FC<{ look?: SkyLook; boost?: number; radius?: number }> = ({ look = DUSK, boost = 1, radius = 420 }) => {
+  const mat = useMemo(() => skyMaterial(look), [look]);
+  mat.uniforms.uBoost.value = boost;
+  return (
+    <mesh material={mat} renderOrder={-10} frustumCulled={false}>
+      <sphereGeometry args={[radius, 48, 24]} />
+    </mesh>
+  );
+};
+
+/** Reflection environment: the sky plus a ring of warm (and a few cool) light boxes at street level. */
+export const Environment: React.FC<{ look?: SkyLook; intensity?: number }> = ({ look = DUSK, intensity = 0.42 }) => {
+  const { gl, scene } = useThree();
+  useLayoutEffect(() => {
+    const env = new Scene();
+    env.add(new Mesh(new SphereGeometry(50, 32, 16), skyMaterial(look)));
+    const warm = new MeshBasicMaterial({ color: new Color(C.lampWarm).multiplyScalar(2.2) });
+    const cool = new MeshBasicMaterial({ color: new Color(C.tealSoft).multiplyScalar(0.8) });
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      const m = new Mesh(new BoxGeometry(2.5, 1.4 + (i % 3) * 0.6, 0.2), i % 4 === 0 ? cool : warm);
+      m.position.set(Math.cos(a) * 30, 3 + (i % 3) * 2, Math.sin(a) * 30);
+      m.lookAt(0, 3, 0);
+      env.add(m);
+    }
+    const pm = new PMREMGenerator(gl);
+    const rt = pm.fromScene(env, 0.035);
+    scene.environment = rt.texture;
+    scene.environmentIntensity = intensity;
+    return () => {
+      scene.environment = null;
+      rt.dispose();
+      pm.dispose();
+    };
+  }, [gl, scene, look, intensity]);
+  return null;
+};
+
+/** Exponential fog; set the density per shot (≈0.012–0.02 at street level, ≈0.002 for a wide). */
+export const Fog: React.FC<{ density: number; color?: number }> = ({ density, color = C.haze }) => {
+  const { scene } = useThree();
+  useLayoutEffect(() => {
+    if (!(scene.fog instanceof FogExp2)) scene.fog = new FogExp2(new Color(color), density);
+    (scene.fog as FogExp2).color.set(color);
+    (scene.fog as FogExp2).density = density;
+  }, [scene, density, color]);
+  return null;
+};
+
+/** Cool dusk key with soft shadows over a `size`-metre area, plus hemisphere fill. */
+export const DuskLight: React.FC<{ from?: V3; intensity?: number; size?: number; fill?: number }> = ({ from = [-16, 30, 26], intensity = 1.15, size = 30, fill = 0.55 }) => (
+  <group>
+    <hemisphereLight args={[0xa9c2c0, 0x5a473a, fill]} />
+    <directionalLight
+      position={from}
+      intensity={intensity}
+      color={0xc4d8d6}
+      castShadow
+      shadow-mapSize={[4096, 4096]}
+      shadow-bias={-0.0003}
+      shadow-normalBias={0.03}
+      shadow-camera-left={-size}
+      shadow-camera-right={size}
+      shadow-camera-top={size}
+      shadow-camera-bottom={-size}
+      shadow-camera-near={1}
+      shadow-camera-far={Math.hypot(...from) + size * 2}
+    />
+  </group>
+);
+
+==== 19768 src/kits/voxelverse/world/Building.tsx
+// Spec-driven voxel buildings: proportions, wall type, window rhythm, roof, shopfront and extras are
+// data; the model is assembled from the voxel kit (brick or stone walls with cut openings, framed windows,
+// sills, arches, shutters, balconies, fire escapes, roofs of five kinds, tanks, chimneys, a clock tower).
+// Windows become instanced glow panes whose light is a pure function of the frame.
+
+import React, { useMemo } from "react";
+import { C } from "../lib/palette";
+import { VoxModel, GlowPanes, type Pane } from "../lib/components";
+import { brickWall, sill, shrub, slabWithHoles, windowFrame, downpipe, type Hole } from "../lib/kit";
+import type { Vox, V3 } from "../lib/voxel";
+import { interiorAtlas } from "../lib/textures";
+import { hash } from "../core/noise";
+
+export type WinStyle = "tall" | "square" | "arched" | "pair" | "band" | "round";
+export type Roof = "flat" | "gable" | "saw" | "mansard" | "stepped";
+export type Shop = "none" | "workshop" | "bakery" | "cinema" | "market" | "arcade" | "depot";
+
+export type BuildingSpec = {
+  /** façade width (x) and depth behind the façade (−z) */
+  w: number;
+  depth: number;
+  /** ground-floor height and upper floor heights */
+  ground: number;
+  floors: number[];
+  wall: "brick" | "plaster" | "stone";
+  wallColor: number;
+  trim: number;
+  win: WinStyle;
+  bays: number;
+  winW: number;
+  winH: number;
+  roof: Roof;
+  roofColor: number;
+  shop: Shop;
+  shopColor?: number;
+  extras?: ("balconies" | "fireEscape" | "shutters" | "ac" | "tank" | "plants" | "awning" | "vent" | "chimney" | "tower")[];
+  seed: number;
+};
+
+/** Where a building stands: façade centre on the ground, and its turn about Y (0 = façade faces +Z). */
+export type Placement = { pos: V3; rotY: number };
+
+export const buildingHeight = (b: BuildingSpec) => b.ground + b.floors.reduce((a, c) => a + c, 0);
+
+/** Voxel model of a building, authored with its façade on z = 0 facing +Z, centred on x = 0. */
+export const buildingModel = (b: BuildingSpec) => (v: Vox) => {
+  const W = b.w;
+  const hw = W / 2;
+  const H = b.ground + b.floors.reduce((a, c) => a + c, 0);
+  const D = b.depth;
+  const has = (e: NonNullable<BuildingSpec["extras"]>[number]) => b.extras?.includes(e);
+
+  // Back and side walls: simple solids so roofs and silhouettes read from above.
+  v.span([-hw, 0, -D], [hw, H, -0.3], b.wallColor, { jitter: 0.02 });
+
+  // Ground floor / shopfront
+  const g = b.ground;
+  const shopHoles: Hole[] = [];
+  if (b.shop === "market") {
+    for (let i = 0; i < b.bays; i++) {
+      const cx = -hw + (W / b.bays) * (i + 0.5);
+      shopHoles.push([cx - 0.85, cx + 0.85, 0, g - 1.0]);
+    }
+  } else if (b.shop === "depot") {
+    shopHoles.push([-hw + 1.0, -hw + 4.2, 0, 3.4]);
+  } else if (b.shop !== "none") {
+    shopHoles.push([-hw + 0.5, hw - 0.5, 0.6, g - 0.85]);
+  }
+  if (b.wall === "brick") {
+    brickWall(v, -hw, hw, 0, g, shopHoles.map((h) => [h[0], h[1], h[2] === 0.6 ? 0 : h[2], h[3]] as Hole), { back: 0.3 });
+  } else {
+    // rusticated stone base: chunky blocks
+    slabWithHoles(v, -hw, hw, 0, g, -0.3, 0, shopHoles.map((h) => [h[0], h[1], h[2] === 0.6 ? 0 : h[2], h[3]] as Hole), b.wall === "stone" ? b.wallColor : b.trim);
+    for (let y = 0.05; y < g - 0.3; y += 0.5) {
+      for (let x = -hw; x < hw; x += 0.9) {
+        const xa = x + ((y * 2) % 2 ? 0.45 : 0);
+        const inHole = shopHoles.some((h) => xa + 0.85 > h[0] && xa < h[1] && y + 0.45 > h[2] && y < h[3]);
+        if (inHole) continue;
+        v.span([Math.max(-hw, xa + 0.02), y, 0], [Math.min(hw, xa + 0.88), y + 0.45, 0.06], b.wall === "stone" ? b.wallColor : C.stoneLight, { jitter: 0.05, r: 0.03 });
+      }
+    }
+  }
+  // Shopfront fittings
+  if (b.shop === "bakery" || b.shop === "workshop" || b.shop === "arcade" || b.shop === "cinema") {
+    const sc = b.shopColor ?? C.tealDeep;
+    v.span([-hw + 0.5, 0, -0.2], [hw - 0.5, 0.6, 0.02], sc, { mat: "satin" });
+    v.span([-hw + 0.45, g - 0.85, -0.2], [hw - 0.45, g - 0.15, 0.08], sc, { mat: "satin" }); // fascia
+    v.span([-hw + 0.4, g - 0.15, -0.2], [hw - 0.4, g - 0.05, 0.14], b.trim, {});
+    const n = Math.max(2, Math.round((W - 1) / 1.6));
+    for (let i = 0; i <= n; i++) {
+      const x = -hw + 0.5 + ((W - 1) / n) * i;
+      v.span([x - 0.05, 0.6, -0.18], [x + 0.05, g - 0.85, -0.04], sc, { mat: "satin" });
+    }
+    if (b.shop === "workshop") {
+      // roll-up door: ribbed shutter half-raised
+      for (let y = 1.4; y < g - 0.9; y += 0.12) v.span([-hw + 0.6, y, -0.12], [-hw + 0.6 + W * 0.45, y + 0.09, -0.06], C.stoneLight, { mat: "metal" });
+    }
+    if (b.shop === "arcade") {
+      for (let i = 0; i <= 3; i++) {
+        const x = -hw + 0.3 + ((W - 0.6) / 3) * i;
+        v.span([x - 0.22, 0, 0], [x + 0.22, g - 0.6, 0.3], b.wallColor, { jitter: 0.03 });
+      }
+    }
+  }
+  if (b.shop === "depot") {
+    // big timber doors, one ajar
+    v.span([-hw + 1.05, 0, -0.25], [-hw + 2.6, 3.35, -0.15], C.woodDark, { jitter: 0.05 });
+    v.at([-hw + 4.15, 0, -0.2], [0, -0.5, 0], () => v.span([-1.5, 0, -0.05], [0, 3.35, 0.05], C.wood, { jitter: 0.05 }));
+    for (let y = 0.4; y < 3.3; y += 0.7) v.span([-hw + 1.05, y, -0.15], [-hw + 2.6, y + 0.08, -0.1], C.ink, { mat: "metal" });
+    v.span([-hw + 0.9, 3.4, 0], [-hw + 4.3, 3.75, 0.12], C.stoneLight, {});
+  }
+  if (b.shop === "market") {
+    for (const h of shopHoles) {
+      // arched openings: stepped voxel arch + iron grille
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4;
+        const off = 0.85 * (1 - Math.cos((t * Math.PI) / 2));
+        v.span([h[0] - 0.05, h[3] - 0.1 + t * 0.6, -0.02], [h[0] + off * 0.6, h[3] + t * 0.6 + 0.06, 0.08], C.stoneLight, {});
+        v.span([h[1] - off * 0.6, h[3] - 0.1 + t * 0.6, -0.02], [h[1] + 0.05, h[3] + t * 0.6 + 0.06, 0.08], C.stoneLight, {});
+      }
+      for (let x = h[0] + 0.2; x < h[1]; x += 0.22) v.span([x - 0.015, 0, -0.1], [x + 0.015, h[3] - 0.1, -0.07], C.ink, { mat: "metal" });
+    }
+  }
+  if (b.shop === "cinema") {
+    // marquee canopy projecting over the walk
+    v.span([-hw + 0.8, g - 0.95, 0], [hw - 0.8, g - 0.6, 1.7], C.tealDeep, { mat: "satin" });
+    v.span([-hw + 0.7, g - 0.62, -0.1], [hw - 0.7, g - 0.55, 1.8], C.copper, { mat: "metal" });
+    v.span([-hw + 0.8, g - 1.05, 1.62], [hw - 0.8, g - 0.95, 1.72], C.copperDark, { mat: "metal" });
+    // tall vertical sign blade
+    v.span([-0.3, g + 0.2, 0], [0.3, g + 5.2, 0.9], C.tealDeep, { mat: "satin" });
+    v.span([-0.34, g + 0.15, 0.85], [0.34, g + 5.25, 0.95], C.copper, { mat: "metal" });
+  }
+
+  // Upper floors
+  let y = g;
+  b.floors.forEach((fh, fi) => {
+    const holes: Hole[] = [];
+    const bayW = W / b.bays;
+    for (let i = 0; i < b.bays; i++) {
+      const cx = -hw + bayW * (i + 0.5);
+      if (b.shop === "cinema" && fi < 2 && Math.abs(cx) < 0.9) continue;
+      const y0 = y + (fh - b.winH) * 0.45;
+      if (b.win === "pair") {
+        holes.push([cx - b.winW / 2, cx - 0.06, y0, y0 + b.winH], [cx + 0.06, cx + b.winW / 2, y0, y0 + b.winH]);
+      } else if (b.win === "band") {
+        holes.push([cx - bayW / 2 + 0.18, cx + bayW / 2 - 0.18, y0 + 0.2, y0 + b.winH]);
+      } else {
+        holes.push([cx - b.winW / 2, cx + b.winW / 2, y0, y0 + b.winH]);
+      }
+    }
+    if (b.wall === "brick") brickWall(v, -hw, hw, y, y + fh, holes, { back: 0.3 });
+    else {
+      slabWithHoles(v, -hw, hw, y, y + fh, -0.3, 0, holes, b.wallColor);
+      // string course at each floor line
+      v.span([-hw - 0.04, y - 0.08, -0.05], [hw + 0.04, y + 0.08, 0.1], b.trim, { jitter: 0.02 });
+    }
+    for (const h of holes) {
+      const isRound = b.win === "round";
+      windowFrame(v, h, { color: b.trim, z: -0.13, mullions: h[1] - h[0] > 1.0 && b.win !== "band" ? [(h[0] + h[1]) / 2] : b.win === "band" ? [h[0] + (h[1] - h[0]) / 3, h[0] + (2 * (h[1] - h[0])) / 3] : [], transom: b.win === "tall" || b.win === "arched" ? h[3] - 0.45 : null });
+      if (b.win !== "band") sill(v, h[0], h[1], h[2], b.wall === "brick" ? C.stoneLight : b.trim, 0.16);
+      if (b.win === "arched" || isRound) {
+        // voxel arch: stepped header over the opening
+        const w = h[1] - h[0];
+        for (let i = 0; i < 4; i++) v.span([h[0] + (i * w) / 9, h[3] + i * 0.07, -0.02], [h[1] - (i * w) / 9, h[3] + (i + 1) * 0.07, 0.07], b.wall === "brick" ? C.brickDark : b.trim, { jitter: 0.03 });
+      } else if (b.wall === "brick") {
+        for (let x = h[0] - 0.1; x < h[1] + 0.05; x += 0.15) v.box([x + 0.06, h[3] + 0.17, 0.03], [0.12, 0.32, 0.11], C.brickDark, { jitter: 0.08, r: 0.02 });
+      } else {
+        v.span([h[0] - 0.1, h[3], -0.02], [h[1] + 0.1, h[3] + 0.16, 0.08], b.trim, {});
+      }
+      if (has("shutters") && b.win !== "band" && b.win !== "pair") {
+        const w2 = (h[1] - h[0]) * 0.5;
+        for (const [a, c] of [[h[0] - w2 - 0.04, h[0] - 0.04], [h[1] + 0.04, h[1] + w2 + 0.04]]) {
+          v.span([a, h[2], 0.02], [c, h[3], 0.07], b.trim === C.cream ? C.teal : b.trim, { mat: "satin", jitter: 0.04 });
+          for (let yy = h[2] + 0.1; yy < h[3] - 0.05; yy += 0.15) v.span([a + 0.03, yy, 0.07], [c - 0.03, yy + 0.05, 0.09], C.tealDeep, { mat: "satin" });
+        }
+      }
+      if (has("plants") && hash(b.seed * 31 + Math.round(h[0] * 10 + y)) < 0.45) {
+        v.span([h[0] + 0.05, h[2] + 0.0, 0.05], [h[1] - 0.05, h[2] + 0.18, 0.25], C.wood, { jitter: 0.05 });
+        shrub(v, [(h[0] + h[1]) / 2, h[2] + 0.24, 0.15], Math.min(0.3, (h[1] - h[0]) * 0.3), fi);
+      }
+      if (has("ac") && hash(b.seed * 17 + Math.round(h[0] * 7 + y)) < 0.35) {
+        v.span([h[1] - 0.6, h[2] - 0.55, 0.0], [h[1] - 0.05, h[2] - 0.15, 0.32], C.cream, { mat: "satin" });
+        for (let k = 0; k < 4; k++) v.span([h[1] - 0.55, h[2] - 0.5 + k * 0.08, 0.32], [h[1] - 0.25, h[2] - 0.47 + k * 0.08, 0.33], C.stoneDark, {});
+      }
+    }
+    if (has("balconies") && fi >= 0 && fi < b.floors.length) {
+      for (const h of holes.filter((_, i) => i % 2 === 0)) {
+        const bx0 = h[0] - 0.25, bx1 = h[1] + 0.25;
+        v.span([bx0, h[2] - 0.12, 0], [bx1, h[2], 0.75], C.stoneLight, { mat: "wet" });
+        for (let x = bx0 + 0.05; x <= bx1; x += 0.16) v.span([x, h[2], 0.69], [x + 0.03, h[2] + 0.7, 0.72], C.ink, { mat: "metal" });
+        v.span([bx0, h[2] + 0.68, 0.67], [bx1, h[2] + 0.74, 0.75], C.ink, { mat: "metal" });
+        for (const sx of [bx0, bx1 - 0.03]) for (let z = 0.05; z < 0.7; z += 0.16) v.span([sx, h[2], z], [sx + 0.03, h[2] + 0.7, z + 0.03], C.ink, { mat: "metal" });
+        if (hash(b.seed + Math.round(h[0] * 13) + fi) < 0.6) shrub(v, [bx0 + 0.3, h[2] + 0.15, 0.45], 0.28, fi + 1);
+      }
+    }
+    y += fh;
+  });
+
+  // Fire escape: landings + zig-zag stairs on the middle bays.
+  if (has("fireEscape")) {
+    let fy = b.ground;
+    b.floors.forEach((fh, i) => {
+      const x0 = -hw + W * 0.32, x1 = hw - W * 0.12;
+      const ly = fy + 0.05;
+      v.span([x0, ly, 0.02], [x1, ly + 0.06, 0.9], C.ink, { mat: "metal" });
+      for (let x = x0; x <= x1; x += 0.2) v.span([x, ly + 0.06, 0.86], [x + 0.025, ly + 0.95, 0.89], C.ink, { mat: "metal" });
+      v.span([x0, ly + 0.92, 0.84], [x1, ly + 0.97, 0.9], C.ink, { mat: "metal" });
+      // stair down to the next landing
+      if (i > 0) {
+        const steps = 9;
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          const sx = (i % 2 ? x0 + 0.2 : x1 - 0.8) + (i % 2 ? t : 1 - t) * 0.6 * 1.0;
+          v.span([sx, ly - fh * t, 0.12], [sx + 0.22, ly - fh * t + 0.04, 0.78], C.ink, { mat: "metal" });
+        }
+        v.at([(x0 + x1) / 2 + (i % 2 ? -0.4 : 0.4), ly - fh / 2, 0.8], [0, 0, (i % 2 ? 1 : -1) * Math.atan2(fh, 1.4)], () => v.box([0, 0, 0], [0.05, Math.hypot(fh, 1.4) + 0.1, 0.05], C.ink, { mat: "metal" }));
+      }
+      fy += fh;
+    });
+  }
+
+  // Roofs
+  const rc = b.roofColor;
+  if (b.roof === "flat" || b.roof === "stepped") {
+    v.span([-hw - 0.08, H - 0.15, -0.3], [hw + 0.08, H + 0.15, 0.18], b.trim, { mat: "wet" });
+    v.span([-hw, H + 0.15, -0.3], [hw, H + 0.6, -0.05], b.wall === "brick" ? b.wallColor : b.trim, { jitter: 0.02 });
+    v.span([-hw, H, -D], [hw, H + 0.12, -0.3], rc, { mat: "wet" });
+    if (b.roof === "stepped") {
+      v.span([-hw + 1, H, -D + 0.5], [hw - 1, H + 1.3, -1.8], b.wallColor, {});
+      v.span([-hw + 0.9, H + 1.3, -D + 0.4], [hw - 0.9, H + 1.45, -1.7], b.trim, { mat: "wet" });
+      v.span([-hw + 2.2, H + 1.45, -D + 1.6], [hw - 2.2, H + 2.4, -3.2], b.wallColor, {});
+      v.span([-hw + 2.1, H + 2.4, -D + 1.5], [hw - 2.1, H + 2.52, -3.1], rc, { mat: "wet" });
+    }
+  } else if (b.roof === "gable") {
+    // stepped voxel gable running along X, tiles in rows
+    const steps = 6;
+    for (let i = 0; i < steps; i++) {
+      const inset = (D / 2) * (i / steps);
+      v.span([-hw - 0.15, H + i * 0.42, -D - 0.15 + inset], [hw + 0.15, H + (i + 1) * 0.42, 0.15 - inset], i % 2 ? rc : rc, { mat: "wet", jitter: 0.04, r: 0.04 });
+    }
+    v.span([-hw - 0.2, H + steps * 0.42, -D / 2 - 0.25], [hw + 0.2, H + steps * 0.42 + 0.12, -D / 2 + 0.25], b.trim, { mat: "metal" });
+  } else if (b.roof === "mansard") {
+    v.span([-hw - 0.1, H - 0.1, -0.3], [hw + 0.1, H + 0.12, 0.2], b.trim, { mat: "wet" });
+    for (let i = 0; i < 4; i++) v.span([-hw + i * 0.12, H + 0.12 + i * 0.55, -D + i * 0.15], [hw - i * 0.12, H + 0.12 + (i + 1) * 0.55, -0.1 - i * 0.28], rc, { mat: "wet", jitter: 0.03, r: 0.03 });
+    // dormers
+    const n = Math.max(1, b.bays - 1);
+    for (let i = 0; i < n; i++) {
+      const cx = -hw + (W / n) * (i + 0.5);
+      v.span([cx - 0.45, H + 0.4, -0.95], [cx + 0.45, H + 1.5, -0.25], b.trim, {});
+      v.span([cx - 0.55, H + 1.5, -1.0], [cx + 0.55, H + 1.65, -0.15], rc, { mat: "wet" });
+    }
+  } else if (b.roof === "saw") {
+    v.span([-hw, H, -D], [hw, H + 0.12, -0.2], C.stoneDark, {});
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const z0 = -D + (D / n) * i + 0.1, z1 = z0 + D / n - 0.1;
+      for (let k = 0; k < 5; k++) {
+        const t = k / 5;
+        v.span([-hw + 0.1, H + 0.12 + t * 1.6, z0 + (z1 - z0) * t], [hw - 0.1, H + 0.12 + (t + 0.2) * 1.6, z1], rc, { mat: "wet", r: 0.03, jitter: 0.03 });
+      }
+      v.span([-hw + 0.2, H + 0.2, z0 - 0.04], [hw - 0.2, H + 1.7, z0 + 0.04], C.tealDeep, { mat: "gloss" });
+    }
+    v.span([-hw - 0.1, H - 0.2, -0.3], [hw + 0.1, H + 0.6, 0.12], b.wallColor, { jitter: 0.03 });
+  }
+  if (has("tank")) {
+    v.at([hw - 1.6, H + 0.12, -D + 2.2], 0.2, () => {
+      for (const [lx, lz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) v.span([lx - 0.06, 0, lz - 0.06], [lx + 0.06, 0.9, lz + 0.06], C.woodDark, {});
+      v.prism([0, 1.6, 0], 0.75, 1.3, C.wood, { sides: 12, jitter: 0.03 });
+      v.prism([0, 2.4, 0], 0.4, 0.3, C.copperDark, { sides: 12, mat: "metal" });
+    });
+  }
+  if (has("chimney")) {
+    for (const cx of [-hw + 0.9, hw - 1.3]) {
+      v.span([cx - 0.3, H, -D * 0.6], [cx + 0.3, H + 2.8, -D * 0.6 + 0.6], b.wall === "brick" ? C.brickDark : C.stoneDark, { jitter: 0.04 });
+      v.span([cx - 0.36, H + 2.8, -D * 0.6 - 0.06], [cx + 0.36, H + 2.95, -D * 0.6 + 0.66], C.stoneLight, {});
+      v.prism([cx, H + 3.1, -D * 0.6 + 0.3], 0.1, 0.3, C.copperDark, { sides: 8, mat: "metal" });
+    }
+  }
+  if (has("vent")) {
+    v.span([-0.8, H + 0.12, -D + 1.5], [0.8, H + 0.9, -D + 3.1], C.stoneLight, { mat: "metal" });
+  }
+  if (has("tower")) {
+    // clock tower rising from the east end
+    const tx = hw - 2.2, tz = -3.2;
+    v.span([tx - 1.6, H, tz - 1.6], [tx + 1.6, H + 8.5, tz + 1.6], b.wallColor, { jitter: 0.02 });
+    for (let k = 0; k < 4; k++) v.span([tx - 1.7, H + 1.5 + k * 2, tz - 1.7], [tx + 1.7, H + 1.62 + k * 2, tz + 1.7], b.trim, { mat: "metal" });
+    v.span([tx - 1.85, H + 8.5, tz - 1.85], [tx + 1.85, H + 8.8, tz + 1.85], C.stoneLight, { mat: "wet" });
+    for (let i = 0; i < 5; i++) v.span([tx - 1.4 + i * 0.28, H + 8.8 + i * 0.5, tz - 1.4 + i * 0.28], [tx + 1.4 - i * 0.28, H + 9.3 + i * 0.5, tz + 1.4 - i * 0.28], C.copperPatina, { mat: "metal", r: 0.03 });
+    v.span([tx - 0.05, H + 11.2, tz - 0.05], [tx + 0.05, H + 12.6, tz + 0.05], C.copperDark, { mat: "metal" });
+    // clock face surrounds (the faces themselves glow)
+    v.span([tx - 1.05, H + 5.2, tz + 1.6], [tx + 1.05, H + 7.3, tz + 1.72], C.copperDark, { mat: "metal" });
+    v.span([tx - 1.72, H + 5.2, tz - 1.05], [tx - 1.6, H + 7.3, tz + 1.05], C.copperDark, { mat: "metal" });
+  }
+  // a downpipe on every other building
+  if (hash(b.seed) < 0.6) downpipe(v, [hw - 0.2, 0.12], H - 0.1, 0);
+};
+
+/** What a pane needs to decide its light: world position, floor (−1 = shop), a stable seed. */
+export type PaneInfo = { pos: V3; floor: number; seed: number; shop: boolean };
+/** Returns the pane's emission (0 = dark, ~1 = lit) as a function of the film frame. */
+export type GlowFn = (p: PaneInfo) => (f: number) => number;
+
+const toWorld = (at: Placement, p: V3): V3 => {
+  const c = Math.cos(at.rotY), s = Math.sin(at.rotY);
+  return [at.pos[0] + p[0] * c + p[2] * s, at.pos[1] + p[1], at.pos[2] - p[0] * s + p[2] * c];
+};
+
+/** Glow panes for a building's windows and shopfront, in world space. */
+export const buildingPanes = (b: BuildingSpec, at: Placement, glow: GlowFn): Pane[] => {
+  const W = b.w;
+  const hw = W / 2;
+  const out: Pane[] = [];
+  const warmth = [0xffc287, 0xffb070, 0xffd3a4, 0xffa860, 0xf6d9b0];
+  let y = b.ground;
+  let n = 0;
+  b.floors.forEach((fh, fi) => {
+    const bayW = W / b.bays;
+    for (let i = 0; i < b.bays; i++) {
+      const cx = -hw + bayW * (i + 0.5);
+      if (b.shop === "cinema" && fi < 2 && Math.abs(cx) < 0.9) continue;
+      const y0 = y + (fh - b.winH) * 0.45;
+      const rects: [number, number, number, number][] =
+        b.win === "pair"
+          ? [[cx - b.winW / 2, cx - 0.06, y0, y0 + b.winH], [cx + 0.06, cx + b.winW / 2, y0, y0 + b.winH]]
+          : b.win === "band"
+            ? [[cx - bayW / 2 + 0.18, cx + bayW / 2 - 0.18, y0 + 0.2, y0 + b.winH]]
+            : [[cx - b.winW / 2, cx + b.winW / 2, y0, y0 + b.winH]];
+      for (const r of rects) {
+        const seed = b.seed * 100 + n++;
+        const pos = toWorld(at, [(r[0] + r[1]) / 2, (r[2] + r[3]) / 2, -0.17]);
+        out.push({
+          pos,
+          size: [r[1] - r[0] - 0.08, r[3] - r[2] - 0.08],
+          rotY: at.rotY,
+          tint: warmth[Math.floor(hash(seed * 11) * warmth.length)],
+          cell: Math.floor(hash(seed * 13) * 4) as 0 | 1 | 2 | 3,
+          glow: glow({ pos, floor: fi, seed, shop: false }),
+        });
+      }
+    }
+    y += fh;
+  });
+  if (b.shop !== "none" && b.shop !== "market" && b.shop !== "depot") {
+    const seed = b.seed * 100 + 99;
+    const pos = toWorld(at, [0, (0.6 + b.ground - 0.85) / 2, -0.22]);
+    const g = glow({ pos, floor: -1, seed, shop: true });
+    out.push({ pos, size: [W - 1.2, b.ground - 0.85 - 0.6 - 0.05], rotY: at.rotY, tint: 0xffc890, cell: 3, glow: (f) => 1.3 * g(f) });
+  }
+  if (b.shop === "market" || b.shop === "depot") {
+    const seed = b.seed * 100 + 98;
+    const pos = toWorld(at, [0, b.ground * 0.4, -1.2]);
+    const g = glow({ pos, floor: -1, seed, shop: true });
+    out.push({ pos, size: [W - 1.0, b.ground * 0.8], rotY: at.rotY, tint: 0xffb878, cell: 0, glow: (f) => 0.9 * g(f) });
+  }
+  return out;
+};
+
+/** A row of buildings with all their glow panes in one instanced draw call. */
+export const Buildings: React.FC<{ list: { spec: BuildingSpec; at: Placement }[]; glow: GlowFn; f?: number }> = ({ list, glow, f }) => {
+  const panes = useMemo(() => list.flatMap(({ spec, at }) => buildingPanes(spec, at, glow)), [list, glow]);
+  const atlas = useMemo(interiorAtlas, []);
+  return (
+    <group>
+      {list.map(({ spec, at }, i) => (
+        <group key={i} position={at.pos} rotation={[0, at.rotY, 0]}>
+          <VoxModel build={buildingModel(spec)} seed={spec.seed} />
+        </group>
+      ))}
+      <GlowPanes panes={panes} atlas={atlas} f={f} />
+    </group>
+  );
+};
+
+==== 5609 src/kits/voxelverse/world/Plinth.tsx
+// The diorama plinth: a street along X (asphalt in patched strips, worn lane marks, an optional zebra
+// crossing and tram setts), kerbs and stone-paver walks on both sides, yards behind, puddles, and a
+// cut-away base showing soil strata with pebbles and cable ducts, framed in timber. Parametric: one call
+// per world. Street centre is z = 0; the plinth top is y = 0 (walks sit at `curb`).
+
+import React from "react";
+import { C } from "../lib/palette";
+import { VoxModel } from "../lib/components";
+import type { Vox } from "../lib/voxel";
+
+export type PlinthSpec = {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  /** half width of the carriageway */
+  roadHalf: number;
+  /** kerb height */
+  curb: number;
+  /** outer edge of each walk, measured from the street centre */
+  walkOuter: number;
+  /** depth of the cut-away base below the street */
+  baseDepth: number;
+  /** x of a zebra crossing, if any */
+  crossingX?: number;
+  /** tram setts and rails down the middle */
+  tram?: boolean;
+  /** puddles: [x, z, width, depth] */
+  puddles?: [number, number, number, number][];
+};
+
+const ground = (P: PlinthSpec) => (v: Vox) => {
+  const { minX, maxX, minZ, maxZ, roadHalf, curb, walkOuter, baseDepth } = P;
+  // road: slightly crowned asphalt in long strips with patched sections
+  for (let x = minX; x < maxX - 0.01; x += 2)
+    for (let z = -roadHalf; z < roadHalf - 0.01; z += 1.6) {
+      const patch = v.rand() < 0.12;
+      const crown = 0.02 * (1 - Math.abs(z) / roadHalf);
+      v.span([x, -0.2, z], [Math.min(x + 2, maxX), crown, Math.min(z + 1.6, roadHalf)], patch ? 0x474b4a : C.asphalt, { mat: "wet", r: 0.005, jitter: 0.05 });
+    }
+  if (P.tram) {
+    for (let x = minX; x < maxX - 0.01; x += 0.3)
+      for (let z = -0.9; z < 0.9; z += 0.3) v.span([x + 0.01, 0.0, z + 0.01], [x + 0.29, 0.035, z + 0.29], C.cobble, { mat: "wet", r: 0.02, jitter: 0.12 });
+    for (const rz of [-0.72, 0.72]) v.span([minX, 0.035, rz - 0.04], [maxX, 0.07, rz + 0.04], C.stoneLight, { mat: "metal", r: 0.01 });
+  } else {
+    // worn centre line
+    for (let x = minX + 0.6; x < maxX - 1; x += 2.6) v.span([x, 0.02, -0.05], [x + 1.3, 0.03, 0.05], 0xbfb6a0, { mat: "wet", r: 0.004 });
+  }
+  if (P.crossingX !== undefined)
+    for (let z = -roadHalf + 0.3; z < roadHalf - 0.3; z += 0.55)
+      v.span([P.crossingX - 0.9, 0.02, z], [P.crossingX + 0.9, 0.035, z + 0.32], 0xd5ccb6, { mat: "wet", r: 0.004, jitter: 0.04 });
+  // kerbs and square stone pavers, both sides
+  for (const s of [-1, 1]) {
+    v.span([minX, -0.2, s > 0 ? roadHalf - 0.1 : -roadHalf - 0.12], [maxX, curb, s > 0 ? roadHalf + 0.12 : -roadHalf + 0.1], C.stoneLight, { mat: "wet", r: 0.02 });
+    const z0 = s > 0 ? roadHalf + 0.12 : -walkOuter;
+    const z1 = s > 0 ? walkOuter : -roadHalf - 0.12;
+    for (let x = minX; x < maxX - 0.01; x += 0.62)
+      for (let z = z0; z < z1 - 0.01; z += 0.62)
+        v.span([x + 0.015, curb - 0.2, z + 0.015], [Math.min(x + 0.605, maxX), curb, Math.min(z + 0.605, z1)], v.rand() < 0.15 ? C.stoneDark : C.stone, { mat: "wet", r: 0.015, jitter: 0.07 });
+    for (let x = minX + 2.5; x < maxX - 1; x += 6.3) v.span([x, 0.0, s * (roadHalf - 0.42)], [x + 0.6, 0.012, s * (roadHalf - 0.08)], C.ink, { mat: "metal" });
+    // yards behind the walks so the plinth top is never empty
+    const zA = s > 0 ? walkOuter : minZ;
+    const zB = s > 0 ? maxZ : -walkOuter;
+    if (zB > zA) v.span([minX, -0.2, zA], [maxX, 0.05, zB], C.cobble, { mat: "wet", jitter: 0.03, r: 0.01 });
+  }
+  // cut-away base: strata, pebbles on the faces, cable ducts, timber edge frame
+  const cuts = [...[-0.2, -0.7, -1.6, -2.7].filter((y) => y > -baseDepth + 0.05), -baseDepth];
+  const sc = [C.stoneDark, 0x6b5543, 0x5a4636, 0x4b3a2e];
+  for (let i = 0; i < cuts.length - 1; i++) v.span([minX, cuts[i + 1], minZ], [maxX, cuts[i], maxZ], sc[Math.min(i, sc.length - 1)], { r: 0.02 });
+  const pebbles = Math.round(((maxX - minX) + (maxZ - minZ)) * 5);
+  for (let i = 0; i < pebbles; i++) {
+    const onFront = v.rand() < 0.6;
+    const y = -0.8 - v.rand() * (baseDepth - 1.0);
+    const s = 0.08 + v.rand() * 0.16;
+    const col = [0x7a6656, 0x8b7a68, 0x5c4a3c][Math.floor(v.rand() * 3)];
+    if (onFront) v.box([minX + 0.5 + v.rand() * (maxX - minX - 1), y, maxZ + 0.02], [s, s * 0.7, 0.06], col, { jitter: 0.1 });
+    else v.box([minX - 0.02, y, minZ + 0.5 + v.rand() * (maxZ - minZ - 1)], [0.06, s * 0.7, s], col, { jitter: 0.1 });
+  }
+  for (const [z, y] of [[-roadHalf * 0.5, -1.15], [roadHalf * 0.4, -1.3]] as const)
+    v.span([minX - 0.05, y - 0.22, z - 0.22], [maxX + 0.05, y + 0.22, z + 0.22], 0x3b3633, { r: 0.04 });
+  v.span([minX - 0.18, -0.25, maxZ], [maxX + 0.18, 0.08, maxZ + 0.18], C.woodDark, { r: 0.02 });
+  v.span([minX - 0.18, -0.25, minZ - 0.18], [maxX + 0.18, 0.08, minZ], C.woodDark, { r: 0.02 });
+  v.span([minX - 0.18, -0.25, minZ], [minX, 0.08, maxZ], C.woodDark, { r: 0.02 });
+  v.span([maxX, -0.25, minZ], [maxX + 0.18, 0.08, maxZ], C.woodDark, { r: 0.02 });
+};
+
+/** Mirror-calm puddles: low-roughness plates just above the road or walk. */
+const puddles = (P: PlinthSpec) => (v: Vox) => {
+  for (const [x, z, w, d] of P.puddles ?? []) {
+    const y = Math.abs(z) > P.roadHalf ? P.curb + 0.004 : 0.03;
+    v.span([x - w / 2, y - 0.01, z - d / 2], [x + w / 2, y, z + d / 2], 0x262b2b, { mat: "gloss", r: 0.003 });
+  }
+};
+
+export const Plinth: React.FC<{ spec: PlinthSpec }> = ({ spec }) => (
+  <group>
+    <VoxModel build={ground(spec)} seed={21} castShadow={false} />
+    {spec.puddles?.length ? <VoxModel build={puddles(spec)} seed={22} castShadow={false} /> : null}
+  </group>
+);
+
+==== 5804 src/kits/voxelverse/world/Rain.tsx
+// Rain. A dense volume of streaks anchored in world space but wrapped around the lens (so it never swims
+// with the camera), ripples on the wet ground near the camera, and an optional sparse diorama-wide volume
+// for wide shots. `blocked(x, y, z)` keeps drops out of interiors and from under awnings; `groundY(x, z)`
+// tells ripples where the surface is. All motion is a pure function of the film frame (60 fps clock).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { AdditiveBlending, BoxGeometry, Color, Euler, InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, RingGeometry, Vector3 } from "three";
+import { rng } from "../core/noise";
+import { clamp } from "../core/motion";
+import { FX_LAYER } from "../lib/layers";
+import type { CamState } from "../camera/rig";
+
+const wrap = (v: number, lo: number, size: number) => lo + ((((v - lo) % size) + size) % size);
+
+export type RainProps = {
+  cam: CamState;
+  /** film frame, 60 fps clock */
+  f: number;
+  /** 0..1 strength of the near volume */
+  amount?: number;
+  /** 0..1 strength of the diorama-wide volume (wide shots) */
+  wide?: number;
+  /** world area for the wide volume */
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
+  blocked?: (x: number, y: number, z: number) => boolean;
+  groundY?: (x: number, z: number) => number;
+  near?: number;
+  far?: number;
+  ripples?: number;
+};
+
+const BOX: [number, number, number] = [16, 11, 16];
+const FALL = 9.5; // units per second
+const WIND = 0.12; // slant
+
+export const Rain: React.FC<RainProps> = ({ cam, f, amount = 1, wide = 0, bounds, blocked = () => false, groundY = () => 0.035, near = 2600, far = 3000, ripples = 260 }) => {
+  const sys = useMemo(() => {
+    const r = rng(77);
+    const nearD = Array.from({ length: near }, () => [r(), r(), r(), 0.6 + r() * 0.8] as const);
+    const farD = Array.from({ length: far }, () => [r(), r(), r(), 0.75 + r() * 0.5] as const);
+    const rip = Array.from({ length: ripples }, () => [r(), r(), Math.floor(r() * 30)] as const);
+    const mat = new MeshBasicMaterial({ color: new Color(0.42, 0.47, 0.48), transparent: true, opacity: 0.26, blending: AdditiveBlending, depthWrite: false, fog: false });
+    const nearMesh = new InstancedMesh(new BoxGeometry(0.0045, 0.26, 0.0045), mat, near);
+    const farMat = mat.clone();
+    const farMesh = new InstancedMesh(new BoxGeometry(0.035, 0.9, 0.035), farMat, far);
+    const ripMat = new MeshBasicMaterial({ color: new Color(1, 1, 1), transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false });
+    const ripMesh = new InstancedMesh(new RingGeometry(0.8, 1, 20).rotateX(-Math.PI / 2), ripMat, ripples);
+    for (const m of [nearMesh, farMesh, ripMesh]) {
+      m.frustumCulled = false;
+      m.layers.set(FX_LAYER);
+    }
+    return { nearD, farD, rip, nearMesh, farMesh, ripMesh, mat, farMat };
+  }, [near, far, ripples]);
+
+  useLayoutEffect(() => {
+    const t = f / 60;
+    const m = new Matrix4();
+    const q = new Quaternion().setFromEuler(new Euler(0, 0, WIND));
+    const s = new Vector3(1, 1, 1);
+    const p = new Vector3();
+    sys.mat.opacity = 0.26 * amount;
+    const lo = [cam.pos[0] - BOX[0] / 2, cam.pos[1] - BOX[1] * 0.55, cam.pos[2] - BOX[2] / 2];
+    sys.nearD.forEach(([a, b, c, sp], i) => {
+      const y = wrap(b * BOX[1] - t * FALL * sp, lo[1], BOX[1]);
+      const x = wrap(a * BOX[0] + y * WIND, lo[0], BOX[0]);
+      const z = wrap(c * BOX[2], lo[2], BOX[2]);
+      const tooClose = Math.hypot(x - cam.pos[0], y - cam.pos[1], z - cam.pos[2]) < 0.7;
+      const hidden = amount <= 0 || tooClose || y < groundY(x, z) || blocked(x, y, z);
+      s.set(hidden ? 0 : 1, hidden ? 0 : sp, hidden ? 0 : 1);
+      m.compose(p.set(x, y, z), q, s);
+      sys.nearMesh.setMatrixAt(i, m);
+    });
+    sys.nearMesh.instanceMatrix.needsUpdate = true;
+
+    sys.farMat.opacity = 0.16 * wide;
+    sys.farD.forEach(([a, b, c, sp], i) => {
+      let hidden = wide <= 0 || !bounds;
+      let x = 0, y = 0, z = 0;
+      if (bounds) {
+        y = wrap(b * bounds.height - t * FALL * 1.3 * sp, 0, bounds.height);
+        x = bounds.minX + a * (bounds.maxX - bounds.minX);
+        z = bounds.minZ + c * (bounds.maxZ - bounds.minZ);
+        hidden = hidden || Math.hypot(x - cam.pos[0], y - cam.pos[1], z - cam.pos[2]) < 9 || blocked(x, y, z);
+      }
+      s.set(hidden ? 0 : 1, hidden ? 0 : sp, hidden ? 0 : 1);
+      m.compose(p.set(x, y, z), q, s);
+      sys.farMesh.setMatrixAt(i, m);
+    });
+    sys.farMesh.instanceMatrix.needsUpdate = true;
+
+    // ripples: each spot re-fires on its own 30-frame cycle, near the camera only
+    const col = new Color();
+    const closeness = clamp(1 - (cam.pos[1] - 1) / 12) * amount;
+    const F = Math.floor(f);
+    sys.rip.forEach(([a, c, phase], i) => {
+      const cyc = (F + phase) % 30;
+      const gen = Math.floor((F + phase) / 30);
+      const r = rng(i * 131 + gen * 7);
+      const x = cam.pos[0] - 6 + ((a * 12 + r() * 3) % 12);
+      const z = cam.pos[2] - 6 + ((c * 12 + r() * 3) % 12);
+      const y = groundY(x, z) + 0.006;
+      const k = cyc / 30;
+      const rad = 0.02 + k * 0.09;
+      const hidden = closeness <= 0 || blocked(x, y + 0.5, z);
+      s.set(hidden ? 0 : rad, 1, hidden ? 0 : rad);
+      m.compose(p.set(x, y, z), new Quaternion(), s);
+      sys.ripMesh.setMatrixAt(i, m);
+      col.setScalar((1 - k) * (1 - k) * 0.13 * closeness);
+      sys.ripMesh.setColorAt(i, col);
+    });
+    sys.ripMesh.instanceMatrix.needsUpdate = true;
+    if (sys.ripMesh.instanceColor) sys.ripMesh.instanceColor.needsUpdate = true;
+  }, [f, sys, cam, amount, wide, bounds, blocked, groundY]);
+
+  return (
+    <group>
+      <primitive object={sys.nearMesh} />
+      <primitive object={sys.farMesh} />
+      <primitive object={sys.ripMesh} />
+    </group>
+  );
+};

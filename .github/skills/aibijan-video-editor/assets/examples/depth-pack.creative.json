@@ -1,0 +1,40 @@
+{
+  "_note": "Worked plan for the v3.7 depth pack. Hypothetical 32 s talking head (CREATOR POP) about putting things off: 'Aku selalu bilang nanti aja (w:3-5). Besok, besok, besok (w:9-11). Tiap hari gitu terus (w:14-17). Lah kok udah setahun? (w:20-23). Ternyata (w:25) masalahnya bukan malas (w:28-30), tapi takut gagal (w:32-34). Jadi aku coba satu hal (w:37-41): mulai lima menit aja (w:43-46). Dan ternyata itu cukup (w:50-53).' Word indices are this script's own - never copy them, its words or its compositions into another video.",
+  "concept": {
+    "idea": "'Besok' is a loop that circles his head every day until a year has gone by; the way out is tiny: five minutes",
+    "signature": "The word BESOK orbits his head on a ring (back half behind the head) while a wall of 'besok • besok •' speeds up behind him"
+  },
+  "style": "creator-pop",
+  "settings": {"editing_intensity": "medium", "sound_effects": "medium", "visual_overlays": "extensive"},
+  "emphasize": [11, 23, 30, 34, 46],
+  "camera": [
+    {"at": "t:0", "preset": "talk"},
+    {"at": "w:4", "preset": "punch", "amount": 0.06, "hold": 0.4},
+    {"at": "w:23", "preset": "shake", "amount": 0.9, "dur": 0.45},
+    {"at": "w:32", "preset": "close", "dur": 1.4},
+    {"at": "w:43", "preset": "talk", "dur": 0.6}
+  ],
+  "overlays": [
+    {"type": "Doodles", "start": "w:3", "end": "w:7", "items": [{"kind": "halo", "at": "w:3"}]},
+    {"type": "HeadRing", "signature": true, "text": "besok", "start": "w:9-0.1", "end": "w:13", "size": 60, "tone": "paper", "speed": 1.0},
+    {"type": "DepthText", "mode": "wall", "text": "tiap hari", "start": "w:14-0.1", "end": "w:19", "y": 230, "rows": 5, "size": 150,
+     "speed": 200, "ramp": 2.4, "scrollY": 40, "looks": ["fill", "outline"]},
+    {"type": "DepthText", "mode": "echo", "text": "setahun?", "start": "w:23-0.02", "end": "w:25-0.1", "y": 440, "tone": "accent", "echoTone": "ink"},
+    {"type": "Doodles", "start": "w:25", "end": "w:31", "items": [{"kind": "sparks", "at": "w:25", "side": "left"}]},
+    {"type": "DepthText", "mode": "split", "text": "malas", "text2": "takut", "start": "w:30-0.05", "end": "w:36", "y": 280,
+     "tones": ["ink", "accent"], "looks": ["outline", "fill"]},
+    {"type": "Doodles", "start": "w:38", "end": "w:42", "items": [{"kind": "bulb", "at": "w:38", "side": "right"}]},
+    {"type": "DepthText", "mode": "stack", "start": "w:43-0.05", "end": "w:49", "y": 300,
+     "lines": [{"text": "mulai", "at": "w:43", "size": 120, "look": "outline"}, {"text": "5 menit", "at": "w:45", "size": 240, "look": "fill"}]},
+    {"type": "Cutout", "start": "w:51", "end": "w:53e+0.3", "bg": "color", "color": "accent", "pattern": true}
+  ],
+  "_beats": [
+    "HOOK 'nanti aja' punch-in + a halo drawn above the head (innocent intention)",
+    "LOOP 'besok, besok, besok' the word orbits the head on a ring - the back half passes behind the head (signature)",
+    "HABIT 'tiap hari gitu terus' a wall of 'tiap hari' slides behind him and speeds up (ramp)",
+    "SHOCK 'lah kok udah setahun?' echo slam behind the head + one camera shake",
+    "TURN 'ternyata' sparks at the side of the head; 'bukan malas, tapi takut gagal' MALAS / TAKUT part from the centre",
+    "IDEA 'satu hal' a drawn bulb; 'lima menit' small MULAI + huge 5 MENIT rise behind the head",
+    "PAYOFF 'itu cukup' Cutout on the accent colour - the speaker pops forward"
+  ]
+}

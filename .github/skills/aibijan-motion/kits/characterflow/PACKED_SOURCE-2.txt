@@ -1,0 +1,2561 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 9815 src/kits/characterflow/character/skeleton.ts
+// Forward kinematics + 2-bone arm IK. The renderer (Character.tsx) nests its groups with exactly these
+// local matrices, so anything a performance asks about the body — where the eyes are, where the right
+// hand is, which way the chest faces — is answered by the same maths that draws it. Props held in a
+// hand, cameras framing a face, and look-at / reach targets all go through here.
+
+import { Euler, Matrix4, Quaternion, Vector3 } from "three";
+import type { Arm, IK, Leg, Pose } from "./pose.ts";
+import { DIMS, type CharacterSpec, type V3 } from "./spec.ts";
+
+const m4 = () => new Matrix4();
+const T = (x: number, y: number, z: number) => m4().makeTranslation(x, y, z);
+const R = (e: Euler) => m4().makeRotationFromEuler(e);
+const Q = (q: Quaternion) => m4().makeRotationFromQuaternion(q);
+const mul = (...ms: Matrix4[]) => ms.reduce((a, b) => a.multiply(b), m4());
+
+export type ArmRig = { shoulder: Matrix4; elbow: Matrix4; wrist: Matrix4; bend: number };
+export type LegRig = { hip: Matrix4; knee: Matrix4; ankle: Matrix4 };
+export type Skeleton = {
+  /** local matrices (parent → child), in rig units; `root` carries world placement + spec scale */
+  root: Matrix4; hips: Matrix4; spine: Matrix4; chest: Matrix4; neck: Matrix4; head: Matrix4; headGeo: Matrix4;
+  armL: ArmRig; armR: ArmRig; legL: LegRig; legR: LegRig;
+  /** world matrices of the main joints */
+  W: { hips: Matrix4; chest: Matrix4; head: Matrix4; headGeo: Matrix4; wristL: Matrix4; wristR: Matrix4; kneeL: Matrix4; kneeR: Matrix4; ankleL: Matrix4; ankleR: Matrix4; elbowL: Matrix4; elbowR: Matrix4; shoulderL: Matrix4; shoulderR: Matrix4 };
+};
+
+const eul = (e: [number, number, number], extraPitch = 0) => new Euler(e[0] + extraPitch, e[1], -e[2], "YXZ");
+
+/** Shoulder joint position in chest space. */
+export const shoulderPos = (spec: CharacterSpec, s: number, shrug: number) =>
+  new Vector3(s * DIMS.shoulder[0] * spec.build, DIMS.shoulder[1] + shrug * 0.032, DIMS.shoulder[2]);
+
+// ── 2-bone IK (root joint → end joint), result in the parent's space ─────────
+const ik2 = (S: Vector3, Tg: Vector3, pole: Vector3, UA: number, FA: number) => {
+  const d0 = new Vector3().subVectors(Tg, S);
+  const d = Math.min(Math.max(d0.length(), Math.abs(UA - FA) + 1e-3), UA + FA - 1e-3);
+  const u = d0.normalize();
+  const cosA = (UA * UA + d * d - FA * FA) / (2 * UA * d);
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+  const w = pole.clone().addScaledVector(u, -pole.dot(u));
+  if (w.lengthSq() < 1e-8) w.set(0, 0, -1).addScaledVector(u, -u.z);
+  w.normalize();
+  const upper = u.clone().multiplyScalar(cosA).addScaledVector(w, sinA).normalize();
+  const E = S.clone().addScaledVector(upper, UA);
+  const fore = new Vector3().subVectors(S.clone().addScaledVector(u, d), E).normalize();
+  const bend = Math.acos(Math.min(1, Math.max(-1, upper.dot(fore))));
+  const Y = upper.clone().negate();
+  let Z = fore.clone().addScaledVector(upper, -fore.dot(upper));
+  if (Z.lengthSq() < 1e-8) Z = w.clone().negate();
+  Z.normalize();
+  const X = new Vector3().crossVectors(Y, Z).normalize();
+  Z.crossVectors(X, Y).normalize();
+  return { q: new Quaternion().setFromRotationMatrix(m4().makeBasis(X, Y, Z)), bend };
+};
+
+const armRig = (spec: CharacterSpec, s: number, a: Arm, shrug: number): ArmRig => {
+  const S = shoulderPos(spec, s, shrug);
+  const fk = new Quaternion().setFromEuler(new Euler(-a.sw, s * a.tw, s * a.ab, "XZY"));
+  let q = fk, el = a.el;
+  if (a.ik && a.ik.w > 0) {
+    if (a.ik.space !== "chest") throw new Error("IK target must be resolved to chest space before FK");
+    const tg = new Vector3(a.ik.t[0], a.ik.t[1], a.ik.t[2]);
+    const pole = new Vector3(a.ik.pole[0] * s, a.ik.pole[1], a.ik.pole[2]);
+    const r = ik2(S, tg, pole, DIMS.upperArm, DIMS.foreArm);
+    q = fk.clone().slerp(r.q, a.ik.w);
+    el = el + (r.bend - el) * a.ik.w;
+  }
+  let wq = new Quaternion().setFromEuler(new Euler(a.wr[0], s * a.wr[1], s * a.wr[2], "XYZ"));
+  if (a.ik && a.ik.q && a.ik.w > 0) {
+    // hand orientation given in chest space: wrist = inverse(forearm) × hand
+    const fore = q.clone().multiply(new Quaternion().setFromEuler(new Euler(-el, 0, 0)));
+    const want = fore.invert().multiply(new Quaternion(...a.ik.q));
+    wq = wq.slerp(want, a.ik.w);
+  }
+  return {
+    shoulder: mul(T(S.x, S.y, S.z), Q(q)),
+    elbow: mul(T(0, -DIMS.upperArm, 0), R(new Euler(-el, 0, 0))),
+    wrist: mul(T(0, -DIMS.foreArm, 0), Q(wq)),
+    bend: el,
+  };
+};
+
+const legRig = (spec: CharacterSpec, s: number, l: Leg, Whips: Matrix4): LegRig => {
+  const H = new Vector3(s * DIMS.hip[0] * spec.build, DIMS.hip[1], DIMS.hip[2]);
+  if (l.ik && l.ik.w >= 0.5) {
+    // planted leg: ankle on a world target, knee forward, foot turned to a world orientation
+    const tg = new Vector3(...l.ik.t).applyMatrix4(Whips.clone().invert());
+    const r = ik2(H, tg, new Vector3(s * 0.12, -0.05, 1), DIMS.thigh, DIMS.shin);
+    const hq = new Quaternion();
+    Whips.decompose(new Vector3(), hq, new Vector3());
+    const kneeWorld = hq.clone().multiply(r.q).multiply(new Quaternion().setFromEuler(new Euler(-r.bend, 0, 0)));
+    const ankle = kneeWorld.invert().multiply(new Quaternion(...l.ik.q));
+    return {
+      hip: mul(T(H.x, H.y, H.z), Q(r.q)),
+      knee: mul(T(0, -DIMS.thigh, 0), R(new Euler(-r.bend, 0, 0))),
+      ankle: mul(T(0, -DIMS.shin, 0), Q(ankle)),
+    };
+  }
+  return {
+    hip: mul(T(H.x, H.y, H.z), R(new Euler(-l.sw, s * l.tw, s * l.ab, "XZY"))),
+    knee: mul(T(0, -DIMS.thigh, 0), R(new Euler(l.kn, 0, 0))),
+    ankle: mul(T(0, -DIMS.shin, 0), R(new Euler(-l.an, 0, 0))),
+  };
+};
+
+/** Torso-only chain (root → chest, neck, head) — used to resolve IK and look targets. */
+const torso = (p: Pose, spec: CharacterSpec, breathPitch = 0) => {
+  const root = mul(T(p.x, p.y, p.z), R(new Euler(0, p.yaw, 0)), m4().makeScale(spec.scale, spec.scale, spec.scale));
+  const hips = mul(T(0, DIMS.pelvisH + p.hipY, 0), R(eul(p.hips)));
+  const spine = mul(T(0, DIMS.spineY, 0), R(eul(p.spine)));
+  const chest = mul(T(0, DIMS.chestY, 0), R(eul(p.chest, breathPitch)));
+  const neck = mul(T(0, DIMS.neckY, -0.01), R(eul(p.neck)));
+  const head = mul(T(0, DIMS.headY, 0.01), R(eul(p.head)));
+  const hc = DIMS.headCenter;
+  const headGeo = mul(T(hc[0], hc[1], hc[2]), m4().makeScale(spec.headScale, spec.headScale, spec.headScale));
+  const Whips = mul(root, hips);
+  const Wchest = mul(Whips, spine, chest);
+  const Whead = mul(Wchest, neck, head);
+  return { root, hips, spine, chest, neck, head, headGeo, Whips, Wchest, Whead, WheadGeo: mul(Whead, headGeo) };
+};
+
+/** Breathing as a chest pitch (rad) at time t — shared by the renderer and the skeleton. */
+export const breathPitch = (p: Pose, t: number) => p.breath * 0.014 * Math.sin(t * p.breathRate * Math.PI * 2);
+
+export const skeleton = (p: Pose, spec: CharacterSpec, t = 0): Skeleton => {
+  const b = torso(p, spec, breathPitch(p, t));
+  const armL = armRig(spec, 1, p.armL, p.shrug), armR = armRig(spec, -1, p.armR, p.shrug);
+  const legL = legRig(spec, 1, p.legL, b.Whips), legR = legRig(spec, -1, p.legR, b.Whips);
+  const hs = spec.handScale;
+  const handS = m4().makeScale(hs, hs, hs);
+  const wShL = mul(b.Wchest, armL.shoulder), wShR = mul(b.Wchest, armR.shoulder);
+  const wElL = mul(wShL, armL.elbow), wElR = mul(wShR, armR.elbow);
+  const wKL = mul(b.Whips, legL.hip, legL.knee), wKR = mul(b.Whips, legR.hip, legR.knee);
+  return {
+    root: b.root, hips: b.hips, spine: b.spine, chest: b.chest, neck: b.neck, head: b.head, headGeo: b.headGeo,
+    armL, armR, legL, legR,
+    W: {
+      hips: b.Whips, chest: b.Wchest, head: b.Whead, headGeo: b.WheadGeo,
+      shoulderL: wShL, shoulderR: wShR, elbowL: wElL, elbowR: wElR,
+      wristL: mul(wElL, armL.wrist, handS), wristR: mul(wElR, armR.wrist, handS),
+      kneeL: wKL, kneeR: wKR, ankleL: mul(wKL, legL.ankle), ankleR: mul(wKR, legR.ankle),
+    },
+  };
+};
+
+/** Turn an IK target given in head or world space into chest space for this pose. */
+export const resolveIK = (ik: IK, p: Pose, spec: CharacterSpec, side: 1 | -1): IK => {
+  if (ik.space === "chest") return { ...ik, t: [ik.t[0] * side, ik.t[1], ik.t[2]] };
+  const b = torso(p, spec);
+  const v = new Vector3(...ik.t);
+  if (ik.space === "head") {
+    v.x *= side;
+    v.applyMatrix4(mul(b.neck, b.head, b.headGeo));
+  } else {
+    v.applyMatrix4(b.Wchest.clone().invert());
+  }
+  let q = ik.q;
+  if (q && ik.space === "world") {
+    const cq = new Quaternion();
+    b.Wchest.decompose(new Vector3(), cq, new Vector3());
+    const r = cq.invert().multiply(new Quaternion(...q));
+    q = [r.x, r.y, r.z, r.w];
+  }
+  return { ...ik, t: [v.x, v.y, v.z], space: "chest", q };
+};
+
+/** Direction from the head to a world point, in chest space → [yaw, pitch] for neck+head+eyes. */
+export const lookAngles = (p: Pose, spec: CharacterSpec, w: V3): [number, number] => {
+  const b = torso(p, spec);
+  const inv = b.Wchest.clone().invert();
+  const tgt = new Vector3(...w).applyMatrix4(inv);
+  const eye = new Vector3(0, 0, 0.06).applyMatrix4(mul(b.neck, b.head, b.headGeo));
+  const d = tgt.sub(eye);
+  const yaw = Math.atan2(d.x, d.z);
+  const pitch = Math.atan2(-d.y, Math.hypot(d.x, d.z));
+  return [yaw, pitch];
+};
+
+export const point = (m: Matrix4, local: V3 = [0, 0, 0]): V3 => {
+  const v = new Vector3(...local).applyMatrix4(m);
+  return [v.x, v.y, v.z];
+};
+
+/** World position of a point on the face (head units, e.g. [0, 0.01, 0.1] = between the eyes). */
+export const facePoint = (sk: Skeleton, local: V3 = [0, 0.005, 0.1]) => point(sk.W.headGeo, local);
+/** World forward direction of the face. */
+export const faceDir = (sk: Skeleton): V3 => {
+  const a = new Vector3(...facePoint(sk, [0, 0, 0])), b = new Vector3(...facePoint(sk, [0, 0, 1]));
+  const d = b.sub(a).normalize();
+  return [d.x, d.y, d.z];
+};
+
+==== 6587 src/kits/characterflow/character/spec.ts
+// CHARACTERFLOW character specs: everything that makes one character look like himself (palette,
+// proportions, hair, clothing) lives here, so the same rig, poses and performances drive any cast
+// member. Rig dimensions (DIMS) are shared by every character; a spec only scales them.
+
+export type V3 = [number, number, number];
+
+export type HairStyle = "swoop" | "crop" | "bun" | "curly" | "long" | "hijab";
+export type TopKind = "tee" | "shirt" | "hoodie";
+
+export type CharacterSpec = {
+  id: string;
+  /** overall height scale (1 = 1.80 m rig) */
+  scale: number;
+  /** stylisation: head and hand size relative to the realistic rig */
+  headScale: number;
+  handScale: number;
+  /** body width (1 = average) */
+  build: number;
+  skin: string;
+  /** cheek blush strength 0…1 */
+  blush: number;
+  hair: string;
+  hairSheen: string;
+  hairStyle: HairStyle;
+  brow: string;
+  iris: string;
+  lip: string;
+  top: { kind: TopKind; color: string; accent: string; sleeve: "short" | "long" };
+  bottom: { color: string; kind: "pants" | "shorts" | "skirt" };
+  feet: { kind: "socks" | "shoes" | "bare"; color: string };
+  glasses?: boolean;
+  beard?: boolean;
+  /** hijab colour (hairStyle "hijab") */
+  scarf?: string;
+  /** moustache (older men) */
+  moustache?: boolean;
+};
+
+/** Shared rig dimensions in unscaled metres (character faces +Z, his left is +X). */
+export const DIMS = {
+  pelvisH: 0.96,
+  spineY: 0.1,
+  chestY: 0.2,
+  neckY: 0.27,
+  headY: 0.075,
+  headCenter: [0, 0.11, 0.012] as V3,
+  shoulder: [0.185, 0.205, -0.012] as V3,
+  upperArm: 0.28,
+  foreArm: 0.25,
+  hip: [0.095, -0.05, 0] as V3,
+  thigh: 0.43,
+  shin: 0.42,
+};
+
+/** The CHARACTERFLOW lead: a young adult man — warm, slightly scruffy, instantly readable. */
+export const RAKA: CharacterSpec = {
+  id: "raka",
+  scale: 0.94,
+  headScale: 1.36,
+  handScale: 1.1,
+  build: 1,
+  skin: "#c98c62",
+  blush: 0.55,
+  hair: "#231812",
+  hairSheen: "#8a6248",
+  hairStyle: "swoop",
+  brow: "#20150f",
+  iris: "#5a3417",
+  lip: "#a35f52",
+  top: { kind: "tee", color: "#f0b23e", accent: "#fff3d6", sleeve: "short" },
+  bottom: { color: "#3c4a6b", kind: "pants" },
+  feet: { kind: "socks", color: "#e8e4dc" },
+};
+
+/** Supporting cast for imagined scenes — same rig, different specs. */
+export const FRIEND: CharacterSpec = {
+  ...RAKA,
+  id: "friend",
+  scale: 0.9,
+  headScale: 1.3,
+  skin: "#a8724e",
+  hair: "#120d0a",
+  hairStyle: "crop",
+  iris: "#3a2414",
+  top: { kind: "shirt", color: "#4f9fd6", accent: "#e9f4ff", sleeve: "short" },
+  bottom: { color: "#2d2f36", kind: "pants" },
+  feet: { kind: "shoes", color: "#f1f1f1" },
+};
+
+export const BOSS: CharacterSpec = {
+  ...RAKA,
+  id: "boss",
+  scale: 0.97,
+  headScale: 1.28,
+  build: 1.12,
+  skin: "#d9a07a",
+  hair: "#4a4440",
+  hairStyle: "crop",
+  iris: "#2a2a30",
+  glasses: true,
+  beard: true,
+  top: { kind: "shirt", color: "#dedad2", accent: "#9b2f3a", sleeve: "long" },
+  bottom: { color: "#26293a", kind: "pants" },
+  feet: { kind: "shoes", color: "#2a2120" },
+};
+
+export const NAYA: CharacterSpec = {
+  ...RAKA,
+  id: "naya",
+  scale: 0.88,
+  headScale: 1.32,
+  skin: "#b77d55",
+  hair: "#1a110c",
+  hairStyle: "bun",
+  iris: "#43260f",
+  lip: "#b05a55",
+  top: { kind: "hoodie", color: "#e76f6f", accent: "#ffe0d6", sleeve: "long" },
+  bottom: { color: "#e9d9bd", kind: "pants" },
+  feet: { kind: "shoes", color: "#fafafa" },
+};
+
+/** Raka outdoors: same character, sneakers instead of socks. */
+export const RAKA_OUT: CharacterSpec = { ...RAKA, feet: { kind: "shoes", color: "#f4f2ec" } };
+
+/** Bima — Raka's old friend: taller, broader, curly hair, round glasses, sage hoodie, khakis. */
+export const BIMA: CharacterSpec = {
+  ...RAKA,
+  id: "bima",
+  scale: 0.98,
+  headScale: 1.3,
+  handScale: 1.1,
+  build: 1.07,
+  skin: "#94603f",
+  blush: 0.45,
+  hair: "#16100c",
+  hairSheen: "#6b4a36",
+  hairStyle: "curly",
+  brow: "#140e0a",
+  iris: "#3a2312",
+  lip: "#8f4f45",
+  glasses: true,
+  top: { kind: "hoodie", color: "#7fb59a", accent: "#f3ead8", sleeve: "long" },
+  bottom: { color: "#c9b48c", kind: "pants" },
+  feet: { kind: "shoes", color: "#2f3a4f" },
+};
+
+/** Sari — a young woman in a hijab: tunic, long skirt. */
+export const SARI: CharacterSpec = {
+  ...RAKA,
+  id: "sari",
+  scale: 0.87,
+  headScale: 1.33,
+  build: 0.96,
+  skin: "#c58b63",
+  blush: 0.6,
+  hair: "#1a110c",
+  hairStyle: "hijab",
+  scarf: "#e8a0b4",
+  iris: "#43260f",
+  lip: "#b5605a",
+  top: { kind: "shirt", color: "#e4ddd1", accent: "#e8a0b4", sleeve: "long" },
+  bottom: { color: "#5b6e8c", kind: "skirt" },
+  feet: { kind: "shoes", color: "#f4f2ec" },
+};
+
+/** Dinda — a young woman with shoulder-length hair, tee and jeans. */
+export const DINDA: CharacterSpec = {
+  ...RAKA,
+  id: "dinda",
+  scale: 0.87,
+  headScale: 1.33,
+  build: 0.95,
+  skin: "#d39b72",
+  blush: 0.6,
+  hair: "#2a1a12",
+  hairSheen: "#8a6248",
+  hairStyle: "long",
+  iris: "#4a2a14",
+  lip: "#b5605a",
+  top: { kind: "tee", color: "#7fb7e6", accent: "#ffffff", sleeve: "short" },
+  bottom: { color: "#3c4a6b", kind: "pants" },
+  feet: { kind: "shoes", color: "#fafafa" },
+};
+
+/** Ibu — a mother in a hijab: older, softer build, long tunic. */
+export const IBU: CharacterSpec = {
+  ...RAKA,
+  id: "ibu",
+  scale: 0.86,
+  headScale: 1.26,
+  build: 1.1,
+  skin: "#b98159",
+  blush: 0.4,
+  hair: "#2a2420",
+  hairStyle: "hijab",
+  scarf: "#6f8f6a",
+  iris: "#3a2312",
+  lip: "#9c564e",
+  top: { kind: "shirt", color: "#c97b5a", accent: "#f3e3d3", sleeve: "long" },
+  bottom: { color: "#4a3a32", kind: "skirt" },
+  feet: { kind: "shoes", color: "#3a2e28" },
+};
+
+/** Ayah — a father: greying hair, moustache, glasses, batik-like shirt colour. */
+export const AYAH: CharacterSpec = {
+  ...RAKA,
+  id: "ayah",
+  scale: 0.95,
+  headScale: 1.26,
+  build: 1.1,
+  skin: "#b07a55",
+  blush: 0.35,
+  hair: "#5a524c",
+  hairSheen: "#a09890",
+  hairStyle: "crop",
+  brow: "#3a332e",
+  iris: "#2a2a30",
+  glasses: true,
+  moustache: true,
+  top: { kind: "shirt", color: "#8c5a3c", accent: "#f2d7a8", sleeve: "short" },
+  bottom: { color: "#2f3340", kind: "pants" },
+  feet: { kind: "shoes", color: "#2a2120" },
+};
+
+/** Adit — a teenager / school student: smaller, crop hair, white school shirt, grey trousers. */
+export const ADIT: CharacterSpec = {
+  ...RAKA,
+  id: "adit",
+  scale: 0.84,
+  headScale: 1.4,
+  build: 0.92,
+  skin: "#c48a5e",
+  blush: 0.55,
+  hair: "#16100c",
+  hairStyle: "swoop",
+  iris: "#3a2312",
+  top: { kind: "shirt", color: "#e3e1db", accent: "#7a8794", sleeve: "short" },
+  bottom: { color: "#7a8794", kind: "pants" },
+  feet: { kind: "shoes", color: "#1f1f22" },
+};
+
+==== 52357 src/kits/characterflow/director/compile.ts
+// Automatic story director: Story (story.ts) → Production. Pure and Node-safe, so the film and the
+// sound department compile the same production.
+//
+//   1. timing      cues → film seconds; beat windows (a beat lasts until that person's next beat)
+//   2. blocking    per person: walk segments (approach & pass / meet, walk alone, stop), standing marks
+//                  with turns, seats (sit down / stand up), bed (lie / sit up) — all planted-foot bodies
+//   3. acting      verbs → gestures, expressions, look targets, body mods; props (phone / bag) come out
+//                  when used and are put away when the hands are needed for something else
+//   4. thoughts    bubbles above heads (text / icon / vignette)
+//   5. camera      a shot per beat from the shot library, with variety and minimum-length rules
+//   6. sound       cue list (SFX per verb, footsteps, turns, seats) + music mood sections
+
+import { Matrix4, Vector3 } from "three";
+import { perform, type Beat, type FaceSel, type Performance } from "../character/performance.ts";
+import { blend, type Pose } from "../character/pose.ts";
+import { BODY, type BodyName } from "../character/presets/bodies.ts";
+import { explaining, HANDS, highFive, reach, waving, type Gesture } from "../character/presets/gestures.ts";
+import { skeleton } from "../character/skeleton.ts";
+import { ADIT, AYAH, BIMA, BOSS, DINDA, FRIEND, IBU, NAYA, RAKA_OUT, RAKA, SARI, DIMS, type CharacterSpec, type V3 } from "../character/spec.ts";
+import { pairDir, type ShotKind, type ShotSpec } from "../camera/shots.ts";
+import { ENVS, type EnvData, type TimeOfDay } from "../env/registry.ts";
+import type { ThoughtDef } from "../fx/Thoughts.tsx";
+import type { BoardFace } from "../fx/comedy.tsx";
+import { distanceAt, walkBody, Walker, type SpeedKey } from "../locomotion/walk.ts";
+import { seatBody, standBody, turnSteps, type Seat, type SeatChange, type Turn } from "../locomotion/stand.ts";
+import { lerpMat, xform } from "../props/attach.ts";
+import { BAG, gripFor, PHONE_IN_HAND, phoneReadPose } from "../props/grip.ts";
+import { makeCues, type Cues } from "../timing/cues.ts";
+import type { Story, StoryBeat, Verb } from "./story.ts";
+import { validateStory } from "./validate.ts";
+
+const D = Math.PI / 180;
+const sm = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+const remap = (x: number, a: number, b: number) => Math.min(1, Math.max(0, (x - a) / (b - a)));
+
+export const LOOKS: Record<string, CharacterSpec> = { raka: RAKA_OUT, bima: BIMA, naya: NAYA, dimas: FRIEND, boss: BOSS, sari: SARI, dinda: DINDA, ibu: IBU, ayah: AYAH, adit: ADIT };
+const RAKA_HOME: CharacterSpec = { ...RAKA, id: "raka-home", feet: { kind: "socks", color: "#e8e4dc" } };
+const hashStr = (x: string) => { let h = 2166136261; for (let i = 0; i < x.length; i++) h = Math.imul(h ^ x.charCodeAt(i), 16777619); return (h >>> 0).toString(36); };
+/** The spec of a cast member: the look (socks at home for raka) plus any outfit changes from the story. */
+export const lookSpec = (c: Story["cast"][number], home: boolean): CharacterSpec => {
+  const base = c.look === "raka" && home ? RAKA_HOME : LOOKS[c.look] ?? RAKA_OUT;
+  const o = c.outfit;
+  if (!o) return base;
+  const style = o.hairStyle ?? base.hairStyle;
+  return {
+    ...base,
+    // own id: materials are cached per spec id
+    id: `${base.id}~${hashStr(JSON.stringify(o))}`,
+    skin: o.skin ?? base.skin,
+    hair: o.hair ?? base.hair,
+    hairStyle: style,
+    scarf: o.scarf ?? base.scarf ?? (style === "hijab" ? "#c98fa4" : undefined),
+    glasses: o.glasses ?? base.glasses,
+    top: { ...base.top, color: o.top ?? base.top.color, kind: o.topKind ?? base.top.kind, sleeve: o.sleeve ?? base.top.sleeve },
+    bottom: { ...base.bottom, color: o.bottom ?? base.bottom.color, kind: o.bottomKind ?? base.bottom.kind },
+    feet: o.shoes ? { kind: "shoes", color: o.shoes } : base.feet,
+  };
+};
+
+// ── types ───────────────────────────────────────────────────────────────────
+type Seg =
+  | { k: "walk"; t0: number; w: Walker }
+  | { k: "stand"; t0: number; pos: V3; yaw: number; turns: Turn[] }
+  | { k: "seat"; t0: number; seat: Seat; seated: boolean; changes: SeatChange[] }
+  | { k: "bed"; t0: number; changes: SeatChange[] };
+export type Win = { verb: Verb; t0: number; t1: number; beat: StoryBeat; target?: string };
+export type CharProd = {
+  id: string;
+  spec: CharacterSpec;
+  segs: Seg[];
+  /** body from blocking only (no acting) — positions, eyes, hips for props */
+  body: (t: number, base?: BodyName, mod?: (p: Pose, t: number) => void) => Pose;
+  eye: (t: number) => V3;
+  fwd: (t: number) => V3;
+  perf: Performance;
+  wins: Win[];
+  phone: { on: [number, number][] };
+  bag: { on: [number, number][] };
+  hasBag: boolean;
+  inBed: boolean;
+  /** lying down in bed at t (not sitting up) */
+  lying: (t: number) => boolean;
+};
+export type SoundCue = { t: number; kind: string; who?: string; pan?: number };
+export type MusicSection = { t0: number; t1: number; mood: "playful" | "warm" | "tense" | "calm" | "sad" | "awkward" };
+export type Production = {
+  story: Story;
+  env: EnvData;
+  time: TimeOfDay;
+  cues: Cues;
+  duration: number;
+  chars: CharProd[];
+  thoughts: { who: string; def: ThoughtDef }[];
+  shots: ShotSpec[];
+  cards: { t0: number; t1: number; text: string }[];
+  board?: { up: number; swap: number; down: number; face1: BoardFace; face2?: BoardFace; pos: V3 };
+  tumbleweed?: { t0: number; t1: number };
+  lamp: (t: number) => number;
+  sound: SoundCue[];
+  music: MusicSection[];
+  /** places in order (only for stories with scenes); times are film seconds */
+  scenes?: { t0: number; t1: number; P: Production }[];
+};
+
+// ── blocking ────────────────────────────────────────────────────────────────
+const SLOW: Verb[] = ["phone", "bag", "eyeContact", "notice", "think", "confused", "surprised", "embarrassed", "lookBack", "facepalm", "sad", "shy"];
+const yawOf = (d: V3) => Math.atan2(d[0], d[2]);
+const fwdOf = (yaw: number): V3 => [Math.sin(yaw), 0, Math.cos(yaw)];
+const rightOf = (d: V3): V3 => [-d[2], 0, d[0]];
+
+const segBody = (spec: CharacterSpec, env: EnvData, s: Seg, t: number, base: BodyName = "stand", mod?: (p: Pose, t: number) => void): Pose => {
+  if (s.k === "walk") return walkBody(s.w, base, mod)(t);
+  if (s.k === "stand") return standBody(spec, s.pos, s.yaw, s.turns, base, mod)(t);
+  if (s.k === "seat") return seatBody(spec, s.seat, s.seated, s.changes, mod)(t);
+  // bed: lying ↔ sitting up, as in the bedroom demo
+  const bed = env.bed!;
+  let k = 0;
+  for (const c of s.changes) { if (t < c.at) break; k = k + ((c.sit ? 1 : 0) - k) * sm((t - c.at) / (c.dur ?? 1.05)); }
+  const aL = { x: bed.lie[0], y: bed.top, z: bed.lie[2], yaw: 0 }, aS = { x: bed.sit[0], y: bed.top, z: bed.sit[2], yaw: 0 };
+  const p = blend(BODY.lie(aL, spec, t), BODY.sit({ ...aS, z: aL.z + (aS.z - aL.z) * k }, spec, t), sm(k));
+  p.z = aL.z + (aS.z - aL.z) * sm(k);
+  if (mod) mod(p, t);
+  return p;
+};
+
+type Plan = { segs: Seg[]; walkers: Walker[] };
+
+const planBlocking = (story: Story, env: EnvData, at: (c: StoryBeat["at"]) => number, duration: number): Record<string, Plan> => {
+  const ids = story.cast.map((c) => c.id);
+  const beatsOf = (id: string) => story.beats.filter((b) => whoOf(story, b).includes(id)).map((b) => ({ b, t: at(b.at) })).sort((x, y) => x.t - y.t);
+  const startOf = (id: string, i: number): string => {
+    const s = story.start?.[id];
+    if (s && env.seats[s]) return "sit";
+    if (s && env.marks[s]) return "stand";
+    if (s) return s;
+    const verbs = beatsOf(id).map((x) => x.b.do);
+    if (env.bed && i === 0 && (verbs.includes("lieDown") || verbs.includes("sitUp") || verbs.includes("lampOff"))) return "lie";
+    if (verbs.includes("pass") || verbs.includes("meet") || (env.path && verbs[0] === "walk")) return "walk";
+    if (verbs.includes("sitDown") || verbs.includes("standUp")) return verbs.indexOf("standUp") >= 0 && (verbs.indexOf("sitDown") < 0 || verbs.indexOf("standUp") < verbs.indexOf("sitDown")) ? "sit" : "stand";
+    return "stand";
+  };
+  const out: Record<string, Plan> = {};
+  const passT = story.beats.find((b) => b.do === "pass"), meetT = story.beats.find((b) => b.do === "meet");
+  const walkersIdx = ids.filter((id, i) => startOf(id, i) === "walk");
+  ids.forEach((id, i) => {
+    const mode = startOf(id, i);
+    const spec = lookSpec(story.cast[i], env.home);
+    const named = story.start?.[id];
+    const mine = beatsOf(id);
+    const segs: Seg[] = [];
+    const walkers: Walker[] = [];
+    if (mode === "walk" && env.path) {
+      const path = env.path;
+      const wi = walkersIdx.indexOf(id);
+      const dir: V3 = wi === 1 ? [-path.dir[0], 0, -path.dir[2]] : [path.dir[0], 0, path.dir[2]];
+      const right = rightOf(dir);
+      const tPass = passT ? at(passT.at) : undefined, tMeet = meetT ? at(meetT.at) : undefined;
+      // stop: an explicit "stop", else (after a pass) the first beat that is not walking any more
+      const stopB = mine.find((x) => x.b.do === "stop") ?? (tPass !== undefined ? mine.find((x) => x.t > tPass + 0.3 && !["walk", "pass", "phone", "bag"].includes(x.b.do)) : undefined);
+      const tEnd = tMeet ?? (stopB ? Math.max(stopB.t, (tPass ?? 0) + 1.5) : duration);
+      const keys = (cruise: number): SpeedKey[] => {
+        const k: SpeedKey[] = [[0, cruise]];
+        for (const x of mine) {
+          if (!SLOW.includes(x.b.do) || x.t >= tEnd) continue;
+          const nxt = mine.find((y) => y.t > x.t)?.t ?? x.t + 2.5;
+          k.push([x.t, k[k.length - 1][1]], [x.t + 0.45, 0.42], [Math.min(nxt, tEnd) - 0.1, 0.42], [Math.min(nxt, tEnd) + 0.35, cruise]);
+        }
+        if (tPass !== undefined && !tMeet) k.push([tPass - 1.2, k[k.length - 1][1]], [tPass - 0.6, 0.72]);
+        k.push([tEnd - 0.6, k[k.length - 1][1] > 0.1 ? Math.min(0.72, k[k.length - 1][1]) : 0.72], [tEnd, 0], [duration + 3, 0]);
+        return k.filter((x, j, arr) => j === 0 || x[0] > arr[j - 1][0]).sort((a, b) => a[0] - b[0]);
+      };
+      const ks = keys(0.9);
+      let start: V3;
+      if (tMeet !== undefined && walkersIdx.length >= 2) {
+        const dM = distanceAt(ks, tMeet);
+        // stop 0.8 m apart, nearly face to face: close enough to reach each other (high five)
+        start = [path.meet[0] - dir[0] * (dM + 0.4) + right[0] * path.lane * 0.12, 0, path.meet[2] - dir[2] * (dM + 0.4) + right[2] * path.lane * 0.12];
+      } else if (tPass !== undefined && walkersIdx.length >= 2) {
+        const dP = distanceAt(ks, tPass);
+        start = [path.meet[0] - dir[0] * dP + right[0] * path.lane, 0, path.meet[2] - dir[2] * dP + right[2] * path.lane];
+      } else {
+        const dE = distanceAt(ks, tEnd);
+        start = [path.meet[0] - dir[0] * dE * 0.6 + right[0] * path.lane * 0.5, 0, path.meet[2] - dir[2] * dE * 0.6 + right[2] * path.lane * 0.5];
+      }
+      const w = new Walker({ start, dir, speed: ks, spec }, duration + 1);
+      walkers.push(w);
+      segs.push({ k: "walk", t0: 0, w });
+      if (tEnd < duration) {
+        const st = w.at(tEnd + 0.8);
+        // face each other after a meet
+        const yaw = tMeet !== undefined ? yawOf(dir) : st.yaw;
+        segs.push({ k: "stand", t0: tEnd + 0.8, pos: st.pos, yaw, turns: turnsOf(mine, yaw, tEnd + 0.8) });
+      }
+    } else if (mode === "lie" || mode === "sitBed") {
+      const changes: SeatChange[] = mine.filter((x) => x.b.do === "sitUp" || x.b.do === "lieDown").map((x) => ({ at: x.t, sit: x.b.do === "sitUp", dur: 1.05 }));
+      if (mode === "sitBed") changes.unshift({ at: -10, sit: true, dur: 0.01 });
+      segs.push({ k: "bed", t0: 0, changes });
+    } else {
+      const usesSeat = mode === "sit" || mine.some((x) => x.b.do === "sitDown" || x.b.do === "standUp");
+      if (usesSeat) {
+        const seats = Object.values(env.seats);
+        const seat = (named && env.seats[named]) || seats[i % seats.length];
+        const changes: SeatChange[] = mine.filter((x) => x.b.do === "sitDown" || x.b.do === "standUp").map((x) => ({ at: x.t, sit: x.b.do === "sitDown", dur: 1.15 }));
+        segs.push({ k: "seat", t0: 0, seat, seated: mode === "sit", changes });
+      } else {
+        const marks = ids.length > 1 ? [env.marks.talkL, env.marks.talkR] : [env.marks.center];
+        const m = (named && env.marks[named]) || (marks[i % marks.length] ?? Object.values(env.marks)[0]);
+        segs.push({ k: "stand", t0: 0, pos: m.pos, yaw: m.yaw, turns: turnsOf(mine, m.yaw, 0) });
+      }
+    }
+    out[id] = { segs, walkers };
+  });
+  return out;
+};
+
+/** Someone standing who waves / smiles / talks / points at a person behind them turns round first. */
+const FACING_VERBS: Verb[] = ["wave", "smile", "talk", "explain", "point", "highFive", "laugh", "happy", "nod", "shrug", "proud"];
+const posAt = (pl: Plan, t: number): V3 => {
+  let s = pl.segs[0];
+  for (const x of pl.segs) if (t >= x.t0) s = x;
+  if (s.k === "walk") return s.w.at(t).pos;
+  if (s.k === "stand") return s.pos;
+  if (s.k === "seat") return s.seat.pos;
+  return [0, 0, 0];
+};
+const autoTurns = (story: Story, plans: Record<string, Plan>, at: (c: StoryBeat["at"]) => number) => {
+  for (const b of story.beats) {
+    if (!FACING_VERBS.includes(b.do)) continue;
+    const t = at(b.at);
+    for (const id of whoOf(story, b)) {
+      const tgt = b.target ?? story.cast.find((c) => c.id !== id)?.id;
+      if (!tgt || !plans[tgt]) continue;
+      const seg = [...plans[id].segs].reverse().find((x) => t >= x.t0);
+      if (!seg || seg.k !== "stand") continue;
+      const me = posAt(plans[id], t), them = posAt(plans[tgt], t);
+      const want = Math.atan2(them[0] - me[0], them[2] - me[2]);
+      let cur = seg.yaw;
+      for (const tr of seg.turns) if (tr.at <= t) cur = tr.to;
+      let d = want - cur;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      if (Math.abs(d) > 1.6 && !seg.turns.some((tr) => Math.abs(tr.at - t) < 1.2)) {
+        const start = Math.max(seg.t0 + 0.1, t - 0.9);
+        seg.turns.push({ at: start, dur: 0.9, to: cur + d });
+        seg.turns.sort((x, y) => x.at - y.at);
+      }
+    }
+  }
+};
+
+const turnsOf = (mine: { b: StoryBeat; t: number }[], yaw0: number, from: number): Turn[] => {
+  const turns: Turn[] = [];
+  let y = yaw0;
+  for (const x of mine) if (x.b.do === "turn" && x.t >= from) { y = y + Math.PI; turns.push({ at: x.t, dur: 0.95, to: y }); }
+  return turns;
+};
+
+export const whoOf = (story: Story, b: StoryBeat): string[] => {
+  if (b.who) return Array.isArray(b.who) ? b.who : [b.who];
+  if (["eyeContact", "pass", "meet", "highFive"].includes(b.do)) return story.cast.map((c) => c.id);
+  return [story.cast[0].id];
+};
+
+// ── acting ──────────────────────────────────────────────────────────────────
+type Uses = "R" | "L" | "both" | "none";
+const USES: Partial<Record<Verb, Uses>> = {
+  wave: "R", point: "R", explain: "R", talk: "R", think: "R", confused: "R", embarrassed: "R", shy: "R", calm: "R", highFive: "R",
+  lampOff: "R", lampOn: "R", phone: "R", facepalm: "L", bag: "both", overwhelmed: "both", shrug: "both", proud: "both",
+};
+/** seconds after which a hand gesture is released when the next beat does not replace it */
+const RELEASE: Partial<Record<Verb, number>> = { talk: 3.5, explain: 3.5, point: 2.6, think: 3.2, confused: 2.4, embarrassed: 2.4, shy: 2.4 };
+/** gestures that are dropped (face + bubble only) when the hand is already holding the phone */
+const SOFT: Verb[] = ["think", "confused", "embarrassed", "shy", "calm"];
+const FACE: Partial<Record<Verb, FaceSel>> = {
+  idle: "content", talk: { base: "talk", add: { open: 0.12 } }, explain: "happy", point: "alert", think: "thinking", confused: "confused",
+  happy: "happy", laugh: "laughing", sad: "sad", embarrassed: "embarrassed", surprised: "surprised", wave: { base: "happy", add: { open: 0.25 } },
+  facepalm: { base: "sad", add: { lid: 0.2 } }, notice: "alert", eyeContact: "startled", phone: { base: "focused", add: { smile: -0.1 } },
+  bag: { base: "focused", add: { smile: -0.15 } }, lookBack: { base: "sad", add: { lid: 1.0 } }, highFive: { base: "happy", add: { open: 0.35 } },
+  nod: "content", shake: { base: "worried", add: { smile: -0.2 } }, shrug: { base: "confused", add: { smile: 0.1 } }, overwhelmed: "overwhelmed",
+  calm: "calm", smile: { base: "happy", add: { open: 0.08, lid: 1.0 } }, proud: "proud", shy: "shy", walk: "content", stop: "neutral",
+  pass: { base: "embarrassed", add: { lid: 0.85, smile: -0.2 } }, meet: "happy", sitDown: "content", standUp: "neutral", turn: "neutral",
+  lieDown: "content", sitUp: "worried", lampOff: "sleepy", lampOn: "calm",
+};
+
+const laugh = (seed: number) => (p: Pose, t: number) => {
+  const k = Math.max(0, Math.sin(t * 9 + seed)) * (0.6 + 0.4 * Math.sin(t * 1.7 + seed));
+  p.shrug += 0.25 * k;
+  p.chest = [p.chest[0] - 0.03 * k - 0.015, p.chest[1], p.chest[2]];
+  p.head = [p.head[0] - 0.08 * k, p.head[1], p.head[2]];
+};
+const recoil = (t0: number) => (p: Pose, t: number) => {
+  const k = Math.max(0, Math.sin(Math.min(1, (t - t0) / 0.6) * Math.PI)) * Math.exp(-Math.max(0, t - t0 - 0.6) * 2);
+  p.chest = [p.chest[0] - 0.12 * k, p.chest[1], p.chest[2]];
+  p.head = [p.head[0] - 0.1 * k, p.head[1], p.head[2]];
+  p.shrug += 0.4 * k;
+};
+const nodMod = (t0: number, shake: boolean) => (p: Pose, t: number) => {
+  const u = t - t0;
+  if (u < 0 || u > 1.2) return;
+  const a = Math.sin(u * Math.PI * 4) * 0.12 * (1 - u / 1.2);
+  if (shake) p.head = [p.head[0], p.head[1] + a, p.head[2]];
+  else p.head = [p.head[0] + a, p.head[1], p.head[2]];
+};
+const happyBounce = (p: Pose, t: number) => { p.hipY += 0.01 * Math.max(0, Math.sin(t * 7)); p.shrug += 0.1 * Math.max(0, Math.sin(t * 7)); };
+const twist = (dir: number) => (p: Pose) => {
+  p.spine = [p.spine[0], p.spine[1] + dir * 22 * D, p.spine[2]];
+  p.chest = [p.chest[0], p.chest[1] + dir * 26 * D, p.chest[2]];
+};
+const slump = (p: Pose) => { p.shrug = Math.max(p.shrug, 0.25); p.spine = [p.spine[0] + 0.08, p.spine[1], p.spine[2]]; p.chest = [p.chest[0] + 0.1, p.chest[1], p.chest[2]]; };
+
+// ── compile ─────────────────────────────────────────────────────────────────
+/** A story with `scenes` becomes one production per place, played one after the other on the VO clock. */
+export type SceneProd = { t0: number; t1: number; P: Production };
+
+export const compile = (story: Story): Production => {
+  const problems = validateStory(story);
+  if (problems.length) throw new Error(`story "${story.id}" has ${problems.length} problem(s):\n  - ${problems.join("\n  - ")}`);
+  if (!story.scenes?.length) return compileOne(story);
+  const off = story.vo.offset ?? 0.4;
+  const cues = makeCues(story.words, off);
+  const at = (c: StoryBeat["at"]) => { if (typeof c === "number") return c; const [w, n] = c.split("#"); return cues.at(w, n ? Number(n) : 0); };
+  const total = Math.round((cues.voEnd + (story.tail ?? 1.8)) * 10) / 10;
+  const parts = [{ at: 0 as StoryBeat["at"], env: story.env, time: story.time, start: story.start, cast: story.inScene }, ...story.scenes];
+  // a cut lands 0.12 s before its word, so the new place is on screen as the word starts
+  const T = parts.map((p, k) => (k === 0 ? 0 : Math.max(0, at(p.at) - 0.12)));
+  // scenes play in order: a cue that lands before the previous scene is usually a repeated word ("sampai" in "1 sampai 5")
+  for (let k = 1; k < T.length; k++) if (T[k] <= T[k - 1] + 0.5) {
+    const c = String(parts[k].at), n = typeof parts[k].at === "string" ? story.words.filter((w) => w[0].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") === c.split("#")[0].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")).length : 0;
+    throw new Error(`scene ${k + 1} (at "${c}", ${T[k].toFixed(1)} s) does not come after scene ${k} (${T[k - 1].toFixed(1)} s) — scenes must follow the VO${n > 1 ? `; "${c.split("#")[0]}" is spoken ${n}× — use "${c.split("#")[0]}#1" … "#${n - 1}" for a later one` : ""}`);
+  }
+  const scenes: SceneProd[] = parts.map((p, k) => {
+    const t0 = T[k], t1 = T[k + 1] ?? total;
+    const ids = p.cast ?? story.cast.map((c) => c.id);
+    const inWin = (c: StoryBeat["at"]) => { const t = at(c); return t >= t0 - 1e-6 && t < t1 - 1e-6; };
+    const sub: Story = {
+      ...story,
+      id: `${story.id}--s${k}`,
+      env: p.env,
+      time: p.time,
+      start: p.start,
+      cast: story.cast.filter((c) => ids.includes(c.id)),
+      beats: story.beats.filter((b) => inWin(b.at)),
+      vo: { ...story.vo, offset: off - t0 },
+      cards: [],
+      board: story.board && inWin(story.board.at) ? story.board : undefined,
+      tumbleweed: story.tumbleweed && inWin(story.tumbleweed.at) ? story.tumbleweed : undefined,
+      scenes: undefined,
+      inScene: undefined,
+    };
+    const issues = validateStory(sub);
+    if (issues.length) throw new Error(`scene ${k + 1} (${p.env}, from ${t0.toFixed(1)} s) has ${issues.length} problem(s):\n  - ${issues.join("\n  - ")}`);
+    return { t0, t1, P: compileOne(sub, t1 - t0) };
+  });
+  const first = scenes[0].P;
+  const shift = <X extends { t0: number; t1: number }>(x: X, d: number): X => ({ ...x, t0: x.t0 + d, t1: x.t1 + d });
+  const cards = (story.cards ?? []).map((c) => ({ t0: at(c.at), t1: c.until !== undefined ? at(c.until) : at(c.at) + 1.6, text: c.text }));
+  return {
+    ...first,
+    story,
+    cues,
+    duration: total,
+    cards,
+    shots: scenes.flatMap((s) => s.P.shots.map((x) => ({ ...shift(x, s.t0), t1: Math.min(s.t1, x.t1 + s.t0) })).filter((x) => x.t1 - x.t0 > 0.01)),
+    sound: [...scenes.flatMap((s) => s.P.sound.filter((c) => c.t + s.t0 < s.t1).map((c) => ({ ...c, t: c.t + s.t0 }))), ...cards.flatMap((c) => [{ t: c.t0, kind: "tick" }, { t: c.t1 - 0.1, kind: "ding" }])].sort((a, b) => a.t - b.t),
+    music: scenes.flatMap((s) => s.P.music.map((m) => ({ ...shift(m, s.t0), t1: Math.min(s.t1, m.t1 + s.t0) })).filter((m) => m.t1 > m.t0)),
+    scenes,
+  };
+};
+
+const compileOne = (story: Story, dur?: number): Production => {
+  const env = ENVS[story.env];
+  const time = story.time ?? env.times[0];
+  const cues = makeCues(story.words, story.vo.offset ?? 0.4);
+  const at = (c: StoryBeat["at"]) => {
+    if (typeof c === "number") return c;
+    const [w, n] = c.split("#");
+    return cues.at(w, n ? Number(n) : 0);
+  };
+  const duration = dur ?? Math.round((cues.voEnd + (story.tail ?? 1.8)) * 10) / 10;
+  const plans = planBlocking(story, env, at, duration);
+  autoTurns(story, plans, at);
+  const ids = story.cast.map((c) => c.id);
+
+  // per-person body/eye functions from blocking (cached)
+  const chars: CharProd[] = story.cast.map((c, i) => {
+    const spec = lookSpec(c, env.home);
+    const segs = plans[c.id].segs;
+    const segAt = (t: number) => { let k = 0; for (let j = 0; j < segs.length; j++) if (t >= segs[j].t0) k = j; return k; };
+    const body = (t: number, base: BodyName = "stand", mod?: (p: Pose, t: number) => void) => {
+      const k = segAt(t), s = segs[k];
+      const p = segBody(spec, env, s, t, base, mod);
+      if (k > 0 && t - s.t0 < 0.4) return blend(segBody(spec, env, segs[k - 1], t, base, mod), p, sm((t - s.t0) / 0.4));
+      return p;
+    };
+    const cache = new Map<number, { eye: V3; fwd: V3 }>();
+    const probe = (t: number) => {
+      const key = Math.round(t * 120);
+      let v = cache.get(key);
+      if (!v) {
+        const p = body(key / 120);
+        const sk = skeleton(p, spec, key / 120);
+        const e = new Vector3(0, 0.0, 0.06).applyMatrix4(sk.W.headGeo);
+        v = { eye: [e.x, e.y, e.z], fwd: fwdOf(p.yaw) };
+        if (cache.size > 4000) cache.clear();
+        cache.set(key, v);
+      }
+      return v;
+    };
+    return {
+      id: c.id, spec, segs, body, eye: (t) => probe(t).eye, fwd: (t) => probe(t).fwd,
+      perf: { spec, anchor: { x: 0, y: 0, z: 0, yaw: 0 }, beats: [] }, wins: [], phone: { on: [] }, bag: { on: [] },
+      hasBag: c.prop === "bag" || c.prop === "both", inBed: segs.some((s) => s.k === "bed"), _i: i,
+      lying: (t: number) => { const bs = segs.find((x) => x.k === "bed"); if (!bs || bs.k !== "bed") return false; let sit = false; for (const ch of bs.changes) if (ch.at <= t) sit = ch.sit; return !sit; },
+    } as CharProd & { _i: number };
+  });
+  const byId = Object.fromEntries(chars.map((c) => [c.id, c]));
+  const other = (id: string) => chars.find((c) => c.id !== id);
+
+  // beat windows per person
+  const all = story.beats.map((b) => ({ b, t: at(b.at) })).sort((x, y) => x.t - y.t);
+  for (const ch of chars) {
+    const mine = all.filter((x) => whoOf(story, x.b).includes(ch.id));
+    ch.wins = mine.map((x, j) => ({ verb: x.b.do, t0: x.t, t1: mine[j + 1]?.t ?? duration, beat: x.b, target: x.b.target ?? (ids.length > 1 ? other(ch.id)?.id : undefined) }));
+  }
+
+  // props: phone / bag windows (out from the verb until the hands are needed)
+  for (const ch of chars) {
+    let phoneFrom = -1, bagFrom = -1;
+    for (const w of ch.wins) {
+      const u = USES[w.verb] ?? "none";
+      if (phoneFrom >= 0 && w.verb !== "phone" && !SOFT.includes(w.verb) && (u === "R" || u === "both")) { ch.phone.on.push([phoneFrom, w.t0]); phoneFrom = -1; }
+      if (bagFrom >= 0 && w.verb !== "bag" && u !== "none") { ch.bag.on.push([bagFrom, w.t0]); bagFrom = -1; }
+      if (w.verb === "phone" && phoneFrom < 0) phoneFrom = w.t0;
+      if (w.verb === "bag" && bagFrom < 0 && ch.hasBag) bagFrom = w.t0;
+    }
+    if (phoneFrom >= 0) ch.phone.on.push([phoneFrom, duration + 1]);
+    if (bagFrom >= 0) ch.bag.on.push([bagFrom, duration + 1]);
+  }
+
+  // acting → performance beats
+  const thoughts: { who: string; def: ThoughtDef }[] = [];
+  const sound: SoundCue[] = [];
+  let bubbleN = 0;
+  for (const ch of chars) {
+    const i = (ch as CharProd & { _i: number })._i;
+    const pan = ids.length > 1 ? (i === 0 ? -0.25 : 0.25) : 0;
+    const hs = ch.spec.scale * ch.spec.handScale;
+    const B: Beat[] = [];
+    const eyeOfT = (id?: string) => (t: number): V3 => (id && byId[id] ? byId[id].eye(t) : (() => { const e = ch.eye(t), f = ch.fwd(t); return [e[0] + f[0] * 5, e[1] - 0.1, e[2] + f[2] * 5] as V3; })());
+    const ahead = (t: number): V3 => { const e = ch.eye(t), f = ch.fwd(t); return [e[0] + f[0] * 5, e[1] - 0.15, e[2] + f[2] * 5]; };
+    const bodySel = (base: BodyName = "stand", mod?: (p: Pose, t: number) => void) => (t: number) => ch.body(t, base, mod);
+    // phone + bag gestures
+    const phoneM = (t: number) => phoneReadPose(ch.eye(t), ch.fwd(t), rightOf(ch.fwd(t)));
+    const readPhone = (t: number): Gesture => {
+      const g = gripFor(phoneM(t), PHONE_IN_HAND, hs);
+      return { arm: { sw: 0, ab: 0, tw: 0, el: 1, wr: [0, 0, 0], ik: { t: g.wrist, space: "world", pole: [1, -0.9, -0.5], w: 1, q: g.q } }, hand: HANDS.grip };
+    };
+    const bagM = (t: number) => bagMatrixFor(ch, t);
+    const bagHold = (t: number): Gesture => ({ arm: { sw: 0, ab: 0, tw: 0, el: 1, wr: [0.3, 0, 0.5], ik: { t: xform(bagM(t), [0.13, 0.06, 0.06]), space: "world", pole: [1, -0.8, -0.2], w: 1 } }, hand: HANDS.grip });
+    const rummage = (t: number): Gesture => {
+      const m = bagM(t);
+      return { arm: { sw: 0, ab: 0, tw: 0, el: 1, wr: [0.5, 0, 0.2], ik: { t: xform(m, [-0.02 + 0.05 * Math.sin(t * 7.3), 0.12 + 0.02 * Math.sin(t * 11), 0.015 * Math.sin(t * 9.7)]), space: "world", pole: [1, -0.6, -0.4], w: 1 } }, hand: { curl: 0.55 + 0.25 * Math.sin(t * 8), index: 0.5, thumb: 0.4, spread: 0.3 } };
+    };
+    B.push({ at: 0, body: bodySel(), armL: null, armR: null, face: ch.inBed ? { base: "sleepy", add: { lid: 0.45 } } : "content", look: ch.inBed ? [-0.16, 2.7, -0.5] : ids.length > 1 ? eyeOfT(other(ch.id)!.id) : ahead, headFollow: ch.segs[0].k === "walk" ? 0.55 : 0.7, breath: { rate: 0.28 } });
+    const phoneOn = (t: number) => ch.phone.on.some(([a, b]) => t >= a && t < b);
+    for (const w of ch.wins) {
+      const t0 = w.t0, t1 = w.t1, tgt = w.target;
+      const face = w.beat.face ?? FACE[w.verb];
+      const look = (id?: string) => (id && byId[id] ? eyeOfT(id) : ahead);
+      // lying in bed: the acting is face, gaze and bubbles (standing arm/body gestures do not apply)
+      const flat = ch.lying(t0) && !["lampOff", "lampOn", "sitUp", "lieDown"].includes(w.verb);
+      if (flat && (w.verb === "phone" || w.verb === "bag")) throw new Error(`"${ch.id}" is lying in bed at "${w.beat.at}" — "${w.verb}" needs sitting up: add a "sitUp" beat before it`);
+      const add = (b: Omit<Beat, "at"> & { at?: number }) => {
+        const x = { at: t0, ...b } as Beat & Record<string, unknown>;
+        if (flat) { delete x.armL; delete x.armR; delete x.arms; delete x.body; delete x.tremble; }
+        B.push(x as Beat);
+      };
+      if (face) add({ face, dur: w.verb === "surprised" || w.verb === "eyeContact" ? 0.12 : 0.35, curve: w.verb === "surprised" || w.verb === "eyeContact" ? "snap" : "act" });
+      // put a prop away if this verb needs the hands
+      const uses = USES[w.verb] ?? "none";
+      const closing = ch.phone.on.find(([, b]) => Math.abs(b - t0) < 1e-6);
+      if (closing && (uses === "R" || uses === "both")) { add({ armR: "pocket", dur: 0.25 }); B.push({ at: t0 + 0.32, armR: null, dur: 0.3 }); sound.push({ t: t0, kind: "pocket", who: ch.id, pan }); }
+      const ts = closing && (uses === "R" || uses === "both") ? t0 + 0.4 : t0;
+      switch (w.verb) {
+        case "walk": case "stop": case "meet": case "turn": case "sitDown": case "standUp": case "lieDown": case "sitUp":
+          if (!phoneOn(t0)) add({ look: tgt && w.verb === "meet" ? look(tgt) : ahead, headFollow: 0.6 });
+          if (w.verb === "turn") sound.push(...turnSteps([{ at: t0, dur: 0.95, to: 0 }]).map((tt) => ({ t: tt, kind: "step", who: ch.id, pan })));
+          if (w.verb === "sitDown" || w.verb === "standUp" || w.verb === "lieDown" || w.verb === "sitUp") sound.push({ t: t0, kind: "rustle", who: ch.id, pan });
+          break;
+        case "pass":
+          sound.push({ t: t0 - 0.3, kind: "whoosh", who: ch.id, pan });
+          break;
+        case "idle": add({ look: tgt ? look(tgt) : ahead, headFollow: 0.6 }); break;
+        case "talk": add({ armR: explaining(1.1), look: look(tgt), headFollow: 0.8, at: ts }); break;
+        case "explain": add({ armR: explaining(1.4), look: look(tgt), headFollow: 0.7, at: ts }); sound.push({ t: t0, kind: "pop", who: ch.id, pan }); break;
+        case "point": {
+          const tg = tgt ? byId[tgt] : undefined;
+          add({ at: ts, armR: tg ? (t: number) => { const s = ch.eye(t), e = tg.eye(t); const d = new Vector3(...e).sub(new Vector3(...s)).normalize(); return reach([s[0] + d.x * 0.62, s[1] - 0.25 + d.y * 0.62, s[2] + d.z * 0.62], [1, -0.4, -0.6], HANDS.point); } : "pointFwd", look: look(tgt), headFollow: 0.8 });
+          sound.push({ t: t0, kind: "pop", who: ch.id, pan });
+          break;
+        }
+        case "think": add({ at: ts, ...(phoneOn(t0) ? {} : { armR: "chin" as const }), look: (t: number) => { const e = ch.eye(t), f = ch.fwd(t), r = rightOf(f); return [e[0] + f[0] * 2 + r[0] * 1.2, e[1] + 0.9, e[2] + f[2] * 2 + r[2] * 1.2]; }, headFollow: 0.6, nervous: 0.3 }); break;
+        case "confused": add({ at: ts, ...(phoneOn(t0) ? {} : { armR: "scratchHead" as const }), look: look(tgt), headFollow: 0.5 }); sound.push({ t: t0, kind: "squeak", who: ch.id, pan }); break;
+        case "happy": add({ body: bodySel("stand", happyBounce), dur: 0.4, look: look(tgt), headFollow: 0.7 }); B.push({ at: t1 - 0.01, body: bodySel(), dur: 0.4 }); sound.push({ t: t0, kind: "sparkle", who: ch.id, pan }); break;
+        case "laugh": add({ body: bodySel("stand", laugh(i * 1.3)), dur: 0.4, look: look(tgt), headFollow: 0.6 }); B.push({ at: t1 - 0.01, body: bodySel(), dur: 0.4 }); sound.push({ t: t0, kind: "sparkle", who: ch.id, pan }); break;
+        case "sad": add({ body: bodySel("standSlump", slump), dur: 0.6, look: (t: number) => { const e = ch.eye(t), f = ch.fwd(t); return [e[0] + f[0] * 2, e[1] - 1.2, e[2] + f[2] * 2]; }, headFollow: 0.6 }); B.push({ at: t1 - 0.01, body: bodySel(), dur: 0.6 }); break;
+        case "embarrassed": case "shy":
+          if (!phoneOn(t0)) add({ at: ts, armR: "rubNeck", look: (t: number) => { const e = ch.eye(t), f = ch.fwd(t), r = rightOf(f); return [e[0] + f[0] * 2 - r[0], e[1] - 0.8, e[2] + f[2] * 2 - r[2]]; }, headFollow: 0.6 });
+          sound.push({ t: t0, kind: "squeak", who: ch.id, pan });
+          break;
+        case "surprised": add({ body: bodySel("stand", recoil(t0)), dur: 0.15, look: look(tgt), headFollow: 0.9 }); B.push({ at: t0 + 1.4, body: bodySel(), dur: 0.5 }); sound.push({ t: t0, kind: "boing", who: ch.id, pan }); break;
+        case "wave": add({ at: ts, armR: waving(2.2, 1), look: look(tgt), headFollow: 0.85, dur: 0.35 }); B.push({ at: Math.min(t1, t0 + 2.4) - 0.01, armR: null, dur: 0.4 }); sound.push({ t: t0, kind: "popHi", who: ch.id, pan }); break;
+        case "facepalm": add({ body: bodySel("standSlump", slump), dur: 0.45, armL: "facepalm", look: (t: number) => { const e = ch.eye(t), f = ch.fwd(t); return [e[0] + f[0] * 3, e[1] - 0.5, e[2] + f[2] * 3]; }, headFollow: 0.6 }); B.push({ at: t1 - 0.01, body: bodySel(), armL: null, dur: 0.45 }); sound.push({ t: t0 + 0.4, kind: "slap", who: ch.id, pan }); break;
+        case "notice": add({ look: look(tgt), headFollow: 0.6, dur: 0.3 }); sound.push({ t: t0, kind: "ding", who: ch.id, pan }); break;
+        case "eyeContact": add({ look: look(tgt), headFollow: 0.9, dur: 0.12 }); sound.push({ t: t0 + 0.12 * i, kind: "ding", who: ch.id, pan }); break;
+        case "phone":
+          if (!phoneOn(t0 - 0.01)) {
+            add({ armR: "pocket", dur: 0.24, curve: "snap", look: (t: number) => { const e = ch.eye(t), f = ch.fwd(t); return [e[0] + f[0] * 0.4, e[1] - 0.9, e[2] + f[2] * 0.4]; }, headFollow: 0.6 });
+            B.push({ at: t0 + 0.3, armR: readPhone, dur: 0.34, curve: "snap", look: (t: number) => xform(phoneM(t), [0, 0, 0]), headFollow: 1 });
+            sound.push({ t: t0, kind: "whoosh", who: ch.id, pan });
+          }
+          break;
+        case "bag":
+          if (ch.hasBag) {
+            add({ armL: bagHold, dur: 0.3, curve: "snap", look: (t: number) => xform(bagM(t), [0, 0, 0]), headFollow: 1 });
+            B.push({ at: t0 + 0.9, armR: rummage, dur: 0.35 });
+            sound.push({ t: t0, kind: "whoosh", who: ch.id, pan }, { t: t0 + 0.9, kind: "zip", who: ch.id, pan });
+          }
+          break;
+        case "lookBack": {
+          const dirSign = i === 0 ? 1 : 1;
+          add({ body: bodySel("stand", twist(dirSign)), dur: 0.42, look: tgt ? (t: number) => { const e = byId[tgt].eye(t), r = rightOf(ch.fwd(t)); return [e[0] - r[0] * 1.2, e[1], e[2] - r[2] * 1.2]; } : ahead, headFollow: 1 });
+          B.push({ at: t1 - 0.01, body: bodySel(), dur: 0.42 });
+          sound.push({ t: t0, kind: "pop", who: ch.id, pan });
+          break;
+        }
+        case "highFive": {
+          const o = other(ch.id);
+          if (o) {
+            const pt = (t: number): V3 => { const a = ch.eye(t), b = o.eye(t); return [(a[0] + b[0]) / 2, Math.min(a[1], b[1]) - 0.02, (a[2] + b[2]) / 2]; };
+            const side = i === 0 ? { armR: (t: number) => highFive(pt(t)) } : { armL: (t: number) => highFive(pt(t)) };
+            B.push({ at: Math.max(0, t0 - 0.7), ...side, dur: 0.6 } as Beat);
+            B.push({ at: t0 + 0.35, ...(i === 0 ? { armR: null } : { armL: null }), dur: 0.6, body: bodySel("stand", laugh(i * 1.3)), face: "laughing" } as Beat);
+            if (i === 0) sound.push({ t: t0, kind: "clap" }, { t: t0 + 0.02, kind: "sparkle" });
+          }
+          break;
+        }
+        case "nod": case "shake": add({ body: bodySel("stand", nodMod(t0, w.verb === "shake")), dur: 0.2, look: look(tgt), headFollow: 0.7 }); break;
+        case "shrug": add({ at: ts, arms: "palmUp", dur: 0.35, look: look(tgt) }); B.push({ at: Math.min(t1, t0 + 1.6) - 0.01, arms: null, dur: 0.4 }); sound.push({ t: t0, kind: "squeak", who: ch.id, pan }); break;
+        case "overwhelmed": add({ at: ts, arms: "headInHands", body: bodySel("standSlump", slump), dur: 0.6, tremble: 0.4, breath: { rate: 0.6, amp: 1.3 }, nervous: 0.8, look: null }); B.push({ at: t1 - 0.01, arms: null, body: bodySel(), dur: 0.6, tremble: 0, nervous: 0.1, breath: { rate: 0.28, amp: 1 } }); sound.push({ t: t0, kind: "heartbeat", who: ch.id, pan }); break;
+        case "calm": add({ at: ts, ...(phoneOn(t0) ? {} : { armR: "onChest" as const }), sigh: true, look: ahead, headFollow: 0.6 }); if (!phoneOn(t0)) B.push({ at: t0 + 2.6, armR: null, dur: 0.5 }); sound.push({ t: t0, kind: "breath", who: ch.id, pan }); break;
+        case "smile": add({ look: look(tgt), headFollow: 0.8 }); sound.push({ t: t0, kind: "sparkle", who: ch.id, pan }); break;
+        case "proud": add({ at: ts, arms: "onHip", dur: 0.4, look: look(tgt) }); B.push({ at: Math.min(t1, t0 + 2.5) - 0.01, arms: null, dur: 0.4 }); break;
+        case "lampOff": case "lampOn": {
+          const bed = env.bed;
+          if (bed) {
+            const tap = (t: number): Gesture => { void t; const p = ch.body(t0).z < -0.25 ? bed.lampTapSit : bed.lampTapLie; return reach(p, [1, -0.1, 0.45], HANDS.flat, [0, 0.3, 0.2]); };
+            add({ at: ts - 0.55, armR: tap, dur: 0.6, look: env.props.lamp, headFollow: 0.7 });
+            B.push({ at: ts + 0.15, armR: null, dur: 0.7 });
+            sound.push({ t: ts, kind: "click", who: ch.id, pan });
+          }
+          break;
+        }
+      }
+      // hands come down after a while: a gesture never sticks through the next beats
+      const rel = RELEASE[w.verb];
+      if (rel && !flat && (!SOFT.includes(w.verb) || !phoneOn(t0))) B.push({ at: Math.max(t0 + 0.6, Math.min(t1, t0 + rel) - 0.01), armR: null, dur: 0.45 });
+      // thought bubbles
+      const th = w.beat.thought ?? (w.verb === "confused" ? { icon: "question" as const } : w.verb === "surprised" ? { icon: "exclaim" as const } : undefined);
+      if (th) {
+        const big = !!(th.vignette || th.text);
+        const side = bubbleN++ % 2 ? -1 : 1;
+        const cast = th.cast ? { a: byId[th.cast[0]]?.spec, b: byId[th.cast[1]]?.spec } : ids.length > 1 ? { a: ch.spec, b: other(ch.id)!.spec } : { a: ch.spec };
+        thoughts.push({ who: ch.id, def: { id: `th${thoughts.length}`, at: t0 + (big ? 0.1 : 0.05), until: big ? Math.min(t1, t0 + 4.5) - 0.1 : t0 + 1.4, text: th.text, icon: th.icon, vignette: th.vignette, cast, slot: big ? [0.16 * side, 0.6, 0.05] : [0, 0.36, 0], size: big ? 0.18 : 0.085, trail: big } });
+        sound.push({ t: t0 + 0.1, kind: "popThought", who: ch.id, pan });
+      }
+    }
+    ch.perf.beats = B;
+    // footsteps
+    for (const s of ch.segs) if (s.k === "walk") for (const h of s.w.heelStrikes(0, duration)) sound.push({ t: h.t, kind: "step", who: ch.id, pan });
+    for (const s of ch.segs) if (s.k === "stand") for (const tt of turnSteps(s.turns)) sound.push({ t: tt, kind: "step", who: ch.id, pan });
+  }
+
+  // lamp (bedroom): starts on when the first lamp verb is lampOff
+  const lampTimes = all.filter((x) => x.b.do === "lampOff" || x.b.do === "lampOn").map((x) => ({ t: x.t, on: x.b.do === "lampOn" }));
+  const lamp = (t: number) => { let on = lampTimes.length ? !lampTimes[0].on : false; for (const x of lampTimes) if (t >= x.t) on = x.on; return on ? 1 : 0; };
+
+  const cards = (story.cards ?? []).map((c) => ({ t0: at(c.at), t1: c.until !== undefined ? at(c.until) : at(c.at) + 1.6, text: c.text }));
+  for (const c of cards) sound.push({ t: c.t0, kind: "tick" }, { t: c.t1 - 0.1, kind: "ding" });
+  const board = story.board ? (() => {
+    const up = at(story.board.at);
+    const e = chars[0].eye(up + 1.2);
+    // beside the path, where nothing (trees, posts) stands within 2.7 m
+    let best: V3 = [e[0] + 1.6, 0, e[2] - 2.4], bestC = -1;
+    for (let dx = -4; dx <= 4; dx += 0.25) {
+      const p: V3 = [e[0] + 1.6 + dx, 0, e[2] - 2.4];
+      const c = Math.min(...env.blockers.map((b) => Math.hypot(b.c[0] - p[0], b.c[2] - p[2]) - (b.r > 1 ? 1.2 : 0.3)));
+      const score = Math.min(c, 2.7) - Math.abs(dx) * 0.05;
+      if (score > bestC) { bestC = score; best = p; }
+    }
+    return { up, swap: story.board.swap !== undefined ? at(story.board.swap) : 1e9, down: at(story.board.until), face1: story.board.face1, face2: story.board.face2, pos: best };
+  })() : undefined;
+  if (board) sound.push({ t: board.up, kind: "board" });
+  const tumbleweed = story.tumbleweed ? { t0: at(story.tumbleweed.at), t1: at(story.tumbleweed.until) } : undefined;
+  if (tumbleweed) sound.push({ t: tumbleweed.t0, kind: "tumbleweed" });
+
+  const prod: Production = { story, env, time, cues, duration, chars, thoughts, shots: [], cards, board, tumbleweed, lamp, sound: sound.sort((a, b) => a.t - b.t), music: [] };
+  prod.shots = pickShots(prod, all);
+  const CLOSE: ShotKind[] = ["closeUp", "reaction", "bedClose", "medium"];
+  for (const th of thoughts) {
+    const end = th.def.until ?? Infinity, cut = prod.shots.find((s) => s.t0 > th.def.at + 0.3 && s.t0 < end && CLOSE.includes(s.kind));
+    if (cut) th.def.until = Math.max(th.def.at + 0.5, cut.t0 - 0.04);
+  }
+  prod.music = musicSections(prod, all);
+  return prod;
+};
+
+// ── bag pose (from the blocking body: hips only, no recursion through the arms) ──
+const BAG_REST = (build: number) => new Matrix4().makeRotationY(Math.PI / 2).setPosition(0.2 * build, -0.13, 0.02);
+const BAG_FRONT = new Matrix4().makeRotationX(-0.5).setPosition(0, -0.02, 0.23);
+export const bagFrontAmount = (ch: CharProd, t: number) => {
+  let k = 0;
+  for (const [a, b] of ch.bag.on) k = Math.max(k, sm((t - a) / 0.55) * (1 - sm((t - b) / 0.6)));
+  return k;
+};
+export const bagFlap = (ch: CharProd, t: number) => {
+  let k = 0;
+  for (const [a, b] of ch.bag.on) k = Math.max(k, sm((t - a - 0.65) / 0.3) * (1 - sm((t - b) / 0.25)));
+  return k;
+};
+export const bagMatrixFor = (ch: CharProd, t: number, hips?: Matrix4) => {
+  const h = hips ?? skeleton(ch.body(t), ch.spec, t).W.hips;
+  return h.clone().multiply(lerpMat(BAG_REST(ch.spec.build), BAG_FRONT, bagFrontAmount(ch, t)));
+};
+export const bagStrap = (ch: CharProd, t: number, sk: ReturnType<typeof skeleton>): V3[] => {
+  const m = bagMatrixFor(ch, t, sk.W.hips), c = sk.W.chest;
+  return [
+    xform(m, [-BAG.w / 2 + 0.02, -0.01, 0]),
+    xform(c, [0.14, -0.3, 0.145]), xform(c, [0.0, -0.05, 0.158]), xform(c, [-0.1, 0.13, 0.135]), xform(c, [-0.15, 0.215, 0.05]), xform(c, [-0.155, 0.225, -0.03]), xform(c, [-0.1, 0.12, -0.13]),
+    xform(c, [0.0, -0.06, -0.145]), xform(c, [0.14, -0.3, -0.13]),
+    xform(m, [BAG.w / 2 - 0.02, -0.01, 0]),
+  ];
+};
+export const phoneVisible = (ch: CharProd, t: number) => ch.phone.on.some(([a, b]) => t >= a + 0.22 && t < b + 0.28);
+
+/** Final pose of a person (performance on top of blocking). */
+export const poseAt = (ch: CharProd, t: number, seed = 1) => perform(ch.perf, t, seed).pose;
+
+// ── camera planning ─────────────────────────────────────────────────────────
+type Pick = { kind: ShotKind; a: string; b?: string };
+const SINGLE: Partial<Record<Verb, ShotKind[]>> = {
+  walk: ["track", "mediumWide"], stop: ["mediumWide", "medium"], idle: ["medium", "closeUp"], talk: ["medium", "explain"], explain: ["explain", "medium"], point: ["explain", "mediumWide"],
+  think: ["think", "medium"], confused: ["think", "medium"], happy: ["reaction", "medium"], laugh: ["medium", "reaction"], sad: ["closeUp", "medium"],
+  embarrassed: ["reaction", "closeUp"], shy: ["closeUp", "medium"], surprised: ["reaction", "medium"], wave: ["mediumWide", "medium"], facepalm: ["closeUp", "medium"], notice: ["ots", "pathDown"],
+  phone: ["medium", "closeUp"], bag: ["medium", "mediumWide"], lookBack: ["closeUp", "medium"], nod: ["closeUp", "medium"], shake: ["closeUp", "medium"], shrug: ["medium", "mediumWide"], overwhelmed: ["medium", "closeUp"],
+  calm: ["medium", "closeUp"], smile: ["closeUp", "medium"], proud: ["mediumWide", "medium"], sitDown: ["sitStand", "mediumWide"], standUp: ["sitStand", "mediumWide"], turn: ["turn", "mediumWide"],
+  lieDown: ["wide"], sitUp: ["wide"], lampOff: ["wide"], lampOn: ["wide"],
+};
+const FAMILY: Partial<Record<ShotKind, ShotKind>> = { explain: "medium", reaction: "closeUp" };
+const family = (k: ShotKind) => FAMILY[k] ?? k;
+const pickShots = (P: Production, all: { b: StoryBeat; t: number }[]): ShotSpec[] => {
+  const ids = P.story.cast.map((c) => c.id);
+  const two = ids.length > 1;
+  const sep = (t: number) => (two ? new Vector3(...P.chars[0].eye(t)).distanceTo(new Vector3(...P.chars[1].eye(t))) : 0);
+  const shots: ShotSpec[] = [];
+  let last: Pick | null = null, side: 1 | -1 = 1;
+  const push = (p: Pick, t0: number, t1: number) => {
+    if (t1 - t0 < 0.05) return;
+    if (last && last.kind === p.kind && last.a === p.a && last.b === p.b) side = side === 1 ? -1 : 1;
+    shots.push({ ...p, side, t0, t1 });
+    last = p;
+  };
+  // group beats at the same moment (both people)
+  const times = [...new Set(all.map((x) => Math.round(x.t * 100) / 100))].sort((a, b) => a - b);
+  const starts = times[0] > 0.6 ? [0, ...times] : [0, ...times.slice(1)];
+  for (let k = 0; k < starts.length; k++) {
+    const t0 = starts[k], t1 = starts[k + 1] ?? P.duration + 1;
+    const here = all.filter((x) => Math.abs(x.t - t0) < 0.011 || (k === 0 && x.t <= t0 + 0.6));
+    const b = here[0]?.b;
+    const verb = b?.do ?? "walk";
+    const who = b ? whoOf(P.story, b) : [ids[0]];
+    const a = who[0], o = two ? ids.find((x) => x !== a)! : undefined;
+    if (b?.shot) { push({ kind: b.shot, a, b: o }, t0, t1); continue; }
+    if (k === 0) {
+      const est = Math.min(t1, 2.6);
+      const lyingStart = P.chars[0].inBed && P.chars[0].lying(0);
+      // a room with two people opens on both when a camera position inside the set fits them
+      const o2 = two ? ids.find((x) => x !== a) : undefined;
+      const subj = (id: string, tt: number) => { const c = P.chars.find((x) => x.id === id)!; const e = c.eye(tt); return { face: e, fwd: c.fwd(tt), pos: [e[0], 0, e[2]] as V3 }; };
+      const { min, max } = P.env.bounds;
+      const dir = P.env.indoor && o2 ? pairDir(subj(a, 0.5), subj(o2, 0.5), (p) => p[0] > min[0] && p[0] < max[0] && p[2] > min[2] && p[2] < max[2]) : null;
+      push({ kind: lyingStart ? (b?.thought ? "bedThink" : "bedWide") : P.env.indoor ? "wide" : "establish", a, b: dir ? o2 : undefined }, 0, est);
+      if (dir) shots[shots.length - 1].dir = dir;
+      if (t1 > est + 0.8) push({ kind: P.chars[0].segs[0].k === "walk" ? "track" : P.chars[0].inBed && P.chars[0].lying(est) ? "bedClose" : "medium", a }, est, t1);
+      else if (shots.length) shots[shots.length - 1].t1 = t1;
+      continue;
+    }
+    let pick: Pick[];
+    const inBed = P.chars.find((c) => c.id === a);
+    const bedNow = !!inBed?.inBed && (inBed.lying(t0 + 0.01) || ["sitUp", "lieDown"].includes(verb) || inBed.lying(Math.min(t1, P.duration) - 0.01));
+    if (bedNow) {
+      const close = ["closeUp", "reaction"].includes((SINGLE[verb] ?? ["medium"])[0]);
+      const bubble = !!b?.thought || verb === "think" || verb === "confused";
+      let kind: ShotKind = bubble && !["sitUp", "lieDown"].includes(verb) ? "bedThink" : ["sitUp", "lieDown", "lampOff", "lampOn"].includes(verb) || !close ? "bedWide" : "bedClose";
+      if (last && (last as Pick).kind === kind && (last as Pick).a === a && !["sitUp", "lieDown"].includes(verb) && kind !== "bedThink") kind = kind === "bedWide" ? "bedClose" : "bedWide";
+      push({ kind, a }, t0, t1);
+      continue;
+    }
+    if (two && (verb === "pass" || verb === "meet" || verb === "highFive" || (verb === "talk" && sep(t0) < 2.5))) pick = [{ kind: "twoShot", a: ids[0], b: ids[1] }];
+    else if (two && (verb === "eyeContact" || (who.length > 1 && ["lookBack", "facepalm", "sad", "happy", "surprised", "laugh", "smile", "embarrassed"].includes(verb)))) pick = [{ kind: verb === "lookBack" ? "closeUp" : "closeUp", a: ids[0] }, { kind: "closeUp", a: ids[1] }];
+    else if (verb === "notice" && o) pick = [{ kind: sep(t0) > 6 ? "pathDown" : "ots", a, b: o }];
+    else pick = [{ kind: (SINGLE[verb] ?? ["medium"]).find((k) => o || !["ots", "pathDown", "twoShot"].includes(k)) ?? "medium", a }];
+    // a text / vignette bubble needs headroom above the head
+    const bigThought = !!(b?.thought && (b.thought.text || b.thought.vignette));
+    if (bigThought && pick.length === 1 && !["twoShot", "ots", "pathDown"].includes(pick[0].kind)) pick = [{ kind: "think", a }];
+    // variety: the same framing twice in a row → the alternative
+    // (medium / explain and closeUp / reaction look the same on screen: they count as one framing)
+    if (pick.length === 1 && !bigThought && last && family((last as Pick).kind) === family(pick[0].kind) && (last as Pick).a === pick[0].a) {
+      const alts = SINGLE[verb] ?? ["medium"];
+      const fam = family(pick[0].kind);
+      const alt = alts.find((x) => family(x) !== fam && (o || !["ots", "pathDown", "twoShot"].includes(x))) ?? (two && o && sep(t0) < 4 ? "ots" : fam === "closeUp" ? "medium" : fam === "medium" ? "closeUp" : "medium");
+      pick = [{ kind: alt, a: alt === "ots" ? o! : a, b: alt === "ots" ? a : o }];
+    }
+    // a pass is seen from 1.4 s before it happens, a high five from its wind-up
+    const lead = verb === "pass" ? 1.4 : verb === "highFive" ? 0.9 : 0;
+    if (lead && shots.length) { const prev = shots[shots.length - 1]; const cut = Math.max(prev.t0 + 0.8, t0 - lead); prev.t1 = cut; push(pick[0], cut, t1); continue; }
+    const span = t1 - t0;
+    if (pick.length === 2) { const m = t0 + span / 2; push(pick[0], t0, m); push(pick[1], m, t1); continue; }
+    // long beats get a second angle
+    if (span > 5) {
+      const second: Pick = two && o && sep(t0 + span / 2) < 6 ? { kind: "ots", a: o, b: a } : { kind: pick[0].kind === "medium" ? "closeUp" : "medium", a };
+      push(pick[0], t0, t0 + span * 0.55);
+      push(second, t0 + span * 0.55, t1);
+      continue;
+    }
+    push(pick[0], t0, t1);
+  }
+  // a scoreboard gag is framed while it is up
+  if (P.board) {
+    const b0 = P.board.up - 0.1, b1 = Math.min(P.board.down, P.board.up + 4.5);
+    const keep = shots.filter((s) => s.t1 <= b0 || s.t0 >= b1);
+    for (const s of shots) { if (s.t0 < b0 && s.t1 > b0) keep.push({ ...s, t1: b0 }); if (s.t0 < b1 && s.t1 > b1) keep.push({ ...s, t0: b1 }); }
+    keep.push({ kind: "boardWide", a: ids[0], b: "board", side: 1, t0: b0, t1: b1 });
+    shots.length = 0;
+    shots.push(...keep.filter((s) => s.t1 - s.t0 > 0.05).sort((x, y) => x.t0 - y.t0));
+  }
+  // merge shots shorter than 1 s into their neighbour
+  const out: ShotSpec[] = [];
+  for (const s of shots) {
+    const len = Math.min(s.t1, P.duration) - s.t0;
+    if (out.length && (len < 0.7 || (len < 1.0 && s.kind !== "closeUp" && s.kind !== "sitStand"))) { out[out.length - 1].t1 = s.t1; continue; }
+    out.push({ ...s });
+  }
+  for (let i = 0; i < out.length; i++) { out[i].t0 = i === 0 ? 0 : out[i - 1].t1; }
+  out[out.length - 1].t1 = P.duration + 1;
+  return out;
+};
+
+const MOOD: Partial<Record<Verb, MusicSection["mood"]>> = {
+  happy: "warm", laugh: "warm", smile: "warm", highFive: "warm", calm: "calm", proud: "warm", wave: "warm",
+  sad: "sad", facepalm: "sad", lookBack: "sad", overwhelmed: "tense", surprised: "playful", pass: "awkward", eyeContact: "playful",
+};
+const musicSections = (P: Production, all: { b: StoryBeat; t: number }[]): MusicSection[] => {
+  const base: MusicSection["mood"] = P.story.mood ?? (P.env.id === "bedroom" && P.time === "night" ? "calm" : "playful");
+  const pts: { t: number; mood: MusicSection["mood"] }[] = [{ t: 0, mood: base }];
+  for (const x of all) { const m = MOOD[x.b.do]; if (m && m !== pts[pts.length - 1].mood && x.t - pts[pts.length - 1].t > 3) pts.push({ t: x.t, mood: m }); }
+  if (P.tumbleweed) pts.push({ t: P.tumbleweed.t0, mood: "awkward" });
+  pts.sort((a, b) => a.t - b.t);
+  return pts.map((p, i) => ({ t0: p.t, t1: pts[i + 1]?.t ?? P.duration, mood: p.mood }));
+};
+
+export { DIMS, remap };
+
+==== 4035 src/kits/characterflow/director/story.ts
+// The story spec — the ONLY thing written per video. The AI reads the voice-over transcript, splits it
+// into visual beats and writes this JSON; the director (compile.ts) turns it into blocking, acting,
+// props, thoughts, camera shots and sound cues. Cues are VO words ("lewat", "dia#1" = 2nd "dia") or
+// film seconds. See references/story-format.md in the skill for the full guide and examples.
+
+import type { V3 } from "../character/spec.ts";
+import type { ExprName } from "../character/presets/expressions.ts";
+import type { ShotKind } from "../camera/shots.ts";
+import type { EnvId, TimeOfDay } from "../env/registry.ts";
+import type { IconName } from "../fx/icons.ts";
+import type { VignetteName } from "../fx/vignettes.tsx";
+import type { BoardFace } from "../fx/comedy.tsx";
+import type { Word } from "../timing/cues.ts";
+import type { HairStyle, TopKind } from "../character/spec.ts";
+
+export type CastLook = "raka" | "bima" | "naya" | "dimas" | "boss" | "sari" | "dinda" | "ibu" | "ayah" | "adit";
+/** Optional changes to a look (colours as "#rrggbb"). */
+export type Outfit = {
+  top?: string; topKind?: TopKind; sleeve?: "short" | "long";
+  bottom?: string; bottomKind?: "pants" | "shorts" | "skirt";
+  hair?: string; hairStyle?: HairStyle; scarf?: string; glasses?: boolean; skin?: string; shoes?: string;
+};
+/** How someone starts a scene: walking the path, standing, seated, in bed — or the name of a seat / mark. */
+export type StartAs = "walk" | "stand" | "sit" | "lie" | "sitBed" | (string & {});
+/** A cut to another place at a VO cue (the story's own env / time / start are the first scene). */
+export type Scene = { at: Cue; env: EnvId; time?: TimeOfDay; start?: Record<string, StartAs>; cast?: string[] };
+export type Cue = string | number;
+
+/** Blocking verbs move people; acting verbs play on top of whatever the body is doing. */
+export const BLOCKING_VERBS = ["walk", "stop", "pass", "meet", "sitDown", "standUp", "turn", "lieDown", "sitUp"] as const;
+export const ACTING_VERBS = [
+  "idle", "talk", "explain", "point", "think", "confused", "happy", "laugh", "sad", "embarrassed", "surprised", "wave",
+  "facepalm", "notice", "eyeContact", "phone", "bag", "lookBack", "highFive", "nod", "shake", "shrug", "overwhelmed",
+  "calm", "smile", "proud", "shy", "lampOff", "lampOn",
+] as const;
+export type Verb = (typeof BLOCKING_VERBS)[number] | (typeof ACTING_VERBS)[number];
+
+export type StoryBeat = {
+  at: Cue;
+  do: Verb;
+  /** cast id(s); default: the first cast member (both for eyeContact / pass / meet / highFive) */
+  who?: string | string[];
+  /** another cast id to look at / wave at / point at / notice */
+  target?: string;
+  /** a thought bubble above `who` while the beat lasts */
+  thought?: { text?: string; icon?: IconName; vignette?: VignetteName; cast?: [string, string] };
+  /** override the automatic camera choice */
+  shot?: ShotKind;
+  /** override the expression */
+  face?: ExprName;
+};
+
+export type Story = {
+  id: string;
+  title: string;
+  /** VO file inside public/ and where it starts in the film (s) */
+  vo: { file: string; offset?: number };
+  /** transcript words (VO seconds), from scripts/transcribe.mjs */
+  words: Word[];
+  env: EnvId;
+  time?: TimeOfDay;
+  cast: { id: string; look: CastLook; prop?: "phone" | "bag" | "both"; outfit?: Outfit }[];
+  /** how each person starts: walking the path, standing, seated, (bedroom) lying / sitting in bed, or a seat / mark name */
+  start?: Record<string, StartAs>;
+  /** who is in the first scene (default: everyone) */
+  inScene?: string[];
+  /** later places: each cuts to a new environment at its cue */
+  scenes?: Scene[];
+  beats: StoryBeat[];
+  highlights?: string[];
+  cards?: { at: Cue; until?: Cue; text: string }[];
+  board?: { at: Cue; swap?: Cue; until: Cue; face1: BoardFace; face2?: BoardFace };
+  tumbleweed?: { at: Cue; until: Cue };
+  /** music baseline */
+  mood?: "playful" | "warm" | "tense" | "calm";
+  /** seconds of picture after the VO ends (default 1.8) */
+  tail?: number;
+};
+
+export type { V3 };
+
+==== 14709 src/kits/characterflow/director/StoryFilm.tsx
+// Generic CHARACTERFLOW film: renders any Story through the director — environment, cast, props,
+// thoughts, comedy FX, cards, word captions and the automatic camera. Pure function of the frame.
+
+import React from "react";
+import { Html5Audio, Sequence, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { PerspectiveCamera, Vector3 } from "three";
+import { Stage3D } from "../../../core/film/Stage3D.tsx";
+import { Character } from "../character/Character.tsx";
+import { skeleton, type Skeleton } from "../character/skeleton.ts";
+import type { Pose } from "../character/pose.ts";
+import type { V3 } from "../character/spec.ts";
+import { onViewSide, orbitCam, peopleBlock, SHOTS, safeCam, SOLO_SHOTS, type Subject } from "../camera/shots.ts";
+import { EnvView } from "../env/components.tsx";
+import { PopBoard, Tumbleweed } from "../fx/comedy.tsx";
+import { ThoughtField, type FieldMood } from "../fx/Thoughts.tsx";
+import { Phone, PHONE_IN_HAND, SlingBag, Strap } from "../props/handheld.tsx";
+import { xform } from "../props/attach.ts";
+import { CameraRig, FilmPost, type Cam, type Grade } from "../render/FilmPost.tsx";
+import { Lights, type LightState } from "../render/Lights.tsx";
+import { Captions, chunkWords, ZONE_TOP, type Chunk, type Zone } from "../captions/Captions.tsx";
+import { TitleCard } from "../captions/Cards.tsx";
+import { bagFlap, bagMatrixFor, bagStrap, compile, phoneVisible, poseAt, type Production } from "./compile.ts";
+import type { Story } from "./story.ts";
+
+const prods = new Map<string, Production>();
+export const productionOf = (story: Story) => {
+  let p = prods.get(story.id);
+  if (!p) { p = compile(story); prods.set(story.id, p); }
+  return p;
+};
+
+type Frame = { poses: Pose[]; sks: Skeleton[] };
+const frameCache = new Map<string, Frame>();
+const evalFrame = (P: Production, t: number): Frame => {
+  const key = `${P.story.id}@${Math.round(t * 1000)}`;
+  let f = frameCache.get(key);
+  if (!f) {
+    const poses = P.chars.map((c, i) => poseAt(c, t, i + 1));
+    f = { poses, sks: poses.map((p, i) => skeleton(p, P.chars[i].spec, t)) };
+    if (frameCache.size > 300) frameCache.clear();
+    frameCache.set(key, f);
+  }
+  return f;
+};
+const subjectsAt = (P: Production, t: number): Record<string, Subject> => {
+  const f = evalFrame(P, t);
+  const S: Record<string, Subject> = Object.fromEntries(P.chars.map((c, i) => {
+    const face = xform(f.sks[i].W.headGeo, [0, -0.01, 0.06]);
+    // frame where the FACE points (a look back over the shoulder is still a front close-up)
+    const nose = xform(f.sks[i].W.headGeo, [0, -0.01, 1]);
+    const fx = nose[0] - face[0], fz = nose[2] - face[2], l = Math.hypot(fx, fz) || 1;
+    return [c.id, { face, fwd: [fx / l, 0, fz / l] as V3, pos: [f.poses[i].x, 0, f.poses[i].z] as V3 }];
+  }));
+  if (P.board) S.board = { face: [P.board.pos[0], 2.6, P.board.pos[2]], fwd: [0, 0, 1], pos: P.board.pos };
+  return S;
+};
+/** The place playing at film time t, and its local time (stories with scenes switch productions). */
+export const sceneAt = (P: Production, t: number): { Q: Production; tl: number } => {
+  if (!P.scenes) return { Q: P, tl: t };
+  const sc = P.scenes.find((x) => t >= x.t0 && t < x.t1) ?? (t < 0 ? P.scenes[0] : P.scenes[P.scenes.length - 1]);
+  return { Q: sc.P, tl: t - sc.t0 };
+};
+/** Where the right hand holds the phone (defined all the time, so a framing that follows it never jumps). */
+const handAt = (P: Production, i: number, t: number): V3 => xform(evalFrame(P, t).sks[i].W.wristR.clone().multiply(PHONE_IN_HAND), [0, 0, 0]);
+/** Framings that should show what the hands hold (not the face-only close-ups). */
+const HOLDS: string[] = ["medium", "mediumWide", "explain", "think", "track", "sitStand", "turn"];
+
+const baseCam = (P: Production, t: number): Cam => {
+  const s = P.shots.find((x) => t >= x.t0 && t < x.t1) ?? P.shots[P.shots.length - 1];
+  const S = subjectsAt(P, t);
+  let c = SHOTS[s.kind](S, s, t);
+  // the side is decided once per shot (at its start) so a camera never flips mid-shot
+  const key = `${P.story.id}:${s.t0}`;
+  let flip = SIDE.get(key);
+  if (flip === undefined) { flip = !onViewSide(SHOTS[s.kind](subjectsAt(P, s.t0 + 0.01), s, s.t0 + 0.01), P.env); SIDE.set(key, flip); }
+  const spec = flip ? { ...s, side: (s.side === -1 ? 1 : -1) as 1 | -1 } : s;
+  if (flip) c = SHOTS[s.kind](S, spec, t);
+  // a one-person shot swings round its subject (decided once per shot) when someone else is in the way
+  if (SOLO_SHOTS.includes(s.kind) && P.chars.length > 1) {
+    let deg = ORBIT.get(key);
+    if (deg === undefined) {
+      const S0 = subjectsAt(P, s.t0 + 0.01), c0 = SHOTS[s.kind](S0, spec, s.t0 + 0.01), me = S0[s.a];
+      const others = P.chars.filter((x) => x.id !== s.a).map((x) => S0[x.id]);
+      deg = [0, 15, -15, 30, -30, 45, -45, 60, -60].find((d) => { const c1 = orbitCam(c0, me.face, d); return onViewSide(c1, P.env) && !peopleBlock(c1, me, others, 0.55); })
+        ?? [0, 15, -15, 30, -30, 45, -45].find((d) => { const c1 = orbitCam(c0, me.face, d); return onViewSide(c1, P.env) && !peopleBlock(c1, me, others); }) ?? 0;
+      ORBIT.set(key, deg);
+    }
+    c = orbitCam(c, S[s.a].face, deg);
+  }
+  return c;
+};
+/** Aim between the frame centre and the phone, translating the camera with it; k > 1 steps back. */
+const aimAt = (c: Cam, ph: V3, k: number): Cam => {
+  const view = new Vector3(...c.target).sub(new Vector3(...c.pos));
+  const tg = new Vector3(...c.target).lerp(new Vector3(...ph), 0.3);
+  const p = tg.clone().addScaledVector(view, -k);
+  return { ...c, pos: [p.x, p.y, p.z], target: [tg.x, tg.y, tg.z] };
+};
+export const camAt = (P: Production, t: number): Cam => {
+  const s = P.shots.find((x) => t >= x.t0 && t < x.t1) ?? P.shots[P.shots.length - 1];
+  let c = baseCam(P, t);
+  // a phone in the hand stays in the picture — decided once per shot (from its middle), then followed
+  const ai = P.chars.findIndex((x) => x.id === s.a);
+  if (ai >= 0 && HOLDS.includes(s.kind)) {
+    const key = `${P.story.id}:${s.t0}`;
+    let k = HOLD.get(key);
+    if (k === undefined) {
+      const tm = (s.t0 + Math.min(s.t1, P.duration)) / 2;
+      k = 0;
+      if (phoneVisible(P.chars[ai], tm)) {
+        const ph = handAt(P, ai, tm), c1 = aimAt(baseCam(P, tm), ph, 1), xy = project(c1, ph);
+        k = !xy || xy[0] < 1080 * 0.12 || xy[0] > 1080 * 0.88 || xy[1] > 1920 * 0.86 ? 1.28 : 1;
+      }
+      HOLD.set(key, k);
+    }
+    if (k) c = aimAt(c, handAt(P, ai, t), k);
+  }
+  return safeCam(c, P.env);
+};
+const SIDE = new Map<string, boolean>();
+const ORBIT = new Map<string, number>();
+const HOLD = new Map<string, number>();
+
+const project = (cam: Cam, p: V3): [number, number] | null => {
+  const c = new PerspectiveCamera(cam.fov, 1080 / 1920, 0.01, 200);
+  c.position.set(...cam.pos);
+  c.lookAt(...cam.target);
+  c.updateMatrixWorld();
+  const v = new Vector3(...p).project(c);
+  if (v.z > 1 || Math.abs(v.x) > 1.1) return null;
+  return [(v.x * 0.5 + 0.5) * 1080, (-v.y * 0.5 + 0.5) * 1920];
+};
+
+// a small icon bubble stays inside the frame, decided once per shot (no jumps): grown with the camera distance if it
+// fits, else its own size, then a little lower (still above the hair), else it sits the shot out (the face carries it)
+const FIT = new Map<string, { k: number; lift: number } | null>();
+const iconFit = (P: Production, th: Production["thoughts"][number], t: number) => {
+  const si = P.shots.findIndex((s) => t >= s.t0 && t < s.t1);
+  const key = `${P.story.id}|${th.def.id}|${si}`;
+  if (FIT.has(key)) return FIT.get(key)!;
+  const s = P.shots[si];
+  const tr = s ? Math.min(s.t1 - 0.02, Math.max(s.t0, th.def.at) + 0.2) : t;
+  const cm = camAt(P, tr), i = P.chars.findIndex((c) => c.id === th.who);
+  const h = xform(evalFrame(P, tr).sks[i].W.headGeo, [0, 0, 0]);
+  const k0 = Math.min(2.1, Math.max(1, new Vector3(...h).distanceTo(new Vector3(...cm.pos)) / 1.5));
+  const fits = ({ k, lift }: { k: number; lift: number }) => {
+    const top = project(cm, [h[0], h[1] + th.def.slot[1] * lift + 1.02 * th.def.size * k, h[2]]);
+    return !!top && top[1] >= 60;
+  };
+  const r = [{ k: k0, lift: 0.6 + 0.4 * k0 }, { k: 1, lift: 1 }, { k: 1, lift: 0.8 }].find(fits) ?? null;
+  FIT.set(key, r);
+  return r;
+};
+
+const calm = (t: number): FieldMood => ({ phase: 0, tm: t, agitation: 0, ghost: 0, alarm: 0, pulse: 0, dissolve: 0, tight: 1, show: 1 });
+
+const LAMP_PT = { pos: [-0.98, 0.88, -0.82] as V3, color: "#ffc98c", i: 1.1, dist: 4 };
+const LAMP_SPOT = { pos: [-1.03, 0.92, -0.87] as V3, target: [-0.2, 0.7, -0.35] as V3, color: "#ffc78a", i: 2.4, angle: 1.25, penumbra: 0.95, dist: 7 };
+const lightFor = (P: Production, t: number, focus: V3): LightState => {
+  const L = P.env.light(P.time, focus);
+  const lamp = P.env.id === "bedroom" ? P.lamp(t) : 0;
+  if (!lamp) return L;
+  const pts = [...L.pts] as LightState["pts"];
+  pts[0] = LAMP_PT;
+  return { ...L, spot: LAMP_SPOT, pts, env: L.env + 0.12 };
+};
+const gradeFor = (P: Production, t: number, black: number): Grade => {
+  const g = P.env.grade(P.time);
+  const lamp = P.env.id === "bedroom" && P.time === "night" ? P.lamp(t) : 0;
+  return { ...g, exposure: g.exposure * (1 - 0.15 * lamp), black };
+};
+
+export const StoryFilm: React.FC<{ story: Story; audio?: string }> = ({ story, audio }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps;
+  const F = productionOf(story);
+  // the place on screen now (a story with scenes switches productions; captions and cards stay global)
+  const { Q: P, tl } = sceneAt(F, t);
+  const f = evalFrame(P, tl);
+  const cam = camAt(P, tl);
+  const chunks = React.useMemo(() => chunkWords(F.cues.words, F.cues.offset, story.highlights ?? []), [F, story.highlights]);
+  const zones = React.useMemo(() => new Map<Chunk, Zone>(), []);
+  // a caption band never covers a face or a thought bubble: the first free band (bottom, top, middle), else the least covered
+  const zone = (c: Chunk) => {
+    let z = zones.get(c);
+    if (!z) {
+      const hit: Record<Zone, number> = { bottom: 0, top: 0, mid: 0 };
+      for (const tt of [c.t0, (c.t0 + c.t1) / 2, c.t1]) {
+        const { Q, tl: l } = sceneAt(F, tt);
+        const cm = camAt(Q, l), S = subjectsAt(Q, l), fr = evalFrame(Q, l);
+        const right = new Vector3(...cm.target).sub(new Vector3(...cm.pos)).cross(new Vector3(0, 1, 0)).normalize();
+        const disk = (p: V3, r: number): [number, number] | null => {
+          const a = project(cm, p), b = project(cm, [p[0] + right.x * r, p[1], p[2] + right.z * r]);
+          return a && b ? [a[1], Math.hypot(b[0] - a[0], b[1] - a[1])] : null;
+        };
+        const obstacles = [
+          ...Object.values(S).map((s) => disk(s.face, 0.13)),
+          ...Q.thoughts.filter((th) => l >= th.def.at && l <= (th.def.until ?? th.def.at)).map((th) => { const i = Q.chars.findIndex((x) => x.id === th.who); const h = xform(fr.sks[i].W.headGeo, [0, 0, 0]); return disk([h[0], h[1] + th.def.slot[1], h[2]], th.def.size * 1.15); }),
+        ].filter((x): x is [number, number] => !!x);
+        for (const zn of Object.keys(hit) as Zone[]) {
+          const y0 = ZONE_TOP[zn], y1 = y0 + 130;
+          for (const [y, r] of obstacles) hit[zn] += Math.max(0, Math.min(y1, y + r) - Math.max(y0, y - r));
+        }
+      }
+      z = (["bottom", "top", "mid"] as Zone[]).find((zn) => hit[zn] === 0) ?? (["bottom", "top", "mid"] as Zone[]).reduce((a, b2) => (hit[b2] < hit[a] ? b2 : a), "bottom");
+      zones.set(c, z);
+    }
+    return z;
+  };
+  const bedChar = P.chars.findIndex((c) => c.inBed);
+  const bedEdge = bedChar >= 0 ? (() => { const p = f.poses[bedChar]; const sitting = p.hips[0] > -1.2; return sitting ? p.z + 0.14 : p.z - 0.34; })() : -0.62;
+  const head = (i: number) => xform(f.sks[i].W.headGeo, [0, 0, 0]);
+  const c0 = P.chars[0];
+  const boardPos: V3 | null = P.board ? P.board.pos : null;
+  const twPos = P.tumbleweed ? (() => { const a = c0.eye(P.tumbleweed.t0), b = (P.chars[1] ?? c0).eye(P.tumbleweed.t0); return (a[0] + b[0]) / 2; })() : 0;
+  const black = Math.max(1 - Math.min(1, t / 0.4), Math.min(1, Math.max(0, (t - (F.duration - 0.6)) / 0.6)));
+  return (
+    <>
+      <Stage3D background="#000" overlay={() => (
+        <>
+          {F.cards.map((c, i) => <TitleCard key={i} t={t} t0={c.t0} t1={c.t1} text={c.text} />)}
+          <Captions chunks={chunks} t={t} zone={zone} />
+        </>
+      )}>
+        <Lights s={lightFor(P, tl, cam.target)} />
+        <EnvView id={P.env.id} time={P.time} cam={cam} lamp={P.lamp(tl)} bedSk={bedChar >= 0 ? { sk: f.sks[bedChar], scale: P.chars[bedChar].spec.scale, edge: bedEdge } : undefined} />
+        {P.chars.map((c, i) => <Character key={c.id} pose={f.poses[i]} spec={c.spec} t={tl + i * 7} />)}
+        {P.chars.map((c, i) => (phoneVisible(c, tl) ? <Phone key={`ph${c.id}`} m={f.sks[i].W.wristR.clone().multiply(PHONE_IN_HAND)} on={1} /> : null))}
+        {P.chars.map((c, i) => (c.hasBag ? (
+          <group key={`bag${c.id}`}>
+            <SlingBag m={bagMatrixFor(c, tl, f.sks[i].W.hips)} flap={bagFlap(c, tl)} />
+            <Strap pts={bagStrap(c, tl, f.sks[i])} />
+          </group>
+        ) : null))}
+        {P.board && boardPos ? <PopBoard scale={1.45} p={boardPos} t={tl} upAt={P.board.up} swapAt={P.board.swap} downAt={P.board.down} face1={P.board.face1} face2={P.board.face2 ?? P.board.face1} /> : null}
+        {P.tumbleweed ? <Tumbleweed a={[twPos + 0.6, 0, -5.5]} b={[twPos - 0.6, 0, 5]} t={tl} t0={P.tumbleweed.t0} t1={P.tumbleweed.t1} r={0.42} /> : null}
+        {P.thoughts.map((th) => {
+          const i = P.chars.findIndex((c) => c.id === th.who);
+          const h = head(i);
+          const back = new Vector3(...h).sub(new Vector3(...cam.pos)).setY(0).normalize();
+          // a small icon bubble grows with the camera distance so it reads in wider framings — as far as the frame allows
+          const live = tl >= th.def.at && tl <= (th.def.until ?? Infinity) + 0.3;
+          const fit = th.def.text || th.def.vignette || !live ? { k: 1, lift: 1 } : iconFit(P, th, tl);
+          if (!fit) return null;
+          const { k, lift } = fit;
+          const def = k === 1 && lift === 1 ? th.def : { ...th.def, size: th.def.size * k, slot: [th.def.slot[0] * k, th.def.slot[1] * lift, th.def.slot[2]] as V3 };
+          return <ThoughtField key={th.def.id} defs={[def]} t={tl} center={h} head={h} back={[back.x, 0, back.z]} cam={cam.pos} mood={calm(tl)} txt={{}} />;
+        })}
+        <CameraRig cam={cam} />
+        <FilmPost cam={cam} grade={gradeFor(P, tl, black)} frame={frame} />
+      </Stage3D>
+      {audio ? (
+        <Sequence from={0} layout="none">
+          <Html5Audio src={staticFile(audio)} />
+        </Sequence>
+      ) : null}
+    </>
+  );
+};
+
+==== 9678 src/kits/characterflow/director/validate.ts
+// Story checks with plain-language errors, run before compiling. A story is written by an AI from a
+// transcript, so every mistake it can make should stop the build with a message that says what to fix.
+
+import { EXPR } from "../character/presets/expressions.ts";
+import type { ShotKind } from "../camera/shots.ts";
+import { ENVS } from "../env/registry.ts";
+import type { IconName } from "../fx/icons.ts";
+import type { VignetteName } from "../fx/vignettes.tsx";
+import { ACTING_VERBS, BLOCKING_VERBS, type Story } from "./story.ts";
+
+const LOOK_NAMES = ["raka", "bima", "naya", "dimas", "boss", "sari", "dinda", "ibu", "ayah", "adit"];
+const HAIR_NAMES = ["swoop", "crop", "bun", "curly", "long", "hijab"];
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const ICON_NAMES = ["question", "exclaim", "cross", "clock", "chat", "cloud", "heart", "chart", "bell", "dots"] satisfies IconName[];
+// only the vignettes cast from the story's own people (the others carry topic-specific text/cast)
+const VIGNETTE_NAMES = ["friends", "forgot", "weird"] satisfies VignetteName[];
+const SHOT_NAMES = ["establish", "wide", "closeUp", "medium", "mediumWide", "twoShot", "ots", "track", "pathDown", "reaction", "explain", "think", "sitStand", "turn", "boardWide", "bedWide", "bedClose", "bedThink"] satisfies ShotKind[];
+const BED_ONLY = ["lieDown", "sitUp", "lampOff", "lampOn"];
+const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** Every problem in the story, in plain words (empty = fine). */
+export const validateStory = (s: Story): string[] => {
+  const e: string[] = [];
+  const one = (v: unknown, list: readonly string[], what: string) => { if (typeof v === "string" && !list.includes(v)) e.push(`${what} "${v}" is not available (use one of: ${list.join(", ")})`); };
+  if (!s.id || !/^[a-z0-9-]+$/.test(s.id)) e.push(`id "${s.id}" must use only a-z, 0-9 and "-"`);
+  const env = ENVS[s.env];
+  if (!env) { e.push(`env "${s.env}" does not exist (use one of: ${Object.keys(ENVS).join(", ")})`); return e; }
+  if (s.time && !env.times.includes(s.time)) e.push(`time "${s.time}" is not available in ${s.env} (use one of: ${env.times.join(", ")})`);
+  if (!Array.isArray(s.words) || !s.words.length) e.push("words is empty — run scripts/transcribe.mjs (or tts.mjs) first");
+  if (!s.cast?.length) e.push("cast is empty — at least one character is needed");
+  const most = s.scenes?.length ? 4 : 2;
+  if (s.cast?.length > most) e.push(`cast has ${s.cast.length} people — at most 2 in one place${s.scenes?.length ? " and 4 in the whole story" : " (with scenes: up to 4 in the story, 2 per scene)"}`);
+  if (s.scenes?.length && s.cast?.length > 2 && !s.inScene) e.push(`the story has ${s.cast.length} people: say who is in the first scene with "inScene" (at most 2)`);
+  for (const [k, sc] of (s.scenes ?? []).entries()) if (s.cast?.length > 2 && !sc.cast) e.push(`scene ${k + 2} (at "${sc.at}"): the story has ${s.cast.length} people — list who is in this scene with "cast" (at most 2)`);
+  const ids = (s.cast ?? []).map((c) => c.id);
+  for (const c of s.cast ?? []) {
+    one(c.look, LOOK_NAMES, `look of "${c.id}"`);
+    if (c.prop && !["phone", "bag", "both"].includes(c.prop)) e.push(`prop "${c.prop}" of "${c.id}" is not available (phone, bag, both)`);
+    const o = c.outfit;
+    if (o) {
+      for (const k of ["top", "bottom", "hair", "scarf", "skin", "shoes"] as const) if (o[k] !== undefined && !HEX.test(o[k]!)) e.push(`outfit.${k} of "${c.id}" must be a colour like "#3a7bd5"`);
+      one(o.hairStyle, HAIR_NAMES, `outfit.hairStyle of "${c.id}"`);
+      one(o.topKind, ["tee", "shirt", "hoodie"], `outfit.topKind of "${c.id}"`);
+      one(o.bottomKind, ["pants", "shorts", "skirt"], `outfit.bottomKind of "${c.id}"`);
+      one(o.sleeve, ["short", "long"], `outfit.sleeve of "${c.id}"`);
+    }
+  }
+  const multi = !!s.scenes?.length;
+  const startCheck = (start: Record<string, string> | undefined, e2: typeof env, where: string, cast: string[]) => {
+    for (const [id, st] of Object.entries(start ?? {})) {
+      if (!cast.includes(id)) e.push(`${where}start: "${id}" is not in ${where ? "this scene's" : "the"} cast (${cast.join(", ")})`);
+      const named = [...Object.keys(e2.seats), ...Object.keys(e2.marks)];
+      if (!["walk", "stand", "sit", "lie", "sitBed", ...named].includes(st)) e.push(`${where}start "${st}" for "${id}" is not available in ${e2.id} (walk, stand, sit${e2.bed ? ", lie, sitBed" : ""}; seats: ${Object.keys(e2.seats).join(", ") || "none"}; marks: ${Object.keys(e2.marks).join(", ")})`);
+      if ((st === "lie" || st === "sitBed") && !e2.bed) e.push(`${where}start "${st}" for "${id}" needs a bed — only in: ${Object.values(ENVS).filter((x) => x.bed).map((x) => x.id).join(", ")}`);
+      if (st === "walk" && !e2.path) e.push(`${where}start "walk" for "${id}": ${e2.id} has no walking path`);
+    }
+  };
+  for (const id of s.inScene ?? []) if (!ids.includes(id)) e.push(`inScene: "${id}" is not in the cast`);
+  startCheck(s.start, env, "", s.inScene ?? ids);
+  for (const [k, sc] of (s.scenes ?? []).entries()) {
+    const where = `scene ${k + 2} (at "${sc.at}"): `;
+    const e2 = ENVS[sc.env];
+    if (!e2) { e.push(`${where}env "${sc.env}" does not exist (use one of: ${Object.keys(ENVS).join(", ")})`); continue; }
+    if (sc.time && !e2.times.includes(sc.time)) e.push(`${where}time "${sc.time}" is not available in ${sc.env} (use one of: ${e2.times.join(", ")})`);
+    for (const id of sc.cast ?? []) if (!ids.includes(id)) e.push(`${where}cast "${id}" is not in the story's cast`);
+    if (sc.cast && !sc.cast.length) e.push(`${where}cast is empty`);
+    startCheck(sc.start, e2, where, sc.cast ?? ids);
+  }
+  const words = new Map<string, number>();
+  for (const w of s.words ?? []) words.set(norm(w[0]), (words.get(norm(w[0])) ?? 0) + 1);
+  const cue = (c: unknown, where: string) => {
+    if (typeof c === "number") return;
+    if (typeof c !== "string") { e.push(`${where}: cue must be a VO word or seconds`); return; }
+    const [w, n] = c.split("#");
+    const have = words.get(norm(w)) ?? 0;
+    if (!have) e.push(`${where}: word "${w}" is not in the transcript (cues are spoken words, written without punctuation)`);
+    else if (n && Number(n) >= have) e.push(`${where}: "${c}" — "${w}" is spoken only ${have}× (#0 … #${have - 1})`);
+  };
+  const verbs: readonly string[] = [...BLOCKING_VERBS, ...ACTING_VERBS];
+  (s.beats ?? []).forEach((b, i) => {
+    const where = `beat ${i + 1} (${b.do} at "${b.at}")`;
+    cue(b.at, where);
+    if (!verbs.includes(b.do)) e.push(`${where}: action "${b.do}" does not exist (see references/actions.md)`);
+    for (const w of [b.who ?? []].flat()) if (!ids.includes(w)) e.push(`${where}: who "${w}" is not in the cast (${ids.join(", ")})`);
+    if (b.target && !ids.includes(b.target)) e.push(`${where}: target "${b.target}" is not in the cast`);
+    if (!multi && BED_ONLY.includes(b.do) && !env.bed) e.push(`${where}: "${b.do}" needs the bedroom`);
+    if (!multi && (b.do === "pass" || b.do === "meet") && (!env.path || ids.length < 2)) e.push(`${where}: "${b.do}" needs two people and an environment with a path (campus)`);
+    if (!multi && (b.do === "walk") && !env.path) e.push(`${where}: ${s.env} has no walking path`);
+    if ((b.do === "eyeContact" || b.do === "highFive") && ids.length < 2) e.push(`${where}: "${b.do}" needs two people`);
+    if ((b.do === "phone" || b.do === "bag") && !s.cast.some((c) => (c.prop === b.do || c.prop === "both") && [b.who ?? s.cast[0].id].flat().includes(c.id))) e.push(`${where}: give that person prop "${b.do}" (or "both") in cast`);
+    one(b.shot, SHOT_NAMES, `${where}: shot`);
+    one(b.face, Object.keys(EXPR), `${where}: face`);
+    if (b.thought) { one(b.thought.icon, ICON_NAMES, `${where}: icon`); one(b.thought.vignette, VIGNETTE_NAMES, `${where}: vignette`); if (!b.thought.text && !b.thought.icon && !b.thought.vignette) e.push(`${where}: thought needs text, icon or vignette`); }
+  });
+  // blocking limits: a person walks only from the first frame (campus path) until stop / meet / after a pass
+  for (const id of multi ? [] : ids) {
+    const mine = (s.beats ?? []).filter((b) => (b.who ? [b.who].flat() : ["eyeContact", "pass", "meet", "highFive"].includes(b.do) ? ids : [ids[0]]).includes(id)).map((b) => b.do as string);
+    const walks = s.start?.[id] ? s.start[id] === "walk" : mine.includes("pass") || mine.includes("meet") || (!!env.path && mine[0] === "walk");
+    if (!walks && mine.some((v) => v === "walk" || v === "stop")) e.push(`"${id}" does not start walking, so "walk"/"stop" cannot be used — walking only starts at the beginning: make "walk" their first beat (campus) or set start.${id} = "walk"`);
+    if (walks && mine.some((v) => v === "sitDown" || v === "standUp")) e.push(`"${id}" walks, so "sitDown"/"standUp" cannot be used — a person who sits starts at a seat (start.${id} = "sit" or "stand")`);
+  }
+  for (const [i, c] of (s.cards ?? []).entries()) { cue(c.at, `card ${i + 1}`); if (c.until !== undefined) cue(c.until, `card ${i + 1} until`); }
+  for (const [k, sc] of (s.scenes ?? []).entries()) cue(sc.at, `scene ${k + 2}`);
+  if (s.board) { if (!multi && !env.path) e.push("board needs the campus path"); cue(s.board.at, "board"); cue(s.board.until, "board until"); if (s.board.swap !== undefined) cue(s.board.swap, "board swap"); }
+  if (s.tumbleweed) { if (!multi && !env.path) e.push("tumbleweed needs the campus path"); cue(s.tumbleweed.at, "tumbleweed"); cue(s.tumbleweed.until, "tumbleweed until"); }
+  if (s.mood && !["playful", "warm", "tense", "calm"].includes(s.mood)) e.push(`mood "${s.mood}" is not available (playful, warm, tense, calm)`);
+  return e;
+};
+
+==== 1224 src/kits/characterflow/env/bedroom.data.ts
+// Bedroom layout data (Node-safe) — the Bedroom component draws it, the director plans on it.
+
+import type { V3 } from "../character/spec.ts";
+import type { BedFrame } from "./Blanket.tsx";
+
+export type BedroomLayout = {
+  room: { x0: number; x1: number; z0: number; z1: number; h: number };
+  bed: BedFrame & { z0: number };
+  pillow: V3;
+  nightstand: { x: number; z: number; w: number; d: number; h: number };
+  lamp: V3;
+  clock: V3;
+  window: { z0: number; z1: number; y0: number; y1: number };
+  palette: { wall: string; floor: string; duvet: string; duvetInk: string; cuff: string; sheet: string; headboard: string; wood: string; accent: string };
+};
+
+export const BEDROOM: BedroomLayout = {
+  room: { x0: -2.4, x1: 2.0, z0: -1.3, z1: 2.8, h: 2.75 },
+  bed: { x: -0.05, z0: -1.14, z1: 1.0, halfW: 0.74, top: 0.56 },
+  pillow: [-0.16, 0.62, -0.86],
+  nightstand: { x: -1.08, z: -0.74, w: 0.48, d: 0.44, h: 0.58 },
+  lamp: [-1.14, 0.58, -0.84],
+  clock: [-0.99, 0.58, -0.6],
+  window: { z0: -0.95, z1: 0.35, y0: 0.95, y1: 2.25 },
+  palette: { wall: "#8ea6c4", floor: "#a77b55", duvet: "#9ec3ea", duvetInk: "#f5d77a", cuff: "#e0dbd0", sheet: "#e3dfd6", headboard: "#2f7d84", wood: "#c89a6a", accent: "#f2b544" },
+};
+
+
+==== 14700 src/kits/characterflow/env/Bedroom.tsx
+// Modular bedroom set. Everything is placed from one layout object (BedroomLayout) so a topic can move
+// the bed, swap the palette or drop pieces without touching geometry code. Pieces: room shell with a
+// moonlit window, bed (frame, mattress, headboard, pillows), nightstand with a touch lamp and a clock,
+// shelf, posters, rug, desk corner, plant and slippers. The duvet is separate (Blanket.tsx) because it
+// follows the character.
+
+import React from "react";
+import { DoubleSide, PlaneGeometry, type Material } from "three";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { basic, canvasTex, phys, shade } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+import { duvetTex, paintTex, plankTex, posterTex, rugTex, skyTex, spineColors } from "./textures.ts";
+import type { V3 } from "../character/spec.ts";
+
+export { BEDROOM, type BedroomLayout } from "./bedroom.data.ts";
+import { BEDROOM, type BedroomLayout } from "./bedroom.data.ts";
+
+const mats = (L: BedroomLayout) => {
+  const P = L.palette;
+  return {
+    wall: phys(`cfwall${P.wall}`, { color: "#ffffff", map: paintTex(P.wall, P.wall, [3, 3]), roughness: 0.92 }),
+    floor: phys(`cffloor${P.floor}`, { color: "#ffffff", map: plankTex([3, 2], P.floor), roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
+    wood: phys(`cfwood${P.wood}`, { color: P.wood, roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.35 }),
+    woodDark: phys(`cfwoodD${P.wood}`, { color: shade(P.wood, 0.62), roughness: 0.55 }),
+    sheet: phys(`cfsheet${P.sheet}`, { color: P.sheet, roughness: 0.85, sheen: 0.5, sheenColor: "#ffffff" }),
+    head: phys(`cfhead${P.headboard}`, { color: P.headboard, roughness: 0.8, sheen: 0.7, sheenColor: shade(P.headboard, 1.8) }),
+    duvet: phys(`cfduvet${P.duvet}`, { color: "#ffffff", map: duvetTex(P.duvet, P.duvet, P.duvetInk, [2, 2]), roughness: 0.82, sheen: 0.6, sheenColor: "#ffffff", side: DoubleSide }),
+    cuff: phys(`cfcuff${P.cuff}`, { color: P.cuff, roughness: 0.85, sheen: 0.5, sheenColor: "#ffffff", side: DoubleSide }),
+    white: phys("cfwhite", { color: "#f4f2ee", roughness: 0.35, clearcoat: 0.4 }),
+    metal: phys("cfmetal", { color: "#c9c4bb", roughness: 0.3, metalness: 0.8 }),
+    dark: phys("cfdark", { color: "#2b2d33", roughness: 0.4 }),
+    leaf: phys("cfleaf", { color: "#3f8f5a", roughness: 0.6, sheen: 0.4, sheenColor: "#a8e6b8" }),
+    pot: phys("cfpot", { color: "#e07a5f", roughness: 0.7 }),
+    accent: phys(`cfacc${P.accent}`, { color: P.accent, roughness: 0.7, sheen: 0.5 }),
+  };
+};
+export type BedroomMats = ReturnType<typeof mats>;
+export const bedroomMats = mats;
+
+/** Wavy curtain panel. */
+const curtainGeo = (w: number, h: number) =>
+  cached(`cfcurtain${w},${h}`, () => {
+    const g = new PlaneGeometry(w, h, 40, 4);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) a.setZ(i, 0.03 * Math.sin((a.getX(i) / w) * Math.PI * 7));
+    g.computeVertexNormals();
+    return g;
+  });
+
+const clockTex = (text: string) =>
+  canvasTex(`cfclock${text}`, 256, 128, (g, w, h) => {
+    g.fillStyle = "#050a10";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#7ff3ff";
+    g.font = `600 88px ${FONT}, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, w / 2, h / 2 + 4);
+  });
+
+export const Lamp: React.FC<{ at: V3; on: number }> = ({ at, on }) => {
+  const shadeMat = phys("cflampshade", { color: "#f3e6cf", roughness: 0.8, side: DoubleSide, emissive: "#ffcf8a", emissiveIntensity: 0 });
+  shadeMat.emissiveIntensity = 0.55 * on;
+  const bulb = basic("cfbulb", { color: "#fff2d6", toneMapped: false });
+  bulb.color.setRGB(0.25 + 1.6 * on, 0.22 + 1.35 * on, 0.18 + 1.0 * on);
+  const m = phys("cflampbase", { color: "#f2efe8", roughness: 0.25, clearcoat: 0.8 });
+  return (
+    <group position={at}>
+      <mesh geometry={sphere(0.075, 32, 16, Math.PI * 2, Math.PI / 2)} material={m} scale={[1, 0.75, 1]} castShadow receiveShadow />
+      <mesh geometry={cyl(0.012, 0.012, 0.2, 12)} material={phys("cfbrass", { color: "#d6b06a", metalness: 0.9, roughness: 0.3 })} position={[0, 0.14, 0]} castShadow />
+      <mesh geometry={cyl(0.085, 0.13, 0.16, 40, true)} material={shadeMat} position={[0, 0.3, 0]} castShadow />
+      <mesh geometry={sphere(0.032, 16, 12)} material={bulb} position={[0, 0.27, 0]} />
+    </group>
+  );
+};
+
+export const Clock: React.FC<{ at: V3; text: string; glow: number }> = ({ at, text, glow }) => {
+  const scr = phys(`cfclockscr${text}`, { color: "#000000", emissive: "#ffffff", emissiveMap: clockTex(text), emissiveIntensity: 1, roughness: 0.2, clearcoat: 1 });
+  scr.emissiveIntensity = glow;
+  return (
+    <group position={at} rotation={[0, 0.55, 0]}>
+      <mesh geometry={box(0.15, 0.075, 0.07, 0.02)} material={phys("cfclockbody", { color: "#2c3038", roughness: 0.35, clearcoat: 0.6 })} position={[0, 0.0375, 0]} castShadow />
+      <mesh geometry={cached("cfclockplane", () => new PlaneGeometry(0.12, 0.055))} material={scr} position={[0, 0.0385, 0.0352]} />
+    </group>
+  );
+};
+
+export const Bedroom: React.FC<{ L?: BedroomLayout; lamp: number; clockText: string; clockGlow: number; ceiling?: boolean; children?: React.ReactNode }> = ({ L = BEDROOM, lamp, clockText, clockGlow, ceiling = true, children }) => {
+  const M = mats(L);
+  const { x0, x1, z0, z1, h } = L.room;
+  const W = L.window;
+  const bed = L.bed;
+  const bw = bed.halfW * 2 + 0.08, bl = bed.z1 - bed.z0 + 0.06, bz = (bed.z0 + bed.z1) / 2;
+  const ns = L.nightstand;
+  const wallT = 0.12;
+  return (
+    <group>
+      {/* floor + walls */}
+      <mesh geometry={box(x1 - x0 + 0.4, 0.06, z1 - z0 + 0.4, 0.01)} material={M.floor} position={[(x0 + x1) / 2, -0.03, (z0 + z1) / 2]} receiveShadow />
+      <mesh geometry={box(x1 - x0, h, wallT, 0.01)} material={M.wall} position={[(x0 + x1) / 2, h / 2, z0 - wallT / 2]} receiveShadow castShadow />
+      <mesh geometry={box(wallT, h, z1 - z0, 0.01)} material={M.wall} position={[x0 - wallT / 2, h / 2, (z0 + z1) / 2]} receiveShadow castShadow />
+      {/* window wall (+x) built around the opening */}
+      <group position={[x1 + wallT / 2, 0, 0]}>
+        <mesh geometry={box(wallT, W.y0, z1 - z0, 0.01)} material={M.wall} position={[0, W.y0 / 2, (z0 + z1) / 2]} receiveShadow castShadow />
+        <mesh geometry={box(wallT, h - W.y1, z1 - z0, 0.01)} material={M.wall} position={[0, (h + W.y1) / 2, (z0 + z1) / 2]} receiveShadow castShadow />
+        <mesh geometry={box(wallT, W.y1 - W.y0, W.z0 - z0, 0.01)} material={M.wall} position={[0, (W.y0 + W.y1) / 2, (z0 + W.z0) / 2]} receiveShadow castShadow />
+        <mesh geometry={box(wallT, W.y1 - W.y0, z1 - W.z1, 0.01)} material={M.wall} position={[0, (W.y0 + W.y1) / 2, (W.z1 + z1) / 2]} receiveShadow castShadow />
+        {/* frame, mullions, sill */}
+        {[[0, W.y0], [0, W.y1], [0, (W.y0 + W.y1) / 2]].map(([, y], i) => (
+          <mesh key={`h${i}`} geometry={box(0.08, 0.05, W.z1 - W.z0, 0.01)} material={M.white} position={[-0.02, y, (W.z0 + W.z1) / 2]} castShadow />
+        ))}
+        {[W.z0, W.z1, (W.z0 + W.z1) / 2].map((z, i) => (
+          <mesh key={`v${i}`} geometry={box(0.08, W.y1 - W.y0, 0.05, 0.01)} material={M.white} position={[-0.02, (W.y0 + W.y1) / 2, z]} castShadow />
+        ))}
+        <mesh geometry={box(0.2, 0.04, W.z1 - W.z0 + 0.16, 0.012)} material={M.white} position={[-0.1, W.y0 - 0.02, (W.z0 + W.z1) / 2]} castShadow receiveShadow />
+        <mesh geometry={cached("cfskyplane", () => new PlaneGeometry(5, 3.4))} material={basic("cfsky", { map: skyTex(), toneMapped: true })} position={[1.4, (W.y0 + W.y1) / 2 + 0.3, (W.z0 + W.z1) / 2]} rotation={[0, -Math.PI / 2, 0]} />
+      </group>
+      {/* curtains */}
+      {[W.z0 - 0.22, W.z1 + 0.22].map((z, i) => (
+        <mesh key={`c${i}`} geometry={curtainGeo(0.5, W.y1 - W.y0 + 0.5)} material={phys("cfcurtain", { color: "#f2e3c6", roughness: 0.85, sheen: 0.6, sheenColor: "#fff", side: DoubleSide })} position={[x1 - 0.12, (W.y0 + W.y1) / 2 + 0.05, z]} rotation={[0, -Math.PI / 2, 0]} castShadow receiveShadow />
+      ))}
+      <mesh geometry={cyl(0.015, 0.015, W.z1 - W.z0 + 1.2, 12)} material={M.metal} position={[x1 - 0.12, W.y1 + 0.22, (W.z0 + W.z1) / 2]} rotation={[Math.PI / 2, 0, 0]} />
+      {ceiling ? <mesh geometry={box(x1 - x0, 0.06, z1 - z0, 0.01)} material={M.wall} position={[(x0 + x1) / 2, h + 0.03, (z0 + z1) / 2]} /> : null}
+      {/* baseboards */}
+      <mesh geometry={box(x1 - x0, 0.09, 0.02, 0.005)} material={M.white} position={[(x0 + x1) / 2, 0.045, z0 + 0.01]} />
+      <mesh geometry={box(0.02, 0.09, z1 - z0, 0.005)} material={M.white} position={[x1 - 0.01, 0.045, (z0 + z1) / 2]} />
+
+      {/* bed */}
+      <group position={[bed.x, 0, bz]}>
+        <mesh geometry={box(bw + 0.06, 0.2, bl + 0.06, 0.03)} material={M.wood} position={[0, 0.2, 0]} castShadow receiveShadow />
+        {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+          <mesh key={i} geometry={cyl(0.03, 0.025, 0.1, 12)} material={M.woodDark} position={[sx * (bw / 2 - 0.03), 0.05, sz * (bl / 2 - 0.03)]} />
+        ))}
+        <mesh geometry={box(bw - 0.04, bed.top - 0.3, bl - 0.04, 0.07)} material={M.sheet} position={[0, (bed.top + 0.3) / 2, 0]} castShadow receiveShadow />
+      </group>
+      <group position={[bed.x, 0, bed.z0 - 0.06]}>
+        <mesh geometry={box(bw + 0.14, 1.1, 0.1, 0.05)} material={M.head} position={[0, 0.55, 0]} castShadow receiveShadow />
+        {[-3, -2, -1, 0, 1, 2, 3].map((k) => (
+          <mesh key={k} geometry={box(0.2, 0.52, 0.06, 0.03)} material={M.head} position={[k * 0.22, 0.8, 0.05]} castShadow />
+        ))}
+      </group>
+      {/* pillows */}
+      <mesh geometry={box(0.66, 0.16, 0.42, 0.075)} material={M.sheet} position={L.pillow} scale={[1, 0.85, 1]} castShadow receiveShadow />
+      <mesh geometry={box(0.5, 0.36, 0.14, 0.06)} material={M.accent} position={[bed.x + 0.42, bed.top + 0.2, bed.z0 + 0.12]} rotation={[-0.25, -0.12, 0.03]} castShadow receiveShadow />
+
+      {/* nightstand */}
+      <group position={[ns.x, 0, ns.z]}>
+        <mesh geometry={box(ns.w, ns.h - 0.08, ns.d, 0.025)} material={M.wood} position={[0, (ns.h + 0.08) / 2, 0]} castShadow receiveShadow />
+        <mesh geometry={box(ns.w - 0.06, 0.16, 0.01, 0.004)} material={M.woodDark} position={[0, ns.h - 0.14, ns.d / 2 + 0.002]} rotation={[0, 0, 0]} />
+        <mesh geometry={sphere(0.016, 12, 8)} material={M.metal} position={[0, ns.h - 0.14, ns.d / 2 + 0.014]} />
+        {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+          <mesh key={i} geometry={cyl(0.016, 0.012, 0.09, 10)} material={M.woodDark} position={[sx * (ns.w / 2 - 0.04), 0.045, sz * (ns.d / 2 - 0.04)]} />
+        ))}
+      </group>
+      <Lamp at={L.lamp} on={lamp} />
+      <Clock at={L.clock} text={clockText} glow={clockGlow} />
+
+      {/* wall shelf above the nightstand */}
+      <group position={[ns.x - 0.05, 1.42, z0 + 0.12]}>
+        <mesh geometry={box(0.8, 0.035, 0.22, 0.008)} material={M.wood} castShadow receiveShadow />
+        {[0, 1, 2, 3, 4, 5, 6].map((k) => (
+          <mesh key={k} geometry={box(0.035, 0.18 + (k % 3) * 0.03, 0.15, 0.006)} material={phys(`cfspine${k}`, { color: spineColors[k], roughness: 0.6 })} position={[-0.34 + k * 0.042, 0.11 + (k % 3) * 0.015, 0]} rotation={[0, 0, k === 6 ? -0.25 : 0]} castShadow />
+        ))}
+        <mesh geometry={cyl(0.05, 0.04, 0.09, 20)} material={M.pot} position={[0.22, 0.063, 0]} castShadow />
+        {[0, 1, 2, 3, 4].map((k) => (
+          <mesh key={k} geometry={sphere(0.045, 12, 8)} material={M.leaf} position={[0.22 + 0.05 * Math.cos(k * 1.3), 0.14 + 0.03 * (k % 2), 0.04 * Math.sin(k * 1.3)]} scale={[1, 0.45, 0.7]} rotation={[0.3 * k, k, 0.5]} castShadow />
+        ))}
+      </group>
+      {/* posters above the bed */}
+      {[[-0.32, "#f7b267", "#f25c54", "#3d405b"], [0.3, "#8ecae6", "#219ebc", "#023047"]].map(([dx, a, b, c], i) => (
+        <group key={i} position={[bed.x + (dx as number), 1.62 + i * 0.06, z0 + 0.02]} rotation={[0, 0, i ? 0.02 : -0.015]}>
+          <mesh geometry={box(0.42, 0.56, 0.025, 0.006)} material={M.dark} castShadow />
+          <mesh geometry={cached("cfposterplane", () => new PlaneGeometry(0.38, 0.52))} material={phys(`cfposter${i}`, { map: posterTex(String(i), a as string, b as string, c as string), roughness: 0.6 })} position={[0, 0, 0.014]} />
+        </group>
+      ))}
+      {/* rug, slippers */}
+      <mesh geometry={cached("cfrugplane", () => new PlaneGeometry(1.7, 1.7))} material={phys("cfrug", { map: rugTex(), roughness: 0.95, sheen: 0.6, sheenColor: "#fff" })} position={[bed.x + 1.05, 0.004, 0.7]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow />
+      {[0, 1].map((k) => (
+        <mesh key={k} geometry={box(0.11, 0.05, 0.27, 0.04)} material={M.accent} position={[bed.x + 0.98 + k * 0.15, 0.03, 0.45 + k * 0.04]} rotation={[0, 0.3 + k * 0.15, 0]} castShadow />
+      ))}
+      {/* desk corner (−x wall) */}
+      <group position={[x0 + 0.38, 0, 1.15]}>
+        <mesh geometry={box(0.7, 0.04, 1.1, 0.01)} material={M.wood} position={[0, 0.74, 0]} castShadow receiveShadow />
+        {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+          <mesh key={i} geometry={cyl(0.02, 0.02, 0.72, 10)} material={M.dark} position={[sx * 0.3, 0.36, sz * 0.5]} />
+        ))}
+        <mesh geometry={box(0.3, 0.018, 0.4, 0.008)} material={phys("cflaptop", { color: "#b9bcc4", metalness: 0.7, roughness: 0.35 })} position={[0.05, 0.77, 0.1]} rotation={[0, 0.2, 0]} castShadow />
+        <mesh geometry={cyl(0.04, 0.035, 0.1, 16)} material={M.white} position={[0.12, 0.81, -0.32]} castShadow />
+        {/* desk chair, swivelled toward the room */}
+        <mesh geometry={box(0.45, 0.05, 0.45, 0.02)} material={M.accent} position={[0.45, 0.47, 0.1]} castShadow receiveShadow />
+        <mesh geometry={box(0.45, 0.5, 0.06, 0.02)} material={M.accent} position={[0.45, 0.72, -0.13]} castShadow />
+        <mesh geometry={cyl(0.03, 0.03, 0.42, 10)} material={M.dark} position={[0.45, 0.22, 0.1]} castShadow />
+        <mesh geometry={cyl(0.24, 0.24, 0.03, 20)} material={M.dark} position={[0.45, 0.02, 0.1]} />
+      </group>
+      {/* floor plant by the window */}
+      <group position={[x1 - 0.38, 0, 0.85]}>
+        <mesh geometry={cyl(0.17, 0.13, 0.36, 24)} material={M.pot} position={[0, 0.18, 0]} castShadow receiveShadow />
+        {Array.from({ length: 9 }, (_, k) => (
+          <mesh key={k} geometry={sphere(0.16, 16, 10)} material={M.leaf} position={[0.18 * Math.cos(k * 2.4), 0.55 + 0.09 * k, 0.18 * Math.sin(k * 2.4)]} scale={[1, 0.22, 0.62]} rotation={[0.4 * Math.sin(k), k * 2.4, 0.35]} castShadow />
+        ))}
+      </group>
+      {children}
+    </group>
+  );
+};
+
+export type { Material };
+
+==== 6273 src/kits/characterflow/env/Blanket.tsx
+// A duvet that drapes over whoever is in the bed. Every frame it rebuilds a height field over the
+// mattress from the character's body capsules (pelvis, torso, thighs, shins, feet — taken from the
+// skeleton, so it follows any pose), softens it like fabric, hangs a skirt over the sides and the foot,
+// and turns a cuff back at its top edge. Fixed topology: positions are rewritten in place.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { BufferAttribute, BufferGeometry, type Material, Vector3 } from "three";
+import type { Skeleton } from "../character/skeleton.ts";
+import type { V3 } from "../character/spec.ts";
+
+export type Capsule = { a: V3; b: V3; r: number };
+export type BedFrame = { x: number; z0: number; z1: number; halfW: number; top: number };
+
+/** Body capsules for the blanket, from a skeleton (world space). Arms are left out: they rest on top. */
+export const bodyCapsules = (sk: Skeleton, scale: number): Capsule[] => {
+  const P = (m: { elements: number[] }, l: V3 = [0, 0, 0]) => {
+    const v = new Vector3(...l).applyMatrix4(m as never);
+    return [v.x, v.y, v.z] as V3;
+  };
+  const W = sk.W;
+  const hip = P(W.hips), chestTop = P(W.chest, [0, 0.12, 0]), chestLow = P(W.chest, [0, -0.2, 0]);
+  const caps: Capsule[] = [{ a: P(W.hips, [0.1, -0.02, 0]), b: P(W.hips, [-0.1, -0.02, 0]), r: 0.15 * scale }];
+  // the torso only lifts the duvet while it lies down (an upright torso is above the top edge)
+  const horiz = (a: V3, b: V3) => Math.abs(b[1] - a[1]) < 0.45 * Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  if (horiz(hip, chestTop)) caps.push({ a: chestLow, b: chestTop, r: 0.17 * scale }, { a: hip, b: chestLow, r: 0.16 * scale });
+  for (const [knee, ankle] of [[W.kneeL, W.ankleL], [W.kneeR, W.ankleR]] as const) {
+    const k = P(knee), an = P(ankle);
+    const h = P(knee, [0, 0.43, 0]);
+    caps.push({ a: h, b: k, r: 0.1 * scale });
+    caps.push({ a: k, b: an, r: 0.08 * scale });
+    caps.push({ a: P(knee, [0, -0.36, 0]), b: P(ankle, [0, -0.05, 0.2]), r: 0.075 * scale });
+  }
+  return caps;
+};
+
+const NX = 46, NZ = 56;
+
+export const Blanket: React.FC<{
+  bed: BedFrame;
+  /** z of the turned-back top edge (toward the headboard = smaller z) */
+  edge: number;
+  caps: Capsule[];
+  /** [duvet, cuff] */
+  materials: [Material, Material];
+}> = ({ bed, edge, caps, materials }) => {
+  const geo = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(new Float32Array(NX * NZ * 3), 3));
+    const uv = new Float32Array(NX * NZ * 2);
+    for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { uv[(j * NX + i) * 2] = (i / (NX - 1)) * 1.6; uv[(j * NX + i) * 2 + 1] = (j / (NZ - 1)) * 1.8; }
+    g.setAttribute("uv", new BufferAttribute(uv, 2));
+    const idx: number[] = [];
+    for (let j = 0; j < NZ - 1; j++) for (let i = 0; i < NX - 1; i++) {
+      const a = j * NX + i, b = a + 1, c = a + NX, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    g.setIndex(idx);
+    // cuff band: first rows near the edge (separate group)
+    const cuffTris = (NX - 1) * 6 * 7;
+    g.addGroup(0, cuffTris, 1);
+    g.addGroup(cuffTris, idx.length - cuffTris, 0);
+    return g;
+  }, []);
+  useLayoutEffect(() => () => geo.dispose(), [geo]);
+
+  const { x: bx, halfW, top, z1 } = bed;
+  const skirt = 0.3, over = 0.13;
+  const H = new Float32Array(NX * NZ), X = new Float32Array(NX * NZ), Z = new Float32Array(NX * NZ), B = new Float32Array(NX * NZ);
+  for (let j = 0; j < NZ; j++) {
+    const v = j / (NZ - 1);
+    for (let i = 0; i < NX; i++) {
+      const u = i / (NX - 1);
+      const lx = -halfW - over + u * 2 * (halfW + over);
+      const lzRaw = edge + v * (z1 + over - edge);
+      // skirt: beyond the mattress the fabric hangs (x/z clamp to the edge, y drops)
+      const ox = Math.max(0, Math.abs(lx) - halfW), oz = Math.max(0, lzRaw - z1);
+      const o = Math.max(ox, oz);
+      const k = Math.min(1, o / over);
+      const drop = skirt * (1 - Math.cos((k * Math.PI) / 2)) + 0.05 * Math.sin(k * Math.PI);
+      const x = bx + Math.sign(lx) * Math.min(Math.abs(lx), halfW + 0.035 * Math.sin((k * Math.PI) / 2));
+      const z = Math.min(lzRaw, z1 + 0.035 * Math.sin((Math.min(1, oz / over) * Math.PI) / 2));
+      // body: highest capsule top under this point
+      let hb = -1;
+      for (const c of caps) {
+        const ax = c.b[0] - c.a[0], az = c.b[2] - c.a[2];
+        const L2 = ax * ax + az * az;
+        let s = L2 > 1e-8 ? ((x - c.a[0]) * ax + (z - c.a[2]) * az) / L2 : 0;
+        s = Math.min(1, Math.max(0, s));
+        const px = c.a[0] + ax * s, pz = c.a[2] + az * s, py = c.a[1] + (c.b[1] - c.a[1]) * s;
+        const d2 = (x - px) ** 2 + (z - pz) ** 2;
+        const rr = c.r + 0.05;
+        if (d2 < rr * rr) {
+          const inner = Math.sqrt(Math.max(0, c.r * c.r - Math.min(d2, c.r * c.r)));
+          const soft = d2 < c.r * c.r ? inner : -(Math.sqrt(d2) - c.r) * 1.2;
+          hb = Math.max(hb, py + soft + 0.022);
+        }
+      }
+      const n = j * NX + i;
+      X[n] = x; Z[n] = z;
+      B[n] = hb;
+      H[n] = Math.max(top + 0.03 - drop, hb);
+    }
+  }
+  // fabric softening: blur, then never sink below the body
+  const T = new Float32Array(NX * NZ);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let j = 0; j < NZ; j++)
+      for (let i = 0; i < NX; i++) {
+        let s = 0, w = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const ii = Math.min(NX - 1, Math.max(0, i + di)), jj = Math.min(NZ - 1, Math.max(0, j + dj));
+          const ww = di === 0 && dj === 0 ? 2 : 1;
+          s += H[jj * NX + ii] * ww; w += ww;
+        }
+        T[j * NX + i] = s / w;
+      }
+    for (let n = 0; n < NX * NZ; n++) H[n] = Math.max(T[n], B[n]);
+  }
+  const p = geo.attributes.position as BufferAttribute;
+  for (let j = 0; j < NZ; j++)
+    for (let i = 0; i < NX; i++) {
+      const n = j * NX + i;
+      // top edge: the first row tucks down to give the duvet thickness
+      const tuck = j === 0 ? -0.045 : j === 1 ? -0.008 : 0;
+      p.setXYZ(n, X[n], H[n] + tuck, Z[n] + (j === 0 ? 0.012 : 0));
+    }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return (
+    <mesh geometry={geo} material={materials} castShadow receiveShadow />
+  );
+};
+
+==== 1928 src/kits/characterflow/env/campus.data.ts
+// Campus layout data (Node-safe) — the Campus component draws it, the director plans on it.
+
+import { mulberry32 } from "../lib/rng.ts";
+import type { V3 } from "../character/spec.ts";
+
+export type CampusLayout = {
+  /** main walkway along X at z, from x0 to x1 */
+  path: { x0: number; x1: number; z: number; width: number };
+  /** a side path from the walkway to the building entrance at x */
+  entrance: { x: number };
+  building: { z: number; x0: number; x1: number; depth: number; floors: number; sign: string };
+  trees: V3[];
+  benches: { p: V3; yaw: number }[];
+  lamps: V3[];
+  bushes: V3[];
+  bins: V3[];
+  palette: { grass: string; paver: string; curb: string; wall: string; band: string; roof: string; glass: string; trunk: string; leaf: string[]; accent: string };
+};
+
+const ROW = (x0: number, x1: number, step: number, z: number, jitter = 0, seed = 1): V3[] => {
+  const r = mulberry32(seed);
+  const out: V3[] = [];
+  for (let x = x0; x <= x1; x += step) out.push([x + (r() - 0.5) * jitter, 0, z + (r() - 0.5) * jitter]);
+  return out;
+};
+
+export const CAMPUS: CampusLayout = {
+  path: { x0: -34, x1: 34, z: 0, width: 2.8 },
+  entrance: { x: 5.5 },
+  building: { z: -12, x0: -26, x1: 22, depth: 9, floors: 3, sign: "GEDUNG KULIAH B" },
+  // camera-side row only outside the central action zone (cameras live on the +z side)
+  trees: [...ROW(-30, 30, 7.5, -3.3, 1.2, 3), ...ROW(-26.5, 30, 9, 3.6, 1.5, 7).filter((p) => p[0] < -24 || p[0] > 16)],
+  benches: [-19, -5, 9.5, 23].map((x) => ({ p: [x, 0, -2.25] as V3, yaw: 0 })),
+  lamps: ROW(-31, 31, 10, 2.2, 0, 1),
+  bushes: [...ROW(-25, 21, 2.3, -7.1, 0.6, 11), ...ROW(-33, 33, 3.1, 5.6, 1.2, 13)],
+  bins: [[-12.5, 0, -2.2], [16, 0, -2.2]],
+  palette: { grass: "#7cc46b", paver: "#e6d8c3", curb: "#f4efe6", wall: "#f2e6d3", band: "#d9805f", roof: "#8a5a44", glass: "#8fc4ec", trunk: "#8a6243", leaf: ["#4fae5b", "#6cc46a", "#3f9a54"], accent: "#2f7d84" },
+};
+
+
+==== 14265 src/kits/characterflow/env/Campus.tsx
+// Modular campus set (CHARACTERFLOW): a long pedestrian walkway for walking scenes, lecture buildings
+// behind, trees, bushes, benches, lamp posts and small props for depth, under a bright sky dome.
+// Everything is placed from one CampusLayout, so a topic can lengthen the walk, move the building,
+// rename the sign or re-colour the palette without touching geometry code. Daylight, clean, playful.
+
+import React from "react";
+import { BackSide, PlaneGeometry, SphereGeometry } from "three";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { basic, canvasTex, mulberry32, phys, shade } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+import type { V3 } from "../character/spec.ts";
+
+export { CAMPUS, type CampusLayout } from "./campus.data.ts";
+import type { CampusLayout } from "./campus.data.ts";
+import { CAMPUS } from "./campus.data.ts";
+
+// ── textures ────────────────────────────────────────────────────────────────
+const grassTex = (base: string) =>
+  canvasTex(`cfgrass${base}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(41);
+    g.fillStyle = base;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 2600; k++) {
+      g.fillStyle = `rgba(${r() > 0.5 ? "255,255,220" : "20,70,20"},${0.03 + r() * 0.05})`;
+      g.fillRect(r() * w, r() * h, 1 + r() * 2, 3 + r() * 5);
+    }
+    for (let k = 0; k < 30; k++) {
+      g.fillStyle = `rgba(255,255,255,${0.15 + r() * 0.2})`;
+      g.beginPath();
+      g.arc(r() * w, r() * h, 1.5 + r() * 1.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  }, [40, 26]);
+
+const paverTex = (base: string) =>
+  canvasTex(`cfpaver${base}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(17);
+    g.fillStyle = shade(base, 0.72);
+    g.fillRect(0, 0, w, h);
+    const s = 64;
+    for (let y = 0; y < h; y += s / 2)
+      for (let x = ((y / (s / 2)) % 2) * (s / 2) - s; x < w + s; x += s) {
+        g.fillStyle = shade(base, 0.92 + r() * 0.14);
+        g.beginPath();
+        g.roundRect(x + 2, y + 2, s - 4, s / 2 - 4, 4);
+        g.fill();
+      }
+  }, [30, 1.4]);
+
+const facadeTex = (wall: string, glass: string, band: string, floors: number, rep: number) =>
+  canvasTex(`cffacade${wall}${glass}${floors}${rep}`, 1024, 512, (g, w, h) => {
+    g.fillStyle = wall;
+    g.fillRect(0, 0, w, h);
+    const fh = h / floors;
+    for (let f = 0; f < floors; f++) {
+      g.fillStyle = band;
+      g.fillRect(0, f * fh + fh - 10, w, 10);
+      for (let i = 0; i < 8; i++) {
+        const x = 24 + i * 125, y = f * fh + 26, ww = 92, hh = fh - 62;
+        const gr = g.createLinearGradient(x, y, x + ww, y + hh);
+        gr.addColorStop(0, shade(glass, 1.25));
+        gr.addColorStop(0.5, glass);
+        gr.addColorStop(1, shade(glass, 0.78));
+        g.fillStyle = gr;
+        g.fillRect(x, y, ww, hh);
+        g.fillStyle = "rgba(255,255,255,0.35)";
+        g.beginPath();
+        g.moveTo(x + 10, y + hh);
+        g.lineTo(x + 40, y);
+        g.lineTo(x + 55, y);
+        g.lineTo(x + 25, y + hh);
+        g.fill();
+        g.strokeStyle = "#ffffff";
+        g.lineWidth = 6;
+        g.strokeRect(x, y, ww, hh);
+        g.fillStyle = "#ffffff";
+        g.fillRect(x + ww / 2 - 2, y, 4, hh);
+      }
+    }
+  }, [rep, 1]);
+
+const signTex = (text: string, accent: string) =>
+  canvasTex(`cfsign${text}`, 1024, 160, (g, w, h) => {
+    g.fillStyle = accent;
+    g.beginPath();
+    g.roundRect(0, 0, w, h, 24);
+    g.fill();
+    g.fillStyle = "#ffffff";
+    g.font = `600 86px ${FONT}, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, w / 2, h / 2 + 4);
+  });
+
+const skyTex = () =>
+  canvasTex("cfdaysky", 64, 512, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, "#3d8be6");
+    gr.addColorStop(0.42, "#79b7f2");
+    gr.addColorStop(0.5, "#cfe6f8");
+    gr.addColorStop(1, "#cfe6f8");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  });
+
+// ── pieces ──────────────────────────────────────────────────────────────────
+export const Tree: React.FC<{ p: V3; s?: number; seed?: number; P: CampusLayout["palette"] }> = ({ p, s = 1, seed = 1, P }) => {
+  const r = mulberry32(seed * 97 + 5);
+  const trunk = phys(`cftrunk${P.trunk}`, { color: P.trunk, roughness: 0.85 });
+  const leaves = P.leaf.map((c) => phys(`cfleafc${c}`, { color: c, roughness: 0.7, sheen: 0.5, sheenColor: "#e8ffd0" }));
+  const h = (2.6 + r() * 0.8) * s;
+  return (
+    <group position={p} rotation={[0, r() * 6, 0]}>
+      <mesh geometry={cyl(0.12 * s, 0.18 * s, h, 12)} material={trunk} position={[0, h / 2, 0]} castShadow receiveShadow />
+      {Array.from({ length: 6 }, (_, k) => {
+        const a = k * 2.1 + r(), rr = (k === 0 ? 0 : 0.75 + r() * 0.4) * s;
+        const sz = (k === 0 ? 1.45 : 0.95 + r() * 0.35) * s;
+        return <mesh key={k} geometry={sphere(1, 20, 14)} material={leaves[k % leaves.length]} position={[Math.cos(a) * rr, h + 0.4 * s + (k === 0 ? 0.55 * s : r() * 0.6 * s), Math.sin(a) * rr]} scale={[sz, sz * 0.86, sz]} castShadow receiveShadow />;
+      })}
+    </group>
+  );
+};
+
+const Bench: React.FC<{ p: V3; yaw: number }> = ({ p, yaw }) => {
+  const wood = phys("cfbenchwood", { color: "#c58b54", roughness: 0.6, clearcoat: 0.2 });
+  const iron = phys("cfbenchiron", { color: "#2d3340", roughness: 0.45, metalness: 0.5 });
+  return (
+    <group position={p} rotation={[0, yaw, 0]}>
+      {[0, 1, 2].map((k) => <mesh key={k} geometry={box(1.6, 0.04, 0.12, 0.015)} material={wood} position={[0, 0.45, -0.14 + k * 0.14]} castShadow receiveShadow />)}
+      {[0, 1].map((k) => <mesh key={`b${k}`} geometry={box(1.6, 0.11, 0.035, 0.015)} material={wood} position={[0, 0.66 + k * 0.15, -0.24]} rotation={[-0.12, 0, 0]} castShadow />)}
+      {[-1, 1].map((sx) => <mesh key={`l${sx}`} geometry={box(0.06, 0.45, 0.42, 0.02)} material={iron} position={[sx * 0.7, 0.225, -0.04]} castShadow />)}
+    </group>
+  );
+};
+
+const Lamp: React.FC<{ p: V3 }> = ({ p }) => {
+  const iron = phys("cflampiron", { color: "#2d3340", roughness: 0.4, metalness: 0.6 });
+  return (
+    <group position={p}>
+      <mesh geometry={cyl(0.05, 0.07, 3.4, 12)} material={iron} position={[0, 1.7, 0]} castShadow />
+      <mesh geometry={sphere(0.2, 20, 14)} material={phys("cflampglobe", { color: "#fffaf0", roughness: 0.2, transmission: 0, emissive: "#fff3d8", emissiveIntensity: 0.2 })} position={[0, 3.55, 0]} castShadow />
+      <mesh geometry={cyl(0.22, 0.12, 0.08, 16)} material={iron} position={[0, 3.36, 0]} />
+    </group>
+  );
+};
+
+const Bush: React.FC<{ p: V3; seed: number; P: CampusLayout["palette"] }> = ({ p, seed, P }) => {
+  const r = mulberry32(seed * 31 + 7);
+  const m = phys(`cfleafc${P.leaf[seed % P.leaf.length]}`, { color: P.leaf[seed % P.leaf.length], roughness: 0.7, sheen: 0.5, sheenColor: "#e8ffd0" });
+  return (
+    <group position={p}>
+      {[0, 1, 2].map((k) => <mesh key={k} geometry={sphere(1, 16, 12)} material={m} position={[(k - 1) * 0.42 + (r() - 0.5) * 0.2, 0.28 + r() * 0.12, (r() - 0.5) * 0.25]} scale={[0.5 + r() * 0.15, 0.42 + r() * 0.15, 0.45]} castShadow receiveShadow />)}
+      {r() < 0.5 ? [0, 1, 2].map((k) => <mesh key={`f${k}`} geometry={sphere(0.05, 8, 6)} material={phys(`cfflower${k}`, { color: ["#ffd166", "#ff8fab", "#ffffff"][k], roughness: 0.6 })} position={[(k - 1) * 0.35 + 0.05, 0.62, 0.3]} />) : null}
+    </group>
+  );
+};
+
+const Building: React.FC<{ L: CampusLayout }> = ({ L }) => {
+  const B = L.building, P = L.palette;
+  const W = B.x1 - B.x0, H = B.floors * 3.6 + 0.6, cx = (B.x0 + B.x1) / 2;
+  const facade = phys(`cffacade${P.wall}${W}`, { color: "#ffffff", map: facadeTex(P.wall, P.glass, P.band, B.floors, Math.round(W / 9)), roughness: 0.6 });
+  const wall = phys(`cfwallc${P.wall}`, { color: P.wall, roughness: 0.75 });
+  const band = phys(`cfband${P.band}`, { color: P.band, roughness: 0.6 });
+  return (
+    <group>
+      <mesh geometry={box(W, H, B.depth, 0.05)} material={wall} position={[cx, H / 2, B.z - B.depth / 2]} castShadow receiveShadow />
+      <mesh geometry={cached(`cffacadeplane${W},${H}`, () => new PlaneGeometry(W - 0.2, H - 0.8))} material={facade} position={[cx, H / 2 - 0.1, B.z + 0.02]} />
+      <mesh geometry={box(W + 0.6, 0.4, B.depth + 0.6, 0.05)} material={phys(`cfroof${P.roof}`, { color: P.roof, roughness: 0.7 })} position={[cx, H + 0.2, B.z - B.depth / 2]} castShadow />
+      {Array.from({ length: Math.floor(W / 4.5) + 1 }, (_, k) => (
+        <mesh key={k} geometry={box(0.42, H, 0.3, 0.04)} material={band} position={[B.x0 + 0.3 + k * 4.5, H / 2, B.z + 0.12]} castShadow />
+      ))}
+      {/* entrance portico, canopy, stairs, sign */}
+      <group position={[L.entrance.x, 0, B.z]}>
+        <mesh geometry={box(5.2, 0.25, 2.6, 0.04)} material={phys("cfcanopy", { color: P.accent, roughness: 0.5 })} position={[0, 3.3, 1.2]} castShadow />
+        {[-1, 1].map((s) => <mesh key={s} geometry={cyl(0.13, 0.13, 3.3, 16)} material={phys("cfcolumn", { color: "#ffffff", roughness: 0.4 })} position={[s * 2.3, 1.65, 2.3]} castShadow />)}
+        {[0, 1, 2].map((k) => <mesh key={`s${k}`} geometry={box(4.6 - k * 0.3, 0.15, 0.4, 0.02)} material={phys("cfstair", { color: "#e3ddd2", roughness: 0.8 })} position={[0, 0.075 + k * 0.15, 2.4 - k * 0.4]} receiveShadow castShadow />)}
+        <mesh geometry={box(2.8, 2.6, 0.1, 0.02)} material={phys("cfdoor", { color: P.glass, roughness: 0.15, clearcoat: 1 })} position={[0, 1.55, 0.06]} />
+        <mesh geometry={cached("cfsignplane", () => new PlaneGeometry(4.6, 0.72))} material={phys(`cfsign${B.sign}`, { map: signTex(B.sign, P.accent), roughness: 0.5 })} position={[0, 3.3, 2.53]} />
+      </group>
+    </group>
+  );
+};
+
+export const Campus: React.FC<{ L?: CampusLayout; children?: React.ReactNode }> = ({ L = CAMPUS, children }) => {
+  const P = L.palette, W = L.path;
+  const grass = phys(`cfgrassm${P.grass}`, { color: "#ffffff", map: grassTex(P.grass), roughness: 0.95 });
+  const paver = phys(`cfpaverm${P.paver}`, { color: "#ffffff", map: paverTex(P.paver), roughness: 0.8 });
+  paver.map!.repeat.set((W.x1 - W.x0) / 2.2, 1.4);
+  const curb = phys(`cfcurb${P.curb}`, { color: P.curb, roughness: 0.6 });
+  const len = W.x1 - W.x0, cx = (W.x0 + W.x1) / 2;
+  return (
+    <group>
+      {/* sky dome + clouds */}
+      <mesh geometry={cached("cfskydome", () => new SphereGeometry(140, 32, 16))} material={basic("cfskydome", { map: skyTex(), side: BackSide, fog: false, toneMapped: false })} />
+      {[[-60, 26, -90, 1.4], [-10, 32, -110, 1.8], [45, 24, -95, 1.2], [80, 30, -60, 1.5], [-85, 22, -40, 1.1]].map(([x, y, z, s], i) => (
+        <group key={`cl${i}`} position={[x, y, z]} scale={s}>
+          {[[-4, 0, 0, 4], [0, 1.4, 0, 5], [4.5, 0.2, 0, 3.6], [1.5, -0.6, 1, 4]].map(([a, b, c, r], k) => (
+            <mesh key={k} geometry={sphere(1, 16, 12)} material={basic("cfcloud", { color: "#ffffff", fog: false })} position={[a, b, c]} scale={[r, r * 0.62, r * 0.7]} />
+          ))}
+        </group>
+      ))}
+      {/* ground, walkway, curbs, side path */}
+      <mesh geometry={cached("cfground", () => new PlaneGeometry(240, 160))} material={grass} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow />
+      <mesh geometry={box(len, 0.06, W.width, 0.02)} material={paver} position={[cx, 0.0, W.z]} receiveShadow />
+      {[-1, 1].map((s) => <mesh key={s} geometry={box(len, 0.1, 0.16, 0.03)} material={curb} position={[cx, 0.03, W.z + s * (W.width / 2 + 0.08)]} receiveShadow castShadow />)}
+      <mesh geometry={box(3.4, 0.05, Math.abs(L.building.z - W.z) - W.width / 2, 0.02)} material={paver} position={[L.entrance.x, -0.002, (L.building.z + W.z - W.width / 2) / 2]} receiveShadow />
+      <Building L={L} />
+      {/* a second, farther building for depth */}
+      <group position={[-44, 0, -24]} rotation={[0, 0.5, 0]}>
+        <mesh geometry={box(22, 15, 10, 0.05)} material={phys("cfbldg2", { color: "#cfe0ec", roughness: 0.7 })} position={[0, 7.5, 0]} castShadow receiveShadow />
+        {Array.from({ length: 4 }, (_, f) => <mesh key={f} geometry={box(22.2, 0.5, 10.2, 0.02)} material={phys("cfbldg2band", { color: "#7aa6c8" })} position={[0, 3 + f * 3.5, 0]} />)}
+      </group>
+      <group position={[38, 0, -22]} rotation={[0, -0.4, 0]}>
+        <mesh geometry={box(16, 11, 10, 0.05)} material={phys("cfbldg3", { color: "#f6d9b8", roughness: 0.7 })} position={[0, 5.5, 0]} castShadow receiveShadow />
+      </group>
+      {/* far tree line */}
+      {Array.from({ length: 22 }, (_, k) => <Tree key={`ft${k}`} p={[-70 + k * 6.6, 0, -34 - (k % 3) * 3]} s={1.6} seed={100 + k} P={P} />)}
+      {L.trees.map((p, i) => <Tree key={`t${i}`} p={p} seed={i + 1} P={P} />)}
+      {L.bushes.map((p, i) => <Bush key={`b${i}`} p={p} seed={i + 1} P={P} />)}
+      {L.benches.map((b, i) => <Bench key={`bn${i}`} p={b.p} yaw={b.yaw} />)}
+      {L.lamps.map((p, i) => <Lamp key={`lp${i}`} p={p} />)}
+      {/* bins + notice board */}
+      {L.bins.map((p, i) => (
+        <group key={`bin${i}`} position={p}>
+          <mesh geometry={cyl(0.24, 0.2, 0.75, 20)} material={phys(`cfbin${i}`, { color: i ? "#4f9d69" : "#f2b544", roughness: 0.5 })} position={[0, 0.375, 0]} castShadow />
+          <mesh geometry={cyl(0.26, 0.26, 0.05, 20)} material={phys("cfbinlid", { color: "#2d3340" })} position={[0, 0.77, 0]} />
+        </group>
+      ))}
+      <group position={[2, 0, -2.6]}>
+        <mesh geometry={box(1.6, 1.1, 0.08, 0.03)} material={phys("cfboard", { color: "#9c6b45", roughness: 0.7 })} position={[0, 1.35, 0]} castShadow />
+        {[0, 1, 2, 3, 4].map((k) => <mesh key={k} geometry={box(0.36, 0.3, 0.01, 0.005)} material={phys(`cfpaper${k}`, { color: ["#fff6c2", "#ffffff", "#d7f0ff", "#ffd7e1", "#e5ffd6"][k], roughness: 0.8 })} position={[-0.5 + (k % 3) * 0.48, 1.55 - Math.floor(k / 3) * 0.42, 0.05]} rotation={[0, 0, (k - 2) * 0.04]} />)}
+        {[-1, 1].map((s) => <mesh key={s} geometry={cyl(0.04, 0.04, 1.9, 10)} material={phys("cfboardpost", { color: "#5b3a29" })} position={[s * 0.7, 0.95, 0]} castShadow />)}
+      </group>
+      {children}
+    </group>
+  );
+};
+
+==== 1212 src/kits/characterflow/env/components.tsx
+// Environment components by id (the drawing side of registry.ts). Add new environments here.
+
+import React from "react";
+import type { Cam } from "../render/FilmPost.tsx";
+import type { Skeleton } from "../character/skeleton.ts";
+import { Bedroom, bedroomMats, BEDROOM } from "./Bedroom.tsx";
+import { Blanket, bodyCapsules } from "./Blanket.tsx";
+import { Campus, CAMPUS } from "./Campus.tsx";
+import { Room } from "./Room.tsx";
+import { ROOMS } from "./room.data.ts";
+import type { EnvId, TimeOfDay } from "./registry.ts";
+
+export const EnvView: React.FC<{ id: EnvId; time: TimeOfDay; cam: Cam; lamp: number; bedSk?: { sk: Skeleton; scale: number; edge: number } }> = ({ id, time, cam, lamp, bedSk }) => {
+  if (id === "campus") return <Campus L={CAMPUS} />;
+  if (id !== "bedroom") return <Room L={ROOMS[id]} time={time} />;
+  const M = bedroomMats(BEDROOM);
+  return (
+    <>
+      <Bedroom L={BEDROOM} lamp={lamp} clockText={time === "night" ? "02:00" : "07:30"} clockGlow={time === "night" ? 0.9 : 0.4} ceiling={cam.pos[1] < 2.6} />
+      <Blanket bed={BEDROOM.bed} edge={bedSk ? bedSk.edge : -0.62} caps={bedSk ? bodyCapsules(bedSk.sk, bedSk.scale) : []} materials={[M.duvet, M.cuff]} />
+    </>
+  );
+};
+
+==== 11734 src/kits/characterflow/env/registry.ts
+// Environment registry (Node-safe data). An environment = a component that draws it (components.tsx)
+// + this planning data: camera bounds and keep-out zones, the main walk line, standing marks, seats,
+// prop points, ambience, and light/grade per time of day. The director only talks to this.
+//
+// Adding an environment: write `<name>.data.ts` (layout numbers) + `<Name>.tsx` (geometry), add an
+// EnvData entry here and the component in components.tsx. Nothing else in the system changes.
+
+import type { Grade } from "../render/FilmPost.tsx";
+import type { LightState } from "../render/Lights.tsx";
+import type { V3 } from "../character/spec.ts";
+import type { Seat } from "../locomotion/stand.ts";
+import { BEDROOM } from "./bedroom.data.ts";
+import { CAMPUS } from "./campus.data.ts";
+import { ROOMS, roomBlockers, roomSeats, type RoomLayout } from "./room.data.ts";
+
+export type TimeOfDay = "day" | "night" | "sunset";
+export type EnvData = {
+  id: EnvId;
+  name: string;
+  /** cameras stay inside this box */
+  bounds: { min: V3; max: V3 };
+  /** spheres cameras must not enter or look through (canopies, furniture) */
+  blockers: { c: V3; r: number }[];
+  /** horizontal direction from the action toward where cameras belong (the open side of the set) */
+  viewSide: V3;
+  /** main straight walk line: through `meet`, along `dir`; characters keep `lane` m to their right */
+  path: { meet: V3; dir: V3; lane: number; length: number } | null;
+  /** standing marks (yaw: facing direction, 0 = +Z) */
+  marks: Record<string, { pos: V3; yaw: number }>;
+  seats: Record<string, Seat>;
+  /** bedroom only: lying / sitting-in-bed anchors (pelvis point on the mattress) */
+  bed?: { lie: V3; sit: V3; edge: number; top: number; lampTapLie: V3; lampTapSit: V3 };
+  props: Record<string, V3>;
+  /** plain-language list of the marks (for the validator and the docs) */
+  markInfo?: Record<string, string>;
+  /** indoor set (wide shots instead of the high establishing crane) */
+  indoor: boolean;
+  /** a home: people wear socks */
+  home: boolean;
+  ambience: "campus" | "room" | "class" | "office" | "cafe";
+  times: TimeOfDay[];
+  light: (time: TimeOfDay, focus: V3) => LightState;
+  grade: (time: TimeOfDay) => Grade;
+};
+export type EnvId = "campus" | "bedroom" | "classroom" | "office" | "cafe" | "livingroom";
+
+const P_OFF = { pos: [0, -50, 0] as V3, color: "#ffffff", i: 0, dist: 1 };
+const SPOT_OFF = { pos: [0, 40, 0] as V3, target: [0, 0, 0] as V3, color: "#ffffff", i: 0, angle: 0.6, penumbra: 0.6, dist: 10 };
+const G0: Grade = { exposure: 1, lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0.22, grain: 0.016, bloom: 0.22, bloomRadius: 0.45, bloomThreshold: 1.05, flash: 0, flashColor: "#ffffff", black: 0, ao: 1 };
+
+// ── campus ──────────────────────────────────────────────────────────────────
+const campusBlockers = [
+  ...CAMPUS.trees.flatMap((p) => [{ c: [p[0], 3.4, p[2]] as V3, r: 1.9 }, { c: [p[0], 1.2, p[2]] as V3, r: 0.45 }]),
+  ...CAMPUS.lamps.map((p) => ({ c: [p[0], 1.8, p[2]] as V3, r: 0.35 })),
+];
+const campusBench = CAMPUS.benches.reduce((a, b) => (Math.abs(b.p[0] - -5) < Math.abs(a.p[0] - -5) ? b : a));
+export const CAMPUS_ENV: EnvData = {
+  id: "campus",
+  name: "Kampus (jalur pedestrian, gedung kuliah, taman)",
+  bounds: { min: [-32, 0.35, -10.5], max: [32, 9, 14] },
+  blockers: campusBlockers,
+  viewSide: [0, 0, 1],
+  path: { meet: [0, 0, 0], dir: [1, 0, 0], lane: 0.38, length: 30 },
+  marks: {
+    center: { pos: [0, 0, 0.2], yaw: 0 },
+    talkL: { pos: [-0.42, 0, 0.06], yaw: Math.PI / 2 },
+    talkR: { pos: [0.42, 0, -0.06], yaw: -Math.PI / 2 },
+    lawn: { pos: [2.5, 0, 3.0], yaw: -0.4 },
+  },
+  seats: {
+    benchL: { pos: [campusBench.p[0] - 0.42, 0, campusBench.p[2] - 0.02], yaw: 0, height: 0.47 },
+    benchR: { pos: [campusBench.p[0] + 0.42, 0, campusBench.p[2] - 0.02], yaw: 0, height: 0.47 },
+  },
+  props: {},
+  indoor: false,
+  home: false,
+  ambience: "campus",
+  times: ["day", "sunset"],
+  light: (time, f) => ({
+    bg: time === "sunset" ? "#f2b98a" : "#9cc9f0",
+    fog: { color: time === "sunset" ? "#f6c9a0" : "#bcdcf5", density: 0.0022 },
+    env: 0.32,
+    hemi: { sky: time === "sunset" ? "#ffd7b0" : "#bfe0ff", ground: "#6f9e57", i: time === "sunset" ? 0.45 : 0.55 },
+    moon: { dir: time === "sunset" ? [-0.75, 0.32, 0.55] : [-0.3, 0.78, 0.55], color: time === "sunset" ? "#ffc58a" : "#fff0d2", i: time === "sunset" ? 2.4 : 2.7, box: { min: [f[0] - 7, -0.2, f[2] - 7], max: [f[0] + 7, 5.5, f[2] + 6] } },
+    spot: SPOT_OFF,
+    pts: [P_OFF, P_OFF, P_OFF, P_OFF],
+  }),
+  grade: (time) => ({ ...G0, exposure: 0.95, lift: [0.0, 0.004, 0.012], gain: time === "sunset" ? [1.1, 0.98, 0.9] : [1.03, 1.0, 0.97], sat: 1.16, contrast: 1.1, vignette: 0.18, grain: 0.01, bloom: 0.12, bloomRadius: 0.45, bloomThreshold: 1.25 }),
+};
+
+// ── bedroom ─────────────────────────────────────────────────────────────────
+const B = BEDROOM;
+export const BEDROOM_ENV: EnvData = {
+  id: "bedroom",
+  name: "Kamar tidur (kasur, meja belajar, jendela)",
+  bounds: { min: [B.room.x0 + 0.2, 0.35, B.room.z0 + 0.2], max: [B.room.x1 - 0.2, B.room.h - 0.25, 4.2] },
+  blockers: [
+    { c: [B.nightstand.x, 0.5, B.nightstand.z], r: 0.4 },
+    { c: [B.room.x0 + 0.38, 0.75, 1.15], r: 0.55 },
+    { c: [B.room.x1 - 0.38, 0.9, 0.85], r: 0.5 },
+  ],
+  viewSide: [0.25, 0, 1],
+  path: { meet: [0.4, 0, 1.75], dir: [-1, 0, 0], lane: 0, length: 3.2 },
+  marks: {
+    rug: { pos: [1.0, 0, 1.25], yaw: 0 },
+    window: { pos: [1.35, 0, -0.35], yaw: Math.PI / 2 },
+    center: { pos: [0.3, 0, 1.75], yaw: 0 },
+    talkL: { pos: [-0.1, 0, 1.75], yaw: Math.PI / 2 },
+    talkR: { pos: [0.7, 0, 1.75], yaw: -Math.PI / 2 },
+  },
+  seats: {
+    chair: { pos: [B.room.x0 + 0.38 + 0.45, 0, 1.28], yaw: 0, height: 0.495 },
+    bedEdge: { pos: [0.55, 0, 0.55], yaw: Math.PI / 2, height: B.bed.top },
+  },
+  bed: { lie: [-0.16, B.bed.top, -0.1], sit: [-0.16, B.bed.top, -0.42], edge: B.bed.x + B.bed.halfW, top: B.bed.top, lampTapLie: [-0.86, 0.84, -0.8], lampTapSit: [-0.88, 0.88, -0.78] },
+  props: { lamp: [B.lamp[0], B.lamp[1] + 0.3, B.lamp[2]] },
+  indoor: true,
+  home: true,
+  ambience: "room",
+  times: ["night", "day"],
+  light: (time) =>
+    time === "night"
+      ? {
+          bg: "#06090f", fog: { color: "#0b1324", density: 0 }, env: 0.2,
+          hemi: { sky: "#5f7cc0", ground: "#1c1a24", i: 0.42 },
+          moon: { dir: [0.86, 0.48, 0.2], color: "#9fb9ff", i: 3.0, box: { min: [-1.5, -0.1, -1.3], max: [2.1, 2.6, 2.8] } },
+          spot: SPOT_OFF,
+          pts: [P_OFF, P_OFF, { pos: [0.9, 1.9, 1.7], color: "#6f8cd0", i: 1.4, dist: 7 }, { pos: [0.55, 2.0, -0.35], color: "#8fb0ff", i: 1.5, dist: 4 }],
+        }
+      : {
+          bg: "#dfeaf5", fog: { color: "#dfeaf5", density: 0 }, env: 0.5,
+          hemi: { sky: "#fff4e0", ground: "#8a7058", i: 0.7 },
+          moon: { dir: [0.86, 0.5, 0.15], color: "#fff0d6", i: 2.6, box: { min: [-1.5, -0.1, -1.3], max: [2.1, 2.6, 2.8] } },
+          spot: SPOT_OFF,
+          pts: [P_OFF, P_OFF, { pos: [0.9, 1.9, 2.2], color: "#ffffff", i: 1.2, dist: 7 }, P_OFF],
+        },
+  grade: (time) =>
+    time === "night"
+      ? { ...G0, exposure: 1.32, lift: [0.016, 0.026, 0.06], gain: [0.94, 1.0, 1.08], sat: 1.04, contrast: 1.04, vignette: 0.3, bloom: 0.3, bloomRadius: 0.6, bloomThreshold: 0.95 }
+      : { ...G0, exposure: 0.95, lift: [0.01, 0.01, 0.015], gain: [1.02, 1.0, 0.96], sat: 1.1, contrast: 1.05, vignette: 0.16, grain: 0.01, bloom: 0.12, bloomThreshold: 1.25 },
+};
+
+// ── rooms (room.data.ts) ────────────────────────────────────────────────────
+const ROOM_NAMES: Record<string, string> = {
+  classroom: "Ruang kelas (papan tulis, meja-meja sekolah, jendela)",
+  office: "Kantor kecil (dua meja kerja, jendela kota, rak, dispenser)",
+  cafe: "Kafe (meja kasir + mesin kopi, menu, meja berdua, jendela jalan)",
+  livingroom: "Ruang tamu / rumah (sofa, meja, TV, jendela, pintu depan)",
+};
+const ROOM_TIMES: Record<string, TimeOfDay[]> = { classroom: ["day", "sunset"], office: ["day", "night"], cafe: ["day", "night"], livingroom: ["day", "night"] };
+const lampPts = (L: RoomLayout) => L.pieces.filter((p) => p.k === "lamp").map((p) => [p.at[0], (p as { y: number }).y - 0.35, p.at[1]] as V3);
+/** The window the daylight comes through (its wall gives the sun direction). */
+const sunDir = (L: RoomLayout, time: TimeOfDay): V3 => {
+  const w = L.openings.find((o) => o.kind === "window")?.wall ?? "back";
+  const low = time === "sunset" ? 0.3 : 0.5;
+  return w === "left" ? [-0.85, low, 0.35] : w === "right" ? [0.85, low, 0.35] : [0.25, low, -0.85];
+};
+export const roomEnv = (L: RoomLayout): EnvData => {
+  const { x0, x1, z0, z1, h } = L.room;
+  const seats = roomSeats(L);
+  const lamps = lampPts(L);
+  const box = { min: [x0, -0.1, z0] as V3, max: [x1, h, z1] as V3 };
+  const mk = (pos: V3, i: number, color: string) => ({ pos, color, i, dist: 7 });
+  return {
+    id: L.id as EnvId,
+    name: ROOM_NAMES[L.id] ?? L.id,
+    bounds: { min: [x0 + 0.25, 0.35, z0 + 0.3], max: [x1 - 0.25, h - 0.2, z1 - 0.25] },
+    blockers: roomBlockers(L),
+    viewSide: L.viewSide ?? [0, 0, 1],
+    path: null,
+    marks: Object.fromEntries(Object.entries(L.marks).map(([k, m]) => [k, { pos: m.pos, yaw: m.yaw }])),
+    markInfo: Object.fromEntries(Object.entries(L.marks).map(([k, m]) => [k, m.what])),
+    seats,
+    props: {},
+    indoor: true,
+    home: !!L.home,
+    ambience: L.ambience,
+    times: ROOM_TIMES[L.id] ?? ["day", "night"],
+    light: (time) => {
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      if (time === "night") {
+        const pts = [0, 1, 2].map((k) => (lamps[k] ? { ...mk(lamps[k], 2.3, "#ffc98a"), dist: 5.5 } : P_OFF));
+        return {
+          bg: "#0a0f1c", fog: { color: "#0a0f1c", density: 0 }, env: 0.16,
+          hemi: { sky: "#6f7fb8", ground: "#241c16", i: 0.22 },
+          moon: { dir: sunDir(L, "day").map((v, k) => (k === 1 ? 0.6 : v)) as V3, color: "#8fa6e0", i: 0.7, box },
+          spot: SPOT_OFF,
+          pts: [pts[0], pts[1], pts[2], mk([cx, 2.1, z1 - 0.6], 0.75, "#ffd9b0")],
+        };
+      }
+      const sun = time === "sunset";
+      return {
+        bg: sun ? "#f2c29a" : "#dfeaf5", fog: { color: "#dfeaf5", density: 0 }, env: 0.5,
+        // daylight is soft: pale walls and desks burn to white under a full sun
+        hemi: { sky: sun ? "#ffe2c4" : "#fff4e0", ground: "#7a6a58", i: 0.6 },
+        moon: { dir: sunDir(L, time), color: sun ? "#ffc58a" : "#fff0d6", i: sun ? 2.4 : 2.3, box },
+        spot: SPOT_OFF,
+        pts: [mk([cx - 1.2, 2.3, cz + 0.6], 0.5, "#fff6ea"), mk([cx + 1.2, 2.3, cz + 0.6], 0.5, "#fff6ea"), P_OFF, mk([cx, 2.0, z1 - 0.5], 0.7, "#ffffff")],
+      };
+    },
+    grade: (time) =>
+      time === "night"
+        ? { ...G0, exposure: 1.2, lift: [0.012, 0.016, 0.04], gain: [1.06, 0.99, 0.9], sat: 1.06, contrast: 1.08, vignette: 0.3, bloom: 0.26, bloomRadius: 0.55, bloomThreshold: 1.0 }
+        : { ...G0, exposure: 0.94, lift: [0.01, 0.01, 0.015], gain: time === "sunset" ? [1.08, 0.99, 0.92] : [1.02, 1.0, 0.97], sat: 1.12, contrast: 1.05, vignette: 0.16, grain: 0.01, bloom: 0.1, bloomThreshold: 1.3 },
+  };
+};
+
+export const ENVS: Record<EnvId, EnvData> = {
+  campus: CAMPUS_ENV,
+  bedroom: BEDROOM_ENV,
+  classroom: roomEnv(ROOMS.classroom),
+  office: roomEnv(ROOMS.office),
+  cafe: roomEnv(ROOMS.cafe),
+  livingroom: roomEnv(ROOMS.livingroom),
+};

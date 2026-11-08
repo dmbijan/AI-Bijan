@@ -12,6 +12,7 @@ return [
     App\Modules\Scheduling\SchedulingServiceProvider::class,
     App\Modules\SharedInbox\SharedInboxServiceProvider::class,
     App\Modules\ScreenRecorder\ScreenRecorderServiceProvider::class,
+    App\Modules\VideoStudio\VideoStudioServiceProvider::class,
     App\Modules\TeamAI\TeamAIServiceProvider::class,
     App\Modules\ADE\ADEServiceProvider::class,
     App\Modules\Affiliate\AffiliateServiceProvider::class,

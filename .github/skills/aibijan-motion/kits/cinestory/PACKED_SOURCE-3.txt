@@ -1,0 +1,1901 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 12544 project/scripts/align.mjs
+// Script ↔ voice-over alignment without a speech recogniser, and script ↔ whisper word matching.
+// Used by scripts/transcribe.mjs.
+//
+// alignScript(): the VO's speech segments (silence detection) are matched to the script's clauses by a global
+// dynamic programme — every clause and every segment is used exactly once, in order, so an early mistake can
+// not push later sentences off (no cumulative drift). A block of 1–6 clauses ↔ 1–6 segments costs how far its
+// speaking rate (syllables per second) is from the narrator's local rate, plus penalties for sentence ends
+// without a pause, long pauses inside a clause, and very short pauses at sentence ends. Breath / click segments
+// can be skipped. Pass 1 uses the whole-VO rate, pass 2 the local rate around each block (slow dramatic
+// passages and fast ones keep their own tempo). Inside a block words are placed by syllables over speech time.
+
+import { spawnSync } from "node:child_process";
+
+const run = (cmd, a) => spawnSync(cmd, a, { encoding: "utf8", maxBuffer: 1 << 28 });
+
+export const probeDuration = (file) =>
+  Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).stdout.trim());
+
+export function speechSegments(file, duration, noiseDb = -38, minSilence = 0.18) {
+  const log = run("ffmpeg", ["-v", "info", "-i", file, "-af", `silencedetect=n=${noiseDb}dB:d=${minSilence}`, "-f", "null", "-"]).stderr;
+  const st = [...log.matchAll(/silence_start: ([\d.]+)/g)].map((m) => Number(m[1]));
+  const en = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((m) => Number(m[1]));
+  const segs = [];
+  let cur = 0;
+  st.forEach((s, i) => { if (s - cur > 0.06) segs.push([cur, s]); cur = en[i] ?? duration; });
+  if (duration - cur > 0.06) segs.push([cur, duration]);
+  return segs;
+}
+
+// ── Indonesian text helpers ───────────────────────────────────────────────────────────────────────────
+const ONES = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"];
+export function numberWords(n) {
+  n = Math.floor(n);
+  if (n === 0) return "nol";
+  if (n < 10) return ONES[n];
+  if (n === 10) return "sepuluh";
+  if (n === 11) return "sebelas";
+  if (n < 20) return `${ONES[n - 10]} belas`;
+  if (n < 100) return `${ONES[Math.floor(n / 10)]} puluh ${ONES[n % 10]}`.trim();
+  if (n < 200) return `seratus ${n % 100 ? numberWords(n % 100) : ""}`.trim();
+  if (n < 1000) return `${ONES[Math.floor(n / 100)]} ratus ${n % 100 ? numberWords(n % 100) : ""}`.trim();
+  if (n < 2000) return `seribu ${n % 1000 ? numberWords(n % 1000) : ""}`.trim();
+  if (n < 1e6) return `${numberWords(Math.floor(n / 1000))} ribu ${n % 1000 ? numberWords(n % 1000) : ""}`.trim();
+  return `${numberWords(Math.floor(n / 1e6))} juta ${n % 1e6 ? numberWords(n % 1e6) : ""}`.trim();
+}
+// "02.13" → "dua tiga belas", "500" → "lima ratus", "13:00" → "tiga belas nol"
+const spellDigits = (w) => w.replace(/\d+/g, (d) => ` ${numberWords(Number(d))} `);
+
+export function syllables(token) {
+  const raw = token.replace(/[^\p{L}\p{N}]/gu, "");
+  if (!raw) return 0;
+  if (/^\p{Lu}{2,6}$/u.test(raw)) return raw.length; // acronyms read letter by letter (CCTV, KTP)
+  let total = 0;
+  for (const part of spellDigits(token.toLowerCase()).split(/[^a-zà-ÿ]+/).filter(Boolean)) {
+    const v = (part.match(/[aeiouéè]/g) || []).length;
+    const diph = (part.match(/(ai|au|oi|ei)(?=[^aeiou]|$)/g) || []).length;
+    total += Math.max(1, v - diph);
+  }
+  return Math.max(1, total);
+}
+
+export const norm = (w) => spellDigits(w.toLowerCase()).replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+
+// tokens with the pause strength after each: 2 = sentence end / paragraph / ellipsis, 1 = comma-like, 0 = none
+export function tokenize(text) {
+  const out = [];
+  const lines = text.replace(/\r/g, "").split("\n");
+  lines.forEach((line, li) => {
+    const toks = line.trim().split(/\s+/).filter(Boolean);
+    toks.forEach((t, i) => {
+      let p = 0;
+      if (/(\.\.\.|…)["”'’)]*$/.test(t) || /[.?!]["”'’)]*$/.test(t)) p = 2;
+      else if (/[,;:—–]["”'’)]*$/.test(t) || /^[—–]$/.test(t)) p = 1;
+      if (i === toks.length - 1 && li < lines.length - 1) p = Math.max(p, 2); // end of a script line
+      out.push({ w: t, p, syl: syllables(t) });
+    });
+  });
+  // a dash on its own carries no sound: fold it into the previous token's pause
+  return out.filter((t, i, a) => { if (t.syl > 0) return true; if (i > 0) a[i - 1].p = Math.max(a[i - 1].p, t.p); return false; });
+}
+
+export function clausesOf(toks) {
+  const cl = [];
+  let cur = [];
+  for (const t of toks) { cur.push(t); if (t.p > 0) { cl.push({ toks: cur, syl: cur.reduce((s, x) => s + x.syl, 0), end: t.p }); cur = []; } }
+  if (cur.length) cl.push({ toks: cur, syl: cur.reduce((s, x) => s + x.syl, 0), end: 2 });
+  return cl;
+}
+
+// ── the aligner ───────────────────────────────────────────────────────────────────────────────────────
+// Every speech segment receives a contiguous run of words (a pause never falls inside a word); a very short
+// segment may receive none (breath, click). Cost of a segment = how far its rate is from the narrator's local
+// rate (a phrase end is lengthened, so a constant is added to the expected time) + the cost of the pause that
+// follows it (cheap after a sentence end, dearer after a comma, dear in the middle of a clause, more so the
+// longer the pause) + the punctuation the narrator ran through without pausing.
+const MAXW = 40, TAIL = 0.12;
+const SKIP = [0, 0.08, 0.9]; // ran through: nothing, a comma, a sentence end / ellipsis
+function solve(toks, segs, rateAt) {
+  const N = toks.length, M = segs.length;
+  const dur = segs.map(([a, b]) => b - a);
+  const gapAfter = segs.map((s, j) => (j + 1 < M ? segs[j + 1][0] - s[1] : 9));
+  const pre = [0]; for (const t of toks) pre.push(pre.at(-1) + t.syl);
+  const skp = [0]; for (const t of toks) skp.push(skp.at(-1) + SKIP[t.p]);
+  const INF = 1e18;
+  const f = Array.from({ length: M + 1 }, () => new Float64Array(N + 1).fill(INF));
+  const bk = Array.from({ length: M + 1 }, () => new Int32Array(N + 1).fill(-1));
+  f[0][0] = 0;
+  for (let j = 0; j < M; j++) {
+    const R = rateAt(segs[j][0], segs[j][1]), g = gapAfter[j];
+    for (let i = 0; i <= N; i++) {
+      const base = f[j][i];
+      if (base >= INF) continue;
+      if (dur[j] < 0.45) { const c = base + 1.2 + 10 * dur[j]; if (c < f[j + 1][i]) { f[j + 1][i] = c; bk[j + 1][i] = i; } }
+      for (let k = i + 1; k <= N && k - i <= MAXW; k++) {
+        const sy = pre[k] - pre[i];
+        const lr = Math.log(dur[j] / (sy / R + TAIL));
+        const p = toks[k - 1].p;
+        // the pause after this segment ends at word k-1 (none after the last segment)
+        let pc = 0;
+        if (j < M - 1) pc = p === 2 ? Math.max(0, 0.3 - g) * 3 : p === 1 ? 0.25 : 1.3 + 1.2 * Math.max(0, Math.min(g, 2) - 0.4);
+        const c = base + 2.2 * lr * lr * Math.sqrt(sy) + pc + (skp[k - 1] - skp[i]);
+        if (c < f[j + 1][k]) { f[j + 1][k] = c; bk[j + 1][k] = i; }
+      }
+    }
+  }
+  if (f[M][N] >= INF) return null;
+  const groups = new Array(M);
+  for (let j = M, k = N; j > 0; j--) { const i = bk[j][k]; groups[j - 1] = [i, k]; k = i; }
+  return { groups, cost: f[M][N] };
+}
+
+function localRate(toks, segs, groups, fallback) {
+  // syllables per second of the solved segments, smoothed over ±18 s
+  const pts = groups.map(([i, k], j) => ({ t: (segs[j][0] + segs[j][1]) / 2, sy: toks.slice(i, k).reduce((s, t) => s + t.syl, 0), sp: Math.max(0.05, segs[j][1] - segs[j][0] - TAIL) })).filter((p) => p.sy > 0);
+  return (t0, t1) => {
+    const t = (t0 + t1) / 2;
+    let sy = 0, sp = 0;
+    for (const p of pts) { const w = Math.exp(-(((p.t - t) / 18) ** 2)); sy += w * p.sy; sp += w * p.sp; }
+    return sp > 1 ? sy / sp : fallback;
+  };
+}
+
+export function alignScript(text, segs) {
+  const toks = tokenize(text);
+  if (!segs.length || !toks.length) return null;
+  const totSyl = toks.reduce((s, t) => s + t.syl, 0);
+  const totSp = segs.reduce((s, [a, b]) => s + Math.max(0.05, b - a - TAIL), 0);
+  const R0 = totSyl / totSp;
+  let sol = solve(toks, segs, () => R0);
+  if (!sol) return null;
+  for (let pass = 0; pass < 2; pass++) { const s2 = solve(toks, segs, localRate(toks, segs, sol.groups, R0)); if (s2) sol = s2; }
+  const rate = localRate(toks, segs, sol.groups, R0);
+  const words = [], warnings = [];
+  sol.groups.forEach(([i, k], j) => {
+    if (k === i) return;
+    const ts = toks.slice(i, k), [x, y] = segs[j];
+    const sy = ts.reduce((s, t) => s + t.syl, 0), sp = y - x;
+    let u = 0;
+    for (const t of ts) { words.push([t.w, x + (sp * u) / sy, x + (sp * (u + t.syl)) / sy]); u += t.syl; }
+    const dev = Math.log(sp / (sy / rate(x, y) + TAIL));
+    if (Math.abs(dev) > 0.6 && sy >= 6) warnings.push(`${x.toFixed(1)} s "${ts.slice(0, 5).map((t) => t.w).join(" ")}…" is spoken ${dev < 0 ? "much faster" : "much slower"} than the rest — look at this line on the stills`);
+  });
+  for (let k = 1; k < words.length; k++) if (words[k][1] < words[k - 1][2]) words[k][1] = words[k - 1][2];
+  return { words, warnings, clauses: clausesOf(toks).length, segments: segs.length, rate: R0 };
+}
+
+// ── script words with whisper timings ─────────────────────────────────────────────────────────────────
+// Keeps the script's spelling (names, numbers as written) and takes the time of each word from whisper,
+// matched by an edit-distance alignment of the normalised word streams; unmatched script words are
+// interpolated between their matched neighbours.
+export function scriptOnWhisper(text, hyp) {
+  const toks = tokenize(text);
+  const sw = toks.map((t) => norm(t.w));
+  // whisper may write "13" for "tiga belas": expand both sides to single words for matching
+  const S = [], sIdx = [];
+  sw.forEach((w, i) => w.split(" ").filter(Boolean).forEach((p) => { S.push(p); sIdx.push(i); }));
+  const H = [], hIdx = [];
+  hyp.forEach(([w], i) => norm(w).split(" ").filter(Boolean).forEach((p) => { H.push(p); hIdx.push(i); }));
+  const n = S.length, m = H.length;
+  const D = Array.from({ length: n + 1 }, (_, i) => Int32Array.from({ length: m + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  const near = (a, b) => a === b || (a.length > 3 && b.length > 3 && (a.startsWith(b) || b.startsWith(a)));
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++)
+    D[i][j] = Math.min(D[i - 1][j] + 1, D[i][j - 1] + 1, D[i - 1][j - 1] + (near(S[i - 1], H[j - 1]) ? 0 : 1));
+  const startOf = new Array(toks.length).fill(null), endOf = new Array(toks.length).fill(null);
+  let i = n, j = m, matched = 0;
+  while (i > 0 && j > 0) {
+    if (D[i][j] === D[i - 1][j - 1] + (near(S[i - 1], H[j - 1]) ? 0 : 1)) {
+      if (near(S[i - 1], H[j - 1])) {
+        const ti = sIdx[i - 1], h = hyp[hIdx[j - 1]];
+        startOf[ti] = startOf[ti] === null ? h[1] : Math.min(startOf[ti], h[1]);
+        endOf[ti] = endOf[ti] === null ? h[2] : Math.max(endOf[ti], h[2]);
+        matched++;
+      }
+      i--; j--;
+    } else if (D[i][j] === D[i - 1][j] + 1) i--; else j--;
+  }
+  const words = toks.map((t, k) => [t.w, startOf[k], endOf[k]]);
+  // interpolate the unmatched words by syllables between matched neighbours
+  for (let k = 0; k < words.length; k++) {
+    if (words[k][1] !== null) continue;
+    let a = k - 1; while (a >= 0 && words[a][1] === null) a--;
+    let b = k; while (b < words.length && words[b][1] === null) b++;
+    const t0 = a >= 0 ? words[a][2] : (b < words.length ? Math.max(0, words[b][1] - 0.4) : 0);
+    const t1 = b < words.length ? words[b][1] : t0 + 0.4 * (b - a);
+    const run = toks.slice(a + 1, b), tot = run.reduce((s, t) => s + t.syl, 0) || 1;
+    let u = 0;
+    run.forEach((t, r) => { words[a + 1 + r][1] = t0 + ((t1 - t0) * u) / tot; u += t.syl; words[a + 1 + r][2] = t0 + ((t1 - t0) * u) / tot; });
+    k = b - 1;
+  }
+  for (const w of words) if (w[2] < w[1] + 0.06) w[2] = w[1] + 0.06; // whisper gives some words zero length
+  for (let k = 1; k < words.length; k++) if (words[k][1] < words[k - 1][1]) words[k][1] = words[k - 1][1];
+  return { words, matched: matched / Math.max(1, n) };
+}
+
+==== 19298 project/scripts/analyze.mjs
+// Story analyzer: script + word-timed VO → what the story needs, before any world or story.json is written.
+//   node scripts/analyze.mjs stories/<id> [--lexicon=library/lexicon-id.json]
+// Reads stories/<id>/script.txt and words.json ([word, t0, t1] in VO seconds). Writes
+//   stories/<id>/analysis.json   sentences with times + pauses, suggested scene cuts, and the story read in
+//                                context (scripts/story-nlp.mjs): time of day with its evidence and the story's
+//                                clock, location + areas, characters (named, roles, figures, a double), who does
+//                                what to which object and whether it is acted / on a screen / dialogue / written /
+//                                hypothetical / negated, state changes of things, sounds, dialogue and written text
+//   stories/<id>/REQUIREMENTS.md what can be reused (worlds, library objects, looks, actions, SFX), what must be
+//                                generated (world, objects from primitives) and what is not supported
+// Words the lexicon does not know are still listed ("unlisted things"), so read the report, not only the tables.
+
+import fs from "node:fs";
+import path from "node:path";
+import { analyzeStory } from "./story-nlp.mjs";
+
+const args = process.argv.slice(2);
+const dir = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split("=").slice(1).join("=");
+if (!dir || !fs.existsSync(path.join(dir, "words.json"))) {
+  console.error("usage: node scripts/analyze.mjs stories/<id>   (needs script.txt and words.json there)");
+  process.exit(1);
+}
+const id = path.basename(dir);
+const LEX = JSON.parse(fs.readFileSync(opt("lexicon", "library/lexicon-id.json"), "utf8"));
+const words = JSON.parse(fs.readFileSync(path.join(dir, "words.json"), "utf8")).map((w) => (Array.isArray(w) ? w : [w.w ?? w.word, w.t0 ?? w.start, w.t1 ?? w.end]));
+const script = fs.existsSync(path.join(dir, "script.txt")) ? fs.readFileSync(path.join(dir, "script.txt"), "utf8") : words.map((w) => w[0]).join(" ");
+const r2 = (x) => Math.round(x * 100) / 100;
+
+// ── sentences, pauses, paragraphs ─────────────────────────────────────────
+const sentences = [];
+let cur = null;
+words.forEach(([w, t0, t1], i) => {
+  if (!cur) cur = { i: sentences.length, text: "", t0, t1, w0: i, w1: i };
+  cur.text += (cur.text ? " " : "") + w;
+  cur.t1 = t1; cur.w1 = i;
+  if (/[.!?…]["”']?$/.test(w) || i === words.length - 1) { sentences.push(cur); cur = null; }
+});
+sentences.forEach((s, k) => {
+  s.pauseAfter = r2((sentences[k + 1]?.t0 ?? s.t1) - s.t1);
+  s.t0 = r2(s.t0); s.t1 = r2(s.t1);
+  s.cue = words[s.w0][0].replace(/[^\p{L}\p{N}-]/gu, "");
+});
+const pauses = [];
+for (let i = 1; i < words.length; i++) { const g = words[i][1] - words[i - 1][2]; if (g >= 0.3) pauses.push({ after: words[i - 1][0], before: words[i][0], at: r2(words[i - 1][2]), len: r2(g) }); }
+const paras = script.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+const perPara = paras.map((p) => p.split(/(?<=[.!?…]["”]?)\s+/).filter((x) => /\p{L}/u.test(x)).length);
+const paraOk = perPara.reduce((a, b) => a + b, 0) === sentences.length;
+let k0 = 0;
+const paraOf = [];
+if (paraOk) perPara.forEach((n, pi) => { for (let k = 0; k < n; k++) paraOf[k0 + k] = pi; k0 += n; });
+// Scene cuts: paragraphs when the script has real multi-sentence paragraphs; otherwise the narrator's long pauses
+// and turn words ("Tapi", "Tiba-tiba", "Sore itu", "Beberapa detik kemudian"), kept between ~6 and ~25 s.
+// (an ellipsis is a pause, not a sentence end, when judging whether paragraphs hold several sentences)
+const fullStops = paras.map((p) => p.split(/(?<=[^.][.!?]["”]?)\s+(?=["“]?\p{Lu})/u).filter((x) => /\p{L}/u.test(x)).length);
+const multi = paraOk && fullStops.filter((n) => n > 1).length >= Math.max(2, paras.length / 3);
+const gaps = sentences.slice(0, -1).map((s) => s.pauseAfter).sort((a, b) => a - b);
+const longGap = Math.max(0.8, gaps[Math.floor(gaps.length * 0.7)] ?? 0.8);
+const TURN = /^(tapi|namun|tiba-tiba|lalu|kemudian|sementara|keesokan|beberapa|sore|malam|pagi|siang|subuh|dan|padahal|kali|saat|ketika)$/i;
+const scenes = [];
+sentences.forEach((s, k) => {
+  if (k === 0) return scenes.push({ at: s.cue, t0: s.t0, sentences: [k], why: "start" });
+  const last = scenes.at(-1), len = s.t0 - last.t0, gap = sentences[k - 1].pauseAfter;
+  let why = null;
+  const startsSentence = /^["“]?\p{Lu}/u.test(words[s.w0][0]); // never cut inside a sentence ("…dua pagi... jangan …")
+  if (!startsSentence) why = null;
+  else if (multi) { if (paraOf[k] !== paraOf[k - 1]) why = "paragraph break in the script"; }
+  else if (len >= 6 && gap >= longGap) why = `pause ${gap}s before it`;
+  else if (len >= 6 && gap >= 0.6 && TURN.test(s.cue)) why = `turn word “${s.cue}” after a ${gap}s pause`;
+  else if (len >= 25 && gap >= 0.45) why = `the scene is ${Math.round(len)} s long`;
+  if (why) scenes.push({ at: s.cue, t0: s.t0, sentences: [k], why }); else last.sentences.push(k);
+});
+
+// ── the story in context ──────────────────────────────────────────────────
+const S = analyzeStory(script, words, LEX);
+
+// ── requirements: reuse / generate / unsupported ──────────────────────────
+const ls = (d, ext) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(ext)).map((f) => path.join(d, f)) : []);
+const objDirs = ["assets/objects", path.join(dir, "objects"), "library/objects"];
+const objFile = (oid) => objDirs.map((d) => path.join(d, `${oid}.json`)).find((f) => fs.existsSync(f));
+const BUILTIN = ["tree-pine", "tree-broad", "tree-palm", "bush", "fern", "rock", "log", "grass-tuft"];
+const PROPS = ["phone", "binoculars", "lantern", "flashlight", "mug", "book"];
+const ACTIONS = ["stand", "look", "turn", "walk", "run", "startle", "freeze", "peer", "point", "reach", "wave", "phone", "binoculars", "raise", "think", "nod", "shake", "sigh", "talk", "shiver", "sit", "standUp", "write", "lie", "sleep", "wake", "sitUp", "push", "pickUp", "putDown", "give", "receive", "open", "close", "kneel", "pickUp+putDown"];
+const looksSrc = fs.existsSync("src/cine/character/looks.ts") ? fs.readFileSync("src/cine/character/looks.ts", "utf8") : "";
+const LOOKS = [...looksSrc.matchAll(/^ {2}"?([a-z][a-z-]*)"?: \{/gm)].map((m) => m[1]);
+const sfxSrc = fs.existsSync("scripts/sound-story.ts") ? fs.readFileSync("scripts/sound-story.ts", "utf8") : "";
+const SFX = [...sfxSrc.matchAll(/case "([a-z-]+)":/g)].map((m) => m[1]);
+const BUILTIN_WORLDS = { kos: "built-in world 'kos' (boarding house: room, corridor, stairs, yard)", coast: "built-in world 'coast' (lighthouse, beach, sea)" };
+const worldFiles = [...ls("worlds", ".world.json"), ...ls("library/worlds", ".world.json"), ...(fs.existsSync("stories") ? fs.readdirSync("stories", { withFileTypes: true }).filter((e) => e.isDirectory()).flatMap((e) => ls(path.join("stories", e.name), ".world.json")) : [])];
+const worldDocs = worldFiles.map((f) => { try { const w = JSON.parse(fs.readFileSync(f, "utf8")); return { file: f, id: w.id, doc: w.doc ?? "" }; } catch { return null; } }).filter(Boolean);
+const KIND_WORDS = { hospital: ["hospital", "ward", "clinic"], corridor: ["corridor"], market: ["market", "stall"], forest: ["forest", "track", "camp"], school: ["school", "classroom"], office: ["office"], house: ["house", "home", "room", "kitchen"], street: ["street", "road", "sidewalk"], coast: ["coast", "beach", "lighthouse"], kos: ["kos", "boarding"], shop: ["shop", "store", "kiosk"], library: ["library", "reading"], park: ["park"] };
+const kinds = Object.entries(S.location.kinds).sort((a, b) => b[1] - a[1]).filter(([, w], i, all) => w >= 1 && w >= all[0][1] * 0.5).map(([k]) => k);
+const worldReq = kinds.map((k) => {
+  if (BUILTIN_WORLDS[k]) return { kind: k, status: "reuse", use: BUILTIN_WORLDS[k] };
+  // best match, not the first: the kind's main word counts most ("house" beats a passing "room")
+  const words = KIND_WORDS[k] ?? [k];
+  const score = (d) => words.reduce((n, x, i) => n + (new RegExp(`\\b${x}`).test(d.doc.toLowerCase()) ? (i === 0 ? 3 : 1) : 0), 0);
+  const w = worldDocs.map((d) => ({ d, s: score(d) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s)[0]?.d;
+  return w ? { kind: k, status: "reuse-or-adapt", use: w.file, note: w.doc } : { kind: k, status: "generate", use: `write ${id}.world.json (${k}): rooms/ground/paths/objects/scatter/lights + places with marks` };
+});
+const objReq = [];
+for (const o of [...S.objects].sort((a, b) => Number(b.used) - Number(a.used))) {
+  const [kind, name] = o.value.includes(":") ? o.value.split(/:(.*)/s) : ["library", o.value];
+  let status, note;
+  if (kind === "library") { const f = objFile(name); status = f ? "reuse" : "generate"; note = f ? f : `library id "${name}" missing — author it`; }
+  else if (kind === "builtin") { status = BUILTIN.includes(name) ? "reuse" : "generate"; note = `built-in ${name}`; }
+  else if (kind === "prop") { status = PROPS.includes(name) ? "reuse" : "unsupported"; note = `held prop "${name}" (cast "prop")`; }
+  else if (kind === "world") { status = "world"; note = `made by the world DSL (${name})`; }
+  else if (kind === "ui") { status = "ui"; note = `${name}: show as a screen / card insert (ui card, text, a cut to a full-frame view) — screens cannot show live pictures`; }
+  else if (kind === "look") { status = "look"; note = `${name} on a person: choose the look / custom colours (references/cinestory/characters.md); accessories the rig lacks are said, not shown`; }
+  else if (kind === "generate") { status = "generate"; note = `no library object for "${name}" — build from primitives into assets/objects/<id>.json, check it on the object sheet`; }
+  else { status = "complex"; note = `"${name}" is too organic/detailed for primitives — needs a model asset, an agreed simplified stand-in, or keep it off screen (do NOT silently substitute)`; }
+  objReq.push({ word: o.word, t: o.mentions[0], mentions: o.mentions.length, story: o.used, need: name, status, note });
+}
+const acted = S.interactions.filter((i) => i.mode === "acted" || i.mode === "state");
+const actReq = acted.map((a) => ({ t: a.t, word: a.word, who: a.who, action: a.action, obj: a.obj, with: a.with, target: a.target, mode: a.mode, status: a.supported === false ? "unsupported" : ACTIONS.includes(a.action) ? "supported" : "unsupported" }));
+const notActed = S.interactions.filter((i) => !(i.mode === "acted" || i.mode === "state"));
+const lookFor = (p) => p.look ?? (p.kind === "figure" && p.double ? `same look as ${p.double.of}` : undefined);
+const lookReq = [...S.characters.map((c) => ({ who: c.name, look: lookFor(c) })), ...S.unnamed.map((u) => ({ who: u.id, look: lookFor(u), double: u.double }))].map((x) => ({ ...x, status: x.look && (LOOKS.includes(x.look) || x.look.startsWith("same look")) ? "reuse" : "choose" }));
+const sfxReq = S.sounds.map((s) => ({ word: s.word, t: s.t, sfx: s.sfx, status: SFX.includes(s.sfx) ? "available" : "missing" }));
+
+const analysis = {
+  id, vo: { words: words.length, start: r2(words[0][1]), end: r2(words.at(-1)[2]) },
+  sentences: sentences.map(({ i, text, t0, t1, pauseAfter, cue }) => ({ i, text, t0, t1, pauseAfter, cue, para: paraOk ? paraOf[i] : undefined })),
+  pauses, scenes: scenes.map((s) => ({ ...s, text: s.sentences.map((k) => sentences[k].text).join(" ") })),
+  protagonist: S.protagonist, explanation: S.explanation, unmapped: S.unmapped, characters: S.characters, unnamed: S.unnamed, time: S.time, location: S.location,
+  objects: S.objects, mentions: S.mentions, interactions: S.interactions, states: S.states, sounds: S.sounds, emotions: S.emotions, dialogue: S.dialogue, texts: S.texts,
+  requirements: { implied: LEX.implied?.[S.location.main] ?? [], world: worldReq, time: S.time.stated ? S.time.value : "day (nothing said — decide from the story)", clock: S.time.clocks.find((c) => !c.rule)?.clock, objects: objReq, actions: actReq, looks: lookReq, sfx: sfxReq },
+};
+fs.writeFileSync(path.join(dir, "analysis.json"), JSON.stringify(analysis, null, 1));
+
+const who = (w) => (w ?? "?").replace(/^role:/, "");
+const md = [
+  `# Requirements — ${id}`, "",
+  `VO ${analysis.vo.start}–${analysis.vo.end} s · ${sentences.length} sentences · ${scenes.length} suggested scenes · time: **${analysis.requirements.time}**${analysis.requirements.clock ? ` · clock ${analysis.requirements.clock}` : ""} · place: **${S.location.main ?? "?"}**`, "",
+  "## Time of day", "", ...(S.time.evidence.length ? S.time.evidence.map((e) => `- ${e}`) : ["- nothing in the script says it — decide from the story"]), ...S.time.ignored.map((e) => `- ignored: ${e}`), ...S.time.clocks.map((c) => `- clock ${c.t}s “${c.text}” → **${c.clock}**${c.rule ? " (a rule / not now)" : ""}`), "",
+  "## Location", "", `- main: **${S.location.main ?? "?"}** (${Object.entries(S.location.kinds).map(([k, v]) => `${k} ${Math.round(v * 10) / 10}`).join(", ")})`, ...S.location.areas.map((a) => `- area: ${a.name} (${a.kind}, first at ${a.t}s)`), "",
+  "## World", "", ...(worldReq.length ? worldReq.map((w) => `- ${w.kind}: **${w.status}** — ${w.use}`) : ["- no place found — decide from the script"]), "",
+  "Ready-made worlds in this project (reuse or adapt a copy before writing a new one; `node scripts/worlds.mjs <id>` lists places, marks, seats and props):", "",
+  ...Object.entries(BUILTIN_WORLDS).map(([k, v]) => `- \`${k}\` — ${v}`), ...worldDocs.map((d) => `- \`${d.id}\` (${d.file}) — ${d.doc}`), "",
+  "## Characters", "", ...(S.characters.length + S.unnamed.length ? [
+    ...S.characters.map((c) => `- **${c.name}**${c.role ? ` (${c.role})` : ""}${c.name === S.protagonist ? " — protagonist" : ""} — ${c.mentions.length} mentions from ${c.mentions[0]}s`),
+    ...S.unnamed.map((u) => `- ${u.kind === "figure" ? `a figure (“${u.role}”)` : `unnamed ${u.role}`} — from ${u.mentions[0]}s${u.double ? ` — **a double of ${u.double.of}** (${u.double.evidence.join(", ")}): same look` : ""}`)] : ["- none found (pronouns only? read the script)"]), "",
+  "## Objects (story objects first)", "", "| word | needs | status | story object | note |", "|---|---|---|---|---|", ...objReq.map((o) => `| ${o.word} (${o.t}s, ×${o.mentions}) | ${o.need} | **${o.status}** | ${o.story ? "yes" : ""} | ${o.note} |`), "",
+  ...((LEX.implied?.[S.location.main] ?? []).length ? [`## Implied by the place (${S.location.main}) — dress the set, the script does not name them`, "", ...LEX.implied[S.location.main].map((x) => `- ${x}`), ""] : []),
+  ...(S.mentions.length ? ["## Unlisted things (not in the lexicon — decide: build, world, or ignore)", "", ...S.mentions.map((m) => `- ${m.t}s **${m.word}** — “${m.context}”`), ""] : []),
+  "## Interactions — acted on screen", "", ...(actReq.length ? actReq.map((a) => `- ${a.t}s “${a.word}” → **${who(a.who)}: ${a.action}**${a.obj ? ` ${a.obj}` : ""}${a.with ? ` with ${a.with}` : ""}${a.target ? ` → ${a.target}` : ""}${a.mode === "state" ? " (a pose, not a movement)" : ""}${a.status === "unsupported" ? " — **unsupported**: stage around it" : ""}`) : ["- none"]), "",
+  ...(S.unmapped.length ? ["## Verbs the lexicon does not know (decide: an action, a state, a face, or nothing)", "", ...S.unmapped.map((u) => `- ${u.t}s **${u.word}** — “${u.sentence}”`), ""] : []),
+  "## Not acted (do NOT stage these as actions)", "", ...(notActed.length ? notActed.map((a) => `- ${a.t}s “${a.word}” (${who(a.who)}: ${a.action}) — ${{ "on-screen": "seen on a screen / photo: show it in that view", dialogue: "said in dialogue", written: "written text: show as an insert / card", hypothetical: "a rule / an 'if' / 'as if'", negated: "negated", said: "a rule or words handed over, not an object", "unclear who": "who does it is not said (heard in the dark?)", "non-cast": "done by an animal / thing: off screen or by sound" }[a.mode] ?? a.mode}`) : ["- none"]), "",
+  "## State changes (set props / object states on these words)", "", ...(S.states.length ? S.states.map((s) => `- ${s.t}s ${s.thing}: **${s.state}**${s.by ? ` (by ${who(s.by)})` : ""}${s.mode !== "acted" ? ` — ${s.mode}` : ""}`) : ["- none"]), "",
+  ...(S.explanation.length ? ["## Explanation passages (explain with graphics: mood \"science\", the mind studio or ui cards — not acted by the cast)", "", ...S.explanation.map((e) => `- ${e.t}s ${e.text}`), ""] : []),
+  "## Dialogue and written text", "", ...(S.dialogue.length + S.texts.length ? [...S.dialogue.map((d) => `- ${d.t}s said by **${who(d.speaker)}**: “${d.text}” → a \`talk\` beat`), ...S.texts.map((d) => `- ${d.t}s written on **${d.on}**: “${d.text}” → insert / ui card`)] : ["- none"]), "",
+  "## Sounds", "", ...(sfxReq.length ? sfxReq.map((s) => `- ${s.t}s “${s.word}” → ${s.sfx} (${s.status})`) : ["- none"]), "",
+  "## Emotions", "", ...(S.emotions.length ? S.emotions.map((e) => `- ${e.t}s “${e.word}” → face ${e.face}${e.who ? ` (${who(e.who)})` : ""}`) : ["- none"]), "",
+  "## Looks", "", ...lookReq.map((l) => `- ${who(l.who)}: ${l.look ?? "?"} (${l.status})`), "",
+  "## Scenes (cue → text)", "", ...analysis.scenes.map((s) => `- **${s.t0}s "${s.at}"** (${s.why}): ${s.text}`), "",
+  "## Pauses to keep (≥ 0.3 s)", "", ...(pauses.length ? pauses.map((p) => `- ${p.at}s, ${p.len}s after "${p.after}"`) : ["- none"]), "",
+  "Read in context (quotes, conditions, negation, screens, pronouns), but it is still a reading aid: check the interactions against the script before directing.", "",
+].join("\n");
+fs.writeFileSync(path.join(dir, "REQUIREMENTS.md"), md);
+
+const count = (arr, st) => arr.filter((x) => x.status === st).length;
+console.log(`${id}: ${sentences.length} sentences, ${scenes.length} scenes, ${pauses.length} pauses ≥0.3 s`);
+console.log(`  time: ${analysis.requirements.time}${analysis.requirements.clock ? ` (clock ${analysis.requirements.clock})` : ""} · place: ${S.location.main ?? "?"} · areas: ${S.location.areas.map((a) => a.name).join(", ") || "-"}`);
+console.log(`  characters: ${[...S.characters.map((c) => c.name), ...S.unnamed.map((u) => (u.double ? `${u.id} (double of ${u.double.of})` : who(u.id)))].join(", ") || "-"}`);
+console.log(`  world: ${worldReq.map((w) => `${w.kind}→${w.status}`).join(", ") || "-"}`);
+console.log(`  objects: ${count(objReq, "reuse")} reuse · ${count(objReq, "generate")} generate · ${count(objReq, "world")} world-built · ${count(objReq, "ui")} ui · ${count(objReq, "look")} look · ${count(objReq, "complex")} complex · ${count(objReq, "unsupported")} unsupported · ${S.mentions.length} unlisted`);
+console.log(`  acted: ${actReq.map((a) => `${who(a.who)}:${a.action}${a.obj ? "(" + a.obj + ")" : ""}${a.status === "supported" ? "" : "!"}`).join(", ") || "-"}`);
+console.log(`  not acted: ${notActed.map((a) => `${a.action}[${a.mode}]`).join(", ") || "-"} · states: ${S.states.length} · dialogue: ${S.dialogue.length} · written: ${S.texts.length}`);
+console.log(`  → ${path.join(dir, "analysis.json")} · ${path.join(dir, "REQUIREMENTS.md")}`);
+
+==== 3812 project/scripts/check-env.mjs
+// Environment check before any AI BIJAN render. Prints a plain report and exits non-zero only
+// when something required is missing. Installs nothing.
+//   node scripts/check-env.mjs
+
+import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+
+const rows = [];
+const add = (name, ok, detail, required = true) => rows.push({ name, ok, detail, required });
+
+const [maj, min] = process.versions.node.split(".").map(Number);
+// 22.18+ runs the .ts helper scripts directly (type stripping on by default)
+add("Node.js ≥ 22.18", maj > 22 || (maj === 22 && min >= 18), `found ${process.versions.node}`);
+
+const has = (cmd, args = ["-version"]) => {
+  const r = spawnSync(cmd, args, { encoding: "utf8" });
+  return r.status === 0 ? (r.stdout || r.stderr).split("\n")[0].trim() : null;
+};
+const npmV = has(process.platform === "win32" ? "npm.cmd" : "npm", ["-v"]);
+add("npm", !!npmV, npmV ?? "not found");
+const ff = has("ffmpeg");
+add("ffmpeg (audio analysis, contact sheets, final audio)", !!ff, ff ? ff.slice(0, 60) : "not found — rendering still works, VO analysis/delivery does not");
+const fp = has("ffprobe");
+add("ffprobe", !!fp, fp ? "ok" : "not found");
+
+// optional: real word timings (whisper.cpp) and offline narration (macOS `say`)
+const whisperCli = [process.env.WHISPER_CLI, spawnSync("sh", ["-c", "command -v whisper-cli"], { encoding: "utf8" }).stdout?.trim(), "/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"].filter(Boolean).find((c) => fs.existsSync(c));
+const modelDirs = [`${os.homedir()}/.cache/whisper.cpp`, "models", "/opt/homebrew/share/whisper-cpp"];
+const whisperModel = (process.env.WHISPER_MODEL && fs.existsSync(process.env.WHISPER_MODEL) && process.env.WHISPER_MODEL) || modelDirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(".bin")).map((f) => `${d}/${f}`) : []))[0];
+add("whisper.cpp (exact word timing from any VO)", !!(whisperCli && whisperModel), whisperCli && whisperModel ? `${whisperCli} + ${whisperModel.split("/").pop()}` : `${whisperCli ? "model" : "whisper-cli"} not found — without it the VO script text is needed (timing ≈0.3 s less precise)`, false);
+const say = process.platform === "darwin" && spawnSync("say", ["-v", "?"], { encoding: "utf8" }).stdout?.includes("id_ID");
+add("Offline Indonesian narration (macOS say, voice Damayanti)", !!say, say ? "available (used only with the user's approval)" : "not available — bring a recorded VO", false);
+
+let freeGb = null;
+try {
+  const st = fs.statfsSync(process.cwd());
+  freeGb = (st.bavail * st.bsize) / 1e9;
+} catch {}
+add("Free disk ≥ 5 GB", freeGb === null ? true : freeGb >= 5, freeGb === null ? "unknown" : `${freeGb.toFixed(1)} GB free`);
+add("RAM", true, `${(os.totalmem() / 1e9).toFixed(0)} GB total`, false);
+
+const plat = { darwin: "macOS (recommended)", win32: "Windows: run npm run smoke to confirm 3D rendering", linux: "Linux: run npm run smoke; without a GPU use GL=swangle (slow)" }[process.platform] ?? process.platform;
+add("Platform", true, plat, false);
+
+const deps = fs.existsSync("node_modules/remotion") && fs.existsSync("node_modules/three");
+add("Project packages installed (npm ci)", deps, deps ? "ok" : "run: npm ci", false);
+let browser = false;
+try {
+  browser = fs.readdirSync("node_modules/.remotion").some((d) => d.includes("chrome"));
+} catch {}
+add("Remotion headless browser downloaded", browser, browser ? "ok" : "downloads automatically on first render (~100–200 MB)", false);
+
+for (const r of rows) console.log(`${r.ok ? "✓" : r.required ? "✗" : "!"} ${r.name}: ${r.detail}`);
+const missing = rows.filter((r) => r.required && !r.ok);
+console.log(missing.length ? `\n${missing.length} required item(s) missing.` : "\nReady.");
+process.exit(missing.length ? 1 : 0);
+
+==== 2500 project/scripts/deliver.mjs
+// Delivery master: measure integrated loudness, apply gain + a true limiter so the file
+// lands at the target without clipping, copy the video stream untouched, then verify.
+//   node scripts/deliver.mjs <in.mp4> <out.mp4> [targetLUFS=-14] [ceilingDb=-2]
+// (loudnorm alone can't stop AAC inter-sample overshoot; a limiter before the encoder can.)
+
+import { spawnSync } from "node:child_process";
+
+const [input, output, targetArg = "-14", ceilArg = "-2"] = process.argv.slice(2);
+if (!input || !output) {
+  console.error("usage: node scripts/deliver.mjs <in.mp4> <out.mp4> [targetLUFS] [ceilingDb]");
+  process.exit(1);
+}
+const target = Number(targetArg);
+const ceiling = 10 ** (Number(ceilArg) / 20);
+
+const ffmpeg = (args) => {
+  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(r.stderr);
+  return r.stderr;
+};
+
+/** ebur128 prints its summary to stderr. */
+const loudness = (file) => {
+  const log = ffmpeg(["-nostats", "-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"]);
+  const s = log.slice(log.lastIndexOf("Summary"));
+  return {
+    I: Number(/I:\s+(-?[\d.]+) LUFS/.exec(s)?.[1]),
+    peak: Number(/Peak:\s+(-?[\d.]+) dBFS/.exec(s)?.[1]),
+  };
+};
+
+const before = loudness(input);
+let gain = target - before.I + 0.4; // the limiter shaves a little; aim slightly high
+let after;
+// Peaky voices make the limiter eat more than expected, so measure and correct (max 5 passes).
+for (let pass = 1; pass <= 5; pass++) {
+  ffmpeg([
+    "-v", "error", "-y", "-i", input, "-c:v", "copy",
+    "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=${ceiling.toFixed(3)}:level=false:attack=2:release=80,aresample=48000`,
+    "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart", output,
+  ]);
+  after = loudness(output);
+  if (Math.abs(after.I - target) <= 0.5) break;
+  gain += 1.6 * (target - after.I); // the limiter absorbs part of every boost
+}
+const probe = spawnSync(
+  "ffprobe",
+  ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames", "-of", "csv=p=0", output],
+  { encoding: "utf8" },
+).stdout.trim();
+console.log(`in : ${before.I} LUFS, true peak ${before.peak} dBFS`);
+console.log(`out: ${after.I} LUFS, true peak ${after.peak} dBFS (gain ${gain.toFixed(2)} dB)`);
+console.log(`video: ${probe}`);
+if (Math.abs(after.I - target) > 0.5) console.warn(`WARNING: integrated loudness ${after.I} LUFS is more than 0.5 LU from the ${target} LUFS target; report this honestly.`);
+
+==== 1469 project/scripts/gl.mjs
+// WebGL renderer choice for headless Chrome, shared by every render script.
+// Order: GL env var > the project's .gl-mode file > "angle" (GPU). When the GPU path cannot create a WebGL
+// context (no GPU, some VMs/drivers), the scripts switch to "swangle" (software, much slower) automatically
+// and remember it in .gl-mode, so later renders and `npx remotion render` (remotion.config.ts) use it too.
+import fs from "node:fs";
+
+const FILE = ".gl-mode";
+
+// When the GPU path crashes, Remotion may reject an internal "Target closed" promise that nothing awaits.
+// That rejection is noise from the dead tab, not a render failure; real errors still reach the caller.
+export const tolerateClosedTargets = () =>
+  process.on("unhandledRejection", (e) => {
+    if (/Target closed/i.test(String(e?.message ?? e))) return;
+    console.error(e);
+    process.exit(1);
+  });
+
+export const glMode = () =>
+  process.env.GL || (fs.existsSync(FILE) ? fs.readFileSync(FILE, "utf8").trim() : "") || "angle";
+
+export const isWebGLError = (e) =>
+  /webgl|WebGLRenderer|GL context|BindToCurrentSequence|GL_VENDOR = Disabled/i.test(String(e?.stack ?? e?.message ?? e));
+
+export const switchToSoftware = () => {
+  fs.writeFileSync(FILE, "swangle\n");
+  console.log(
+    "\n! GPU 3D rendering is not available on this computer: switched to software rendering (GL=swangle, much slower)." +
+      "\n  Saved in .gl-mode; delete that file to try the GPU again.\n",
+  );
+  return "swangle";
+};
+
+==== 16800 project/scripts/make.mjs
+// One command from a story to a checked video.
+//   node scripts/make.mjs stories/<id>/story.json [--stills=3,10,18.5] [--preview] [--final] [--no-sound] [--no-qa] [--force]
+//
+//   1. resolve   story.json (+ words.json, VO envelope) → src/stories/data/<id>.json, regenerate the registry
+//   2. direct    compile the story (blocking, acting, shots, sound cues), print the plan; stops on errors
+//   3. sound     scripts/sound-story.ts → public/audio/<id>-mix.wav (+ captions out/<id>/<id>.srt)
+//   4. render    --stills: contact sheet · --preview: 540×960@30 with audio (landscape 960×540) · --final (default):
+//                1080×1920@60 portrait (story "format": "landscape" → 1920×1080@60), mastered to −14 LUFS
+//                (interrupted? run the same command again — finished segments are reused)
+//   --from=12 --to=30  render only that part of the film (preview / final): a section to review
+//   5. QA        scripts/qa.mjs → out/<id>/qa/ (frame scan, sync, loudness, sheets)
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const flag = (k) => args.includes(`--${k}`);
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+if (!file || !fs.existsSync(file)) {
+  console.error("usage: node scripts/make.mjs stories/<id>/story.json [--stills=…] [--preview] [--final] [--no-sound] [--no-qa]");
+  process.exit(1);
+}
+const step = (s) => console.log(`\n▶ ${s}`);
+const sh = (cmd, a, opts = {}) => {
+  const r = spawnSync(cmd, a, { stdio: "inherit", ...opts });
+  if (r.status !== 0) { console.error(`✗ ${cmd} ${a.join(" ")} failed`); process.exit(r.status ?? 1); }
+};
+
+// 1 ── resolve ───────────────────────────────────────────────────────────────
+step("resolve story");
+const dir = path.dirname(file);
+const story = JSON.parse(fs.readFileSync(file, "utf8"));
+if (!/^[a-z0-9-]+$/.test(story.id ?? "")) { console.error(`story.id "${story.id}" must use only a-z, 0-9 and "-"`); process.exit(1); }
+if (typeof story.words === "string") story.words = JSON.parse(fs.readFileSync(path.join(dir, story.words), "utf8"));
+if (!Array.isArray(story.words) || !story.words.length) { console.error("story.words is missing (run scripts/transcribe.mjs first)"); process.exit(1); }
+// dynamic world: worlds/<name>.world.json (project) or stories/<id>/<name>.world.json, plus every object it
+// or the story uses from library/objects and assets/objects (project objects win)
+{
+  const cands = [path.join(dir, `${story.world}.world.json`), path.join("worlds", `${story.world}.world.json`), path.join("library", "worlds", `${story.world}.world.json`)];
+  const wf = cands.find((f) => fs.existsSync(f));
+  delete story.worldSpec; delete story.objectSpecs;
+  if (wf) {
+    story.worldSpec = JSON.parse(fs.readFileSync(wf, "utf8"));
+    const objDirs = ["assets/objects", path.join(dir, "objects"), "library/objects"];
+    const need = new Set([...(story.worldSpec.objects ?? []).map((o) => o.use), ...(story.worldSpec.scatter ?? []).map((o) => o.use)]);
+    const { BUILTIN } = await import(path.resolve("src/gen/objects/builtin-data.ts"));
+    story.objectSpecs = [];
+    const missing = [];
+    for (const id of need) {
+      if (BUILTIN[id]) continue;
+      const f = objDirs.map((d) => path.join(d, `${id}.json`)).find((x) => fs.existsSync(x));
+      if (!f) { missing.push(id); continue; }
+      story.objectSpecs.push(JSON.parse(fs.readFileSync(f, "utf8")));
+    }
+    if (missing.length) { console.error(`✗ objects not found: ${missing.join(", ")} — write assets/objects/<id>.json (see references/cinestory/objects.md) or use a library object`); process.exit(1); }
+    console.log(`  world ${wf}: ${(story.worldSpec.rooms ?? []).length} rooms, ${(story.worldSpec.objects ?? []).length} objects, ${(story.worldSpec.scatter ?? []).length} scatters · object specs: ${story.objectSpecs.map((o) => o.id).join(", ") || "built-in only"}`);
+  }
+}
+// branding: only the user's own brand kit (aibijan-brand.json in the project or the story folder); "brand": false
+// in story.json switches it off. The logo is copied to public/brand/.
+{
+  const given = story.brand;
+  delete story.brand;
+  const kitFile = [path.join(dir, "aibijan-brand.json"), "aibijan-brand.json"].find((f) => fs.existsSync(f));
+  if (given !== false && kitFile) {
+    const kit = JSON.parse(fs.readFileSync(kitFile, "utf8"));
+    const b = { brand: kit.brand, handle: kit.handle, cta: kit.cta, colors: kit.colors, watermark: !!kit.watermark, intro: kit.intro };
+    if (kit.logo) {
+      const src = path.join(path.dirname(kitFile), kit.logo);
+      if (fs.existsSync(src)) { fs.mkdirSync("public/brand", { recursive: true }); fs.copyFileSync(src, path.join("public/brand", path.basename(src))); b.logoFile = `brand/${path.basename(src)}`; }
+      else console.log(`  ⚠ brand logo ${src} not found — the brand is used without a logo`);
+    }
+    story.brand = b;
+    console.log(`  brand kit ${kitFile}: ${[kit.brand, kit.handle].filter(Boolean).join(" ")}${b.logoFile ? " + logo" : ""}`);
+  }
+}
+const voPath = path.join("public", story.vo?.file ?? "");
+if (!story.vo?.file || !fs.existsSync(voPath)) { console.error(`VO not found: ${voPath}`); process.exit(1); }
+// VO loudness envelope, 60 per second (mouth flaps for "talk", music ducking hints)
+{
+  const raw = spawnSync("ffmpeg", ["-v", "error", "-i", voPath, "-f", "f32le", "-ac", "1", "-ar", "6000", "-"], { maxBuffer: 1 << 28 }).stdout;
+  const x = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+  const env = [];
+  for (let i = 0; i < x.length; i += 100) { let s = 0; for (let k = i; k < Math.min(x.length, i + 100); k++) s += x[k] * x[k]; env.push(Math.sqrt(s / 100)); }
+  const peak = Math.max(...env.slice().sort((a, b) => a - b).slice(Math.floor(env.length * 0.98))) || 1;
+  story.voenv = env.map((v) => +Math.min(1, v / peak).toFixed(2));
+}
+const mix = `audio/${story.id}-mix.wav`;
+const willSound = !flag("no-sound");
+if (willSound || fs.existsSync(path.join("public", mix))) story.audio = mix;
+const writeResolved = () => {
+  fs.mkdirSync("src/stories/data", { recursive: true });
+  fs.writeFileSync(`src/stories/data/${story.id}.json`, JSON.stringify(story));
+  const ids = fs.readdirSync("src/stories/data").filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, "")).sort();
+  const v = (s) => "s_" + s.replace(/-/g, "_");
+  fs.writeFileSync("src/stories/registry.ts", `// Generated by scripts/make.mjs — every story in src/stories/data becomes two compositions.\nimport type { Story } from "../director/story.ts";\n${ids.map((id) => `import ${v(id)} from "./data/${id}.json";`).join("\n")}\n\nexport const STORIES: Story[] = [${ids.map((id) => `${v(id)} as unknown as Story`).join(", ")}];\n`);
+};
+// compositions must not reference a mix that does not exist yet
+if (story.audio && !fs.existsSync(path.join("public", story.audio))) { const a = story.audio; delete story.audio; writeResolved(); story.audio = a; } else writeResolved();
+console.log(`  ${story.id}: ${story.words.length} words, world ${story.world}, cast ${(story.cast ?? []).map((c) => `${c.id} (${c.look})`).join(" + ") || "none"}, ${story.scenes?.length ?? 0} scenes`);
+
+// 2 ── direct ────────────────────────────────────────────────────────────────
+step("direct (compile the story)");
+const { compile } = await import(path.resolve("src/director/compile.ts"));
+let P;
+try { P = compile(story); } catch (e) { console.error(`✗ story problems:\n${String(e.message).split("\n").map((l) => "  - " + l).join("\n")}`); process.exit(1); }
+console.log(`  ${P.format} ${P.format === "portrait" ? "1080×1920" : "1920×1080"} · duration ${P.duration}s · ${P.scenes.length} scenes · ${P.shots.length} shots · ${P.ui.length} overlays · ${P.captions.length} caption lines · ${P.sound.sfx.length} SFX · ${P.sound.steps.length} footsteps`);
+for (const s of P.shots) console.log(`  ${s.t0.toFixed(2).padStart(6)}–${Math.min(s.t1, P.duration).toFixed(2).padEnd(6)} sc${s.scene + 1} ${P.scenes[s.scene].place.id.padEnd(8)} ${s.kind.padEnd(10)} ${s.who ?? "-"}${s.target ? " → " + s.target : ""}`);
+for (const w of P.warnings) console.log(`  ⚠ ${w}`);
+const outDir = path.join("out", story.id);
+
+// 2b ── geometry preflight (objects, marks, bodies, cameras, continuity) — before any render
+step("preflight (geometry QC)");
+{
+  const { preflight } = await import(path.resolve("src/director/preflight.ts"));
+  const t0 = Date.now();
+  const pf = preflight(P);
+  fs.mkdirSync(path.join(outDir, "qa"), { recursive: true });
+  fs.writeFileSync(path.join(outDir, "qa", "preflight.json"), JSON.stringify(pf, null, 1));
+  for (const e of pf.errors) console.log(`  ✗ ${e.check}: ${e.msg}`);
+  for (const w of pf.warnings) console.log(`  ⚠ ${w.check}: ${w.msg}`);
+  console.log(`  ${pf.errors.length} errors · ${pf.warnings.length} warnings · ${Object.entries(pf.stats).map(([k, v]) => `${k} ${v}`).join(" · ")} · ${((Date.now() - t0) / 1000).toFixed(1)} s → ${path.join(outDir, "qa", "preflight.json")}`);
+  if (pf.errors.length && !flag("force")) { console.error("✗ preflight found geometry errors — fix the world/story (or --force to render anyway)"); process.exit(1); }
+}
+fs.mkdirSync(outDir, { recursive: true });
+fs.writeFileSync(path.join(outDir, "shots.json"), JSON.stringify({ duration: P.duration, voOffset: P.offset, shots: P.shots.map((s) => ({ kind: s.kind, who: s.who, target: s.target, scene: s.scene, t0: s.t0, t1: Math.min(s.t1, P.duration) })) }, null, 1));
+// captions (.srt): sentences from the VO words, in film time
+{
+  const W = story.words, cues = [];
+  let cur = [];
+  const flush = () => { if (cur.length) cues.push([cur[0][1] + P.offset, cur[cur.length - 1][2] + P.offset, cur.map((w) => w[0]).join(" ")]); cur = []; };
+  W.forEach((w, i) => { cur.push(w); const next = W[i + 1]; if (/[.?!]$/.test(w[0]) || cur.length >= 12 || (next && next[1] - w[2] > 0.6)) flush(); });
+  flush();
+  const ts = (t) => { const ms = Math.round(t * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`; };
+  fs.writeFileSync(path.join(outDir, `${story.id}.srt`), cues.map((c, i) => `${i + 1}\n${ts(c[0])} --> ${ts(c[1])}\n${c[2]}\n`).join("\n"));
+}
+
+// 3 ── sound ─────────────────────────────────────────────────────────────────
+if (willSound) {
+  step("sound");
+  sh("node", ["--max-old-space-size=4096", "scripts/sound-story.ts", `src/stories/data/${story.id}.json`]);
+  writeResolved();
+}
+
+// 4 ── render ────────────────────────────────────────────────────────────────
+const stills = opt("stills");
+if (stills) {
+  step("stills");
+  const all = stills.split(",").map((x) => parseFloat(x)).filter((x) => Number.isFinite(x));
+  const ok = all.filter((x) => x >= 0 && x < P.duration - 0.05);
+  if (ok.length < all.length) console.log(`  (skipped stills past the end of the ${P.duration}s film: ${all.filter((x) => !ok.includes(x)).join(", ")})`);
+  if (!ok.length) { console.error("✗ no stills inside the film"); process.exit(1); }
+  sh("node", ["scripts/stills.mjs", path.join(outDir, "stills"), ok.map((x) => `${x}s`).join(","), `${story.id}-preview`]);
+}
+const preview = flag("preview"), final = flag("final") || (!preview && !stills);
+let video = null;
+const portrait = P.format === "portrait";
+const size = portrait ? "1080x1920" : "1920x1080";
+const from = opt("from"), to = opt("to");
+const range = from || to ? [Math.max(0, Number(from || 0)), Math.min(P.duration, Number(to || P.duration))] : null;
+if (preview) {
+  step(`render preview (${portrait ? "540×960" : "960×540"} @ 30, with audio)${range ? ` ${range[0]}–${range[1]} s` : ""}`);
+  video = path.join(outDir, `${story.id}_preview${range ? `_${range[0]}-${range[1]}s` : ""}.mp4`);
+  sh("npx", ["remotion", "render", `${story.id}-preview`, video, "--codec=h264", "--crf=22", `--concurrency=${opt("concurrency", "4")}`, ...(range ? [`--frames=${Math.round(range[0] * 30)}-${Math.round(range[1] * 30) - 1}`] : [])]);
+}
+if (final) {
+  step(`render final (${portrait ? "1080×1920" : "1920×1080"} @ 60, H.264 + AAC, −14 LUFS)${range ? ` ${range[0]}–${range[1]} s` : ""}`);
+  const seg = path.join(outDir, "seg"), stamp = path.join(seg, "story.json");
+  const resolved = fs.readFileSync(`src/stories/data/${story.id}.json`, "utf8");
+  if (!fs.existsSync(stamp) || fs.readFileSync(stamp, "utf8") !== resolved) fs.rmSync(seg, { recursive: true, force: true });
+  fs.mkdirSync(seg, { recursive: true });
+  fs.writeFileSync(stamp, resolved);
+  video = path.join(outDir, `${story.id}_${size}_60fps${range ? `_${range[0]}-${range[1]}s` : ""}.mp4`);
+  sh("node", ["scripts/render-final.mjs", `--comp=${story.id}-final`, `--out=${video}`, `--vo=public/${mix}`, "--offset=0", `--parts=${opt("parts", range ? "2" : "6")}`, `--concurrency=${opt("concurrency", "3")}`, `--seg=${seg}${range ? `-${range[0]}-${range[1]}` : ""}`, ...(range ? [`--from=${range[0]}`, `--to=${range[1]}`] : [])]);
+}
+
+// 5 ── QA ────────────────────────────────────────────────────────────────────
+if (video && !flag("no-qa")) {
+  step("QA");
+  sh("node", ["scripts/qa.mjs", video, `--vo=${voPath}`, `--offset=${range ? P.offset - range[0] : P.offset}`, `--expect=${range ? range[1] - range[0] : P.duration}`, `--shots=${path.join(outDir, "shots.json")}`, `--size=${size}`, ...(range ? [`--from=${range[0]}`] : []), ...(final ? ["--final"] : [])]);
+  // visual review gate: automated checks never see a post through a face — a person has to look.
+  // REVIEW.md stays "PENDING" until every row is filled; never call the video QA PASS before that.
+  const pf = JSON.parse(fs.readFileSync(path.join(outDir, "qa", "preflight.json"), "utf8"));
+  const rows = ["object clipping / sinking", "floating objects", "people inside objects or each other", "feet / hands / contact plausible", "camera inside walls or blocked view", "continuity across cuts (position, props, light)", "frame errors (black / white / frozen / flicker)", "VO sync and pauses kept", "every object reads as what the script says", "story logic: nothing seen before its reveal, nothing left after it leaves", "no head / back of head covering > 1/4 of a frame (except close-ups)", ...(portrait ? ["text inside the safe area, never over a face (captions, tags, cards, titles)", "faces and key objects readable on a phone (not too dark)"] : []), "pacing: no long stretch of one view / one graphic; reactions on the words"];
+  fs.writeFileSync(path.join(outDir, "qa", "REVIEW.md"), [
+    `# Visual review — ${story.id} (${path.basename(video)})`, "", "STATUS: PENDING VISUAL REVIEW", "",
+    `Look at EVERY page of the 1-fps contact sheet — ${(JSON.parse(fs.readFileSync(path.join(outDir, "qa", "qa.json"), "utf8")).contactPages ?? []).map((p) => `${p.file} (${p.from}–${p.to} s)`).join(", ") || "contact_1fps_*.jpg"} — one tile per second, left→right then top→bottom; together they cover the whole video — and shots_start_mid_end.jpg (open the video for anything doubtful). Tick each page below.`, "", ...(JSON.parse(fs.readFileSync(path.join(outDir, "qa", "qa.json"), "utf8")).contactPages ?? []).map((p) => `- [ ] ${p.file} (${p.from}–${p.to} s) seen`), "", "Then fill every row with PASS / FIX + what you saw. Set STATUS to PASS only when no FIX is left.", "",
+    "| check | verdict | notes |", "|---|---|---|", ...rows.map((r) => `| ${r} | | |`), "",
+    `## Preflight (${pf.errors.length} errors, ${pf.warnings.length} warnings) — confirm each on screen`, "",
+    ...(pf.errors.length + pf.warnings.length ? [...pf.errors, ...pf.warnings].map((w) => `- [ ] ${w.level === "error" ? "ERROR" : "warn"} ${w.check}: ${w.msg}`) : ["- none"]), "",
+  ].join("\n"));
+  console.log(`  review gate → ${path.join(outDir, "qa", "REVIEW.md")} (PENDING until a visual review is written)`);
+}
+console.log(`\n✓ done${video ? `: ${video}` : ""}`);
+
+==== 2444 project/scripts/objects.mjs
+// Object library tools.
+//   node scripts/objects.mjs            regenerate src/gen/objects/registry.ts (library/objects + assets/objects)
+//   node scripts/objects.mjs --sheet [ids]   …and render a look sheet: every object from two angles next to a
+//                                             1.8 m person for scale → out/look/objects/_sheet.jpg
+// Project objects (assets/objects/<id>.json) override library ones with the same id.
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+
+const dirs = ["library/objects", "assets/objects"];
+const files = [];
+for (const d of dirs) if (fs.existsSync(d)) for (const f of fs.readdirSync(d).filter((f) => f.endsWith(".json")).sort()) files.push(path.join(d, f));
+const byId = new Map();
+const problems = [];
+for (const f of files) {
+  try {
+    const j = JSON.parse(fs.readFileSync(f, "utf8"));
+    if (!j.id || !Array.isArray(j.parts)) { problems.push(`${f}: needs "id" and "parts"`); continue; }
+    if (path.basename(f, ".json") !== j.id) problems.push(`${f}: file name should be ${j.id}.json`);
+    byId.set(j.id, f);
+  } catch (e) { problems.push(`${f}: ${e.message}`); }
+}
+const v = (s) => "o_" + s.replace(/[^a-z0-9]/gi, "_");
+const list = [...byId.entries()];
+fs.writeFileSync("src/gen/objects/registry.ts", `// Generated by scripts/objects.mjs — every object JSON in library/objects and assets/objects.\nimport type { ObjectSpec } from "../spec.ts";\n${list.map(([id, f]) => `import ${v(id)} from "../../../${f}";`).join("\n")}\n\nexport const OBJECTS: ObjectSpec[] = [${list.map(([id]) => `${v(id)} as unknown as ObjectSpec`).join(", ")}];\n`);
+console.log(`objects: ${list.length} (${list.map(([id]) => id).join(", ")})`);
+for (const p of problems) console.log(`  ⚠ ${p}`);
+const want = process.argv.includes("--sheet");
+if (want) {
+  const ids = process.argv.slice(2).filter((a) => !a.startsWith("--")).flatMap((a) => a.split(",")).filter(Boolean);
+  const all = (await import(path.resolve("src/gen/objects/builtin-data.ts"))).BUILTIN;
+  const names = ids.length ? ids : [...list.map(([id]) => id), ...Object.keys(all)];
+  fs.writeFileSync("src/gen/objects/sheet-list.json", JSON.stringify(names));
+  const frames = names.flatMap((_, i) => [i * 2, i * 2 + 1]).join(",");
+  const r = spawnSync("node", ["scripts/stills.mjs", "out/look/objects", frames, "object-sheet"], { stdio: "inherit" });
+  process.exit(r.status ?? 0);
+}
+
+==== 12702 project/scripts/qa.mjs
+// Automated QA of a rendered video. Writes out/<id>/qa/{qa.json, contact_1fps_001.jpg …, shots_start_mid_end.jpg}
+// (the 1-fps contact sheet covers the whole video in pages of 96 seconds, each tile stamped with its second)
+// and prints PASS/FAIL per check. The contact sheets are for the visual review that follows.
+//   node scripts/qa.mjs <video.mp4> --vo=public/audio/x.mp3 --offset=0.4 --expect=49.8 [--shots=out/<id>/shots.json] [--final]
+//                       [--size=1080x1920] [--from=12]   (--from: the video is a section starting at that film second)
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const video = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const final = args.includes("--final");
+if (!video || !fs.existsSync(video)) { console.error("usage: node scripts/qa.mjs <video.mp4> --vo=… --offset=… --expect=… [--shots=…] [--final]"); process.exit(1); }
+const run = (c, a) => spawnSync(c, a, { encoding: "utf8", maxBuffer: 1 << 30 });
+const qaDir = path.join(path.dirname(video), "qa");
+fs.mkdirSync(qaDir, { recursive: true });
+const checks = [];
+const check = (name, ok, detail) => { checks.push({ name, ok, detail }); console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}: ${detail}`); };
+
+// streams
+const probe = JSON.parse(run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", video]).stdout);
+const v = probe.streams.find((s) => s.codec_type === "video"), a = probe.streams.find((s) => s.codec_type === "audio");
+const dur = Number(probe.format.duration), expect = Number(opt("expect", dur));
+const [fn, fd] = v.r_frame_rate.split("/").map(Number);
+const fps = fn / fd;
+const [sw, shh] = opt("size", "1920x1080").split("x").map(Number);
+const portraitV = shh > sw;
+// previews are half size; finals must be the exact delivery size at 60 fps
+const sizeOk = final ? v.width === sw && v.height === shh && Math.abs(fps - 60) < 0.01 : Math.abs(v.width / v.height - sw / shh) < 0.01;
+check("video stream", v.codec_name === "h264" && sizeOk, `${v.codec_name} ${v.width}×${v.height} @ ${fps} fps${final ? ` (final must be ${sw}×${shh} @ 60)` : ` (${portraitV ? "portrait" : "landscape"} aspect)`}`);
+check("audio stream", !!a && a.codec_name === "aac", a ? `${a.codec_name} ${a.sample_rate} Hz, ${Number(a.duration ?? dur).toFixed(2)} s` : "missing");
+check("duration", Math.abs(dur - expect) < 0.12, `${dur.toFixed(2)} s (expected ${expect.toFixed(2)} s)`);
+if (a) check("audio length = video length", Math.abs(Number(a.duration ?? dur) - dur) < 0.15, `${Number(a.duration ?? dur).toFixed(2)} vs ${dur.toFixed(2)} s`);
+
+// frame scan: white / black / sudden flashes
+const ylog = path.join(qaDir, "yavg.txt");
+run("ffmpeg", ["-v", "error", "-i", video, "-vf", `scale=192:108,signalstats,metadata=mode=print:file=${ylog}`, "-f", "null", "-"]);
+const ytxt = fs.readFileSync(ylog, "utf8");
+const y = (ytxt.match(/YAVG=[\d.]+/g) ?? []).map((s) => Number(s.slice(5)));
+// 90th percentile luma per frame (video range: black is 16) — a frame whose p90 stays ≤ 24 is practically black
+const y90 = (ytxt.match(/YHIGH=[\d.]+/g) ?? []).map((s) => Number(s.slice(6)));
+// black: the opening fade, scene fades and the end card may be dark on purpose — only long runs fail
+const white = y.filter((x) => x > 225).length;
+// blown highlights: share of the picture burnt to white (a lamp in close-up, bloom) — the mean luma misses it
+const hlog = path.join(qaDir, "hot.txt");
+// the middle of the frame (a bright sky at the top is not a lamp in the lens); video range: white is 235
+run("ffmpeg", ["-v", "error", "-i", video, "-vf", `crop=iw*0.7:ih*0.6:iw*0.15:ih*0.2,scale=160:120,lutyuv=y='if(gt(val,222),255,0)',signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:file=${hlog}`, "-f", "null", "-"]);
+const hot = (fs.readFileSync(hlog, "utf8").match(/YAVG=[\d.]+/g) ?? []).map((s) => Number(s.slice(5)) / 255);
+let hr = 0, hotLongest = 0, hotAt = -1;
+hot.forEach((x, i) => { hr = x > 0.12 ? hr + 1 : 0; if (hr > hotLongest) { hotLongest = hr; hotAt = (i - hr + 1) / fps; } });
+let run0 = 0, longest = 0;
+y.slice(Math.round(fps * 0.9), y.length - Math.round(fps * 1.2)).forEach((x) => { run0 = x < 7 ? run0 + 1 : 0; longest = Math.max(longest, run0); });
+const black = longest > fps * 0.7 ? longest : 0;
+check("no white frames", white === 0, `${white} frames with mean luma > 225`);
+check("no blown-out highlights", hotLongest < fps * 0.5, hotLongest ? `${(hotLongest / fps).toFixed(1)} s with > 12 % of the middle of the picture burnt white (from ${(hotAt + Number(opt("from", 0))).toFixed(1)} s) — a lamp / bloom too close` : "none");
+check("no black gaps (outside fades)", black === 0, `longest near-black run ${(longest / fps).toFixed(2)} s (fails above 0.7 s)`);
+// frozen picture (a stuck render shows as identical frames)
+const fz = run("ffmpeg", ["-v", "info", "-i", video, "-vf", "scale=320:180,freezedetect=n=0.0006:d=2.5", "-an", "-f", "null", "-"]).stderr;
+const freezes = [...fz.matchAll(/freeze_start: ([\d.]+)/g)].map((m) => Number(m[1])).filter((t) => t > 1 && t < dur - 6);
+check("no frozen picture", freezes.length === 0, freezes.length ? `frozen from ${freezes.map((t) => t.toFixed(1)).join(", ")} s` : "none (≥ 2.5 s)");
+// loudness (final delivery is mastered to −14 LUFS, true peak ≤ −1 dBTP)
+if (a) {
+  const lu = run("ffmpeg", ["-v", "info", "-nostats", "-i", video, "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"]).stderr;
+  const I = Number((lu.match(/I:\s+(-?[\d.]+) LUFS/g) ?? []).pop()?.match(/-?[\d.]+/)?.[0]);
+  const TP = Number((lu.match(/Peak:\s+(-?[\d.]+) dBFS/g) ?? []).pop()?.match(/-?[\d.]+/)?.[0]);
+  check("loudness", !final || (Math.abs(I + 14) < 1.2 && TP <= -0.8), `${I.toFixed(1)} LUFS integrated, true peak ${TP.toFixed(1)} dBTP${final ? " (target −14 LUFS, ≤ −1 dBTP)" : ""}`);
+}
+const jumps = [];
+for (let i = 1; i < y.length; i++) if (Math.abs(y[i] - y[i - 1]) > 45) jumps.push(+(i / fps).toFixed(2));
+console.log(`  info  luma ${Math.min(...y).toFixed(0)}–${Math.max(...y).toFixed(0)}, big jumps (cuts) at ${jumps.join(", ") || "none"}`);
+
+// VO sync: cross-correlate the film's audio with the VO around the expected offset
+const voFile = opt("vo"), off0 = Number(opt("offset", 0)), section = opt("from") !== "";
+// a section that starts after the VO has begun: compare with the VO from that point (expected lag 0)
+const voSkip = Math.max(0, -off0), off = Math.max(0, off0);
+if (voFile && fs.existsSync(voFile)) {
+  const SR = 8000;
+  const raw = (f, ss = 0) => { const r = spawnSync("ffmpeg", ["-v", "error", ...(ss ? ["-ss", ss.toFixed(3)] : []), "-i", f, "-f", "f32le", "-ac", "1", "-ar", String(SR), "-"], { maxBuffer: 1 << 30 }); return new Float32Array(r.stdout.buffer, r.stdout.byteOffset, Math.floor(r.stdout.length / 4)); };
+  const film = raw(video), vo = raw(voFile, voSkip);
+  let best = -1, lag = 0;
+  for (let L = Math.round((off - 0.25) * SR); L <= Math.round((off + 0.25) * SR); L++) {
+    if (L < 0) continue;
+    let s = 0, e1 = 0, e2 = 0;
+    for (let i = 0; i < vo.length && i + L < film.length; i += 3) { const p = vo[i], q = film[i + L]; s += p * q; e1 += p * p; e2 += q * q; }
+    const c = s / Math.sqrt(e1 * e2 + 1e-12);
+    if (c > best) { best = c; lag = L; }
+  }
+  const err = lag / SR - off;
+  check("VO sync", Math.abs(err) < 0.03 && best > 0.6, `VO found at ${(lag / SR).toFixed(3)} s (expected ${off.toFixed(3)}, error ${(err * 1000).toFixed(0)} ms, correlation ${best.toFixed(2)})`);
+  const voEnd = off + vo.length / SR;
+  if (!section) check("VO not cut", voEnd <= dur + 0.02, `VO ends at ${voEnd.toFixed(2)} s, video ${dur.toFixed(2)} s`);
+}
+
+// contact sheets (portrait: tall tiles): one tile per second for the WHOLE video, 96 per page
+// (contact_1fps_001.jpg, _002.jpg …), every tile stamped with its film second so nothing can be skipped unseen
+const tw = portraitV ? 180 : 320, thh = portraitV ? 320 : 180;
+const grid = portraitV ? [12, 8] : [8, 12], perPage = grid[0] * grid[1];
+for (const f of fs.readdirSync(qaDir)) if (/^contact_1fps(_\d+)?\.jpg$/.test(f)) fs.rmSync(path.join(qaDir, f));
+// a second stamp on each tile when this ffmpeg has drawtext (not every build does); the page ranges are always listed
+const hasDrawtext = /drawtext/.test(run("ffmpeg", ["-hide_banner", "-filters"]).stdout ?? "");
+const fontFile = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf"].find((f) => fs.existsSync(f));
+const t0s = Number(opt("from", 0));
+const stamp = hasDrawtext && fontFile ? `,drawtext=fontfile='${fontFile}':text='%{eif\\:t+${t0s}\\:d}s':x=6:y=6:fontsize=${portraitV ? 22 : 20}:fontcolor=yellow:box=1:boxcolor=black@0.6` : "";
+const sheetArgs = (sync) => ["-v", "error", "-y", "-i", video, "-vf", `fps=1,scale=${tw}:${thh}${stamp},tile=${grid[0]}x${grid[1]}`, ...sync, "-start_number", "1", path.join(qaDir, "contact_1fps_%03d.jpg")];
+// one output image per full (or last, partial) page: -fps_mode on ffmpeg ≥ 5.1, -vsync on older builds
+if (run("ffmpeg", sheetArgs(["-fps_mode", "passthrough"])).status !== 0) run("ffmpeg", sheetArgs(["-vsync", "0"]));
+const pages = fs.readdirSync(qaDir).filter((f) => /^contact_1fps_\d+\.jpg$/.test(f)).sort();
+const needPages = Math.max(1, Math.ceil(Math.floor(dur) / perPage));
+const pageRanges = pages.map((f, i) => ({ file: f, from: Math.round(t0s + i * perPage), to: Math.round(t0s + Math.min(dur, (i + 1) * perPage)) }));
+check("contact sheet covers the whole video", pages.length >= needPages, `${pages.length} page(s) of ${perPage} s for ${dur.toFixed(1)} s: ${pageRanges.map((p) => `${p.file} ${p.from}–${p.to} s`).join(", ")}${stamp ? "" : " (tiles not stamped: this ffmpeg has no drawtext — tiles run left→right, top→bottom, one per second)"}`);
+const shotsFile = opt("shots");
+const from = Number(opt("from", 0));
+if (shotsFile && fs.existsSync(shotsFile)) {
+  const { shots: all } = JSON.parse(fs.readFileSync(shotsFile, "utf8"));
+  // shots of this video (a section: only those inside it, in video time)
+  const shots = all.map((s) => ({ ...s, t0: Math.max(0, s.t0 - from), t1: Math.min(dur, s.t1 - from) })).filter((s) => s.t1 - s.t0 > 0.2);
+  // phone readability: the middle of every shot must not sink into black (night ≠ unreadable)
+  const dark = shots.filter((s) => { const i = Math.round(((s.t0 + s.t1) / 2) * fps); return y[i] !== undefined && y[i] < 22 && !(s.t0 < 1); });
+  // a shot that is practically black for its whole length shows nothing on a phone (darkness needs a sliver of light)
+  const black = shots.filter((s) => { if (s.t1 - s.t0 < 1.4 || s.t0 < 1 || s.t1 > dur - 1) return false; const a = Math.round((s.t0 + 0.3) * fps), b = Math.round((s.t1 - 0.3) * fps); const seg = y.slice(a, b); return seg.length && Math.max(...y90.slice(a, b)) <= 24; });
+  check("readable on a phone (not too dark)", dark.length <= Math.max(1, Math.floor(shots.length * 0.15)) && black.length === 0, `${dark.length}/${shots.length} shots with mid-frame mean luma < 22${dark.length ? ` (at ${dark.map((s) => (s.t0 + from).toFixed(1)).join(", ")} s)` : ""}${black.length ? ` · ${black.length} practically black shot(s) at ${black.map((s) => (s.t0 + from).toFixed(1)).join(", ")} s` : ""}`);
+  const tmp = path.join(qaDir, "tmp");
+  fs.mkdirSync(tmp, { recursive: true });
+  let n = 0;
+  for (const s of shots) for (const f of [0.12, 0.5, 0.88]) {
+    const t = Math.min(dur - 0.05, s.t0 + (s.t1 - s.t0) * f);
+    run("ffmpeg", ["-v", "error", "-y", "-ss", t.toFixed(3), "-i", video, "-frames:v", "1", "-vf", `scale=${tw}:${thh}`, path.join(tmp, `f${String(n++).padStart(3, "0")}.png`)]);
+  }
+  const cols = portraitV ? 9 : 6;
+  run("ffmpeg", ["-v", "error", "-y", "-pattern_type", "glob", "-i", path.join(tmp, "f*.png"), "-vf", `tile=${cols}x${Math.ceil(n / cols)}`, "-frames:v", "1", path.join(qaDir, "shots_start_mid_end.jpg")]);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  console.log(`  info  ${shots.length} shots sampled at start/middle/end → ${path.join(qaDir, "shots_start_mid_end.jpg")}`);
+}
+fs.writeFileSync(path.join(qaDir, "qa.json"), JSON.stringify({ video, duration: dur, fps, checks, cutsAt: jumps, contactSheets: pages, contactPages: pageRanges }, null, 1));
+const failed = checks.filter((c) => !c.ok);
+console.log(failed.length ? `\nQA: ${failed.length} check(s) FAILED — fix before delivering` : `\nQA: all ${checks.length} automated checks passed — now review ${qaDir}/*.jpg`);
+process.exit(failed.length ? 3 : 0);
+
+==== 4854 project/scripts/render-final.mjs
+// Final delivery, cross-platform and restartable: bundle once, render the composition muted in
+// segments (finished segments are kept and skipped when re-run — delete out/seg after a source
+// edit), join them, lay the voice-over in at its offset, then master the audio to -14 LUFS.
+//   node scripts/render-final.mjs --comp=<id> --out=out/film.mp4 [--vo=public/audio/vo.mp3 --offset=0.4]
+//                                 [--parts=3] [--concurrency=2] [--crf=17] [--seg=out/seg] [--from=12 --to=30]
+// --from / --to (film seconds) render only that section, with the soundtrack cut to match.
+// Bounded concurrency + segments: one-pass high-concurrency 1080p renders have filled disks via swap.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { bundle } from "@remotion/bundler";
+import { renderMedia, selectComposition } from "@remotion/renderer";
+import { glMode, isWebGLError, switchToSoftware, tolerateClosedTargets } from "./gl.mjs";
+
+tolerateClosedTargets();
+
+const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const comp = arg("comp"), out = arg("out"), vo = arg("vo"), offset = Number(arg("offset", "0"));
+const parts = Number(arg("parts", "3")), concurrency = Number(arg("concurrency", "2")), crf = Number(arg("crf", "17"));
+if (!comp || !out) {
+  console.error("usage: node scripts/render-final.mjs --comp=<id> --out=<file.mp4> [--vo=<audio> --offset=<s>] [--parts=3] [--concurrency=2]");
+  process.exit(1);
+}
+const ff = (a) => {
+  const r = spawnSync("ffmpeg", a, { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(r.stderr);
+};
+const segDir = arg("seg", path.join("out", "seg"));
+fs.mkdirSync(segDir, { recursive: true });
+const serveUrl = await bundle({ entryPoint: path.resolve("src/index.ts") });
+const composition = await selectComposition({ serveUrl, id: comp });
+const fromS = arg("from"), toS = arg("to");
+const F0 = fromS ? Math.max(0, Math.round(Number(fromS) * composition.fps)) : 0;
+const F1 = toS ? Math.min(composition.durationInFrames, Math.round(Number(toS) * composition.fps)) : composition.durationInFrames;
+const N = F1 - F0;
+const count = (f) => Number(spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", f], { encoding: "utf8" }).stdout.trim() || 0);
+const list = [];
+let gl = glMode();
+for (let i = 0; i < parts; i++) {
+  const a = F0 + Math.floor((N * i) / parts), b = F0 + Math.floor((N * (i + 1)) / parts) - 1;
+  const part = path.join(segDir, `part${i}.mp4`);
+  list.push(`file 'part${i}.mp4'`);
+  if (fs.existsSync(part) && count(part) === b - a + 1) {
+    console.log(`part ${i} (${a}-${b}) done, skipping`);
+    continue;
+  }
+  console.log(`part ${i}: frames ${a}-${b}`);
+  let shown = 0;
+  const tmp = path.join(segDir, `part${i}.tmp.mp4`);
+  const renderPart = () => renderMedia({
+    composition, serveUrl, codec: "h264", crf, pixelFormat: "yuv420p", muted: true, frameRange: [a, b], outputLocation: tmp,
+    concurrency, imageFormat: "jpeg", jpegQuality: 95, chromiumOptions: { gl }, timeoutInMilliseconds: 300000,
+    // a line per quarter (a \r counter floods logs that are read by an agent)
+    onProgress: ({ progress }) => { const q = Math.floor(progress * 4); if (q > shown) { shown = q; process.stdout.write(`  ${q * 25}%`); } },
+  });
+  try {
+    await renderPart();
+  } catch (e) {
+    if (gl === "swangle" || !isWebGLError(e)) throw e;
+    gl = switchToSoftware();
+    await renderPart();
+  }
+  process.stdout.write("\n");
+  fs.renameSync(tmp, part);
+}
+fs.rmSync(serveUrl, { recursive: true, force: true });
+fs.writeFileSync(path.join(segDir, "list.txt"), list.join("\n") + "\n");
+fs.mkdirSync(path.dirname(out), { recursive: true });
+const dur = (N / composition.fps).toFixed(4);
+const joined = path.join(segDir, "joined.mp4");
+if (vo) {
+  ff(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", path.join(segDir, "list.txt"), ...(F0 ? ["-ss", (F0 / composition.fps).toFixed(4)] : []), "-i", vo, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+    "-af", `adelay=${Math.round(offset * 1000)}:all=1,apad`, "-t", dur, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", joined]);
+  const r = spawnSync("node", [path.join("scripts", "deliver.mjs"), joined, out], { stdio: "inherit" });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+} else {
+  ff(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", path.join(segDir, "list.txt"), "-c", "copy", "-movflags", "+faststart", out]);
+}
+fs.rmSync(segDir, { recursive: true, force: true });
+console.log(`final: ${out} (${N} frames, ${composition.width}×${composition.height} @ ${composition.fps} fps)`);
+// a part that failed on the GPU path leaves its timeout timer behind; do not wait for it
+process.exit(0);
+
+==== 19943 project/scripts/sound-story.ts
+// Automatic sound department for any CINÉSTORY story. Compiles the story exactly like the picture, then
+// lays ambience per place (and per set state: lamps, beams, boats…), footsteps from the walk cycles, SFX
+// per action / set change / story cue, a score per scene mood with hits, risers and strategic silence,
+// and mixes it all under the untouched voice-over (ducked). All synthesised: no samples, no licences.
+//   node scripts/sound-story.ts src/stories/data/<id>.json   → public/audio/<id>-mix.wav
+
+import fs from "node:fs";
+import path from "node:path";
+import { compile } from "../src/director/compile.ts";
+import type { Story } from "../src/director/story.ts";
+import {
+  Bus, S, SR, bell, biquad, boom, breath, click, creak, dbg, decode, doorClose, doorOpen, drone, duckEnvelope, envAR, envExp, ep, foghorn, freeverb,
+  gull, heartbeat, kalimba, knock, noise, pad, pink, pluck, radio, riser, rng, rustle, scribble, shimmer, sine, smooth, subPulse, thud, waveCrash, whoosh, writeWav, type Out,
+} from "./synth.ts";
+
+const file = process.argv[2];
+if (!file) { console.error("usage: node scripts/sound-story.ts src/stories/data/<id>.json"); process.exit(1); }
+const story = JSON.parse(fs.readFileSync(file, "utf8")) as Story;
+const P = compile(story);
+const SP = P.sound;
+const DUR = SP.duration, N = Math.round(DUR * SR);
+const amb = new Bus(N), music = new Bus(N), sfx = new Bus(N), verb = new Bus(N);
+const M: Out = { dry: music, verb }, F: Out = { dry: sfx, verb }, A: Out = { dry: amb, verb };
+const R = rng(2026);
+
+// ── set state, sampled (lamps, beams, boats change the ambience) ───────────
+const STEP = 0.05;
+const states = Array.from({ length: Math.ceil(DUR / STEP) + 1 }, (_, k) => P.setAt(k * STEP));
+const st = (i: number, k: string) => states[Math.min(states.length - 1, Math.floor(i / SR / STEP))]?.[k] ?? 0;
+
+// ── 1. ambience ─────────────────────────────────────────────────────────────
+{
+  const ids = [...new Set(SP.amb.map((a) => a.id))];
+  const G: Record<string, Float32Array> = Object.fromEntries(ids.map((k) => [k, new Float32Array(N)]));
+  const dark = new Float32Array(N);
+  for (const a of SP.amb) {
+    const d = { night: 1, storm: 1, dusk: 0.6, dawn: 0.35, day: 0 }[a.time] ?? 1;
+    for (let i = S(a.t0); i < Math.min(N, S(a.t1)); i++) { G[a.id][i] = 1; dark[i] = d; }
+  }
+  for (const g of [...Object.values(G), dark]) { let s = g[0]; for (let i = 0; i < N; i++) { s += (g[i] - s) * 0.0008; g[i] = s; } }
+  const has = (k: string) => G[k] !== undefined;
+  const g0 = (k: string, i: number) => (G[k] ? G[k][i] : 0);
+  const bed = (seed: number, f: (x: Float32Array) => Float32Array, gain: (i: number) => number, g: number, pan: number) => {
+    const x = f(pink(N, seed));
+    for (let i = 0; i < N; i++) x[i] *= gain(i);
+    amb.add(0, x, g, pan);
+  };
+  // the sea: slow swells (periods 7–11 s) of surf, close (sea), below the cliff (coast), far (gallery), muffled (cottage)
+  const swell = (i: number) => { const t = i / SR; return 0.55 + 0.25 * Math.sin(t * 0.71) + 0.2 * Math.sin(t * 0.43 + 1.3); };
+  if (has("coast") || has("gallery") || has("cottage") || has("sea")) {
+    bed(11, (x) => biquad(x, "lp", 520), (i) => swell(i) * (0.55 * g0("coast", i) + 0.3 * g0("gallery", i) + 0.35 * g0("cottage", i) + 0.45 * g0("sea", i)), 0.6, -0.1);
+    bed(12, (x) => biquad(biquad(x, "hp", 900), "lp", 5200), (i) => swell(i) ** 2 * (0.12 * g0("coast", i) + 0.05 * g0("gallery", i) + 0.18 * g0("sea", i)), 0.5, 0.15);
+    // crashes on the rocks
+    for (let t = 1.5 + R() * 3; t < DUR; t += 6 + R() * 4) {
+      const i = S(t), w = 0.5 * g0("coast", i) + 0.25 * g0("gallery", i) + 0.18 * g0("cottage", i);
+      if (w > 0.05) waveCrash(A, t, 0.3 * w, R() * 1.2 - 0.6, g0("cottage", i) > 0.5 ? 1 : 0.4);
+    }
+    // water lapping on a hull (out at sea)
+    if (has("sea")) for (let t = 0.3; t < DUR; t += 0.35 + R() * 0.6) { const w = g0("sea", S(t)); if (w < 0.05) continue; const x = envExp(biquad(noise(S(0.25), Math.round(t * 100)), "bp", 380 + R() * 500, 1.5), 0.06, 0.005); amb.add(t, x, 0.5 * w, R() * 1.4 - 0.7); }
+  }
+  // wind: gusting band of noise; a whistle on the gallery railing; low and muffled indoors
+  if (has("coast") || has("gallery") || has("cottage") || has("sea")) {
+    const gust = (i: number) => { const t = i / SR; return 0.5 + 0.3 * Math.sin(t * 0.37 + 2) + 0.2 * Math.sin(t * 1.13); };
+    bed(21, (x) => biquad(x, "bp", (i) => 500 + 400 * gust(i), 0.6), (i) => gust(i) * (0.28 * g0("coast", i) + 0.55 * g0("gallery", i) + 0.18 * g0("sea", i)), 0.55, 0.25);
+    bed(22, (x) => biquad(x, "lp", 260), (i) => gust(i) * 0.35 * g0("cottage", i), 0.5, 0.1);
+    bed(23, (x) => biquad(x, "bp", (i) => 1150 + 260 * gust(i), 6), (i) => gust(i) ** 3 * 0.5 * g0("gallery", i), 0.4, -0.3);
+  }
+  // crickets in the grass at night (outside, faint indoors)
+  {
+    const L = new Float32Array(N), Rr = new Float32Array(N);
+    for (let c = 0; c < 5; c++) {
+      const r = rng(100 + c), f = 4100 + r() * 1000, rate = 0.5 + r() * 0.5, pan = r() * 1.6 - 0.8;
+      for (let t = r(); t < DUR; t += rate * (0.85 + r() * 0.3)) for (let p = 0; p < 3; p++) {
+        const o = S(t + p * 0.045), n = S(0.03);
+        for (let i = 0; i < n; i++) { const x = Math.sin((2 * Math.PI * f * i) / SR) * Math.sin((Math.PI * i) / n) * 0.5; if (o + i < N) { L[o + i] += x * Math.cos(((pan + 1) * Math.PI) / 4); Rr[o + i] += x * Math.sin(((pan + 1) * Math.PI) / 4); } }
+      }
+    }
+    for (let i = 0; i < N; i++) { const k = dark[i] > 0.7 ? (g0("coast", i) + 0.15 * g0("cottage", i) + 0.4 * g0("outdoor", i) + 0.15 * g0("room", i) + 1.2 * g0("forest", i)) * (dark[i] - 0.7) / 0.3 : 0; L[i] *= k; Rr[i] *= k; }
+    amb.addSt(0, L, Rr, 0.02);
+  }
+  // gulls by day / dawn on the coast or at sea
+  for (let t = 2 + R() * 3; t < DUR; t += 3 + R() * 5) { const i = S(t); const w = (1 - dark[i]) * (g0("coast", i) + g0("sea", i) + 0.4 * g0("gallery", i)); if (w > 0.25) gull(A, t, 0.05 * w, R() * 1.6 - 0.8); }
+  // the lighthouse lamp: motor hum + clockwork tick when the beam turns
+  if (has("coast") || has("gallery") || has("cottage")) {
+    const x = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const t = i / SR, b = st(i, "beam"); const w = b * (0.06 * g0("coast", i) + 0.5 * g0("gallery", i) + 0.02 * g0("cottage", i)); x[i] = w * (Math.sin(2 * Math.PI * 60 * t) * 0.5 + Math.sin(2 * Math.PI * 120 * t) * 0.25 + Math.sin(2 * Math.PI * 180 * t) * 0.1); }
+    amb.add(0, x, 0.05, 0.1);
+    for (let t = 0.2; t < DUR; t += 0.5) { const i = S(t); const w = st(i, "beam") * g0("gallery", i); if (w > 0.05) click(A, t, 3200, 0.02 * w, 0.2, 0.006); }
+  }
+  // indoors: room tone, the wall clock, the oil lamp's hiss
+  if (has("cottage") || has("room")) {
+    bed(31, (x) => biquad(x, "lp", 170), (i) => 0.4 * (g0("cottage", i) + g0("room", i)), 0.5, 0);
+    bed(32, (x) => biquad(x, "hp", 4000), (i) => 0.05 * st(i, "lamp") * g0("cottage", i), 0.4, 0.2);
+    for (let t = 0.5; t < DUR; t += 1) { const w = g0("cottage", S(t)) + g0("room", S(t)); if (w > 0.1) click(A, t, 2600, 0.012 * w, -0.4, 0.008); }
+  }
+  // a boat's generator for its lamps (at sea)
+  if (has("sea")) {
+    const x = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const t = i / SR; const w = st(i, "boat") * g0("sea", i); x[i] = w * (Math.sin(2 * Math.PI * 47 * t) * 0.5 + Math.sin(2 * Math.PI * 94 * t + Math.sin(t * 3)) * 0.3) * (0.8 + 0.2 * Math.sin(t * 13)); }
+    biquad(x, "lp", 400);
+    amb.add(0, x, 0.04, -0.2);
+  }
+  // hospital: ventilation, fluorescent hum, a distant monitor beeping
+  if (has("hospital")) {
+    bed(51, (x) => biquad(biquad(x, "lp", 420), "hp", 60), (i) => 0.38 * g0("hospital", i), 0.55, 0);
+    const hum = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const t = i / SR; hum[i] = (Math.sin(2 * Math.PI * 100 * t) * 0.6 + Math.sin(2 * Math.PI * 200 * t) * 0.25) * 0.004 * g0("hospital", i); }
+    amb.add(0, hum, 1, 0.1);
+    for (let t = 1.2; t < DUR; t += 1.0) { const w = g0("hospital", S(t)); if (w > 0.1) { const x = envAR(sine(0.09, 1180), 0.005, 0.03); amb.add(t, x, 0.01 * w, -0.6); } }
+  }
+  // market: crowd murmur, distant calls
+  if (has("market")) {
+    bed(52, (x) => biquad(biquad(x, "bp", 650, 0.5), "lp", 2400), (i) => (0.3 + 0.1 * Math.sin(i / SR * 0.4)) * g0("market", i), 0.6, 0.1);
+    for (let t = 1 + R() * 2; t < DUR; t += 1.5 + R() * 2.5) { const w = g0("market", S(t)); if (w < 0.1) continue; const f0 = 180 + R() * 160, d = 0.4 + R() * 0.5, x = sine(d, (u) => f0 * (1 + 0.25 * Math.sin(u * 9))); for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * 2) * Math.sin(Math.PI * i / x.length); biquad(x, "bp", 900, 0.8); amb.add(t, x, 0.02 * w, R() * 1.6 - 0.8); }
+  }
+  // forest at night: crickets (below), wind in leaves, an owl now and then
+  if (has("forest")) {
+    bed(53, (x) => biquad(biquad(x, "hp", 900), "lp", 5000), (i) => (0.08 + 0.06 * Math.max(0, Math.sin(i / SR * 0.31))) * g0("forest", i), 0.5, -0.2);
+    for (let t = 4 + R() * 4; t < DUR; t += 8 + R() * 7) { const w = g0("forest", S(t)); if (w < 0.1) continue; for (const [dt, f] of [[0, 410], [0.45, 380], [0.75, 390]]) { const x = envAR(sine(0.32, (u) => f * (1 - 0.06 * u)), 0.04, 0.15); amb.add(t + dt, x, 0.035 * w, 0.5); } }
+  }
+  // generic fallbacks for other worlds
+  if (has("outdoor")) bed(41, (x) => biquad(x, "lp", 400), (i) => 0.35 * g0("outdoor", i), 0.5, 0.1);
+  if (has("hall")) bed(42, (x) => biquad(biquad(x, "lp", 900), "hp", 120), (i) => 0.16 * g0("hall", i), 0.6, -0.05);
+  if (has("studio")) bed(43, (x) => biquad(biquad(x, "hp", 2600), "lp", 9000), (i) => 0.06 * g0("studio", i), 0.5, 0);
+}
+
+// ── 2. foley: footsteps from the walk/run cycles ────────────────────────────
+for (const s of SP.steps) {
+  const g = (s.run ? 0.5 : 0.32) * (0.7 + 0.3 * s.g), pan = R() * 0.4 - 0.2;
+  if (s.surface === "grass" || s.surface === "sand") { const x = envExp(biquad(noise(S(0.14), Math.round(s.t * 97)), "bp", 1400 + R() * 900, 0.8), 0.04, 0.004); sfx.add(s.t, x, g * 1.1, pan); }
+  else if (s.surface === "wood") { thud(F, s.t, g * 0.8, 95, 0.06, pan); click(F, s.t + 0.005, 900, g * 0.25, pan, 0.02); if (R() > 0.75) creak(F, s.t + 0.05, 0.25, g * 0.25, 200 + R() * 80, pan); }
+  else if (s.surface === "metal") { click(F, s.t, 1200, g * 0.5, pan, 0.05); thud(F, s.t, g * 0.4, 120, 0.05, pan); }
+  else { click(F, s.t, 2100, g * 0.45, pan, 0.012); thud(F, s.t, g * 0.5, 80, 0.05, pan); }
+}
+
+// ── 3. SFX: action cues, set changes, story cues ────────────────────────────
+const play = (t: number, name: string, dur = 1) => {
+  switch (name) {
+    case "knock": return knock(F, t, 0.5);
+    case "door-open": return doorOpen(F, t, 0.5);
+    case "door-close": return doorClose(F, t, 0.5);
+    case "slam": thud(F, t, 1.0, 55, 0.3); return whoosh(F, t - 0.12, 0.15, 0.2, 400, 1600);
+    case "click": return click(F, t, 1600, 0.25, 0.1, 0.01);
+    case "creak": return creak(F, t, 0.6, 0.35, 190, 0);
+    case "machine": thud(F, t, 0.5, 80, 0.2); return creak(F, t + 0.1, 0.8, 0.2, 120, 0);
+    case "shimmer": return shimmer(F, t, 2.2, 0.16, 2600, 3);
+    case "reveal": riser(F, t - 1.2, 1.2, 0.12); return bell(F, t, "D6", 0.08, 3);
+    case "hit": boom(F, t, 0.5); return whoosh(F, t - 0.25, 0.3, 0.2, 2400, 300);
+    case "heartbeat": for (let k = 0; k < Math.max(1, Math.floor(dur / 0.9)); k++) heartbeat(F, t + k * 0.9, 0.5 * (1 - (k / Math.max(1, dur / 0.9)) * 0.4)); return;
+    case "rustle": return rustle(F, t, 0.4, 0.18, 0.1);
+    case "breath": return breath(F, t, 0.8, 1.0, 0.18);
+    case "scribble": return scribble(F, t, t + dur, 0.3);
+    case "whoosh": return whoosh(F, t, 0.6, 0.3, 300, 2600);
+    case "boom": return boom(F, t, 0.6);
+    case "riser": return riser(F, t - 1.5, 1.5, 0.25);
+    case "foghorn": return foghorn(F, t, 0.35);
+    case "bell": return bell(F, t, "A5", 0.15, 3);
+    case "radio": case "static": return radio(F, t, Math.max(0.6, dur), 0.25);
+    case "wave-crash": return waveCrash(F, t, 0.45, -0.2);
+    case "gull": return gull(F, t, 0.12, 0.3);
+    case "notif": case "ping": return bell(F, t, "E6", 0.12, 1.2);
+    case "tick": return click(F, t, 3000, 0.2, 0, 0.006);
+    case "thunder": { boom(M, t, 0.4, 38); const x = envExp(biquad(pink(S(4), 77), "lp", 600), 1.2, 0.05); return sfx.add(t + 0.1, x, 0.5, -0.3); }
+    case "splash": { const x = envExp(biquad(noise(S(0.8), 5), "bp", 1200, 0.5), 0.18, 0.004); return sfx.add(t, x, 0.4, 0); }
+    case "engine": { const x = sine(Math.max(1, dur), (u) => 40 + 3 * Math.sin(u * 2)); for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * 4) * 0.5; biquad(x, "lp", 300); envAR(x, 0.4, 0.6); return sfx.add(t, x, 0.12, 0); }
+    case "stamp": thud(F, t, 0.35, 70, 0.12); return click(F, t, 1400, 0.15, 0, 0.02);
+    case "roll": { for (let k = 0; k < Math.max(1, dur / 0.55); k++) creak(F, t + k * 0.55 + R() * 0.1, 0.22, 0.1, 520 + R() * 160, 0.3); const x = biquad(pink(S(Math.max(0.5, dur)), 61), "bp", 300, 0.8); envAR(x, 0.3, 0.4); return sfx.add(t, x, 0.12, 0.2); }
+    case "beep": return bell(F, t, "B5", 0.06, 0.4);
+    case "twig": { const x = envExp(biquad(noise(S(0.12), 12), "hp", 1800), 0.02, 0.001); sfx.add(t, x, 0.5, 0.3); return click(F, t + 0.03, 2400, 0.2, 0.3, 0.01); }
+    case "coins": for (let k = 0; k < 4; k++) bell(F, t + k * 0.06, ["E7", "G6", "C7", "A6"][k], 0.03, 0.4, 0.2); return;
+    case "bag": return rustle(F, t, 0.6, 0.25, 0.1, 3200);
+    case "wind-gust": { const x = biquad(pink(S(2.5), 9), "bp", 700, 0.7); envAR(x, 0.8, 1.2); return sfx.add(t, x, 0.3, 0.4); }
+    default: console.log(`  (unknown sfx "${name}" skipped — see references/cinestory/sound.md)`);
+  }
+};
+for (const x of SP.sfx) play(x.t, x.name, x.dur ?? 1);
+for (const c of SP.cuts) {
+  if (c.kind === "fade") whoosh(F, c.t - 0.45, 0.8, 0.07, 1800, 250);
+  if (c.kind === "dip") { shimmer(F, c.t - 0.2, 1.0, 0.07, 3000, 4); }
+  if (c.kind === "flash") { boom(F, c.t, 0.35); }
+}
+for (const t of SP.hits) { boom(M, t, 0.35); whoosh(M, t - 0.3, 0.35, 0.08, 2600, 400); }
+if (SP.title !== undefined) { boom(M, SP.title + 0.05, 0.45, 42); riser(M, SP.title - 1.4, 1.4, 0.06); }
+
+// ── 4. score: one section per scene mood (D minor world, resolving to D major) ──
+const quietG = new Float32Array(N).fill(1);
+for (const [a, b] of SP.quiet) for (let i = Math.max(0, S(a)); i < Math.min(N, S(b)); i++) quietG[i] = 0.12;
+{ let s = 1; for (let i = 0; i < N; i++) { s += (quietG[i] - s) * 0.0006; quietG[i] = s; } }
+const sections = SP.music.map((m, k) => ({ ...m, t1: Math.min(DUR, m.t1 + (k + 1 < SP.music.length ? 0.6 : 0)) }));
+for (const m of sections) {
+  const t0 = m.t0, t1 = m.t1, len = t1 - t0;
+  if (len < 0.8) continue;
+  const r = rng(Math.round(t0 * 13));
+  switch (m.mood) {
+    case "mystery":
+      drone(M, t0, t1, [["D2", 0.5], ["A2", 0.32], ["D3", 0.12]], () => 0.42, (t) => 280 + 120 * Math.sin(t * 0.4));
+      for (let t = t0 + 1.2; t < t1 - 1; t += 3.4 + r() * 1.8) bell(M, t, ["D5", "F5", "A4", "E5"][Math.floor(r() * 4)], 0.045, 3.5, r() - 0.5);
+      for (let t = t0 + 2.5; t < t1 - 2; t += 7 + r() * 3) ep(M, t, [["D3", "A3"], ["Bb2", "F3"]][Math.floor(r() * 2)], 0.18, 3);
+      break;
+    case "tense": {
+      drone(M, t0, t1, [["D2", 0.45], ["Eb2", 0.28], ["A2", 0.22]], (t) => 0.35 + 0.25 * (t / len), (t) => 260 + 900 * (t / len) ** 1.6);
+      for (let t = t0 + 0.5; t < t1 - 0.2; t += 1.0) subPulse(M, t, 0.1 + 0.06 * ((t - t0) / len), 50);
+      for (let t = t0 + 0.25; t < t1 - 0.2; t += 0.5) click(M, t, 1900, 0.012, 0.3, 0.01);
+      if (len > 4) riser(M, t1 - 2.4, 2.2, 0.1);
+      break;
+    }
+    case "calm":
+      pad(M, t0, t1, ["D3", "A3", "F4"], 0.15, 700, 1.5, 1.5);
+      for (let t = t0 + 1.0; t < t1 - 1; t += 4) bell(M, t, ["A4", "F4", "D5"][Math.floor(r() * 3)], 0.04, 3, r() - 0.5);
+      break;
+    case "memory":
+      for (let i = 0, t = t0 + 0.2; t < t1 - 0.5; i++, t += 2.0) ep(M, t, [["D3", "F3", "A3"], ["Bb2", "D3", "F3"], ["G2", "Bb2", "D3"], ["A2", "C#3", "E3"]][i % 4], 0.3, 2.3);
+      pad(M, t0, t1, ["D3", "A3"], 0.08, 600);
+      break;
+    case "told":
+      pad(M, t0, t1, ["D3", "Ab3", "C4"], 0.14, 500, 1.2, 1.2);
+      for (let t = t0 + 1; t < t1 - 1; t += 3) whoosh(M, t, 1.4, 0.03, 300, 1400);
+      break;
+    case "reveal":
+      pad(M, t0, t1, ["D3", "F#3", "A3", "D4"], 0.22, 1000, 1.0, 1.6, 0, 0.5);
+      ["D5", "F#5", "A5", "D6"].forEach((n, k) => bell(M, t0 + 0.6 + k * 0.35, n, 0.06, 3.5, (k - 1.5) * 0.3));
+      break;
+    case "science": {
+      const notes = ["D3", "A3", "C4", "E4", "F4", "E4", "C4", "A3"];
+      for (let i = 0, t = t0 + 0.3; t < t1 - 0.3; i++, t += 0.33) pluck(M, t, notes[i % notes.length], 0.06, ((i % 4) - 1.5) * 0.25, 0.995, 0.45);
+      for (let t = t0 + 0.3; t < t1 - 0.3; t += 1.32) subPulse(M, t, 0.08, 55);
+      pad(M, t0, t1, ["D3", "A3"], 0.08, 650);
+      break;
+    }
+    case "warm":
+      for (let i = 0, t = t0 + 0.2; t < t1 - 0.5; i++, t += 1.8) { ep(M, t, [["D3", "F#3", "A3"], ["G2", "B2", "D3"], ["B2", "D3", "F#3"], ["A2", "C#3", "E3"]][i % 4], 0.32, 2.1); if (i % 2 === 0) kalimba(M, t + 0.9, ["F#5", "A5", "D6", "E5"][i % 4], 0.12, 0.2); }
+      pad(M, t0, t1, ["D3", "A3", "F#4"], 0.1, 900, 1.2, 1.5);
+      break;
+    case "cctv": {
+      const x = new Float32Array(S(len));
+      for (let i = 0; i < x.length; i++) { const t = i / SR; x[i] = (Math.sin(2 * Math.PI * 50 * t) + 0.4 * Math.sin(2 * Math.PI * 150 * t)) * 0.02; }
+      music.add(t0, x, 1, 0);
+      break;
+    }
+  }
+}
+// end card: a held resolve
+pad(M, SP.endCard - 0.3, DUR, ["D3", "A3", "D4", "F#4"], 0.18, 900, 0.8, 1.6);
+bell(M, SP.endCard + 0.1, "A5", 0.06, 4);
+for (let i = 0; i < N; i++) { music.L[i] *= quietG[i]; music.R[i] *= quietG[i]; }
+void sine; void kalimba;
+
+// ── 5. mix under the VO ─────────────────────────────────────────────────────
+const vL = freeverb(verb.L, 0, 0.8, 0.32), vR = freeverb(verb.R, 23, 0.8, 0.32);
+for (const b of [music, amb, sfx]) { biquad(b.L, "hp", 32); biquad(b.R, "hp", 32); }
+const voSrc = decode(path.join("public", SP.voFile));
+const vo = new Float32Array(N);
+vo.set(voSrc.subarray(0, Math.max(0, N - S(SP.offset))), S(SP.offset));
+const duck = duckEnvelope(vo);
+const MUSIC_DUCK = dbg(-9), AMB_DUCK = dbg(-5), SFX_DUCK = dbg(-3);
+const gMusic = dbg(-1), gAmb = dbg(1), gSfx = dbg(1), gVerb = dbg(-6);
+const L = new Float32Array(N), Rr = new Float32Array(N);
+let eV = 0, eB = 0, nS = 0;
+for (let i = 0; i < N; i++) {
+  const d = duck[i];
+  const km = gMusic * (1 + (MUSIC_DUCK - 1) * d), ka = gAmb * (1 + (AMB_DUCK - 1) * d), ks = gSfx * (1 + (SFX_DUCK - 1) * d), kv = gVerb * (1 + (MUSIC_DUCK - 1) * d * 0.6);
+  const bl = music.L[i] * km + amb.L[i] * ka + sfx.L[i] * ks + vL[i] * kv, br = music.R[i] * km + amb.R[i] * ka + sfx.R[i] * ks + vR[i] * kv;
+  const f = smooth(0, 0.3, i / SR) * (1 - smooth(DUR - 1.0, DUR - 0.02, i / SR));
+  L[i] = (bl + vo[i]) * f;
+  Rr[i] = (br + vo[i]) * f;
+  if (d > 0.9 && i % 64 === 0) { eV += vo[i] ** 2; eB += (bl * bl + br * br) / 2; nS++; }
+}
+let peak = 0;
+for (let i = 0; i < N; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(Rr[i]));
+const norm = peak > dbg(-1) ? dbg(-1) / peak : 1;
+const out = path.join("public", "audio", `${story.id}-mix.wav`);
+fs.mkdirSync(path.dirname(out), { recursive: true });
+writeWav(out, L, Rr, norm);
+console.log(`mix: ${out} (${DUR}s; VO ${(voSrc.length / SR).toFixed(2)} s at ${SP.offset}s)`);
+console.log(`bed under speech: ${nS ? (10 * Math.log10(eB / nS) - 10 * Math.log10(eV / nS)).toFixed(1) : "n/a"} dB vs voice · ${SP.sfx.length} SFX · ${SP.steps.length} steps · score: ${sections.map((m) => `${m.mood}@${m.t0.toFixed(1)}`).join(", ")}`);
+
+==== 3557 project/scripts/stills.mjs
+// Visual QA: bundle once, render chosen frames of a composition, tile them into a contact sheet.
+//   node scripts/stills.mjs <outDir> <frame,frame,...> <compositionId> [scale]
+// Frames may be given in seconds with an "s" suffix (e.g. 4.5s), using the composition's fps.
+
+import path from "node:path";
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import { bundle } from "@remotion/bundler";
+import { openBrowser, renderStill, selectComposition } from "@remotion/renderer";
+import { glMode, isWebGLError, switchToSoftware, tolerateClosedTargets } from "./gl.mjs";
+
+tolerateClosedTargets();
+
+const [outDir, list, id, scaleArg = "1"] = process.argv.slice(2);
+if (!outDir || !list || !id) {
+  console.error("usage: node scripts/stills.mjs <outDir> <frame,frame,...|4.5s,...> <compositionId> [scale]");
+  process.exit(1);
+}
+fs.mkdirSync(outDir, { recursive: true });
+
+const serveUrl = await bundle({ entryPoint: path.resolve("src/index.ts") });
+// bundles are ~50 MB each; never leave them in the temp dir, even when a render throws
+const cleanup = () => fs.rmSync(serveUrl, { recursive: true, force: true });
+process.on("exit", cleanup);
+const composition = await selectComposition({ serveUrl, id });
+const frames = list.split(",").map((t) => (t.endsWith("s") ? Math.round(parseFloat(t) * composition.fps) : parseInt(t, 10)));
+const files = [];
+const renderAll = async (gl) => {
+  // one browser for all stills: WebGL contexts are expensive to create and tear down
+  const puppeteerInstance = await openBrowser("chrome", { chromiumOptions: { gl } });
+  try {
+    files.length = 0;
+    for (const frame of frames) {
+      const output = path.join(outDir, `f${String(frame).padStart(4, "0")}.png`);
+      await renderStill({ composition, serveUrl, output, frame, scale: Number(scaleArg), chromiumOptions: { gl }, timeoutInMilliseconds: 180000, puppeteerInstance });
+      files.push(output);
+      process.stdout.write(`${frame} `);
+    }
+  } finally {
+    // after a WebGL crash the tab may already be gone; closing must not hide the original error
+    await puppeteerInstance.close({ silent: true }).catch(() => {});
+  }
+};
+const gl = glMode();
+try {
+  await renderAll(gl);
+} catch (e) {
+  if (gl === "swangle" || !isWebGLError(e)) throw e;
+  await renderAll(switchToSoftware());
+}
+console.log();
+cleanup();
+
+// contact sheet (needs ffmpeg; skipped if missing)
+try {
+  const w = Math.round(composition.width * Number(scaleArg)), h = Math.round(composition.height * Number(scaleArg));
+  const cols = Math.min(4, files.length), rows = Math.ceil(files.length / cols), n = cols * rows;
+  if (n > 1) {
+    const inputs = files.flatMap((f) => ["-i", f]);
+    const pads = Array.from({ length: n - files.length }, () => ["-f", "lavfi", "-i", `color=c=black:s=${w}x${h}`]).flat();
+    const filter =
+      Array.from({ length: n }, (_, i) => `[${i}:v]scale=${w}:${h},setsar=1[v${i}]`).join(";") + ";" +
+      Array.from({ length: n }, (_, i) => `[v${i}]`).join("") +
+      `xstack=inputs=${n}:layout=` + Array.from({ length: n }, (_, i) => `${(i % cols) * w}_${Math.floor(i / cols) * h}`).join("|") +
+      `,scale='min(2160,iw)':-2`;
+    execFileSync("ffmpeg", ["-v", "error", "-y", ...inputs, ...pads, "-filter_complex", filter, "-frames:v", "1", path.join(outDir, "_sheet.jpg")]);
+    console.log(`sheet: ${path.join(outDir, "_sheet.jpg")}`);
+  }
+} catch {
+  console.log("(contact sheet skipped: ffmpeg not available)");
+}
+// a render that failed on the GPU path leaves its timeout timer behind; do not wait for it
+process.exit(0);
+
+==== 40074 project/scripts/story-nlp.mjs
+// Context reading of an Indonesian narration script (used by scripts/analyze.mjs).
+// Not a word-list scan: every sentence is read with its quotes, clauses, negation, conditionals and screens;
+// words are reduced to their roots (me-/ber-/di-/ter- … -kan/-i/-nya), pronouns and "-nya" are resolved to the
+// last person / thing, so the result says WHO does WHAT to WHICH object, and whether it really happens on screen
+// ("acted"), is only seen on a screen or photo, is said in dialogue, written on paper, a rule ("kalau…",
+// "jangan…") or negated. Time of day comes from the story's own clock ("pukul dua lewat tiga belas" → 02.13 →
+// night), not from words like "besok pagi". Unknown nouns are still reported (after determiners and prepositions),
+// so a story object missing from the lexicon is never silent.
+//   analyzeStory(scriptText, words, lexicon) → { sentences, characters, figures, time, locations, objects,
+//     interactions, states, sounds, emotions, dialogue, texts, mentions }
+
+const NUM = { nol: 0, satu: 1, se: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, delapan: 8, sembilan: 9, sepuluh: 10, sebelas: 11, seratus: 100 };
+const PRON = new Set(["ia", "dia", "beliau", "aku", "saya", "kamu", "engkau", "mereka", "kami", "kita", "dirinya"]);
+const NEG = new Set(["tidak", "tak", "belum", "jangan", "bukan", "tanpa", "nggak", "ngga", "gak", "ga", "enggak", "engga", "ndak", "nda", "tiada"]);
+const COND = new Set(["kalau", "jika", "apabila", "seandainya", "andai", "bila", "seolah", "seakan", "seakan-akan", "seolah-olah"]);
+const STATE_BEFORE = new Set(["sedang", "masih", "tetap", "sudah", "telah", "sempat"]);
+const STATE_AFTER = new Set(["tanpa", "tak", "di", "seorang", "tepat", "semakin", "sendirian", "membelakangi", "menghadap", "diam", "kaku", "terpaku", "dekat"]);
+const PREP_TARGET = new Set(["ke", "menuju", "kepada", "pada", "arah"]);
+const PREP_PLACE = new Set(["di", "dari", "dekat", "depan", "belakang", "samping", "atas", "bawah", "dalam", "luar", "ujung", "balik", "sudut", "tengah"]);
+const DET = new Set(["sebuah", "seorang", "seekor", "selembar", "sebatang", "sepasang", "satu", "beberapa", "setumpuk", "sekarung", "segelas", "sebuah"]);
+const DEM = new Set(["itu", "ini", "tersebut", "tadi"]);
+const SPOKEN = /^(berkata|berbisik|bertanya|menjawab|berteriak|kata|ujar|ujarnya|katanya|bisik|bisiknya|tanya|tanyanya|jawab|jawabnya|sahut|seru|teriak|suara|suaranya|terdengar|memanggil|bergumam|gumam)$/;
+const WRITTEN = /^(tertulis|bertuliskan|tulisan|kalimat|pesan|pesannya|surat|catatan|layar|kertas|baris|judul|daftar|notifikasi|berbunyi:?)$/;
+const SCREEN = new Set(["layar", "foto", "rekaman", "cctv", "monitor", "video", "gambar", "cermin", "potret", "spion", "pantulan"]);
+
+export const lower = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}-]/gu, "");
+
+// candidate roots of a word, most literal first
+export function roots(w) {
+  const n = lower(w);
+  const out = [n];
+  const add = (x) => { if (x.length >= 3 && !out.includes(x)) out.push(x); };
+  const bases = [n];
+  for (const s of ["nya", "lah", "kah", "mu", "ku", "pun"]) if (n.endsWith(s) && n.length - s.length >= 3) bases.push(n.slice(0, -s.length));
+  for (const b of bases) {
+    add(b);
+    const forms = [b];
+    for (const s of ["kan", "an", "i"]) if (b.endsWith(s) && b.length - s.length >= 3) forms.push(b.slice(0, -s.length));
+    for (const f of forms) {
+      add(f);
+      const pre = (p) => f.startsWith(p) ? f.slice(p.length) : null;
+      let r;
+      if ((r = pre("memper"))) add(r);
+      if ((r = pre("meny"))) { add("s" + r); add("ny" + r); }
+      if ((r = pre("meng"))) { add(r); add("k" + r); }
+      if ((r = pre("mem"))) { add(r); add("p" + r); }
+      if ((r = pre("men"))) { add(r); add("t" + r); }
+      if ((r = pre("me"))) add(r);
+      if ((r = pre("ber"))) add(r);
+      if ((r = pre("be"))) add(r);
+      if ((r = pre("ter"))) add(r);
+      if ((r = pre("di"))) add(r);
+      if ((r = pre("ke"))) add(r);
+      if ((r = pre("se"))) add(r);
+      if ((r = pre("peng"))) add(r);
+      if ((r = pre("pem"))) { add(r); add("p" + r); }
+      if ((r = pre("pen"))) { add(r); add("t" + r); }
+      if ((r = pre("pe"))) add(r);
+    }
+  }
+  return out;
+}
+// nouns only lose clitics ("laptopnya" → laptop), never verb affixes ("berjalan" must not become the place "jalan")
+export function nounRoots(w) {
+  const n = lower(w), out = [n];
+  const red = /^(\p{L}+)-\1$/u.exec(n); if (red) out.push(red[1]); // "lampu-lampu" → lampu
+  for (const s of ["nya", "mu", "ku", "lah"]) if (n.endsWith(s) && n.length - s.length >= 3) out.push(n.slice(0, -s.length));
+  return out;
+}
+const look = (table, w) => { for (const r of roots(w)) if (table[r] !== undefined) return { key: r, value: table[r] }; return null; };
+const lookN = (table, w) => { for (const r of nounRoots(w)) if (table[r] !== undefined) return { key: r, value: table[r] }; return null; };
+
+function numberAt(toks, i) {
+  // "dua", "tiga belas", "dua puluh tiga", "13", "02.13" → { value, minutes?, next }
+  const t = toks[i]?.n;
+  if (!t) return null;
+  const dig = /^(\d{1,2})(?:[.:](\d{2}))?$/.exec(t.replace(/[^\d.:]/g, ""));
+  if (dig && /\d/.test(t)) return { value: Number(dig[1]), minutes: dig[2] !== undefined ? Number(dig[2]) : undefined, next: i + 1 };
+  if (NUM[t] === undefined) return null;
+  let v = NUM[t], k = i + 1;
+  if (toks[k]?.n === "belas") { v += 10; k++; }
+  else if (toks[k]?.n === "puluh") { v *= 10; k++; if (NUM[toks[k]?.n] !== undefined && NUM[toks[k].n] < 10) { v += NUM[toks[k].n]; k++; } }
+  return { value: v, next: k };
+}
+
+export function analyzeStory(script, words, LEX) {
+  const L = (k) => LEX[k] ?? {};
+  // ── tokens with sentence, clause, quote and paragraph info ──
+  const toks = [];
+  let inQuote = false, para = 0, sent = 0, clause = 0;
+  const lines = script.replace(/\r/g, "").split("\n");
+  for (const line of lines) {
+    if (!line.trim()) { para++; continue; }
+    for (const raw of line.trim().split(/\s+/)) {
+      // a token without letters or digits ("—", "–") carries no sound and no word in words.json: it only ends a clause
+      if (!/[\p{L}\p{N}]/u.test(raw)) { if (/[—–-]/.test(raw)) clause++; continue; }
+      const opens = /^["“]/.test(raw), closes = /["”]$/.test(raw.replace(/[.,!?…]+$/, "")) || /["”][.,!?…]*$/.test(raw);
+      if (opens) inQuote = true;
+      const w = raw.replace(/^["“(]+/, "");
+      const t = { w: raw, clean: w.replace(/["”)]+$/, "").replace(/[.,!?…;:]+$/, "").replace(/["”)]+$/, ""), n: lower(w), quote: inQuote, para, sent, clause, i: toks.length };
+      t.cap = /^\p{Lu}/u.test(t.clean);
+      toks.push(t);
+      if (closes && !(opens && raw.length < 3)) inQuote = false;
+      const end = /(\.\.\.|…|[.!?])["”]?$/.test(raw);
+      if (end || /[,;:]["”]?$/.test(raw)) clause++;
+      if (end) sent++;
+    }
+    // a line break ends a sentence even without punctuation
+    if (toks.length && toks.at(-1).sent === sent) { sent++; clause++; }
+  }
+  // conjunctions start a new clause: "…mendekat, lalu mengambilnya"
+  for (const t of toks) if (/^(lalu|kemudian|sambil|dan|sementara|hingga|sampai|ketika|saat|setelah|sebelum)$/.test(t.n)) { const c = t.clause; for (let k = t.i; k < toks.length && toks[k].clause === c; k++) toks[k].clause = c + 0.5; }
+  // times: words.json is the script in order (both transcribe modes keep the script's words)
+  const times = words.map((w) => (Array.isArray(w) ? w : [w.w ?? w.word, w.t0 ?? w.start, w.t1 ?? w.end]));
+  const sameCount = times.length === toks.length;
+  toks.forEach((t, k) => { const w = sameCount ? times[k] : times[Math.round((k * (times.length - 1)) / Math.max(1, toks.length - 1))]; t.t = w ? Math.round(w[1] * 100) / 100 : 0; });
+  const nS = sent;
+  const sentToks = Array.from({ length: nS }, () => []);
+  for (const t of toks) sentToks[t.sent]?.push(t);
+  const sentences = sentToks.filter((s) => s.length).map((s) => ({ i: s[0].sent, text: s.map((t) => t.w).join(" "), t0: s[0].t, para: s[0].para, quote: s.every((t) => t.quote) }));
+
+  // ── lexicon hits per token (bigrams first) ──
+  const objects = L("objects"), places = L("places"), roles = L("roles"), figuresL = L("figures"), stop = new Set(LEX.stop ?? []);
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k], u = toks[k + 1];
+    if (u && u.sent === t.sent) {
+      for (const r1 of nounRoots(t.w)) for (const r2 of nounRoots(u.w)) {
+        const bi = `${r1} ${r2}`;
+        if (!t.obj && objects[bi]) { t.obj = { key: bi, value: objects[bi] }; u.part = true; }
+        if (!t.place && places[bi]) { t.place = { key: bi, value: places[bi] }; u.part = true; }
+        if (!t.role && roles[bi]) { t.role = { key: bi, value: roles[bi] }; u.part = true; }
+        if (!t.fig && figuresL[bi]) { t.fig = { key: bi }; u.part = true; }
+      }
+    }
+    if (t.part) continue;
+    t.obj ??= lookN(objects, t.w); t.place ??= lookN(places, t.w); t.role ??= lookN(roles, t.w); t.fig ??= lookN(figuresL, t.w);
+  }
+  // "jam" followed by a number is a time, not a clock; "jam" after a number is a duration
+  const clocks = [];
+  toks.forEach((t, k) => {
+    if (t.n !== "jam" && t.n !== "pukul") return;
+    const prev = toks[k - 1];
+    if (prev && (numberAt(toks, k - 1) || prev.n === "satu" || prev.n === "beberapa")) { if (t.obj?.key === "jam") t.obj = null; return; }
+    const num = numberAt(toks, k + 1);
+    if (!num) return;
+    if (t.obj?.key === "jam") t.obj = null;
+    let h = num.value, m = num.minutes ?? 0, j = num.next;
+    if (toks[j] && /^(lewat|lebih)$/.test(toks[j].n)) { const mm = numberAt(toks, j + 1); if (mm) { m = mm.value; j = mm.next; } }
+    else if (toks[j]?.n === "kurang") { const mm = numberAt(toks, j + 1); if (mm) { m = 60 - mm.value; h = h - 1; j = mm.next; } }
+    if (toks[j]?.n === "menit") j++;
+    const part = toks[j] && /^(pagi|siang|sore|malam)$/.test(toks[j].n) ? toks[j].n : null;
+    const ctx = toks.slice(Math.max(0, k - 3), k).map((x) => x.n);
+    const notNow = ctx.some((x) => /^(besok|kemarin|lusa|nanti|setelah|sebelum|sejak|setiap|tiap)$/.test(x)) || toks[k].quote;
+    for (let q = k + 1; q < j; q++) toks[q].num = true;
+    if (part) toks[j].clockPart = true;
+    clocks.push({ t: t.t, sentence: t.sent, h, m, part, rule: notNow, text: toks.slice(k, j + (part ? 1 : 0)).map((x) => x.clean).join(" ") });
+  });
+
+  // ── people: names, roles, figures, pronouns ──
+  const firstOfSentence = new Set(sentToks.filter((s) => s.length).map((s) => s[0].i));
+  const isVerbish = (x) => x && !PREP_PLACE.has(x.n) && !PREP_TARGET.has(x.n) && (look(L("actions"), x.w) || (/^(me|ber|ter|di)/.test(x.n) && x.n.length > 4));
+  const known = (x) => x.obj || x.place || x.role || x.fig || lookN(L("time"), x.w) || look(L("emotions"), x.w) || lookN(L("sounds"), x.w) || lookN(L("actions"), x.w);
+  const cand = new Map();
+  for (const t of toks) {
+    if (!t.cap || t.num || t.n.length < 3) continue;
+    if (t.quote && (toks[t.i - 1]?.quote !== true || firstOfSentence.has(t.i))) continue;
+    const base = roots(t.w).find((r) => /^\p{Ll}/u.test(r)) ?? t.n;
+    const root = lower(t.clean).replace(/(nya|lah)$/, "") || base;
+    if (PRON.has(root) || stop.has(root) || known(t)) continue;
+    const c = cand.get(root) ?? { name: t.clean.replace(/(nya|lah)$/, ""), mid: 0, initVerb: 0, mentions: [] };
+    c.mentions.push(t.t);
+    const pv = toks[t.i - 1];
+    const afterPrep = pv && pv.sent === t.sent && (PREP_PLACE.has(pv.n) || PREP_TARGET.has(pv.n) || /^(dunia|kota|negara|pulau|provinsi|gunung|sungai|jalan|desa|kampung|planet)$/.test(pv.n));
+    if (isVerbish(toks[t.i + 1]) && toks[t.i + 1]?.sent === t.sent) c.subject = (c.subject ?? 0) + 1;
+    if (afterPrep) c.prep = (c.prep ?? 0) + 1;
+    if (!firstOfSentence.has(t.i) && !(t.quote && toks[t.i - 1]?.quote === false)) c.mid++;
+    else if (isVerbish(toks[t.i + 1]) && toks[t.i + 1]?.sent === t.sent) c.initVerb++;
+    const prev = toks[t.i - 1];
+    if (prev?.role && prev.sent === t.sent) c.role = prev.role.key, c.look = prev.role.value;
+    // apposition: "adiknya, Bimo" / "Laras, anaknya,"
+    if (prev && /,$/.test(prev.w) && prev.role) c.role = prev.role.key, c.look = prev.role.value;
+    const nx = toks[t.i + 1];
+    if (/,$/.test(t.w) && nx?.role && /nya,?$/.test(nx.w)) { c.role = nx.role.key; c.look = nx.role.value; nx.appos = true; }
+    cand.set(root, c);
+  }
+  const placeNames = [...cand.values()].filter((c) => c.prep && !c.subject && !c.role).map((c) => c.name);
+  const people = [...cand.values()].filter((c) => (c.subject || c.role || (c.mid >= 1 && c.mentions.length >= 2) || c.mid - (c.prep ?? 0) >= 2 || c.initVerb >= 2) && !(c.prep && !c.subject && !c.role)).map((c) => ({ name: c.name, role: c.role, look: c.look, mentions: c.mentions, kind: "named" }));
+  const named = new Map(people.map((p) => [lower(p.name), p]));
+  for (const t of toks) { const p = named.get(lower(t.clean).replace(/(nya|lah)$/, "")); if (p && t.cap) t.person = p.name; }
+  // unnamed roles ("seorang bapak", "ibu kos") and figures ("sosok", "seseorang", "orang lain")
+  const unnamed = [];
+  for (const t of toks) {
+    if (t.person || t.part || t.quote || t.appos) continue;
+    const nextNamed = toks[t.i + 1]?.person && toks[t.i + 1].sent === t.sent;
+    const modifier = (toks[t.i - 1]?.obj || toks[t.i - 1]?.part) && toks[t.i - 1].sent === t.sent;
+    if (t.role && !nextNamed && !modifier && !(t.role.key.length <= 3 && toks[t.i + 1]?.cap)) {
+      const k = `role:${t.role.key}`;
+      let u = unnamed.find((x) => x.id === k);
+      if (!u) unnamed.push((u = { id: k, role: t.role.key, look: t.role.value, mentions: [], kind: "role" }));
+      u.mentions.push(t.t); t.person = k;
+    } else if (t.fig) {
+      let u = unnamed.find((x) => x.kind === "figure");
+      if (!u) unnamed.push((u = { id: "figure", role: t.fig.key, mentions: [], kind: "figure" }));
+      u.mentions.push(t.t); t.person = "figure";
+    }
+  }
+  const you = toks.filter((t) => /^(kamu|kau|anda|engkau)$/.test(t.n) && !t.quote).length;
+  let protagonist = [...people].sort((a, b) => b.mentions.length - a.mentions.length)[0]?.name;
+  if (!protagonist && you >= 3) { protagonist = "kamu"; people.push({ name: "kamu", kind: "second person", mentions: toks.filter((t) => /^(kamu|kau|anda|engkau)$/.test(t.n) && !t.quote).map((t) => t.t), note: "narrated in the second person: the viewer is the protagonist — choose a look" }); }
+  if (!protagonist && toks.some((t) => /^(ia|dia)$/.test(t.n))) protagonist = "(ia/dia — unnamed)";
+  if (protagonist === "kamu") for (const t of toks) if (/^(kamu|kau|anda|engkau)$/.test(t.n) && !t.quote) t.person = "kamu";
+  // a figure that is the protagonist's double: "kemeja yang sama persis dengannya", "sama seperti <nama>", "suaranya sendiri"
+  const fig = unnamed.find((u) => u.kind === "figure");
+  if (fig && protagonist) {
+    const txt = toks.map((t) => t.n).join(" ");
+    const pn = lower(protagonist);
+    const hints = [];
+    if (/sama persis dengan(nya)?/.test(txt)) hints.push("“sama persis dengannya”");
+    if (new RegExp(`(sama|persis) seperti ${pn}`).test(txt)) hints.push(`“sama seperti ${protagonist}”`);
+    if (/suara(nya)? sendiri|dirinya sendiri|wajahnya sendiri/.test(txt)) hints.push("“…nya sendiri”");
+    if (/(kemeja|baju|jaket|gelang|rambut)(nya)? .{0,40}(sama|persis)/.test(txt) || /(sama|persis) .{0,30}(kemeja|baju|jaket|gelang)/.test(txt)) hints.push("same clothes");
+    if (hints.length) fig.double = { of: protagonist, evidence: hints };
+  }
+
+  // ── sentence modes (dialogue, written text, rule, screen, explanation, question) ──
+  const sMode = new Map();
+  const GEN = new Set(LEX.generic_subjects ?? []), EXPL = new Set(LEX.explain_cues ?? []);
+  const explainS = new Set(), questionS = new Set();
+  for (let s = 0; s < nS; s++) {
+    const ts = sentToks[s]; if (!ts.length || ts.every((t) => t.quote)) continue;
+    const w = ts.map((t) => t.n);
+    const firstNom = ts.find((t, q) => (GEN.has(t.n) || t.person || t.ref || t.obj || t.place || PRON.has(t.n)) && !(q > 0 && PREP_PLACE.has(ts[q - 1].n)));
+    if ((firstNom && GEN.has(firstNom.n)) || w.some((x) => EXPL.has(x))) explainS.add(s);
+    if (/\?["”]?$/.test(ts.at(-1).w) && /^(kenapa|mengapa|apakah|bagaimana|apa|siapa|benarkah|jadi)$/.test(w.find((x) => !/^(tunggu|sebentar|tapi|dan)$/.test(x)) ?? "")) questionS.add(s);
+  }
+  const sText = (s) => sentToks[s].map((t) => t.n);
+  for (let s = 0; s < nS; s++) {
+    const ts = sentToks[s];
+    if (!ts.length) continue;
+    const q = ts.every((t) => t.quote);
+    const prevS = sentToks[s - 1]?.length ? sText(s - 1) : [];
+    const prev2 = sentToks[s - 2]?.length ? sText(s - 2) : [];
+    const writtenCue = [...prevS, ...prev2].some((w) => WRITTEN.test(w));
+    const spokenCue = [...prevS, ...prev2].some((w) => SPOKEN.test(w));
+    const prevEndsOpen = /(\.\.\.|…|:)$/.test(sentToks[s - 1]?.at(-1)?.w ?? "");
+    let mode = null;
+    if (q) mode = writtenCue && !spokenCue ? "written" : "dialogue";
+    else if (prevEndsOpen && prevS.some((w) => /^(tertulis|bertuliskan|tulisan|kalimat|berbunyi)$/.test(w))) mode = "written";
+    // a quote that continues over several sentences keeps its mode
+    if (q && s > 0 && sMode.get(s - 1) && sentToks[s - 1].every((t) => t.quote)) mode = sMode.get(s - 1);
+    if (!mode && sMode.get(s - 1) === "written" && prevEndsOpen) mode = "written";
+    sMode.set(s, mode);
+  }
+  // screen context: "Di layar itu, …", "saat kembali melihat layar… Sosok itu…", "Di sana… (in the photo)"
+  const screenS = new Set();
+  for (let s = 0; s < nS; s++) {
+    const w = sText(s);
+    const hasScreen = w.some((x) => SCREEN.has(x) || roots(x).some((r) => SCREEN.has(r)));
+    const lookAt = w.some((x) => /^(melihat|menatap|memperhatikan|memperbesar|terlihat|tampak)$/.test(x));
+    if (hasScreen && (/^di$/.test(w[0]) || w.includes("terlihat") || w.includes("tampak"))) screenS.add(s);
+    if (hasScreen && lookAt && /(\.\.\.|…)$/.test(sentToks[s].at(-1).w)) screenS.add(s + 1);
+  }
+  let ctx = 0;
+  for (let s = 0; s < nS; s++) {
+    const w = sText(s);
+    if (w.some((x) => SCREEN.has(x) || /^(memotret|memperbesar|merekam|memfoto)$/.test(x))) ctx = 3;
+    else if (ctx > 0 && /^di$/.test(w[0]) && /^(sana|situ|dalamnya)$/.test(w[1] ?? "")) { screenS.add(s); if (/(\.\.\.|…)$/.test(sentToks[s].at(-1).w)) screenS.add(s + 1); }
+    if (w.some((x) => /^(menoleh|berbalik)$/.test(x))) ctx = 0; else ctx--;
+  }
+
+  // ── interactions: subject – verb – object/target, with mode ──
+  const ACT = L("actions");
+  const interactions = [];
+  let lastPerson = protagonist && people.length ? people.find((p) => p.name === protagonist)?.name : undefined;
+  let lastThing = null;
+  const sitting = new Set();
+  const thingOf = (t) => t.obj ? { word: t.obj.key.includes(" ") ? t.obj.key : t.clean, id: t.obj.value } : t.place ? { word: t.place.key.includes(" ") ? t.place.key : t.clean, id: `place:${t.place.value}` } : null;
+  const ABSTRACT = new Set(LEX.abstract ?? []);
+  const nominal = (x) => x.person || x.ref || x.obj || x.place || x.fig || x.role || PRON.has(x.n);
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    if (t.person && t.person !== "figure" && !t.person.startsWith("role:")) lastPerson = t.person;
+    if ((t.person === "figure" || t.person?.startsWith("role:")) && !t.quote) lastPerson = t.person;
+    if (/^(ia|dia)$/.test(t.n) && !t.quote && lastPerson) t.ref = lastPerson;
+    if (/^(mereka|keduanya)$/.test(t.n) && !t.quote) { const recent = [...new Set(toks.slice(Math.max(0, t.i - 80), t.i).filter((x) => x.person && x.person !== "figure").map((x) => x.person))]; if (recent.length >= 2) { lastPerson = recent.slice(-2).join("+"); t.ref = lastPerson; } }
+    const th = thingOf(t); if (th && !t.part && !/^(world:|place:|ui:|look:)/.test(th.id) && toks[k - 1]?.n !== "dari") { lastThing = th; } // "dari oven" is a source, not the thing handled
+    const a = look(ACT, t.w);
+    if (!a || a.value === "none" || t.part || t.num || stop.has(t.n) || toks[k - 1]?.n === "selamat") continue;
+    const affixed = /^(me|ber|ter|di|ke|se)/.test(t.n);
+    if ((t.place || t.obj) && !affixed) continue;                                   // "jalan setapak", "ujung jalan"
+    if (!affixed && a.key !== t.n && /(an|annya|anmu)$/.test(t.n)) continue;          // "jawabannya", "pandangan"
+    if (!affixed && a.key === nounRoots(t.w).at(-1) && toks[k - 1] && thingOf(toks[k - 1]) && toks[k - 1].clause === t.clause) continue; // "meja baca", "kamar tidur"
+    if (/^di/.test(t.n) && a.key !== t.n && !/^(diam|diri)/.test(t.n) && toks[k + 1]?.n !== "oleh") continue; // passive "harga bisa ditawar", "lampu dimatikan"
+    const [kind, act0] = String(a.value).includes(":") ? String(a.value).split(":") : ["action", a.value];
+    if (kind === "face") continue;
+    let action = act0;
+    const cl = toks.filter((x) => x.sent === t.sent && Math.floor(x.clause) === Math.floor(t.clause));
+    const before = cl.filter((x) => x.i < t.i), after = cl.filter((x) => x.i > t.i);
+    // subject: a person before the verb in the clause, a pronoun, else the previous subject
+    const inPP = (x) => { for (let q = x.i - 1; q >= 0 && q >= x.i - 3 && toks[q].clause === x.clause; q--) { if (PREP_PLACE.has(toks[q].n) || PREP_TARGET.has(toks[q].n)) return true; if (nominal(toks[q])) return false; } return false; };
+    let subj = before.find((x) => nominal(x) && !x.part && !inPP(x));
+    const detNP = before.find((x, q) => q > 0 && DET.has(before[q - 1].n) && before[q - 1].n !== "seorang" && !x.person && !stop.has(x.n));
+    if (detNP && (!subj || detNP.i < subj.i) && !inPP(detNP) && !(detNP.obj && /complex:/.test(String(detNP.obj.value)))) continue; // a thing does it
+    if (detNP?.obj && /complex:/.test(String(detNP.obj.value)) && (!subj || detNP.i <= subj.i)) subj = detNP;
+    // a thing as subject ("pesan … masuk", "daftar itu mencatat", "semua nama terlihat") is not a person acting
+    if (subj && !subj.person && !subj.ref && !PRON.has(subj.n) && (subj.obj || subj.place) && !/complex:/.test(String(subj.obj?.value))) continue;
+    let who = subj ? subj.person ?? subj.ref ?? lastPerson : lastPerson;
+    const named0 = (x) => x.person && x.person !== "figure";
+    if (!subj) {
+      const grp = [];
+      for (let q = t.i - 1; q >= 0 && toks[q].sent === t.sent; q--) { if (look(ACT, toks[q].w) && !toks[q].part && toks[q].clause !== t.clause) break; if (named0(toks[q]) && !grp.includes(toks[q].person)) grp.unshift(toks[q].person); }
+      if (grp.length >= 2 && toks.slice(t.i - 8, t.i).some((x) => x.n === "dan")) who = grp.join("+");
+    }
+    if (subj?.n === "mereka" || subj?.n === "keduanya") { const recent = [...new Set(toks.slice(Math.max(0, t.i - 80), t.i).filter(named0).map((x) => x.person))]; if (recent.length >= 2) who = recent.slice(-2).join("+"); }
+    if (/^(standUp|sit|lie)$/.test(action) && !subj) { const inv = after.slice(0, 3).find((x) => x.person); if (inv) who = inv.person; }
+    // "kamu melihat sosok manusia berdiri": the pose belongs to the person just seen, not the one looking
+    if (/^(standUp|sit|lie|freeze)$/.test(action)) { const seen = toks.slice(Math.max(0, t.i - 3), t.i).reverse().find((x) => x.person && x.sent === t.sent); if (seen && seen.person !== who && toks.slice(seen.i - 3, seen.i).some((x) => look(ACT, x.w)?.value === "look")) who = seen.person; }
+    if (!subj && before.length && NUM[before[0].n] !== undefined) who = `(${before[0].clean.toLowerCase()} of them)`;
+    if (subj?.obj && /complex:/.test(String(subj.obj.value))) who = `(${subj.clean})`;
+    // object / target
+    let obj = null, target = null;
+    const transitive = /^(pickUp|putDown|open|close|push|give|receive|point|look|raise|reach|write|phone)$/.test(action) || /^me/.test(t.n);
+    for (let q = 0; q < after.length; q++) {
+      const x = after[q];
+      if (x.person && action !== "look" && action !== "point" && action !== "give") break;
+      if (PREP_TARGET.has(x.n) || (x.n === "atas" && after[q - 1] && PREP_TARGET.has(after[q - 1].n))) {
+        const y = after.slice(q + 1).find((z) => thingOf(z) || z.person || (!stop.has(z.n) && z.n.length > 2 && !PREP_PLACE.has(z.n)));
+        if (y) target = thingOf(y)?.word ?? y.person ?? y.clean;
+        break;
+      }
+      if (PREP_PLACE.has(x.n)) { const y = after.slice(q + 1).find((z) => thingOf(z)); if (y && !target) target = y.clean; break; }
+      if (!obj && transitive && (thingOf(x) || x.person)) obj = thingOf(x)?.word ?? x.person;
+    }
+    if (!obj && transitive && !(/nya$/.test(t.n) && lastThing) && /^(pickUp|putDown|open|close|push|give|receive|reach|point|write|raise|phone|pickUp\+putDown)$/.test(action)) {
+      const x = after.find((z) => !stop.has(z.n) && !DET.has(z.n) && !NUM[z.n] && !PREP_PLACE.has(z.n) && !PREP_TARGET.has(z.n) && !look(ACT, z.w) && z.n.length > 2 && !z.cap);
+      if (x && !PREP_PLACE.has(toks[x.i - 1]?.n) && !PREP_TARGET.has(toks[x.i - 1]?.n)) obj = nounRoots(x.w).at(-1);
+    }
+    const abstractObj = after.some((x) => ABSTRACT.has(x.n) || ABSTRACT.has(nounRoots(x.w).at(-1)));
+    if (!obj && /nya$/.test(t.n) && lastThing && transitive && !abstractObj && !/^(give|receive|talk)$/.test(action)) obj = lastThing.word; // "mengambilnya"
+    if (!target && /^(walk|run)$/.test(action) && /^(mendekat|mendekati|menghampiri|menghampirinya|mendekatinya)$/.test(t.n) && lastThing) target = lastThing.word;
+    // posture: "berdiri" is a state unless it follows sitting / comes "dari" a seat
+    let mode = "acted";
+    if (action === "standUp") {
+      // "berdiri di depan printer", "masih berdiri", "berdiri seorang laki-laki" = a pose; "Dina berdiri, lalu …" = gets up
+      const st = before.some((x) => STATE_BEFORE.has(x.n)) || (after[0] && STATE_AFTER.has(after[0].n));
+      const fromSeat = after[0]?.n === "dari" || sitting.has(who);
+      if (st && !fromSeat) { action = "stand"; mode = "state"; }
+    }
+    if (action === "sit") sitting.add(who);
+    if (action === "standUp" || action === "walk" || action === "run") sitting.delete(who);
+    // "membalik ponsel" (hand on an object) vs "berbalik" (turn round)
+    if (a.key === "balik") action = obj ? "reach" : "turn";
+    if (action === "raise" && obj && !/senter|lentera|lampu|obor/.test(String(obj))) action = target ? "pickUp+putDown" : "pickUp";
+    const withT = after.find((x, q) => after[q - 1]?.n === "dengan" && (thingOf(x) || x.obj));
+    const instrument = withT ? thingOf(withT)?.word : undefined;
+    // modes that are not acted on screen
+    const sm0 = sMode.get(t.sent);
+    if (!sm0 && SPOKEN.test(t.n) && toks.slice(Math.max(0, t.i - 3), t.i).some((x) => x.quote)) {
+      const sp = after.find((x) => x.person) ?? before.find((x) => x.person);
+      if (sp) { const d = toks[t.i - 1]; d.speaker = sp.person; for (let q = t.i - 1; q >= 0 && toks[q].quote; q--) toks[q].speaker = sp.person; }
+      interactions.push({ t: t.t, sentence: t.sent, word: t.clean, who: sp?.person ?? who, action: "talk", mode: "dialogue", supported: true });
+      continue;
+    }
+    const sm = sMode.get(t.sent);
+    if (abstractObj && /^(give|receive)$/.test(action)) mode = "said";
+    else if (sm === "dialogue") mode = "dialogue";
+    else if (sm === "written") mode = "written";
+    else if (t.quote) mode = "dialogue";
+    else if (before.some((x) => NEG.has(x.n)) || NEG.has(toks[k - 1]?.n)) mode = "negated";
+    else if (cl.some((x) => COND.has(x.n)) || sentToks[t.sent].slice(0, 2).some((x) => COND.has(x.n)) || before.some((x) => /^(harus|wajib|pernah)$/.test(x.n) && NEG.has(toks[x.i - 1]?.n))) mode = "hypothetical";
+    else if (screenS.has(t.sent)) mode = "on-screen";
+    else if (explainS.has(t.sent)) mode = "explanation";
+    else if (questionS.has(t.sent)) mode = "question";
+    else if (kind === "unsupported") mode = "acted";
+    if (who && /^\((?!.* of them\))/.test(String(who))) mode = mode === "acted" ? "non-cast" : mode;
+    if (who && String(who).startsWith("(") && mode === "acted") mode = "unclear who";
+    // "berjalan mendekat": one movement
+    const prevI = interactions.at(-1);
+    if (prevI && prevI.who === who && (prevI.action === action || (/^(walk|run)$/.test(prevI.action) && action === "walk")) && prevI.sentence === t.sent && toks[k - 1]?.clean === prevI.word.split(" ").at(-1)) { prevI.target ??= target ?? obj ?? undefined; prevI.word += " " + t.clean; continue; }
+    interactions.push({ t: t.t, sentence: t.sent, word: t.clean, who, action, obj: obj ?? undefined, with: instrument, target: target ?? undefined, mode, supported: kind !== "unsupported" });
+  }
+
+  // ── state changes of things: "printer menyala", "lampu kamar padam", "kertas keluar", "ponselnya bergetar" ──
+  const STATES = L("states");
+  const states = [];
+  toks.forEach((t) => {
+    const s = look(STATES, t.w);
+    if (!s || t.quote || t.part) return;
+    if (/^(open|shut)$/.test(s.value) && /^me/.test(t.n) && !toks.slice(Math.max(0, t.i - 4), t.i).some((x) => x.person || x.ref)) return; // "ombak … menutupinya": not a door
+    const cl = toks.filter((x) => x.sent === t.sent && Math.floor(x.clause) === Math.floor(t.clause) && x.i < t.i);
+    const inPP2 = (x) => { const q = x.i - 1; return q >= 0 && (PREP_PLACE.has(toks[q].n) || PREP_TARGET.has(toks[q].n)) && toks[q].clause === x.clause; };
+    const thing = cl.find((x) => thingOf(x) && !x.part && !inPP2(x)) ?? [...cl].reverse().find((x) => thingOf(x));
+    const active = /^me/.test(t.n) && !/^(menyala|meledak|menghilang|meluncur)$/.test(t.n); // "menyalakan senter" = a person switches it
+    if (!thing && !active) return;
+    const by = active ? [...cl].reverse().find((x) => x.person || x.ref) ?? toks.slice(Math.max(0, t.i - 30), t.i).reverse().find((x) => (x.person || x.ref) && !x.quote) : null;
+    const after = toks.filter((x) => x.sent === t.sent && x.i > t.i).find((x) => thingOf(x));
+    const th = active ? after ?? thing : thing;
+    if (active && !after && /nya$/.test(t.n)) {
+      const prevThing = toks.slice(Math.max(0, t.i - 12), t.i).reverse().find((x) => thingOf(x) || (x.i > 0 && /^(me|ber)/.test(toks[x.i - 1].n) && !stop.has(x.n) && !NUM[x.n] && x.n.length > 3 && !look(ACT, x.w)));
+      if (prevThing) { states.push({ t: t.t, thing: thingOf(prevThing)?.word ?? prevThing.clean, id: thingOf(prevThing)?.id ?? "unlisted", state: s.value, by: by ? by.person ?? by.ref : undefined, mode: "acted" }); return; }
+    }
+    if (!th) return;
+    states.push({ t: t.t, thing: thingOf(th).word, id: thingOf(th).id, state: s.value, by: by ? by.person ?? by.ref : undefined, mode: sMode.get(t.sent) ?? (cl.some((x) => COND.has(x.n)) || sentToks[t.sent].slice(0, 2).some((x) => COND.has(x.n)) ? "hypothetical" : screenS.has(t.sent) ? "on-screen" : "acted") });
+  });
+
+  // ── time of day: the story's own clock > "malam itu" > ambient words; rules and "besok pagi" do not count ──
+  const TIME = L("time");
+  const ev = [];
+  toks.forEach((t, k) => {
+    const tm = lookN(TIME, t.w);
+    if (!tm || t.clockPart) return;
+    const ctx = toks.slice(Math.max(0, k - 2), k).map((x) => x.n);
+    if (ctx.some((x) => /^(besok|kemarin|lusa|nanti|setiap|tiap)$/.test(x))) return ev.push({ t: t.t, value: tm.value, weight: 0, why: `“${ctx.at(-1)} ${t.clean}” is not the story's present` });
+    const strong = DEM.has(toks[k + 1]?.n) && toks[k + 1]?.sent === t.sent;
+    ev.push({ t: t.t, value: tm.value, weight: t.quote ? 0.5 : strong ? 4 : 1, why: strong ? `“${t.clean} ${toks[k + 1].clean}”` : `“${t.clean}”` });
+  });
+  const hourValue = (h, part) => {
+    if (part === "pagi") return h <= 4 || h === 12 ? "night" : h <= 6 ? "dawn" : "day";
+    if (part === "siang") return "day";
+    if (part === "sore") return h >= 6 && h < 12 ? "dusk" : "day";
+    if (part === "malam") return "night";
+    return null;
+  };
+  for (const c of clocks) {
+    const v = hourValue(c.h, c.part);
+    if (v) ev.push({ t: c.t, value: v, weight: c.rule ? 0.5 : 3, why: `clock “${c.text}”${c.rule ? " (rule / not now)" : ""}` });
+  }
+  const score = {};
+  for (const e of ev) score[e.value] = (score[e.value] ?? 0) + e.weight;
+  let tod = Object.entries(score).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!tod || score[tod] === 0) tod = undefined;
+  // clocks without am/pm take the story's time of day: 2.13 at night = 02.13, 6.13 at dusk = 18.13
+  const story = clocks.map((c) => {
+    let h = c.h;
+    const v = hourValue(h, c.part) ?? tod;
+    if (!c.part && h <= 12) { if (v === "night" && h >= 7) h += 12; if (v === "dusk" && h < 12) h += 12; if (v === "day" && h < 7) h += 12; }
+    return { t: c.t, text: c.text, clock: `${String(h % 24).padStart(2, "0")}.${String(c.m).padStart(2, "0")}`, rule: c.rule || undefined };
+  });
+  const time = { value: tod ?? "day", stated: !!tod, evidence: ev.filter((e) => e.weight > 0).map((e) => `${e.t}s ${e.why} → ${e.value}`), ignored: ev.filter((e) => e.weight === 0).map((e) => e.why), clocks: story };
+
+  // ── locations: main kind + areas ("ruang rapat", "lantai sebelas", "kamar nomor tiga belas", "lorong") ──
+  const locKinds = {};
+  const GENERIC = new Set(LEX.generic_places ?? []);
+  const HINT = LEX.place_hints ?? {};
+  for (const u of [...unnamed, ...people]) { const h = HINT[u.role]; if (h) locKinds[h] = (locKinds[h] ?? 0) + 1.5; }
+  for (const t of toks) { const h = t.obj && HINT[String(t.obj.value)]; if (h) locKinds[h] = (locKinds[h] ?? 0) + 1; }
+  const areas = [];
+  toks.forEach((t, k) => {
+    if (t.place && !t.part && !t.quote && !sMode.get(t.sent) && !explainS.has(t.sent)) {
+      const w = GENERIC.has(t.place.key) ? 0.4 : 2;
+      locKinds[t.place.value] = (locKinds[t.place.value] ?? 0) + w;
+      const name = t.place.key.includes(" ") ? t.place.key : t.clean.toLowerCase();
+      const roomish = /^(kamar|ruang|lantai|kantor)/.test(t.place.key);
+      const num0 = toks[k + 1]?.n === "nomor" ? numberAt(toks, k + 2) : roomish && !/^(jam|menit|detik)$/.test(toks[(numberAt(toks, k + 1)?.next) ?? 0]?.n ?? "") ? numberAt(toks, k + 1) : null;
+      const num = num0;
+      const label = num ? `${name} ${toks.slice(k + 1, num.next).map((x) => x.clean).join(" ")}` : name;
+      if (!areas.some((a) => a.name === label)) areas.push({ name: label, kind: t.place.value, t: t.t });
+    }
+    if (false && t.n === "lantai" && numberAt(toks, k + 1)) areas.push({ name: `lantai ${toks.slice(k + 1, numberAt(toks, k + 1).next).map((x) => x.clean).join(" ")}`, kind: "floor", t: t.t });
+  });
+  const mainKind = Object.entries(locKinds).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // ── objects that matter: lexicon hits, weighted by interaction; unknown nouns after determiners/prepositions ──
+  const objMap = new Map();
+  toks.forEach((t) => {
+    if (!t.obj || t.part || t.person) return;
+    const id = String(t.obj.value);
+    const o = objMap.get(id) ?? { word: t.clean.toLowerCase(), key: t.obj.key, value: id, mentions: [], used: false };
+    o.mentions.push(t.t);
+    objMap.set(id, o);
+  });
+  for (const it of interactions) for (const w of [it.obj, it.target]) { if (!w) continue; const o = [...objMap.values()].find((x) => x.word === lower(w) || x.key === lower(w) || roots(w).includes(x.key)); if (o && it.mode === "acted") o.used = true; }
+  for (const s of states) { const o = objMap.get(s.id); if (o) o.used = true; }
+  const mentions = [];
+  toks.forEach((t, k) => {
+    const prev = toks[k - 1];
+    if (!prev || prev.sent !== t.sent || t.obj || t.place || t.person || t.role || t.fig || t.num || t.part || t.cap) return;
+    const r = roots(t.w);
+    if (r.some((x) => stop.has(x)) || look(ACT, t.w) || look(TIME, t.w) || look(L("emotions"), t.w) || look(STATES, t.w) || PREP_PLACE.has(t.n) || PREP_TARGET.has(t.n) || DEM.has(t.n) || NEG.has(t.n) || COND.has(t.n) || PRON.has(t.n) || /^(me|ber|ter|di)/.test(t.n) && t.n.length > 6) return;
+    if (DET.has(prev.n) || PREP_PLACE.has(prev.n) || PREP_TARGET.has(prev.n) || DEM.has(toks[k + 1]?.n)) {
+      const w = r.find((x) => !x.endsWith("nya")) ?? t.n;
+      if (w.length > 2 && !mentions.some((m) => m.word === w)) mentions.push({ word: w, t: t.t, context: toks.slice(Math.max(0, k - 2), k + 2).map((x) => x.clean).join(" ") });
+    }
+  });
+
+  // ── sounds and emotions ──
+  const SND = L("sounds"), SRC = L("sources");
+  const sounds = [];
+  toks.forEach((t, k) => {
+    if (t.quote) return;
+    const s = look(SND, t.w);
+    if (s && !t.part) sounds.push({ t: t.t, word: t.clean, sfx: s.value });
+    // "terdengar suara printer", "suara kamera", "printer kembali berbunyi"
+    if (/^(terdengar|berbunyi|bunyi|suara)$/.test(t.n)) {
+      const win = toks.slice(Math.max(0, k - 3), k + 4).filter((x) => x.sent === t.sent && x !== t);
+      const src = win.map((x) => look(SRC, x.w)).find(Boolean);
+      if (src && !sounds.some((x) => Math.abs(x.t - t.t) < 1.6 && x.sfx === src.value)) sounds.push({ t: t.t, word: `${t.clean} (${src.key})`, sfx: src.value });
+    }
+  });
+  for (const s of states) {
+    if (!/^(sound|buzz|on)$/.test(s.state) || s.mode !== "acted") continue;
+    const src = look(SRC, s.thing.split(" ")[0]);
+    if (src && !(s.state === "on" && src.value === "notif") && !sounds.some((x) => Math.abs(x.t - s.t) < 1.6 && x.sfx === src.value)) sounds.push({ t: s.t, word: `${s.thing} ${s.state}`, sfx: src.value });
+  }
+  sounds.sort((a, b) => a.t - b.t);
+  const emotions = [];
+  toks.forEach((t) => { const e = look(L("emotions"), t.w); if (e && !t.quote) emotions.push({ t: t.t, word: t.clean, face: e.value, who: lastPersonAt(t) }); });
+  function lastPersonAt(t) { for (let k = t.i; k >= 0; k--) { const x = toks[k]; if (x.sent < t.sent - 1) break; if (x.person) return x.person; if (x.ref) return x.ref; } return protagonist; }
+
+  // ── dialogue and written text ──
+  const dialogue = [], texts = [];
+  for (let s = 0; s < nS; s++) {
+    const m = sMode.get(s);
+    if (!m || !sentToks[s].length) continue;
+    const text = sentToks[s].map((t) => t.w).join(" ").replace(/^["“]|["”]$/g, "");
+    if (m === "dialogue") {
+      // speaker: "suaranya sendiri" → the protagonist's voice (the double); "ibu kos memberinya …" → that role
+      const near = [...(sentToks[s - 1] ?? []), ...(sentToks[s - 2] ?? [])];
+      const own = near.some((t) => /^(suaranya|dirinya)$/.test(t.n)) && near.some((t) => t.n === "sendiri");
+      const tagged = sentToks[s].find((t) => t.speaker)?.speaker;
+      const sp = tagged ?? (own ? (fig?.double ? "figure (the double)" : protagonist) : [...near].reverse().find((t) => t.person)?.person ?? "?");
+      const prevD = dialogue.at(-1);
+      if (prevD && prevD.sentence === s - 1) { prevD.text += " " + text; prevD.sentence = s; }
+      else dialogue.push({ t: sentToks[s][0].t, sentence: s, speaker: sp, text });
+    } else {
+      const near = [...(sentToks[s - 1] ?? []), ...(sentToks[s - 2] ?? []), ...(sentToks[s - 3] ?? [])].map((t) => t.n);
+      const on = near.find((w) => /^(kertas|layar|pesan|ponsel|hp|surat|papan|dinding|foto|daftar)/.test(w));
+      const prevT = texts.at(-1);
+      if (prevT && prevT.sentence === s - 1) { prevT.text += " " + text; prevT.sentence = s; }
+      else texts.push({ t: sentToks[s][0].t, sentence: s, on: on ?? "?", text });
+    }
+  }
+
+  const explanation = [...explainS].sort((a, b) => a - b).map((s) => ({ t: sentToks[s][0].t, sentence: s, text: sentToks[s].map((t) => t.w).join(" ") }));
+  const unmapped = [];
+  for (const t of toks) {
+    if (t.quote || t.person || t.obj || t.place || t.num || stop.has(t.n) || look(ACT, t.w) || look(STATES, t.w) || look(L("emotions"), t.w) || look(L("sounds"), t.w)) continue;
+    if (!/^(me|ber)/.test(t.n) || t.n.length < 6 || explainS.has(t.sent) || sMode.get(t.sent)) continue;
+    if (!unmapped.some((u) => u.word === t.n)) unmapped.push({ t: t.t, word: t.n, sentence: sentToks[t.sent].map((x) => x.w).join(" ") });
+  }
+  return {
+    unmapped, explanation, placeNames, sentences, protagonist, characters: people, unnamed, time, location: { main: mainKind, kinds: locKinds, areas },
+    objects: [...objMap.values()], mentions, interactions, states, sounds, emotions, dialogue, texts,
+  };
+}

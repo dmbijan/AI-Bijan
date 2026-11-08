@@ -1,0 +1,2174 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 3083 src/kits/pixelstory/camera/CinematicCamera.tsx
+import React, { createContext, useContext } from "react";
+import { AbsoluteFill } from "remotion";
+
+// A pinhole camera over flat layers placed at real distances. Dolly (z) scales near
+// layers faster than far ones, pans shift near layers more than far ones, and depth
+// of field is a circle of confusion computed from each layer's distance to the
+// focus plane. Nothing here is a preset: the look comes from where things are.
+
+export const FOCAL = 1000; // the subject plane: a layer at Z=1000 moves 1:1 with the camera
+export const SCREEN = { w: 1080, h: 1920, cx: 540, cy: 960 };
+
+export type CameraState = {
+  /** Pan, in screen px at the subject plane. */
+  x: number;
+  y: number;
+  /** Dolly toward the scene, in the same units as layer Z. */
+  z: number;
+  /** Roll, degrees. Used sparingly. */
+  roll: number;
+  /** Distance in focus. */
+  focus: number;
+  /** Blur in px for a layer twice the focus distance away. */
+  aperture: number;
+};
+
+export const restCamera: CameraState = { x: 0, y: 0, z: 0, roll: 0, focus: FOCAL, aperture: 0 };
+
+const Ctx = createContext<CameraState>(restCamera);
+export const useCamera = () => useContext(Ctx);
+
+/** Screen-space position of a point that sits on a layer at distance Z. */
+export const project = (cam: CameraState, Z: number, px: number, py: number) => {
+  const s = Z / Math.max(1, Z - cam.z);
+  const k = FOCAL / Math.max(1, Z - cam.z);
+  return {
+    x: SCREEN.cx + s * (px - SCREEN.cx) - cam.x * k,
+    y: SCREEN.cy + s * (py - SCREEN.cy) - cam.y * k,
+    s,
+  };
+};
+
+export const CinematicCamera: React.FC<{ cam: CameraState; children: React.ReactNode }> = ({ cam, children }) => (
+  <Ctx.Provider value={cam}>
+    <AbsoluteFill style={{ transform: cam.roll ? `rotate(${cam.roll}deg)` : undefined, transformOrigin: "50% 50%" }}>
+      {children}
+    </AbsoluteFill>
+  </Ctx.Provider>
+);
+
+type LayerProps = {
+  /** Distance from the camera at rest. */
+  z: number;
+  children: React.ReactNode;
+  /** Extra blur on top of depth of field (atmospheric haze). */
+  haze?: number;
+  /** Cap on depth-of-field blur, px. */
+  maxBlur?: number;
+  style?: React.CSSProperties;
+};
+
+export const Layer: React.FC<LayerProps> = ({ z, children, haze = 0, maxBlur = 28, style }) => {
+  const cam = useCamera();
+  // A layer at or behind the lens is not in the picture. Rendering it would mean a
+  // scale in the hundreds (and, with blur, a texture the browser can't rasterise).
+  if (z - cam.z < 24) return null;
+  const dz = z - cam.z;
+  const s = z / dz;
+  // Magnified past ~14× a layer is a blur filling the lens; skip it rather than rasterise it.
+  if (s > 14) return null;
+  const k = FOCAL / dz;
+  const coc = Math.min(maxBlur, cam.aperture * Math.abs(z - cam.focus) / Math.max(1, cam.focus) + haze);
+  return (
+    <AbsoluteFill
+      style={{
+        transform: `translate(${-cam.x * k}px, ${-cam.y * k}px) scale(${s})`,
+        transformOrigin: `${SCREEN.cx}px ${SCREEN.cy}px`,
+        filter: coc > 0.35 ? `blur(${coc.toFixed(2)}px)` : undefined,
+        ...style,
+      }}
+    >
+      {children}
+    </AbsoluteFill>
+  );
+};
+
+==== 1676 src/kits/pixelstory/camera/path.ts
+import { fbm1 } from "../core/noise";
+import { keys, springFollow, type Ease } from "../core/motion";
+import { restCamera, type CameraState } from "./CinematicCamera";
+
+type Channel = keyof CameraState;
+export type CamKey = { f: number; e?: Ease } & Partial<CameraState>;
+
+/**
+ * Keyframed camera. Each channel interpolates only between the keys that set it,
+ * so a dolly and a tilt can start and end at different times.
+ */
+export const cameraAt = (frame: number, ks: CamKey[], base: CameraState = restCamera): CameraState => {
+  const out = { ...base };
+  for (const ch of Object.keys(base) as Channel[]) {
+    const track = ks.filter((k) => k[ch] !== undefined).map((k) => ({ f: k.f, v: k[ch] as number, e: k.e }));
+    if (track.length) out[ch] = keys(frame, track);
+  }
+  return out;
+};
+
+/**
+ * Operator drift: the slow, low-amplitude float of a camera on a fluid head.
+ * Not shake — periods are seconds long and amplitudes are a few pixels.
+ */
+export const drift = (frame: number, seed = 1, amp = { x: 4, y: 3, roll: 0.06 }) => ({
+  x: fbm1(frame / 140, seed) * amp.x,
+  y: fbm1(frame / 170, seed + 9) * amp.y,
+  roll: fbm1(frame / 200, seed + 21) * amp.roll,
+});
+
+/** Lagged tracking of a moving subject — the camera follows motivation, late and smooth. */
+export const follow = (
+  frame: number,
+  target: (f: number) => { x: number; y: number },
+  opts: { start?: number; stiffness?: number; damping?: number } = {},
+) => {
+  const o = { start: opts.start ?? 0, stiffness: opts.stiffness ?? 40, damping: opts.damping ?? 13 };
+  return {
+    x: springFollow((f) => target(f).x, frame, o).value,
+    y: springFollow((f) => target(f).y, frame, o).value,
+  };
+};
+
+==== 1175 src/kits/pixelstory/character/spark.ts
+// A spark: one pixel of a drawing that wakes up. Its heart is teal — the palette's
+// only colour for "alive" — wrapped in gold light.
+
+import { sprite, type Palette, type Sprite } from "../pixel/sprite.ts";
+
+export const SPARK_PAL: Palette = {
+  c: "#C9FFF4", // core
+  t: "#3FB7A8", // living heart
+  y: "#FFE9BC", // hot glow
+  g: "#F4B860", // gold
+  a: "#E8892E", // amber rays
+};
+
+const SIZES: Sprite[] = [
+  sprite(["c"]),
+  sprite([".g.", "gcg", ".g."]),
+  sprite(["..a..", ".gyg.", "aytya", ".gyg.", "..a.."]),
+  sprite(["...a...", "...g...", "..gyg..", "agytyga", "..gyg..", "...g...", "...a..."]),
+  sprite([
+    "....a....",
+    "....g....",
+    ".a..y..a.",
+    "...gyg...",
+    "agyytyyga",
+    "...gyg...",
+    ".a..y..a.",
+    "....g....",
+    "....a....",
+  ]),
+];
+
+/** Pick a size (0–4); `twinkle` toggles the diagonal glints on twos. */
+export const sparkSprite = (size: number, twinkle = false): Sprite => {
+  const s = SIZES[Math.max(0, Math.min(SIZES.length - 1, Math.round(size)))];
+  if (!twinkle || s.w < 9) return s;
+  return { ...s, cells: s.cells.map((c, i) => ((i === 19 || i === 25 || i === 55 || i === 61) && c === "a" ? "." : c)) };
+};
+
+==== 3379 src/kits/pixelstory/core/motion.ts
+// Deterministic motion primitives. Every function is a pure function of the frame,
+// so any frame can be rendered in isolation and in any order.
+
+export type Ease = (t: number) => number;
+
+export const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const invLerp = (a: number, b: number, v: number) => clamp((v - a) / (b - a));
+export const remap = (v: number, a: number, b: number, c: number, d: number, ease: Ease = linear) =>
+  lerp(c, d, ease(invLerp(a, b, v)));
+
+export const linear: Ease = (t) => t;
+
+// Curves are named by intent so scenes read like direction notes.
+export const ease = {
+  linear,
+  // Camera: long, heavy, no visible start or stop.
+  camera: (t: number) => (t < 0.5 ? 16 * t ** 5 : 1 - (-2 * t + 2) ** 5 / 2),
+  cameraSoft: (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2),
+  // Arrivals: fast in, long settle.
+  arrive: (t: number) => (t === 1 ? 1 : 1 - 2 ** (-10 * t)),
+  arriveSoft: (t: number) => 1 - (1 - t) ** 3,
+  // Departures: slow start, accelerating exit.
+  depart: (t: number) => (t === 0 ? 0 : 2 ** (10 * t - 10)),
+  departSoft: (t: number) => t ** 3,
+  // Mechanical lock with a small overshoot.
+  lock: (t: number) => {
+    const c1 = 1.4;
+    const c3 = c1 + 1;
+    return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+  },
+  // Organic in-out for body motion.
+  body: (t: number) => -(Math.cos(Math.PI * t) - 1) / 2,
+  // Snappy anticipation: dips below 0 before going.
+  anticipate: (t: number) => {
+    const c = 1.7;
+    return t * t * ((c + 1) * t - c);
+  },
+  smooth: (t: number) => t * t * (3 - 2 * t),
+} satisfies Record<string, Ease>;
+
+/** 0→1 progress between two frames with an easing curve. */
+export const ramp = (frame: number, from: number, to: number, e: Ease = linear) =>
+  e(invLerp(from, to, frame));
+
+export type Key = { f: number; v: number; e?: Ease };
+
+/** Piecewise keyframes; each key's easing shapes the segment that ends on it. */
+export const keys = (frame: number, ks: Key[]): number => {
+  if (frame <= ks[0].f) return ks[0].v;
+  for (let i = 1; i < ks.length; i++) {
+    const a = ks[i - 1];
+    const b = ks[i];
+    if (frame <= b.f) {
+      const t = (frame - a.f) / (b.f - a.f);
+      return lerp(a.v, b.v, (b.e ?? ease.body)(t));
+    }
+  }
+  return ks[ks.length - 1].v;
+};
+
+/**
+ * Damped spring that chases a driver signal, simulated from `start` to `frame`.
+ * Used for follow-through on secondary parts (cowlick, antennae, hanging cards):
+ * they respond to the parent's motion instead of running their own loop.
+ */
+export const springFollow = (
+  driver: (f: number) => number,
+  frame: number,
+  { start = 0, stiffness = 180, damping = 12, mass = 1, fps = 60, substeps = 2 } = {},
+) => {
+  let x = driver(start);
+  let v = 0;
+  const dt = 1 / fps / substeps;
+  const end = Math.max(start, Math.floor(frame));
+  for (let f = start; f < end; f++) {
+    const target = driver(f + 1);
+    for (let s = 0; s < substeps; s++) {
+      const a = (-stiffness * (x - target) - damping * v) / mass;
+      v += a * dt;
+      x += v * dt;
+    }
+  }
+  return { value: x, offset: x - driver(end), velocity: v };
+};
+
+/** Step a continuous value to a limited frame rate, the way sprite animation holds poses. */
+export const onTwos = (frame: number, step = 2) => Math.floor(frame / step) * step;
+
+==== 1536 src/kits/pixelstory/core/noise.ts
+// Seeded randomness and smooth noise. No Math.random anywhere in the system.
+
+export const hash = (n: number) => {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+};
+
+export const hash2 = (a: number, b: number) => hash(Math.imul(a | 0, 73856093) ^ Math.imul(b | 0, 19349663));
+
+/** Seeded generator for building sets (book spines, tile orders, star fields). */
+export const rng = (seed: number) => {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+};
+
+const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+
+/** 1D value noise in [-1, 1]. */
+export const noise1 = (x: number, seed = 0) => {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = hash(i + seed * 1013) * 2 - 1;
+  const b = hash(i + 1 + seed * 1013) * 2 - 1;
+  return a + (b - a) * fade(f);
+};
+
+/** Fractal 1D noise, for drifts and flicker that never visibly loop. */
+export const fbm1 = (x: number, seed = 0, octaves = 3) => {
+  let sum = 0;
+  let amp = 0.5;
+  let freq = 1;
+  for (let o = 0; o < octaves; o++) {
+    sum += noise1(x * freq, seed + o * 17) * amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum;
+};
+
+// 4×4 Bayer matrix, normalised to (0,1). Used to dither between colour-ramp steps.
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+export const bayer = (x: number, y: number) => (BAYER4[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+
+==== 3360 src/kits/pixelstory/core/palette.ts
+// Lamplight Diorama palette. Shadows are wine-black, never neutral; teal is reserved
+// for things that are alive (a spark's heart, a creature's glow, living tiles).
+
+export const C = {
+  ink: "#0D0809",
+  char: "#1B1115",
+  wine: "#3D141D",
+  burgundy: "#6B1F2D",
+  crimson: "#9A2F35",
+  ember: "#C2501F",
+  amber: "#E8892E",
+  gold: "#F4B860",
+  glow: "#FFE0A6",
+  ivory: "#F3E6CC",
+  ivoryDim: "#CDBB9C",
+  teal: "#3FB7A8",
+  tealDeep: "#1F6B66",
+} as const;
+
+export type RGB = [number, number, number];
+
+export const hexToRgb = (hex: string): RGB => {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+};
+
+export const rgbToHex = ([r, g, b]: RGB): string =>
+  "#" +
+  [r, g, b]
+    .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"))
+    .join("");
+
+export const mixHex = (a: string, b: string, t: number): string => {
+  const A = hexToRgb(a);
+  const B = hexToRgb(b);
+  return rgbToHex([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]);
+};
+
+export const rgba = (hex: string, a: number): string => {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+};
+
+// Material ramps for per-pixel relighting, darkest → brightest. Each ramp is hue-shifted:
+// shadows drift toward wine, highlights toward gold, the way warm practical light behaves.
+export const RAMPS = {
+  wood: ["#120a0b", "#24120f", "#3a1d14", "#5a2d19", "#7f421f", "#a85d27", "#cf8336", "#f0b25c"],
+  woodDark: ["#0d0809", "#190d0d", "#2a1511", "#3f1f15", "#5b2c1a", "#7c3d1f", "#a2562a", "#c8783a"],
+  plaster: ["#0f0a0c", "#1d1216", "#2d1a1d", "#432422", "#5f3426", "#84492c", "#ae6735", "#d99248"],
+  paper: ["#16100f", "#2e2220", "#4b3833", "#6e564a", "#9a7c63", "#c4a47f", "#e6caa0", "#fbe9c8"],
+  metal: ["#0b0809", "#17110f", "#251a16", "#38261c", "#503424", "#6e472d", "#946337", "#be8846"],
+  book1: ["#0e0708", "#1d0b0f", "#2f0f16", "#45141d", "#5f1b25", "#7f2530", "#a3343c", "#c44c48"],
+  book2: ["#0b0a09", "#1a1410", "#2c2016", "#3f2d1b", "#574021", "#755827", "#99752f", "#c49a3f"],
+  book3: ["#08090a", "#101415", "#18201f", "#1f2c29", "#283a35", "#344b43", "#476152", "#647c63"],
+  leaf: ["#07090a", "#0d1310", "#141d14", "#1d2a18", "#2a3a1b", "#3d4f1f", "#566826", "#76852f"],
+  sky: ["#06070a", "#0a0d12", "#0f141a", "#161c22", "#1f262a", "#2c3333", "#3e4440", "#57584d"],
+  amberLamp: ["#2a1208", "#4f2009", "#7a320c", "#a54812", "#cc6419", "#e8892e", "#f6b35a", "#ffe0a6"],
+  ivoryLit: ["#1a1312", "#3a2c26", "#5f4a3e", "#8a705a", "#b39678", "#d6bb97", "#ecd6b2", "#fff1d6"],
+  teal: ["#050b0b", "#0a1717", "#0f2424", "#143433", "#1f4c49", "#2b6d67", "#3fb7a8", "#9ff0e2"],
+  screen: ["#0a0708", "#140d0e", "#1f1414", "#2e1d1a", "#432a20", "#5e3b28", "#7f5232", "#a86c3c"],
+  // Exterior — sky bands and land masses, lit by a sun-disc.
+  dusk: ["#12070b", "#220a10", "#3a0f18", "#5a1820", "#7f2426", "#a8392a", "#cf5a2c", "#ef8a3a"],
+  mesa: ["#0b0608", "#170a0e", "#261015", "#38161b", "#4f1e21", "#6a2926", "#8c3a2c", "#b55336"],
+  stone: ["#0a0708", "#150e10", "#241619", "#352023", "#4a2c2c", "#643c36", "#865243", "#ad6d52"],
+  frame: ["#110c0c", "#241b19", "#3d2f2a", "#5b4740", "#7f655a", "#a88a78", "#d1b49a", "#f3e6cc"],
+} as const;
+
+export type RampName = keyof typeof RAMPS;
+
+==== 4835 src/kits/pixelstory/environment/albedo.ts
+// Albedo buffers: a set is painted once as material + value (+ facing, + emission),
+// then relit every frame. This separates "what the thing is" from "how it is lit",
+// so a light that moves through the room really changes the room.
+
+import { RAMPS, type RampName } from "../core/palette.ts";
+import { hash2 } from "../core/noise.ts";
+
+export const MATERIALS = Object.keys(RAMPS) as RampName[];
+const MAT_INDEX = Object.fromEntries(MATERIALS.map((m, i) => [m, i + 1])) as Record<RampName, number>;
+
+export type Albedo = {
+  w: number;
+  h: number;
+  /** Offset of the buffer's (0,0) in set coordinates (lets layers extend off-screen). */
+  ox: number;
+  oy: number;
+  mat: Uint8Array;
+  val: Float32Array;
+  emit: Float32Array;
+  /** Surface facing: -1..1 per axis. (0,0) faces the camera and takes light from any side. */
+  nx: Int8Array;
+  ny: Int8Array;
+};
+
+export const createAlbedo = (w: number, h: number, ox = 0, oy = 0): Albedo => ({
+  w,
+  h,
+  ox,
+  oy,
+  mat: new Uint8Array(w * h),
+  val: new Float32Array(w * h),
+  emit: new Float32Array(w * h),
+  nx: new Int8Array(w * h),
+  ny: new Int8Array(w * h),
+});
+
+export type PaintOpts = { val?: number; emit?: number; nx?: number; ny?: number; jitter?: number; seed?: number };
+
+/** Painter in set coordinates. All shapes clip to the buffer. */
+export const painter = (a: Albedo) => {
+  const put = (sx: number, sy: number, m: RampName, o: PaintOpts = {}) => {
+    const x = Math.round(sx) - a.ox;
+    const y = Math.round(sy) - a.oy;
+    if (x < 0 || y < 0 || x >= a.w || y >= a.h) return;
+    const i = y * a.w + x;
+    const j = o.jitter ? (hash2(x * 7 + (o.seed ?? 0), y * 13) - 0.5) * o.jitter : 0;
+    a.mat[i] = MAT_INDEX[m];
+    a.val[i] = Math.max(0, Math.min(1.2, (o.val ?? 0.6) + j));
+    a.emit[i] = o.emit ?? 0;
+    a.nx[i] = o.nx ?? 0;
+    a.ny[i] = o.ny ?? 0;
+  };
+  const rect = (x: number, y: number, w: number, h: number, m: RampName, o: PaintOpts = {}) => {
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) put(x + xx, y + yy, m, o);
+  };
+  const hline = (x: number, y: number, w: number, m: RampName, o: PaintOpts = {}) => rect(x, y, w, 1, m, o);
+  const vline = (x: number, y: number, h: number, m: RampName, o: PaintOpts = {}) => rect(x, y, 1, h, m, o);
+  const disc = (cx: number, cy: number, r: number, m: RampName, o: PaintOpts = {}) => {
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++)
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) put(x, y, m, o);
+  };
+  const ring = (cx: number, cy: number, r: number, m: RampName, o: PaintOpts = {}) => {
+    for (let y = Math.floor(cy - r - 1); y <= Math.ceil(cy + r + 1); y++)
+      for (let x = Math.floor(cx - r - 1); x <= Math.ceil(cx + r + 1); x++) {
+        const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+        if (Math.abs(d - r) < 0.55) put(x, y, m, o);
+      }
+  };
+  /** Bresenham line. */
+  const line = (x0: number, y0: number, x1: number, y1: number, m: RampName, o: PaintOpts = {}) => {
+    let x = Math.round(x0);
+    let y = Math.round(y0);
+    const X = Math.round(x1);
+    const Y = Math.round(y1);
+    const dx = Math.abs(X - x);
+    const dy = -Math.abs(Y - y);
+    const sx = x < X ? 1 : -1;
+    const sy = y < Y ? 1 : -1;
+    let err = dx + dy;
+    for (;;) {
+      put(x, y, m, o);
+      if (x === X && y === Y) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) {
+        err += dy;
+        x += sx;
+      }
+      if (e2 <= dx) {
+        err += dx;
+        y += sy;
+      }
+    }
+  };
+  /** Polygon fill (even-odd scanline), points in set coordinates. */
+  const poly = (pts: [number, number][], m: RampName, o: PaintOpts = {}) => {
+    const ys = pts.map((p) => p[1]);
+    for (let y = Math.floor(Math.min(...ys)); y <= Math.ceil(Math.max(...ys)); y++) {
+      const xs: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x0, y0] = pts[i];
+        const [x1, y1] = pts[(i + 1) % pts.length];
+        if ((y0 <= y + 0.5 && y1 > y + 0.5) || (y1 <= y + 0.5 && y0 > y + 0.5))
+          xs.push(x0 + ((y + 0.5 - y0) / (y1 - y0)) * (x1 - x0));
+      }
+      xs.sort((p, q) => p - q);
+      for (let k = 0; k + 1 < xs.length; k += 2)
+        for (let x = Math.round(xs[k]); x < Math.round(xs[k + 1]); x++) put(x, y, m, o);
+    }
+  };
+  /** Darken (multiply value) — for painted contact shadows and ambient occlusion. */
+  const shade = (x: number, y: number, w: number, h: number, k: number) => {
+    for (let yy = 0; yy < h; yy++)
+      for (let xx = 0; xx < w; xx++) {
+        const px = Math.round(x + xx) - a.ox;
+        const py = Math.round(y + yy) - a.oy;
+        if (px < 0 || py < 0 || px >= a.w || py >= a.h) continue;
+        a.val[py * a.w + px] *= k;
+      }
+  };
+  return { put, rect, hline, vline, disc, ring, line, poly, shade };
+};
+
+==== 14068 src/kits/pixelstory/environment/props.ts
+// Reusable set pieces, painted into albedo buffers. Each prop takes a painter and a
+// seed so a new set can reuse the vocabulary without repeating the exact layout.
+// Values (val) describe material lightness; the scene's lights decide the final colour.
+
+import type { RampName } from "../core/palette";
+import { hash2, rng } from "../core/noise";
+import type { painter as Painter } from "./albedo";
+
+type P = ReturnType<typeof Painter>;
+
+/** Vertical board wall with seams, grain, staggered joints and the odd knot. */
+export const plankWall = (
+  p: P,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  o: { board?: number; mat?: RampName; base?: number; seed?: number } = {},
+) => {
+  const board = o.board ?? 7;
+  const mat = o.mat ?? "wood";
+  const base = o.base ?? 0.5;
+  const r = rng(o.seed ?? 3);
+  for (let bx = x, i = 0; bx < x + w; bx += board, i++) {
+    const v = base + (r() - 0.5) * 0.14;
+    const joint = y + Math.floor(r() * h);
+    const knotY = y + Math.floor(r() * h);
+    const hasKnot = r() < 0.35;
+    const grain = [1 + Math.floor(r() * (board - 2)), 1 + Math.floor(r() * (board - 2))];
+    for (let yy = y; yy < y + h; yy++) {
+      for (let xx = 0; xx < board && bx + xx < x + w; xx++) {
+        let val = v;
+        if (xx === 0) val *= 0.32; // seam
+        else if (xx === 1) val *= 1.12; // edge catching light
+        if (grain.includes(xx)) val *= 0.86 + 0.08 * Math.sin(yy * 0.21 + i);
+        if (yy === joint) val *= 0.4;
+        if (hasKnot && Math.abs(yy - knotY) <= 1 && Math.abs(xx - board / 2) <= 1) val *= 0.62;
+        p.put(bx + xx, yy, mat, { val, jitter: 0.05, seed: i });
+      }
+    }
+  }
+};
+
+/** Heavy horizontal beam: top face, body, underside that catches light from below. */
+export const beam = (p: P, x: number, y: number, w: number, h: number, seed = 5) => {
+  const r = rng(seed);
+  p.rect(x, y, w, h, "woodDark", { val: 0.5, jitter: 0.08, seed });
+  for (let yy = y + 2; yy < y + h - 2; yy += 2 + Math.floor(r() * 2))
+    for (let xx = x; xx < x + w; xx++) if (hash2(xx, yy) > 0.55) p.put(xx, yy, "woodDark", { val: 0.42 });
+  p.hline(x, y, w, "woodDark", { val: 0.36, ny: -1 });
+  p.hline(x, y + h - 1, w, "woodDark", { val: 0.85, ny: 1 });
+  p.hline(x, y + h - 2, w, "woodDark", { val: 0.62, ny: 1 });
+  for (let bx = x + 9; bx < x + w; bx += 26) {
+    p.rect(bx, y + 3, 2, 2, "metal", { val: 0.7 });
+    p.put(bx + 1, y + 4, "metal", { val: 0.35 });
+  }
+};
+
+export const post = (p: P, x: number, y: number, w: number, h: number) => {
+  p.rect(x, y, w, h, "woodDark", { val: 0.5, jitter: 0.08, seed: x });
+  p.vline(x, y, h, "woodDark", { val: 0.3 });
+  p.vline(x + w - 1, y, h, "woodDark", { val: 0.75, nx: 1 });
+};
+
+/** Diagonal knee brace from (x0,y0) to (x1,y1). */
+export const brace = (p: P, x0: number, y0: number, x1: number, y1: number, t = 3) => {
+  p.poly(
+    [
+      [x0, y0],
+      [x0 + t, y0],
+      [x1 + t, y1],
+      [x1, y1],
+    ],
+    "woodDark",
+    { val: 0.48, jitter: 0.06 },
+  );
+  p.line(x0, y0 + 1, x1, y1 + 1, "woodDark", { val: 0.75, ny: 1 });
+};
+
+/** Night window: frame, mullions, sky with stars, a crescent moon, a distant town. */
+export const nightWindow = (p: P, x: number, y: number, w: number, h: number, seed = 11) => {
+  const r = rng(seed);
+  p.rect(x, y, w, h, "woodDark", { val: 0.5 });
+  const ix = x + 3;
+  const iy = y + 3;
+  const iw = w - 6;
+  const ih = h - 6;
+  for (let yy = 0; yy < ih; yy++)
+    p.rect(ix, iy + yy, iw, 1, "sky", { val: 0.35, emit: 0.08 + (yy / ih) * 0.14 });
+  for (let k = 0; k < 14; k++) {
+    const sx = ix + Math.floor(r() * iw);
+    const sy = iy + Math.floor(r() * ih * 0.6);
+    p.put(sx, sy, "ivoryLit", { val: 0.2, emit: 0.35 + r() * 0.35 });
+  }
+  // crescent moon
+  const mx = ix + iw * 0.72;
+  const my = iy + ih * 0.22;
+  p.disc(mx, my, 3.6, "paper", { val: 0.4, emit: 0.92 });
+  p.disc(mx - 1.6, my - 1, 3.2, "sky", { val: 0.35, emit: 0.1 });
+  // distant rooftops with a few lit windows
+  let cx = ix;
+  while (cx < ix + iw) {
+    const bw = 3 + Math.floor(r() * 5);
+    const bh = 4 + Math.floor(r() * 9);
+    p.rect(cx, iy + ih - bh, bw, bh, "sky", { val: 0.25, emit: 0.03 });
+    for (let k = 0; k < bw * bh * 0.05; k++)
+      p.put(cx + Math.floor(r() * bw), iy + ih - bh + 1 + Math.floor(r() * (bh - 1)), "amberLamp", { val: 0.2, emit: 0.32 + r() * 0.22 });
+    cx += bw;
+  }
+  // mullions
+  p.rect(x + Math.floor(w / 2) - 1, y, 2, h, "woodDark", { val: 0.55 });
+  p.rect(x, y + Math.floor(h * 0.45), w, 2, "woodDark", { val: 0.55 });
+  p.hline(x, y + Math.floor(h * 0.45) + 1, w, "woodDark", { val: 0.8, ny: 1 });
+  // sill
+  p.rect(x - 2, y + h, w + 4, 2, "woodDark", { val: 0.7, ny: -1 });
+  p.rect(x - 2, y + h + 2, w + 4, 2, "woodDark", { val: 0.45 });
+};
+
+/** Shelf board with brackets. */
+export const shelf = (p: P, x: number, y: number, w: number) => {
+  p.hline(x, y, w, "woodDark", { val: 0.8, ny: -1 });
+  p.rect(x, y + 1, w, 2, "woodDark", { val: 0.5 });
+  for (const bx of [x + 2, x + w - 4]) {
+    p.rect(bx, y + 3, 2, 3, "woodDark", { val: 0.4 });
+    p.put(bx + 1, y + 6, "woodDark", { val: 0.35 });
+  }
+};
+
+/** A row of books standing on a shelf at yBase, with the odd prop between them. */
+export const books = (p: P, x: number, yBase: number, w: number, seed = 1, props: ("reel" | "jar" | "lean")[] = []) => {
+  const r = rng(seed);
+  const mats: RampName[] = ["book1", "book2", "book3", "paper", "book1", "book2"];
+  let cx = x;
+  let pi = 0;
+  while (cx < x + w - 2) {
+    if (props[pi] && r() < 0.34) {
+      const kind = props[pi++];
+      if (kind === "reel") {
+        p.disc(cx + 5, yBase - 6, 5.2, "metal", { val: 0.55 });
+        p.ring(cx + 5, yBase - 6, 3.6, "metal", { val: 0.8 });
+        for (const [dx, dy] of [[0, -2], [-2, 1], [2, 1]]) p.put(cx + 5 + dx, yBase - 6 + dy, "metal", { val: 0.12 });
+        p.put(cx + 5, yBase - 6, "metal", { val: 0.9 });
+        cx += 12;
+        continue;
+      }
+      if (kind === "jar") {
+        p.rect(cx + 1, yBase - 7, 5, 7, "paper", { val: 0.35 });
+        p.vline(cx + 1, yBase - 7, 7, "paper", { val: 0.7 });
+        for (let k = 0; k < 4; k++) p.vline(cx + 2 + (k % 3), yBase - 11 + (k % 2), 4, k === 1 ? "book1" : "book2", { val: 0.7 });
+        cx += 8;
+        continue;
+      }
+      if (kind === "lean") {
+        p.poly([[cx, yBase], [cx + 3, yBase], [cx + 9, yBase - 11], [cx + 6, yBase - 12]], "book3", { val: 0.6 });
+        cx += 9;
+        continue;
+      }
+    }
+    const bw = 2 + Math.floor(r() * 3);
+    const bh = 8 + Math.floor(r() * 6);
+    const m = mats[Math.floor(r() * mats.length)];
+    const v = 0.45 + r() * 0.3;
+    p.rect(cx, yBase - bh, bw, bh, m, { val: v });
+    p.vline(cx, yBase - bh, bh, m, { val: v * 0.6 });
+    p.hline(cx + 1, yBase - bh + 2, bw - 1, m, { val: v + 0.3 });
+    p.hline(cx + 1, yBase - 3, bw - 1, m, { val: v * 0.7 });
+    cx += bw + (r() < 0.15 ? 1 : 0);
+  }
+};
+
+/** Writing desk: lit top, front edge, deep shadow underneath, legs and a drawer unit. */
+export const desk = (p: P, x: number, y: number, w: number, floorY: number) => {
+  for (let k = 0; k < 6; k++) p.rect(x, y + k, w, 1, "wood", { val: 0.6 + k * 0.02, ny: -1, jitter: 0.06, seed: 40 + k });
+  for (let bx = x + 17; bx < x + w; bx += 23) p.vline(bx, y, 6, "wood", { val: 0.42, ny: -1 });
+  p.hline(x, y + 6, w, "wood", { val: 0.95 });
+  p.rect(x, y + 7, w, 3, "wood", { val: 0.55 });
+  p.hline(x, y + 9, w, "wood", { val: 0.3 });
+  p.rect(x + 2, y + 10, w - 4, floorY - y - 10, "plaster", { val: 0.12 });
+  p.rect(x + 3, y + 10, 4, floorY - y - 10, "woodDark", { val: 0.42 });
+  p.rect(x + w - 30, y + 10, 26, floorY - y - 13, "wood", { val: 0.38 });
+  for (let k = 0; k < 2; k++) {
+    const dy = y + 12 + k * 9;
+    p.hline(x + w - 29, dy + 7, 24, "wood", { val: 0.18 });
+    p.rect(x + w - 19, dy + 3, 4, 1, "metal", { val: 0.85 });
+  }
+};
+
+/** Monitor casing and stand; the screen is drawn by a separate, dynamic layer. */
+export const monitor = (p: P, x: number, y: number, w: number, h: number, standBase: number) => {
+  p.rect(x, y, w, h, "metal", { val: 0.32 });
+  p.hline(x, y, w, "metal", { val: 0.55, ny: -1 });
+  p.vline(x, y, h, "metal", { val: 0.45 });
+  p.hline(x, y + h - 1, w, "metal", { val: 0.22 });
+  p.rect(x + 3, y + 3, w - 6, h - 6, "screen", { val: 0.2, emit: 0.12 });
+  const cx = x + Math.floor(w / 2);
+  p.rect(cx - 4, y + h, 8, standBase - (y + h) - 2, "metal", { val: 0.36 });
+  p.vline(cx - 4, y + h, standBase - (y + h) - 2, "metal", { val: 0.55 });
+  p.rect(cx - 10, standBase - 2, 20, 2, "metal", { val: 0.5, ny: -1 });
+  p.put(x + w - 4, y + h - 2, "amberLamp", { val: 0.3, emit: 0.6 }); // power LED
+};
+
+/** Articulated desk lamp. Returns the bulb position and beam angle for the scene's light. */
+export const deskLamp = (p: P, baseX: number, baseY: number) => {
+  p.rect(baseX - 6, baseY - 3, 13, 3, "metal", { val: 0.5 });
+  p.hline(baseX - 6, baseY - 3, 13, "metal", { val: 0.85, ny: -1 });
+  const elbow: [number, number] = [baseX + 5, baseY - 28];
+  const head: [number, number] = [baseX - 6, baseY - 40];
+  for (const d of [0, 1]) {
+    p.line(baseX + d, baseY - 3, elbow[0] + d, elbow[1], "metal", { val: 0.6 });
+    p.line(elbow[0] + d, elbow[1], head[0] + d, head[1], "metal", { val: 0.6 });
+  }
+  p.disc(elbow[0], elbow[1], 1.6, "metal", { val: 0.85 });
+  p.disc(head[0], head[1], 1.6, "metal", { val: 0.85 });
+  // Shade: a cone aimed down-left at the keyboard. Thin metal glows faintly from
+  // the bulb inside; the rim of the mouth is the hottest edge in the room.
+  const shade: [number, number][] = [
+    [head[0] + 3, head[1] - 4],
+    [head[0] + 6, head[1] + 1],
+    [head[0] - 4, head[1] + 15],
+    [head[0] - 15, head[1] + 8],
+  ];
+  p.poly(shade, "amberLamp", { val: 0.3, emit: 0.04 });
+  p.line(head[0] + 3, head[1] - 4, head[0] - 15, head[1] + 8, "amberLamp", { val: 0.6, ny: -1 });
+  p.line(head[0] + 4, head[1] - 3, head[0] - 14, head[1] + 9, "amberLamp", { val: 0.45, ny: -1 });
+  p.line(head[0] - 15, head[1] + 8, head[0] - 4, head[1] + 15, "amberLamp", { val: 1, emit: 0.62 });
+  p.line(head[0] - 14, head[1] + 9, head[0] - 5, head[1] + 14, "amberLamp", { val: 1, emit: 0.9 });
+  const bulb = { x: head[0] - 9, y: head[1] + 12 };
+  return { bulb, angle: Math.atan2(1, -0.7), top: { x: head[0] - 5, y: head[1] - 1 } };
+};
+
+export const mug = (p: P, x: number, y: number) => {
+  p.rect(x, y - 9, 7, 9, "paper", { val: 0.72 });
+  p.vline(x, y - 9, 9, "paper", { val: 0.5 });
+  p.vline(x + 6, y - 9, 9, "paper", { val: 0.55 });
+  p.hline(x, y - 9, 7, "paper", { val: 0.95, ny: -1 });
+  p.hline(x + 1, y - 8, 5, "woodDark", { val: 0.18 });
+  p.ring(x + 8, y - 5, 2, "paper", { val: 0.62 });
+  p.hline(x + 1, y - 4, 5, "book1", { val: 0.6 });
+};
+
+/** Potted pothos with heart leaves; vines trail over the desk edge. */
+export const pothos = (p: P, x: number, y: number, seed = 7, trail = 18) => {
+  const r = rng(seed);
+  p.poly([[x, y - 12], [x + 12, y - 12], [x + 11, y], [x + 1, y]], "mesa", { val: 0.6 });
+  p.hline(x - 1, y - 13, 14, "mesa", { val: 0.85, ny: -1 });
+  p.hline(x, y - 12, 12, "mesa", { val: 0.35 });
+  const leaf = (lx: number, ly: number, s: number) => {
+    const v = 0.45 + r() * 0.4;
+    p.disc(lx, ly, s, "leaf", { val: v });
+    p.put(lx - 1, ly - 1, "leaf", { val: v + 0.25 });
+    p.put(lx, ly + s, "leaf", { val: v * 0.7 });
+  };
+  for (let k = 0; k < 9; k++) leaf(x + 1 + r() * 11, y - 15 - r() * 14, 1.4 + r() * 1.3);
+  for (const side of [0, 1]) {
+    let vx = x + (side ? 11 : 2);
+    let vy = y - 12;
+    for (let k = 0; k < trail; k++) {
+      vx += side ? 0.6 + r() * 0.5 : -(0.2 + r() * 0.4);
+      vy += 1;
+      p.put(vx, vy, "leaf", { val: 0.4 });
+      if (k % 3 === 1) leaf(vx + (side ? 1 : -1), vy, 1.2 + r() * 0.6);
+    }
+  }
+};
+
+export const keyboard = (p: P, x: number, y: number, w: number) => {
+  p.rect(x, y, w, 4, "metal", { val: 0.3, ny: -1 });
+  for (let row = 0; row < 3; row++)
+    for (let k = x + 1 + (row % 2); k < x + w - 1; k += 2) p.put(k, y + row + (row ? 0 : 0), "paper", { val: 0.32 + (row === 0 ? 0.1 : 0), ny: -1 });
+  p.hline(x, y + 4, w, "metal", { val: 0.6 });
+};
+
+export const sketchbooks = (p: P, x: number, y: number) => {
+  const stack: [RampName, number, number][] = [["book1", 15, 0.5], ["paper", 13, 0.7], ["book2", 14, 0.55]];
+  stack.forEach(([m, w, v], k) => {
+    const yy = y - (k + 1) * 2;
+    p.rect(x + k, yy, w, 2, m, { val: v });
+    p.hline(x + k, yy, w, m, { val: v + 0.25, ny: -1 });
+    p.hline(x + k + 1, yy + 1, w - 2, "paper", { val: 0.6 });
+  });
+};
+
+/** Floorboards running toward the camera: rows get taller as they come closer. */
+export const floor = (p: P, x: number, y: number, w: number, h: number, seed = 9) => {
+  const r = rng(seed);
+  let yy = y;
+  let rowH = 2;
+  while (yy < y + h) {
+    const v = 0.34 + r() * 0.08;
+    p.rect(x, yy, w, rowH, "woodDark", { val: v, jitter: 0.06, seed: yy });
+    p.hline(x, yy, w, "woodDark", { val: v * 0.45 });
+    let jx = x + Math.floor(r() * 30);
+    while (jx < x + w) {
+      p.vline(jx, yy, rowH, "woodDark", { val: v * 0.5 });
+      jx += 24 + Math.floor(r() * 30);
+    }
+    yy += rowH;
+    rowH = Math.min(9, rowH + (r() < 0.6 ? 1 : 0));
+  }
+};
+
+/** Round rug, seen at an angle. */
+export const rug = (p: P, cx: number, cy: number, rx: number, ry: number) => {
+  for (let y = Math.floor(cy - ry); y <= cy + ry; y++)
+    for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+      const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
+      if (d > 1) continue;
+      const band = d > 0.82 ? 0.75 : d > 0.62 && d < 0.7 ? 0.62 : 0.45;
+      p.put(x, y, "book1", { val: band, jitter: 0.05, ny: -1 });
+    }
+};
+
+/** Dark foreground silhouette leaves (near layer, out of focus). */
+export const hangingLeaves = (p: P, x: number, y: number, len: number, seed = 13) => {
+  const r = rng(seed);
+  let vx = x;
+  for (let k = 0; k < len; k++) {
+    vx += (r() - 0.5) * 1.2;
+    p.rect(vx, y + k, 1, 1, "leaf", { val: 0.22 });
+    if (k % 5 === 2) {
+      const s = 2.2 + r() * 2.2;
+      const dir = r() < 0.5 ? -1 : 1;
+      p.disc(vx + dir * s, y + k + 1, s, "leaf", { val: 0.18 + r() * 0.12 });
+    }
+  }
+};
+
+==== 4409 src/kits/pixelstory/environment/template.ts
+// "Template" versions of painted layers: the same world as an unfinished placeholder —
+// flat neutral greys, dashed outlines on silhouettes and material edges, a layout grid,
+// an X-box where an image should be. The only neutral greys in a film should mean
+// "not alive yet". Composite with the living layer through a per-pixel mask.
+
+import { bayer } from "../core/noise";
+import { hexToRgb, type RGB } from "../core/palette";
+import type { Albedo } from "./albedo";
+
+export type TemplateStyle = {
+  fill: string;
+  line: string;
+  /** Layout grid every `step` art px (set coordinates). */
+  grid?: { step: number; color: string };
+  /** An image placeholder (box with an X), set coordinates. */
+  xbox?: { x0: number; y0: number; x1: number; y1: number };
+  /** Material indices treated as another for outlines (texture shouldn't become line work). */
+  alias?: Record<number, number>;
+};
+
+const cache = new WeakMap<Albedo, Map<string, Uint8ClampedArray>>();
+
+export const templateOf = (a: Albedo, style: TemplateStyle): Uint8ClampedArray => {
+  const key = JSON.stringify(style);
+  let m = cache.get(a);
+  if (!m) cache.set(a, (m = new Map()));
+  const hit = m.get(key);
+  if (hit) return hit;
+  const out = new Uint8ClampedArray(a.w * a.h * 4);
+  const fill = hexToRgb(style.fill);
+  const line = hexToRgb(style.line);
+  const grid = style.grid ? hexToRgb(style.grid.color) : null;
+  const alias = style.alias ?? {};
+  const matAt = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= a.w || y >= a.h) return 0;
+    const m = a.mat[y * a.w + x];
+    return alias[m] ?? m;
+  };
+  for (let y = 0; y < a.h; y++)
+    for (let x = 0; x < a.w; x++) {
+      const i = y * a.w + x;
+      if (!a.mat[i]) continue;
+      const m0 = matAt(x, y);
+      const sx = x + a.ox;
+      const sy = y + a.oy;
+      const edge = matAt(x - 1, y) !== m0 || matAt(x + 1, y) !== m0 || matAt(x, y - 1) !== m0 || matAt(x, y + 1) !== m0;
+      let c: RGB = fill;
+      if (grid && style.grid && (((sx % style.grid.step) + style.grid.step) % style.grid.step === 0 || ((sy % style.grid.step) + style.grid.step) % style.grid.step === 0)) c = grid;
+      if (edge && ((sx + sy) >> 1) % 2 === 0) c = line;
+      if (style.xbox) {
+        const { x0, y0, x1, y1 } = style.xbox;
+        if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) {
+          const onBox = sx === x0 || sx === x1 || sy === y0 || sy === y1;
+          const fx = (sx - x0) / (x1 - x0);
+          const fy = (sy - y0) / (y1 - y0);
+          const onX = Math.abs(fx - fy) * (x1 - x0) < 0.7 || Math.abs(fx - (1 - fy)) * (x1 - x0) < 0.7;
+          c = onBox ? ((sx + sy) % 3 === 0 ? fill : line) : onX ? line : fill;
+        }
+      }
+      out[i * 4] = c[0];
+      out[i * 4 + 1] = c[1];
+      out[i * 4 + 2] = c[2];
+      out[i * 4 + 3] = 255;
+    }
+  m.set(key, out);
+  return out;
+};
+
+export type Seam = { width: number; color: string; dither?: boolean };
+
+/**
+ * Per-pixel choice between the living and the template layer.
+ * `mask(sx, sy)` returns a signed distance in art px: > 0 alive, < 0 template.
+ * Pixels within `seam.width` of the boundary become the seam colour (Bayer-dithered),
+ * so the change reads as a front of light moving through the world.
+ */
+export const compositeTemplate = (
+  a: Albedo,
+  alive: Uint8ClampedArray,
+  tpl: Uint8ClampedArray,
+  mask: (sx: number, sy: number) => number,
+  seams: Seam[],
+): Uint8ClampedArray => {
+  const out = new Uint8ClampedArray(alive.length);
+  const seamRgb = seams.map((s) => ({ ...s, rgb: hexToRgb(s.color) }));
+  for (let y = 0; y < a.h; y++)
+    for (let x = 0; x < a.w; x++) {
+      const i = (y * a.w + x) * 4;
+      if (!alive[i + 3] && !tpl[i + 3]) continue;
+      const sx = x + a.ox;
+      const sy = y + a.oy;
+      const d = mask(sx, sy);
+      let src = d >= 0 ? alive : tpl;
+      let rgb: RGB | null = null;
+      for (const s of seamRgb) {
+        if (Math.abs(d) <= s.width && (!s.dither || (s.width - Math.abs(d)) / s.width > bayer(sx, sy) * 0.8)) {
+          rgb = s.rgb;
+          break;
+        }
+      }
+      if (!src[i + 3]) src = src === alive ? tpl : alive;
+      if (rgb && src[i + 3]) {
+        out[i] = rgb[0];
+        out[i + 1] = rgb[1];
+        out[i + 2] = rgb[2];
+        out[i + 3] = 255;
+      } else {
+        out[i] = src[i];
+        out[i + 1] = src[i + 1];
+        out[i + 2] = src[i + 2];
+        out[i + 3] = src[i + 3];
+      }
+    }
+  return out;
+};
+
+==== 1613 src/kits/pixelstory/environment/TemplateView.tsx
+import React, { useMemo } from "react";
+import { PixelCanvas } from "../pixel/PixelCanvas";
+import { PX } from "../pixel/views";
+import type { Albedo } from "./albedo";
+import { relight, type Light, type RelightOpts } from "../lighting/relight";
+import { compositeTemplate, templateOf, type Seam, type TemplateStyle } from "./template";
+
+const aliveCache = new WeakMap<Albedo, Map<string, Uint8ClampedArray>>();
+const aliveOf = (a: Albedo, lights: Light[], opts: RelightOpts) => {
+  const key = JSON.stringify([lights, opts]);
+  let m = aliveCache.get(a);
+  if (!m) aliveCache.set(a, (m = new Map()));
+  let px = m.get(key);
+  if (!px) {
+    px = relight(a, lights, opts);
+    if (m.size > 4) m.clear();
+    m.set(key, px);
+  }
+  return px;
+};
+
+type Props = {
+  albedo: Albedo;
+  lights?: Light[];
+  opts: RelightOpts;
+  style: TemplateStyle;
+  /** Signed distance to the template boundary (> 0 alive). Omit when nothing is template. */
+  mask?: ((sx: number, sy: number) => number) | null;
+  seams?: Seam[];
+};
+
+/** A set layer that can be partly an unfinished template, partly alive. */
+export const TemplateAlbedoView: React.FC<Props> = ({ albedo, lights = [], opts, style, mask, seams = [] }) => {
+  const alive = aliveOf(albedo, lights, opts);
+  const pixels = useMemo(
+    () => (mask ? compositeTemplate(albedo, alive, templateOf(albedo, style), mask, seams) : alive),
+    [albedo, alive, mask, style, seams],
+  );
+  return (
+    <div style={{ position: "absolute", left: albedo.ox * PX, top: albedo.oy * PX }}>
+      <PixelCanvas w={albedo.w} h={albedo.h} pixels={pixels} scale={PX} />
+    </div>
+  );
+};
+
+==== 3455 src/kits/pixelstory/example/cat.ts
+// Example character for the PIXELSTORY kit: a small ginger cat, drawn the way every character in this
+// style is built — flat fills per part → `finish` (sel-out outline + form shading from one upper-left
+// key) → memoised frames → a pose function. Replace it with the buyer's own cast; keep the pattern.
+
+import { finish, type FillSpec, type Material } from "../pixel/finish.ts";
+import { recolor, sprite, type Palette, type Sprite } from "../pixel/sprite.ts";
+
+export const CAT_PAL: Palette = {
+  o: "#3D1A12", // outline (a dark version of the fur, never black)
+  f: "#D98A3D", // fur
+  F: "#A85A26", // fur shade
+  y: "#F4B866", // fur light
+  s: "#B8642A", // stripe
+  S: "#8E4720", // stripe shade
+  w: "#F3E6CC", // white muzzle, chest, paws
+  v: "#CDB596", // white shade
+  e: "#1B1115", // eye
+  p: "#EE8E73", // nose
+};
+
+const FUR: Material = { base: "f", shade: "F", light: "y", out: "o" };
+const STRIPE: Material = { base: "s", shade: "S", light: "s", out: "o" };
+const WHITE: Material = { base: "w", shade: "v", light: "w", out: "o" };
+const SPEC: Record<string, FillSpec> = {
+  b: { mat: FUR, region: "fur" },
+  s: { mat: STRIPE, region: "fur" },
+  W: { mat: WHITE, region: "fur" },
+  e: { keep: "e", region: "eye" },
+  p: { keep: "p", region: "nose" },
+};
+
+// 18 × 11 fills, facing right. The head and body rows are shared; legs and tail change per frame.
+const HEAD_BODY = [
+  ".b.........bb...bb",
+  ".b.........bbbbbbb",
+  ".b.........bebbbeb",
+  ".bb........bbWpWbb",
+  "..bbsbbsbbbbbWWWb.",
+  "..bbbsbbsbbbbbWb..",
+  "..bbbbbbbbbbbbb...",
+  "..bWWbbbbbbbbWb...",
+];
+const LEGS = {
+  stride: ["..bb........bb....", ".bb..........bb...", ".WW..........WW..."],
+  pass: ["...bb......bb.....", "....bb....bb......", "....WW....WW......"],
+  stand: ["..bb.........bb...", "..bb.........bb...", "..WW.........WW..."],
+} as const;
+const SIT = [
+  "...........bb...bb",
+  "...........bbbbbbb",
+  "...........bebbbeb",
+  "...........bbWpWbb",
+  "..........bbbWWWb.",
+  ".........bbbbbWb..",
+  "........bbsbbbbb..",
+  ".......bbbsbbbbb..",
+  ".......bbbbsbbbb..",
+  ".bbbb..bbbbbbbWb..",
+  "..bbbbbbWWbbbWW...",
+];
+
+export type CatPose = "stride" | "pass" | "stand" | "sit";
+
+const cache = new Map<string, Sprite>();
+const build = (pose: CatPose, tailFlick: boolean, blink: boolean): Sprite => {
+  const key = `${pose}-${tailFlick}-${blink}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const rows = pose === "sit" ? [...SIT] : [...HEAD_BODY, ...LEGS[pose]];
+  // tail tip flicks one pixel back
+  if (tailFlick && pose !== "sit") rows[0] = "b" + rows[0].slice(1).replace(/^b/, ".");
+  let fill = sprite(rows);
+  if (blink) fill = recolor(fill, { e: "b" });
+  const out = finish(fill, SPEC);
+  cache.set(key, out);
+  return out;
+};
+
+/** Feet centre (art px inside the finished 20 × 13 sprite): place it on the floor line. */
+export const CAT_ANCHOR = { x: 10, y: 12 };
+
+/**
+ * Pose for film frame `f` (60 fps clock). `walking` cycles stride/pass on fours (a pixel walk reads best
+ * on a held, readable cadence); otherwise the cat stands or sits. Blinks every ~3 s.
+ */
+export const catAt = (f: number, state: "walk" | "stand" | "sit"): Sprite => {
+  const blink = f % 190 < 6;
+  if (state === "sit") return build("sit", false, blink);
+  if (state === "stand") return build("stand", Math.floor(f / 40) % 3 === 0, blink);
+  const step = Math.floor(f / 8) % 2;
+  return build(step ? "pass" : "stride", step === 1, blink);
+};
+
+==== 7233 src/kits/pixelstory/example/PixelstoryExample.tsx
+// PIXELSTORY technical example — a moonlit room, 8 s at any fps.
+// A set painted once into albedo layers and relit every frame by two lights (moonlight cone through the
+// window, a lantern that switches on), a cat sprite that receives the same light as it walks in and sits,
+// dust in the moon shaft, a dolly with depth of field across layers, one line of pixel type.
+// It is a technical check and a starting point, not a story: never reuse it as a buyer's film.
+//
+// Every time below is a film frame on a 60 fps clock (`f`), so the preview (30 fps) and the final
+// (60 fps) play identically. The set is authored on a 1080 × 1920 stage (8 screen px per art px) and
+// scaled to the render size.
+
+import React, { useMemo } from "react";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { C } from "../core/palette.ts";
+import { ease, keys, ramp } from "../core/motion.ts";
+import { fbm1 } from "../core/noise.ts";
+import { CinematicCamera, Layer, SCREEN } from "../camera/CinematicCamera.tsx";
+import { cameraAt, drift } from "../camera/path.ts";
+import { createAlbedo, painter } from "../environment/albedo.ts";
+import { beam, books, floor, hangingLeaves, nightWindow, plankWall, pothos, rug, shelf } from "../environment/props.ts";
+import { AlbedoView, SpriteView } from "../pixel/views.tsx";
+import { DustMotes } from "../particles/particles.tsx";
+import { Exposure, Glow, Grade, Grain, LightShaft, Vignette } from "../lighting/overlays.tsx";
+import { spriteGainAt, spriteLightsAt } from "../lighting/spriteLight.ts";
+import type { Light } from "../lighting/relight.ts";
+import { PixelType } from "../typography/Type.tsx";
+import { useFonts } from "../typography/fonts.ts";
+import { CAT_ANCHOR, CAT_PAL, catAt } from "./cat.ts";
+
+export const PIXELSTORY_EXAMPLE_SECONDS = 8;
+const FILM_FPS = 60;
+
+/** Floor line (art px) and the window / lantern positions shared by paint, lights and overlays. */
+const FLOOR_Y = 196;
+const WIN = { x: 72, y: 44, w: 42, h: 58 };
+const MOON = { x: WIN.x + WIN.w / 2, y: WIN.y + WIN.h * 0.5, angle: 1.85, spread: 0.3 };
+const MOON_POOL = { x: 54, y: 207 };
+const LANTERN = { x: 22, y: 186 };
+
+const buildSet = () => {
+  // back wall layer: boards, beam, window, shelf with books
+  const back = createAlbedo(167, 220, -16, -20);
+  const b = painter(back);
+  plankWall(b, -16, -20, 167, FLOOR_Y + 20, { seed: 21, base: 0.46 });
+  beam(b, -16, 8, 167, 10, 8);
+  nightWindow(b, WIN.x, WIN.y, WIN.w, WIN.h, 4);
+  shelf(b, 8, 122, 44);
+  books(b, 10, 122, 40, 6, ["jar", "lean"]);
+  b.shade(-16, FLOOR_Y - 6, 167, 6, 0.6); // contact shadow where wall meets floor
+
+  // floor layer: boards, rug, lantern, plant
+  const front = createAlbedo(167, 90, -16, FLOOR_Y - 30);
+  const p = painter(front);
+  floor(p, -16, FLOOR_Y, 167, 50, 12);
+  rug(p, 70, 214, 40, 7);
+  // lantern: metal cap and base, amber glass
+  p.rect(LANTERN.x - 5, FLOOR_Y - 2, 11, 2, "metal", { val: 0.5 });
+  p.rect(LANTERN.x - 4, LANTERN.y - 6, 9, 14, "amberLamp", { val: 0.55, emit: 0.06 });
+  for (const dx of [-4, 0, 4]) p.vline(LANTERN.x + dx, LANTERN.y - 6, 14, "metal", { val: 0.45 });
+  p.poly([[LANTERN.x - 6, LANTERN.y - 6], [LANTERN.x + 6, LANTERN.y - 6], [LANTERN.x + 3, LANTERN.y - 10], [LANTERN.x - 3, LANTERN.y - 10]], "metal", { val: 0.6 });
+  p.ring(LANTERN.x, LANTERN.y - 12, 2, "metal", { val: 0.7 });
+  pothos(p, 106, FLOOR_Y + 2, 5, 10);
+
+  // near layer: a dark trailing plant hanging into frame (out of focus)
+  const near = createAlbedo(60, 90, -20, -10);
+  hangingLeaves(painter(near), 4, -10, 70, 17);
+  hangingLeaves(painter(near), 14, -10, 48, 23);
+  return { back, front, near };
+};
+
+export const PixelstoryExample: React.FC = () => {
+  useFonts();
+  const frame = useCurrentFrame();
+  const { fps, width } = useVideoConfig();
+  const f = (frame / fps) * FILM_FPS;
+  const set = useMemo(buildSet, []);
+
+  // lights: moonlight breathes slightly; the lantern switches on at 4 s and flickers softly
+  const lanternOn = ramp(f, 240, 300, ease.arriveSoft);
+  const flicker = 1 + fbm1(f / 9, 4) * 0.12;
+  const lights: (Light & { color?: string })[] = [
+    { kind: "cone", x: MOON.x, y: MOON.y, r: 140, i: 1.0 + fbm1(f / 200, 2) * 0.05, angle: MOON.angle, spread: MOON.spread, color: "#CFE0FF" },
+    // the pool the window throws on the floor (a cone alone fades out before it reaches the boards)
+    { kind: "point", x: MOON_POOL.x, y: MOON_POOL.y, r: 30, i: 0.85, color: "#CFE0FF" },
+    { kind: "point", x: LANTERN.x, y: LANTERN.y, r: 34, i: 2.1 * lanternOn * flicker, color: "#FFC46B" },
+  ];
+  const ambient = 0.14;
+  const relightOpts = { ambient, exposure: 1.15, dither: 0.45 };
+
+  // cat: walks in from the left, stops, sits and looks toward the window
+  const catX = keys(f, [{ f: 30, v: -14 }, { f: 300, v: 60, e: ease.cameraSoft }]);
+  const catState = f < 300 ? "walk" : f < 336 ? "stand" : "sit";
+  const catY = FLOOR_Y + 6;
+
+  // camera: slow dolly toward the cat with a gentle pan; focus on the floor layer
+  const cam = cameraAt(f, [
+    { f: 0, z: 0, x: 0, y: 30, focus: 1150, aperture: 7 },
+    { f: 480, z: 170, x: -10, y: 150, e: ease.camera },
+  ]);
+  const d = drift(f, 5);
+
+  const k = width / SCREEN.w;
+  return (
+    <AbsoluteFill style={{ background: C.ink, overflow: "hidden" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, width: SCREEN.w, height: SCREEN.h, transform: `scale(${k})`, transformOrigin: "0 0" }}>
+        <CinematicCamera cam={{ ...cam, x: cam.x + d.x, y: cam.y + d.y, roll: d.roll }}>
+          <Layer z={1500} maxBlur={6}>
+            <AlbedoView albedo={set.back} lights={lights} opts={relightOpts} />
+            <LightShaft id="moon" x={MOON.x} y={MOON.y} angle={MOON.angle} length={150} spread={MOON.spread} color="#CFE0FF" intensity={0.22} />
+            <DustMotes frame={f} x={MOON.x} y={MOON.y} angle={MOON.angle} spread={MOON.spread} length={140} color="#E8F0FF" intensity={0.8} />
+          </Layer>
+          <Layer z={1150} maxBlur={8}>
+            <AlbedoView albedo={set.front} lights={lights} opts={relightOpts} />
+            <Glow x={LANTERN.x} y={LANTERN.y} r={14} color="#FFC46B" intensity={0.6 * lanternOn * flicker} />
+            <SpriteView
+              sprite={catAt(f, catState)}
+              pal={CAT_PAL}
+              anchor={CAT_ANCHOR}
+              x={catX}
+              y={catY}
+              lights={spriteLightsAt(lights, catX, catY - 6)}
+              gain={spriteGainAt(lights, catX, catY - 6, ambient)}
+            />
+          </Layer>
+          <Layer z={700} maxBlur={14}>
+            <AlbedoView albedo={set.near} lights={lights} opts={{ ambient: 0.1, exposure: 1, dither: 0.4 }} />
+          </Layer>
+        </CinematicCamera>
+        {/* typewriter text grows to the right from a fixed start (centred text would slide while typing) */}
+        <AbsoluteFill style={{ alignItems: "flex-start", paddingTop: 112, paddingLeft: 166 }}>
+          <PixelType frame={f} start={350} text="MALAM YANG TENANG" size={44} color={C.ivory} perChar={3} />
+        </AbsoluteFill>
+        <Grade />
+        <Vignette />
+        <Grain frame={Math.floor(f)} />
+        <Exposure color={C.ink} amount={1 - ramp(f, 0, 36, ease.arriveSoft)} />
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+==== 4598 src/kits/pixelstory/lighting/overlays.tsx
+import React from "react";
+import { AbsoluteFill } from "remotion";
+import { rgba } from "../core/palette";
+import { PX } from "../pixel/views";
+
+// Lens and atmosphere: what the light does in the air and inside the camera.
+// Positions are in set coordinates (art px) so these live inside a camera Layer.
+
+/** Additive bloom around a practical light. */
+export const Glow: React.FC<{
+  x: number;
+  y: number;
+  r: number;
+  color: string;
+  intensity: number;
+  squash?: number;
+}> = ({ x, y, r, color, intensity, squash = 1 }) =>
+  intensity <= 0.001 ? null : (
+    <div
+      style={{
+        position: "absolute",
+        left: (x - r) * PX,
+        top: (y - r * squash) * PX,
+        width: r * 2 * PX,
+        height: r * 2 * squash * PX,
+        borderRadius: "50%",
+        background: `radial-gradient(closest-side, ${rgba(color, Math.min(1, intensity))} 0%, ${rgba(color, Math.min(1, intensity) * 0.35)} 38%, ${rgba(color, 0)} 100%)`,
+        mixBlendMode: "screen",
+        pointerEvents: "none",
+      }}
+    />
+  );
+
+/** Volumetric cone: light made visible by dust in the air. Soft-edged, never a wedge. */
+export const LightShaft: React.FC<{
+  x: number;
+  y: number;
+  angle: number;
+  length: number;
+  spread: number;
+  color: string;
+  intensity: number;
+  id: string;
+}> = ({ x, y, angle, length, spread, color, intensity, id }) => {
+  const L = length * PX;
+  const H = Math.tan(spread) * L;
+  const pad = 80;
+  return (
+    <svg
+      width={L + pad * 2}
+      height={H * 2 + pad * 2}
+      style={{
+        position: "absolute",
+        left: x * PX - pad,
+        top: y * PX - H - pad,
+        transformOrigin: `${pad}px ${H + pad}px`,
+        transform: `rotate(${angle}rad)`,
+        mixBlendMode: "screen",
+        pointerEvents: "none",
+        overflow: "visible",
+      }}
+    >
+      <defs>
+        <linearGradient id={`${id}-g`} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor={color} stopOpacity={intensity} />
+          <stop offset="0.55" stopColor={color} stopOpacity={intensity * 0.4} />
+          <stop offset="1" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+        <filter id={`${id}-b`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="22" />
+        </filter>
+      </defs>
+      <polygon
+        points={`${pad},${H + pad - 10} ${L + pad},${pad} ${L + pad},${H * 2 + pad} ${pad},${H + pad + 10}`}
+        fill={`url(#${id}-g)`}
+        filter={`url(#${id}-b)`}
+      />
+    </svg>
+  );
+};
+
+/** Optical vignette with a warm-dark falloff (never neutral black). */
+export const Vignette: React.FC<{ strength?: number; color?: string; cx?: string; cy?: string }> = ({
+  strength = 0.75,
+  color = "#0D0809",
+  cx = "50%",
+  cy = "48%",
+}) => (
+  <AbsoluteFill
+    style={{
+      background: `radial-gradient(ellipse 78% 62% at ${cx} ${cy}, ${rgba(color, 0)} 45%, ${rgba(color, strength * 0.55)} 78%, ${rgba(color, strength)} 100%)`,
+      pointerEvents: "none",
+    }}
+  />
+);
+
+/** Film grain: seeded per frame so it is deterministic, light enough to stay texture. */
+export const Grain: React.FC<{ frame: number; opacity?: number }> = ({ frame, opacity = 0.07 }) => (
+  <AbsoluteFill style={{ mixBlendMode: "overlay", opacity, pointerEvents: "none" }}>
+    <svg width="1080" height="1920" xmlns="http://www.w3.org/2000/svg">
+      <filter id={`grain-${frame}`}>
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={frame % 97} stitchTiles="stitch" />
+        <feColorMatrix type="saturate" values="0" />
+      </filter>
+      <rect width="1080" height="1920" filter={`url(#grain-${frame})`} />
+    </svg>
+  </AbsoluteFill>
+);
+
+/**
+ * Split-tone grade: shadows pushed toward wine, highlights toward gold.
+ * Applied once over the whole frame so every shot shares one look.
+ */
+export const Grade: React.FC<{ shadows?: string; highlights?: string; amount?: number }> = ({
+  shadows = "#3D141D",
+  highlights = "#F4B860",
+  amount = 1,
+}) => (
+  <>
+    <AbsoluteFill style={{ background: shadows, mixBlendMode: "lighten", opacity: 0.12 * amount, pointerEvents: "none" }} />
+    <AbsoluteFill style={{ background: highlights, mixBlendMode: "soft-light", opacity: 0.08 * amount, pointerEvents: "none" }} />
+  </>
+);
+
+/** Exposure flash / fade to a colour. */
+export const Exposure: React.FC<{ color: string; amount: number; blend?: React.CSSProperties["mixBlendMode"] }> = ({
+  color,
+  amount,
+  blend = "normal",
+}) => (amount <= 0.001 ? null : <AbsoluteFill style={{ background: color, opacity: amount, mixBlendMode: blend, pointerEvents: "none" }} />);
+
+==== 3034 src/kits/pixelstory/lighting/relight.ts
+// Per-pixel relighting of albedo buffers into hand-picked colour ramps.
+// Light is accumulated as a scalar and quantised to the material's ramp; the
+// fractional part is resolved with a 4×4 Bayer matrix, which gives the soft, stepped
+// falloff of hand-dithered pixel art instead of a smooth digital gradient.
+
+import { RAMPS, hexToRgb, type RGB } from "../core/palette.ts";
+import { bayer } from "../core/noise.ts";
+import { MATERIALS, type Albedo } from "../environment/albedo.ts";
+
+export type Light =
+  | { kind: "point"; x: number; y: number; r: number; i: number }
+  | {
+      kind: "cone";
+      x: number;
+      y: number;
+      r: number;
+      i: number;
+      /** Direction of the cone, radians (0 = +x, π/2 = down). */
+      angle: number;
+      /** Half-angle of the bright core, radians. */
+      spread: number;
+    };
+
+export type RelightOpts = {
+  ambient: number;
+  exposure?: number;
+  /**
+   * Width of the dithered band around each ramp step, 0..1. Values near the middle
+   * of a step stay flat; only transitions are dithered, as a pixel artist would.
+   */
+  dither?: number;
+};
+
+const RAMP_RGB: RGB[][] = [[], ...MATERIALS.map((m) => RAMPS[m].map(hexToRgb))];
+
+export const relight = (a: Albedo, lights: Light[], o: RelightOpts): Uint8ClampedArray => {
+  const out = new Uint8ClampedArray(a.w * a.h * 4);
+  const exposure = o.exposure ?? 1;
+  const band = Math.max(0.0001, (o.dither ?? 0.45) * 0.5);
+  for (let y = 0; y < a.h; y++) {
+    const sy = y + a.oy + 0.5;
+    for (let x = 0; x < a.w; x++) {
+      const i = y * a.w + x;
+      const m = a.mat[i];
+      if (!m) continue;
+      const sx = x + a.ox + 0.5;
+      let L = o.ambient;
+      const nx = a.nx[i];
+      const ny = a.ny[i];
+      for (const l of lights) {
+        const dx = l.x - sx;
+        const dy = l.y - sy;
+        const d2 = dx * dx + dy * dy;
+        let c = l.i / (1 + (d2 / (l.r * l.r)) * 3);
+        if (nx || ny) {
+          const d = Math.sqrt(d2) || 1;
+          const f = (nx * dx + ny * dy) / (d * Math.hypot(nx, ny));
+          c *= f > 0 ? 0.25 + 0.95 * f : 0.12;
+        }
+        if (l.kind === "cone") {
+          let diff = Math.atan2(-dy, -dx) - l.angle;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          const t = Math.abs(diff);
+          const edge = l.spread * 1.7;
+          c *= t <= l.spread ? 1 : t >= edge ? 0.08 : 0.08 + 0.92 * (1 - (t - l.spread) / (edge - l.spread)) ** 2;
+        }
+        L += c;
+      }
+      const v = a.val[i] * L * exposure + a.emit[i];
+      const ramp = RAMP_RGB[m];
+      const top = ramp.length - 1;
+      const f = Math.max(0, Math.min(top, v * top));
+      let k = Math.floor(f);
+      const frac = f - k;
+      if (frac >= 0.5 + band) k++;
+      else if (frac > 0.5 - band && (frac - (0.5 - band)) / (2 * band) > bayer(x + a.ox, y + a.oy)) k++;
+      if (k > top) k = top;
+      const rgb = ramp[k];
+      const p = i * 4;
+      out[p] = rgb[0];
+      out[p + 1] = rgb[1];
+      out[p + 2] = rgb[2];
+      out[p + 3] = 255;
+    }
+  }
+  return out;
+};
+
+==== 1473 src/kits/pixelstory/lighting/spriteLight.ts
+import type { Light } from "./relight";
+import type { SpriteLight } from "../pixel/sprite";
+
+const strengthAt = (l: Light, x: number, y: number) => {
+  const dx = l.x - x;
+  const dy = l.y - y;
+  let c = l.i / (1 + ((dx * dx + dy * dy) / (l.r * l.r)) * 3);
+  if (l.kind === "cone") {
+    let diff = Math.atan2(-dy, -dx) - l.angle;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    c *= Math.abs(diff) < l.spread * 1.7 ? 1 : 0.15;
+  }
+  return c;
+};
+
+/**
+ * The same lights that relight the set, translated into what a sprite at (x, y)
+ * receives: a rim on the side facing each light, scaled by how much reaches it.
+ */
+export const spriteLightsAt = (
+  lights: (Light & { color?: string })[],
+  x: number,
+  y: number,
+  opts: { rim?: number; core?: number; width?: number } = {},
+): SpriteLight[] =>
+  lights
+    .map((l) => {
+      const c = strengthAt(l, x, y);
+      return {
+        dir: [l.x - x, l.y - y] as [number, number],
+        color: l.color ?? "#FFD08A",
+        rim: Math.min(0.95, c * (opts.rim ?? 0.9)),
+        core: opts.core ?? 0.25,
+        width: opts.width ?? 1,
+      };
+    })
+    .filter((l) => l.rim > 0.04)
+    .sort((a, b) => a.rim - b.rim);
+
+/** Overall exposure of a sprite in a dark set: never black, never flat. */
+export const spriteGainAt = (lights: Light[], x: number, y: number, ambient: number) => {
+  const total = lights.reduce((s, l) => s + strengthAt(l, x, y), ambient);
+  return Math.min(1.08, 0.42 + total * 0.38);
+};
+
+==== 4415 src/kits/pixelstory/particles/particles.tsx
+import React from "react";
+import { hash } from "../core/noise";
+import { rgba } from "../core/palette";
+import { PX } from "../pixel/views";
+
+// Particles only where something motivates them: dust that is visible because a
+// beam crosses it, steam because the coffee is hot, a trail because something bright
+// moved. Every particle is a whole art pixel, never a soft dot.
+
+const Px: React.FC<{ x: number; y: number; color: string; a: number; size?: number }> = ({ x, y, color, a, size = 1 }) =>
+  a <= 0.02 ? null : (
+    <div
+      style={{
+        position: "absolute",
+        left: Math.round(x) * PX,
+        top: Math.round(y) * PX,
+        width: size * PX,
+        height: size * PX,
+        background: rgba(color, Math.min(1, a)),
+      }}
+    />
+  );
+
+/** Dust motes that only show inside a light cone. */
+export const DustMotes: React.FC<{
+  frame: number;
+  x: number;
+  y: number;
+  angle: number;
+  spread: number;
+  length: number;
+  count?: number;
+  color?: string;
+  intensity?: number;
+  seed?: number;
+}> = ({ frame, x, y, angle, spread, length, count = 28, color = "#FFD596", intensity = 1, seed = 3 }) => (
+  <div style={{ position: "absolute", inset: 0, mixBlendMode: "screen" }}>
+    {Array.from({ length: count }, (_, i) => {
+      const d = 6 + hash(i * 7 + seed) * (length - 6);
+      const a0 = angle + (hash(i * 13 + seed) - 0.5) * spread * 2.2;
+      const t = frame / 60;
+      const px = x + Math.cos(a0) * d + Math.sin(t * 0.35 + i * 1.7) * 2.2;
+      const py = y + Math.sin(a0) * d - ((t * (0.6 + hash(i) * 0.8) + hash(i * 3) * 40) % 40) * 0.25 + Math.cos(t * 0.5 + i) * 1.2;
+      let diff = Math.atan2(py - y, px - x) - angle;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      const inCone = Math.max(0, 1 - Math.abs(diff) / (spread * 1.2));
+      const dist = Math.hypot(px - x, py - y);
+      const fall = Math.max(0, 1 - dist / length);
+      const twinkle = 0.55 + 0.45 * Math.sin(t * 2.3 + i * 4.1);
+      return <Px key={i} x={px} y={py} color={color} a={inCone * fall * twinkle * intensity * 0.9} />;
+    })}
+  </div>
+);
+
+/** Rising steam: pixel puffs that drift, thin out and vanish. */
+export const Steam: React.FC<{ frame: number; x: number; y: number; intensity?: number; seed?: number }> = ({
+  frame,
+  x,
+  y,
+  intensity = 1,
+  seed = 1,
+}) => (
+  <div style={{ position: "absolute", inset: 0 }}>
+    {Array.from({ length: 6 }, (_, i) => {
+      const period = 150;
+      const t = ((frame + i * (period / 6) + seed * 37) % period) / period;
+      const px = x + Math.sin(t * 5 + i * 2) * 1.6 + t * 2;
+      const py = y - t * 22;
+      const a = Math.sin(Math.PI * t) * 0.32 * intensity;
+      return <Px key={i} x={px} y={py} color="#F3E6CC" a={a} size={t < 0.4 ? 1 : 2} />;
+    })}
+  </div>
+);
+
+/** Afterglow behind a moving light: sampled from its own path, so it can never drift off it. */
+export const Trail: React.FC<{
+  frame: number;
+  path: (f: number) => { x: number; y: number } | null;
+  length?: number;
+  step?: number;
+  color?: string;
+  intensity?: number;
+}> = ({ frame, path, length = 18, step = 2, color = "#FFD27A", intensity = 1 }) => (
+  <div style={{ position: "absolute", inset: 0, mixBlendMode: "screen" }}>
+    {Array.from({ length }, (_, i) => {
+      const f = frame - (i + 1) * step;
+      const p = path(f);
+      if (!p) return null;
+      const age = (i + 1) / length;
+      const jitter = (hash(Math.floor(f / 2) * 31 + i) - 0.5) * 2 * age;
+      return <Px key={i} x={p.x + jitter} y={p.y + jitter * 0.6} color={color} a={(1 - age) ** 1.6 * intensity} />;
+    })}
+  </div>
+);
+
+/** Pixels thrown off a breaking surface: each flies on its own ballistic path. */
+export const Debris: React.FC<{
+  frame: number;
+  start: number;
+  pieces: { x: number; y: number; color: string }[];
+  spread?: number;
+  gravity?: number;
+  life?: number;
+  seed?: number;
+}> = ({ frame, start, pieces, spread = 1, gravity = 0.03, life = 50, seed = 5 }) => {
+  const t = frame - start;
+  if (t < 0 || t > life) return null;
+  return (
+    <div style={{ position: "absolute", inset: 0 }}>
+      {pieces.map((p, i) => {
+        const vx = (hash(i * 3 + seed) - 0.5) * 0.9 * spread;
+        const vy = (-0.25 - hash(i * 5 + seed) * 0.5) * spread;
+        const x = p.x + vx * t;
+        const y = p.y + vy * t + gravity * t * t;
+        return <Px key={i} x={x} y={y} color={p.color} a={1 - t / life} />;
+      })}
+    </div>
+  );
+};
+
+==== 2233 src/kits/pixelstory/pixel/finish.ts
+// "Finishing" pass for hand-drawn fill art: selective outlines (sel-out) and form
+// shading from a fixed upper-left key, so every sprite in the film shares one light
+// logic. The artist draws flat regions; this pass adds the craft that keeps them
+// consistent (outline colour is a dark version of the material it wraps, never black).
+
+import type { Sprite } from "./sprite.ts";
+
+export type Material = { base: string; shade: string; light: string; out: string };
+
+/** How a fill character behaves: which material, which region (for seams), or kept as-is. */
+export type FillSpec = { mat?: Material; region: string; keep?: string };
+
+export const finish = (fill: Sprite, spec: Record<string, FillSpec>, pad = 1): Sprite => {
+  const W = fill.w + pad * 2;
+  const H = fill.h + pad * 2;
+  const at = (x: number, y: number) => {
+    const fx = x - pad;
+    const fy = y - pad;
+    if (fx < 0 || fy < 0 || fx >= fill.w || fy >= fill.h) return ".";
+    return fill.cells[fy * fill.w + fx];
+  };
+  const region = (c: string) => (c === "." ? "" : spec[c]?.region ?? c);
+  const cells: string[] = new Array(W * H).fill(".");
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = at(x, y);
+      if (c === ".") {
+        // Outline: take the material of the nearest opaque neighbour (below first, so
+        // feet and chins pick the right colour).
+        for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) {
+          const n = at(x + dx, y + dy);
+          if (n === ".") continue;
+          const s = spec[n];
+          cells[y * W + x] = s?.mat?.out ?? s?.keep ?? n;
+          break;
+        }
+        continue;
+      }
+      const s = spec[c];
+      if (!s) {
+        cells[y * W + x] = c;
+        continue;
+      }
+      if (s.keep) {
+        cells[y * W + x] = s.keep;
+        continue;
+      }
+      const m = s.mat!;
+      const r = s.region;
+      const dr = region(at(x + 1, y + 1));
+      const ul = at(x - 1, y - 1);
+      const u = at(x, y - 1);
+      if (dr !== r) cells[y * W + x] = m.shade;
+      else if ((ul === "." && u === ".") || (u === "." && at(x - 1, y) === ".")) cells[y * W + x] = m.light;
+      else cells[y * W + x] = m.base;
+    }
+  }
+  return { w: W, h: H, cells };
+};
+
+==== 1050 src/kits/pixelstory/pixel/PixelCanvas.tsx
+import React, { useLayoutEffect, useRef } from "react";
+
+type Props = {
+  /** Art-pixel width and height of the buffer. */
+  w: number;
+  h: number;
+  /** RGBA buffer, w*h*4. */
+  pixels: Uint8ClampedArray;
+  /** Screen pixels per art pixel. */
+  scale: number;
+  style?: React.CSSProperties;
+};
+
+/**
+ * Draws an RGBA buffer at native art resolution and lets the compositor scale it with
+ * nearest-neighbour sampling, so pixels stay hard at any camera zoom.
+ */
+export const PixelCanvas: React.FC<Props> = ({ w, h, pixels, scale, style }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (!ctx) return;
+    const img = new ImageData(w, h);
+    img.data.set(pixels);
+    ctx.putImageData(img, 0, 0);
+  }, [w, h, pixels]);
+  return (
+    <canvas
+      ref={ref}
+      width={w}
+      height={h}
+      style={{
+        width: w * scale,
+        height: h * scale,
+        imageRendering: "pixelated",
+        display: "block",
+        ...style,
+      }}
+    />
+  );
+};
+
+==== 4215 src/kits/pixelstory/pixel/sprite.ts
+// Palette-indexed sprites. Pure data + pure functions so the same art is used by the
+// film, the character sheet and the PNG exporter (scripts/export-sprites.mjs).
+
+import { hexToRgb, type RGB } from "../core/palette.ts";
+
+export type Sprite = { w: number; h: number; cells: string[] };
+export type Palette = Record<string, string>;
+
+/** Build a sprite from ASCII rows. '.' and ' ' are transparent. */
+export const sprite = (rows: string[]): Sprite => {
+  const w = Math.max(...rows.map((r) => r.length));
+  const cells: string[] = [];
+  for (const r of rows) for (let x = 0; x < w; x++) cells.push(r[x] && r[x] !== " " ? r[x] : ".");
+  return { w, h: rows.length, cells };
+};
+
+export const blank = (w: number, h: number): Sprite => ({ w, h, cells: new Array(w * h).fill(".") });
+
+export const flipX = (s: Sprite): Sprite => {
+  const cells: string[] = new Array(s.w * s.h);
+  for (let y = 0; y < s.h; y++)
+    for (let x = 0; x < s.w; x++) cells[y * s.w + x] = s.cells[y * s.w + (s.w - 1 - x)];
+  return { w: s.w, h: s.h, cells };
+};
+
+/** Copy every opaque pixel of `src` into `dst` at (ox, oy). Later layers win. */
+export const stamp = (dst: Sprite, src: Sprite, ox: number, oy: number, flip = false) => {
+  const ix = Math.round(ox);
+  const iy = Math.round(oy);
+  for (let y = 0; y < src.h; y++) {
+    const dy = iy + y;
+    if (dy < 0 || dy >= dst.h) continue;
+    for (let x = 0; x < src.w; x++) {
+      const c = src.cells[y * src.w + (flip ? src.w - 1 - x : x)];
+      if (c === ".") continue;
+      const dx = ix + x;
+      if (dx < 0 || dx >= dst.w) continue;
+      dst.cells[dy * dst.w + dx] = c;
+    }
+  }
+  return dst;
+};
+
+/** Replace characters (palette swaps for blinks, flashes, states). */
+export const recolor = (s: Sprite, map: Record<string, string>): Sprite => ({
+  ...s,
+  cells: s.cells.map((c) => map[c] ?? c),
+});
+
+export type SpriteLight = {
+  /** Direction the light comes FROM, in sprite space (e.g. [-1,-1] = upper left). */
+  dir: [number, number];
+  color: string;
+  /** 0..1 strength of the rim on edges facing the light. */
+  rim: number;
+  /** 0..1 darkening of edges facing away from the light. */
+  core?: number;
+  /** 0..1 overall tint toward the light colour (bounce/fill). */
+  fill?: number;
+  /** Width of the rim in pixels (1 or 2). */
+  width?: number;
+};
+
+const mix = (a: RGB, b: RGB, t: number): RGB => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+];
+
+const rgbCache = new Map<string, RGB>();
+const toRgb = (hex: string) => {
+  let v = rgbCache.get(hex);
+  if (!v) {
+    v = hexToRgb(hex);
+    rgbCache.set(hex, v);
+  }
+  return v;
+};
+
+/**
+ * Rasterise to RGBA with directional pixel lighting: pixels whose neighbour toward the
+ * light is empty get a rim, pixels whose neighbour away from the light is empty fall
+ * into core shadow. This is how a sprite "receives" a moving light source.
+ */
+export const rasterize = (s: Sprite, pal: Palette, lights: SpriteLight[] = [], alpha = 1, gain = 1) => {
+  const out = new Uint8ClampedArray(s.w * s.h * 4);
+  const opaque = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < s.w && y < s.h && s.cells[y * s.w + x] !== ".";
+  for (let y = 0; y < s.h; y++) {
+    for (let x = 0; x < s.w; x++) {
+      const c = s.cells[y * s.w + x];
+      if (c === ".") continue;
+      const hex = pal[c];
+      if (!hex) continue;
+      let rgb = toRgb(hex);
+      if (gain !== 1) rgb = [rgb[0] * gain, rgb[1] * gain, rgb[2] * gain];
+      for (const L of lights) {
+        const lc = toRgb(L.color);
+        const n = Math.hypot(L.dir[0], L.dir[1]) || 1;
+        const dx = Math.round(L.dir[0] / n);
+        const dy = Math.round(L.dir[1] / n);
+        if (L.fill) rgb = mix(rgb, lc, L.fill * 0.5);
+        const w = L.width ?? 1;
+        let rimHit = 0;
+        for (let k = 1; k <= w; k++) if (!opaque(x + dx * k, y + dy * k)) rimHit = Math.max(rimHit, 1 - (k - 1) * 0.55);
+        if (rimHit) rgb = mix(rgb, lc, L.rim * rimHit);
+        if (L.core && !opaque(x - dx, y - dy)) rgb = mix(rgb, [12, 6, 8], L.core);
+      }
+      const i = (y * s.w + x) * 4;
+      out[i] = rgb[0];
+      out[i + 1] = rgb[1];
+      out[i + 2] = rgb[2];
+      out[i + 3] = 255 * alpha;
+    }
+  }
+  return out;
+};
+
+==== 2389 src/kits/pixelstory/pixel/views.tsx
+import React, { useMemo } from "react";
+import { PixelCanvas } from "./PixelCanvas";
+import { rasterize, type Palette, type Sprite, type SpriteLight } from "./sprite";
+import type { Albedo } from "../environment/albedo";
+import { relight, type Light, type RelightOpts } from "../lighting/relight";
+
+/** Screen pixels per art pixel for every set in the film. One pixel scale, no mixels. */
+export const PX = 8;
+
+type SpriteViewProps = {
+  sprite: Sprite;
+  pal: Palette;
+  /** Anchor point inside the sprite (art px), placed at (x, y) in set coordinates. */
+  anchor: { x: number; y: number };
+  x: number;
+  y: number;
+  lights?: SpriteLight[];
+  gain?: number;
+  flip?: boolean;
+  opacity?: number;
+  scale?: number;
+  style?: React.CSSProperties;
+};
+
+export const SpriteView: React.FC<SpriteViewProps> = ({
+  sprite,
+  pal,
+  anchor,
+  x,
+  y,
+  lights = [],
+  gain = 1,
+  flip = false,
+  opacity = 1,
+  scale = PX,
+  style,
+}) => {
+  const pixels = useMemo(() => rasterize(sprite, pal, lights, 1, gain), [sprite, pal, lights, gain]);
+  // On the set's own pixel scale, snap to the art grid so the sprite never sits between
+  // pixels. Sprites drawn smaller (distant objects) are placed freely.
+  const left = scale === PX ? Math.round(x - anchor.x) * PX : x * PX - anchor.x * scale;
+  const top = scale === PX ? Math.round(y - anchor.y) * PX : y * PX - anchor.y * scale;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left,
+        top,
+        opacity,
+        transform: flip ? "scaleX(-1)" : undefined,
+        transformOrigin: `${anchor.x * scale}px ${anchor.y * scale}px`,
+        ...style,
+      }}
+    >
+      <PixelCanvas w={sprite.w} h={sprite.h} pixels={pixels} scale={scale} />
+    </div>
+  );
+};
+
+type AlbedoViewProps = {
+  albedo: Albedo;
+  lights: Light[];
+  opts: RelightOpts;
+  style?: React.CSSProperties;
+};
+
+/** A painted set layer, relit for the current frame. */
+export const AlbedoView: React.FC<AlbedoViewProps> = ({ albedo, lights, opts, style }) => {
+  const key = JSON.stringify([lights, opts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pixels = useMemo(() => relight(albedo, lights, opts), [albedo, key]);
+  return (
+    <div style={{ position: "absolute", left: albedo.ox * PX, top: albedo.oy * PX, ...style }}>
+      <PixelCanvas w={albedo.w} h={albedo.h} pixels={pixels} scale={PX} />
+    </div>
+  );
+};
+
+==== 1513 src/kits/pixelstory/typography/fonts.ts
+import { useEffect, useState } from "react";
+import { continueRender, delayRender, staticFile } from "remotion";
+
+// Bundled OFL fonts (licences in public/fonts/licenses). Loaded through the FontFace
+// API and held with delayRender so no frame is ever captured with a fallback face.
+
+export const FONT = {
+  display: "PS Anton",
+  serif: "PS Instrument Serif",
+  pixel: "PS Silkscreen",
+  sans: "PS Space Grotesk",
+} as const;
+
+const FACES: [string, string, FontFaceDescriptors][] = [
+  [FONT.display, "fonts/Anton-Regular.ttf", {}],
+  [FONT.serif, "fonts/InstrumentSerif-Italic.ttf", { style: "italic" }],
+  [FONT.serif, "fonts/InstrumentSerif-Regular.ttf", { style: "normal" }],
+  [FONT.pixel, "fonts/Silkscreen-Regular.ttf", { weight: "400" }],
+  [FONT.pixel, "fonts/Silkscreen-Bold.ttf", { weight: "700" }],
+  [FONT.sans, "fonts/SpaceGrotesk-Variable.ttf", { weight: "300 700" }],
+];
+
+let loading: Promise<void> | null = null;
+const loadAll = () =>
+  (loading ??= Promise.all(
+    FACES.map(([family, file, desc]) =>
+      new FontFace(family, `url(${staticFile(file)})`, desc).load().then((f) => {
+        (document.fonts as unknown as { add(face: FontFace): void }).add(f);
+      }),
+    ),
+  ).then(() => undefined));
+
+export const useFonts = () => {
+  const [handle] = useState(() => delayRender("Loading fonts"));
+  useEffect(() => {
+    loadAll()
+      .then(() => continueRender(handle))
+      .catch((err) => {
+        console.error(err);
+        continueRender(handle);
+      });
+  }, [handle]);
+};
+
+==== 7075 src/kits/pixelstory/typography/Type.tsx
+import React from "react";
+import { clamp, ease, ramp, type Ease } from "../core/motion";
+import { hash } from "../core/noise";
+import { C, rgba } from "../core/palette";
+import { FONT } from "./fonts";
+
+// Each treatment exists for a reason in the story; none of them is a generic
+// "word pops in". Pick by purpose:
+//   MaskRise     — a statement arriving from behind a line (horizon, edge of frame)
+//   LightSweep   — words that become visible because a light passes over them
+//   PixelType    — diegetic pixel text, typed at the cadence of a machine
+//   Counter      — a number that is counting something on screen
+//   Crumble      — a word breaking into the style's own unit, the pixel
+
+export type LineSpec = {
+  text: string;
+  font?: string;
+  size: number;
+  color?: string;
+  italic?: boolean;
+  tracking?: number;
+  weight?: number | string;
+  /** Horizontal offset in px, for asymmetric lockups. */
+  dx?: number;
+  shadow?: string;
+};
+
+const lineStyle = (l: LineSpec): React.CSSProperties => ({
+  fontFamily: l.font ?? FONT.display,
+  fontSize: l.size,
+  lineHeight: 0.92,
+  color: l.color ?? C.ivory,
+  fontStyle: l.italic ? "italic" : "normal",
+  fontWeight: l.weight ?? 400,
+  letterSpacing: `${l.tracking ?? 0}em`,
+  whiteSpace: "pre",
+  textShadow: l.shadow,
+});
+
+/** Lines rise into view from behind their own baseline mask. */
+export const MaskRise: React.FC<{
+  frame: number;
+  start: number;
+  lines: LineSpec[];
+  stagger?: number;
+  duration?: number;
+  curve?: Ease;
+  exitAt?: number;
+  exitDuration?: number;
+  align?: "left" | "center" | "right";
+  gap?: number;
+  style?: React.CSSProperties;
+}> = ({ frame, start, lines, stagger = 7, duration = 26, curve = ease.arrive, exitAt, exitDuration = 18, align = "center", gap = 0, style }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: align === "center" ? "center" : align === "left" ? "flex-start" : "flex-end", gap, ...style }}>
+    {lines.map((l, i) => {
+      const t = ramp(frame, start + i * stagger, start + i * stagger + duration, curve);
+      const out = exitAt === undefined ? 0 : ramp(frame, exitAt + i * 3, exitAt + i * 3 + exitDuration, ease.depart);
+      const y = (1 - t) * 108 - out * 108;
+      return (
+        <div key={i} style={{ overflow: "hidden", paddingTop: l.size * 0.08, paddingBottom: l.size * 0.04, marginLeft: l.dx ?? 0 }}>
+          <div style={{ ...lineStyle(l), transform: `translateY(${y}%)` }}>{l.text}</div>
+        </div>
+      );
+    })}
+  </div>
+);
+
+/**
+ * The words exist in the dark and are lit by a passing light: unlit → gold edge → ivory.
+ * `progress` 0..1 is the light's position across the line (drive it from a real light).
+ */
+export const LightSweep: React.FC<{
+  progress: number;
+  line: LineSpec;
+  edge?: string;
+  softness?: number;
+  style?: React.CSSProperties;
+}> = ({ progress, line, edge = C.gold, softness = 10, style }) => {
+  const p = progress * (100 + softness * 2) - softness;
+  const base = line.color ?? C.ivory;
+  return (
+    <div
+      style={{
+        ...lineStyle(line),
+        color: "transparent",
+        backgroundImage: `linear-gradient(90deg, ${base} 0%, ${base} ${p - softness}%, ${edge} ${p - softness * 0.25}%, ${rgba(edge, 0)} ${p + softness * 0.4}%, ${rgba(edge, 0)} 100%)`,
+        WebkitBackgroundClip: "text",
+        backgroundClip: "text",
+        paddingBottom: line.size * 0.12,
+        ...style,
+      }}
+    >
+      {line.text}
+    </div>
+  );
+};
+
+/** Typed at a fixed machine cadence with a block cursor. */
+export const PixelType: React.FC<{
+  frame: number;
+  start: number;
+  text: string;
+  size: number;
+  color?: string;
+  perChar?: number;
+  cursor?: boolean;
+  tracking?: number;
+  style?: React.CSSProperties;
+}> = ({ frame, start, text, size, color = C.ivory, perChar = 2, cursor = true, tracking = 0.12, style }) => {
+  const n = clamp(Math.floor((frame - start) / perChar), 0, text.length);
+  const done = n >= text.length;
+  const blink = Math.floor(frame / 16) % 2 === 0;
+  return (
+    <div style={{ fontFamily: FONT.pixel, fontSize: size, color, letterSpacing: `${tracking}em`, whiteSpace: "pre", lineHeight: 1, ...style }}>
+      {frame < start ? "" : text.slice(0, n)}
+      {cursor && frame >= start && (!done || blink) ? (
+        <span style={{ display: "inline-block", width: size * 0.6, height: size * 0.8, background: color, marginLeft: size * 0.08, verticalAlign: "-0.05em" }} />
+      ) : null}
+    </div>
+  );
+};
+
+/** A zero-padded counter that eases toward its target like a projector spinning up. */
+export const Counter: React.FC<{
+  frame: number;
+  from: number;
+  to: number;
+  start: number;
+  end: number;
+  digits?: number;
+  size: number;
+  color?: string;
+  style?: React.CSSProperties;
+}> = ({ frame, from, to, start, end, digits = 4, size, color = C.ivoryDim, style }) => {
+  const t = ramp(frame, start, end, (x) => x * x * (3 - 2 * x));
+  const v = Math.round(from + (to - from) * t);
+  return (
+    <div style={{ fontFamily: FONT.pixel, fontSize: size, color, letterSpacing: "0.1em", lineHeight: 1, ...style }}>
+      {String(v).padStart(digits, "0")}
+    </div>
+  );
+};
+
+/**
+ * A word breaks into tiles that fall away along a wave front (origin → outward).
+ * Tiles are the style's pixel: the word dies the way the template does.
+ */
+export const Crumble: React.FC<{
+  frame: number;
+  start: number;
+  line: LineSpec;
+  width: number;
+  height: number;
+  tile?: number;
+  /** Wave origin in px within the box, and speed in px per frame. */
+  origin?: { x: number; y: number };
+  speed?: number;
+  style?: React.CSSProperties;
+}> = ({ frame, start, line, width, height, tile = 24, origin = { x: 0, y: height / 2 }, speed = 30, style }) => {
+  const cols = Math.ceil(width / tile);
+  const rows = Math.ceil(height / tile);
+  const t = frame - start;
+  return (
+    <div style={{ position: "relative", width, height, ...style }}>
+      {Array.from({ length: cols * rows }, (_, i) => {
+        const cx = (i % cols) * tile;
+        const cy = Math.floor(i / cols) * tile;
+        const reach = Math.hypot(cx - origin.x, cy - origin.y) / speed + hash(i) * 4;
+        const life = t - reach;
+        if (life > 40) return null;
+        const fall = life > 0 ? life : 0;
+        const dx = fall * (hash(i * 3) - 0.3) * 2.2;
+        const dy = fall * fall * 0.35 - fall * 2.5 * hash(i * 7);
+        const op = life > 0 ? clamp(1 - life / 34) : 1;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: cx,
+              top: cy,
+              width: tile,
+              height: tile,
+              overflow: "hidden",
+              opacity: op,
+              transform: `translate(${Math.round(dx / 4) * 4}px, ${Math.round(dy / 4) * 4}px)`,
+            }}
+          >
+            <div style={{ ...lineStyle(line), position: "absolute", left: -cx, top: -cy, width, height, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {line.text}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};

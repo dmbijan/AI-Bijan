@@ -1,0 +1,756 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 725 src/kits/timeforge/example/cut.ts
+// A 7 s silent cut in seconds: hold, morph, hold, morph, hold — enough to exercise every engine path.
+
+import type { Cut } from "../film/cut.ts";
+import { keys } from "../../../core/motion/track.ts";
+import { makeEvolution } from "./evolution.ts";
+import type { Cam, StarterFx } from "./params.ts";
+
+export const STARTER_CUT: Cut<Cam, StarterFx> = {
+  seconds: 7,
+  clock: (frame, fps) => frame / fps,
+  evolution: makeEvolution([
+    { id: "m1", t0: 1.2, t1: 3.2 },
+    { id: "m2", t0: 4.2, t1: 6.2 },
+  ]),
+  yaw: keys([0, -35], [7, 20]),
+  tilt: keys([0, 0, 0]),
+  rig: keys([0, 0, -3.0, 0, 6, 4, 48, 24], [7, 0, -3.2, 0, 4, 7, 46, 24]),
+  labels: keys([0, 1]),
+  fx: {},
+  title: { in: [0, 0.5], out: [1.0, 1.6] },
+};
+
+==== 1426 src/kits/timeforge/example/eras.ts
+import { mat } from "../../../core/materials/sweep.ts";
+import type { EraLabel } from "../film/subject.ts";
+import type { Cam } from "./params.ts";
+
+const box: Cam = {
+  body: { hw: 4.6, hh: 3.6, d: 4.2, rc: 0.35, reF: 0.15, reB: 0.15 },
+  lens: { r: 1.0, len: 0.9, x: 0, y: -0.2 },
+  dial: { r: 0.7, ht: 0.6, x: 2.6 },
+  mats: { body: mat("#2b2a28", { rough: 0.7, sheen: 0.4 }), trim: mat("#c9c3b8", { rough: 0.3, metal: 1 }) },
+};
+const compact: Cam = {
+  body: { hw: 4.4, hh: 2.6, d: 2.4, rc: 1.1, reF: 0.6, reB: 0.6 },
+  lens: { r: 1.25, len: 1.4, x: -0.6, y: 0 },
+  dial: { r: 0.5, ht: 0.3, x: 2.8 },
+  mats: { body: mat("#c7c9cc", { rough: 0.35, metal: 0.8, cc: 0.4 }), trim: mat("#1d1f22", { rough: 0.4 }) },
+};
+const mirrorless: Cam = {
+  body: { hw: 4.8, hh: 3.0, d: 1.8, rc: 0.9, reF: 0.3, reB: 0.5 },
+  lens: { r: 1.9, len: 3.2, x: -0.4, y: -0.1 },
+  dial: { r: 0.6, ht: 0.0, x: 3.0 },
+  mats: { body: mat("#efece6", { rough: 0.45, cc: 0.6, ccRough: 0.2 }), trim: mat("#b9babd", { rough: 0.25, metal: 1, aniso: 0.5 }) },
+};
+
+export const ERAS = { box, compact, mirrorless };
+export const ERA_ORDER = ["box", "compact", "mirrorless"] as const;
+export const ERA_LABEL: Record<(typeof ERA_ORDER)[number], EraLabel> = {
+  box: { year: 1950, decade: true, tag: "CONTOH · ERA 1" },
+  compact: { year: 1995, decade: false, tag: "CONTOH · ERA 2" },
+  mirrorless: { year: 2026, decade: false, tag: "CONTOH · ERA 3" },
+};
+
+==== 1085 src/kits/timeforge/example/evolution.ts
+// Per-component timing for the starter's two morphs (fractions of each morph).
+
+import { placeMorphs, type MorphDef, type MorphWindow } from "../morph/eraTimeline.ts";
+import type { Rule } from "../morph/lerpTree.ts";
+import { ease } from "../../../core/motion/easing.ts";
+import { ERA_ORDER, ERAS } from "./eras.ts";
+import type { Cam } from "./params.ts";
+
+const r = (match: Rule["match"], start: number, end: number): Rule => ({ match, start, end });
+
+export const MORPHS = {
+  // the dial sinks first, then the box rounds off around a lens that slides out
+  m1: { from: "box", to: "compact", rules: [r("dial.", 0, 0.4), r("body.", 0.2, 0.8), r("lens.", 0.45, 1)] },
+  m2: { from: "compact", to: "mirrorless", rules: [r("body.", 0, 0.6), r("lens.", 0.3, 1), r("dial.", 0, 0.3)] },
+} satisfies Record<string, MorphDef>;
+
+export const SWEEP: Record<string, [number, number]> = { box: [0.2, 0.8], compact: [0.1, 0.6] };
+
+export const makeEvolution = (windows: MorphWindow<keyof typeof MORPHS>[]) => placeMorphs<Cam, keyof typeof MORPHS>(ERAS, ERA_ORDER, MORPHS, windows, ease.inOut);
+
+==== 368 src/kits/timeforge/example/ExampleFilm.tsx
+import React from "react";
+import { TimeforgeFilm } from "../film/TimeforgeFilm.tsx";
+import { STARTER_CUT } from "./cut.ts";
+import { STARTER } from "./subject.ts";
+
+/** The kit's example subject (a 3-era camera stand-in). Copy example/ to start a new subject. */
+export const TimeforgeExample: React.FC = () => <TimeforgeFilm subject={STARTER} cut={STARTER_CUT} />;
+
+==== 2035 src/kits/timeforge/example/Model.tsx
+// The starter camera: one engine Slab for the body, a lathe lens barrel and a top dial.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { CylinderGeometry, LatheGeometry, Vector2 } from "three";
+import { Slab } from "../../../core/geometry/slab.ts";
+import { applyMat, plainMaterial, sweepMaterial, type Sweep } from "../../../core/materials/sweep.ts";
+import type { EraState } from "../morph/eraTimeline.ts";
+import type { Cam, StarterFx } from "./params.ts";
+
+export const StarterModel: React.FC<{ era: EraState<Cam>; sweep: Sweep; font: string; fx: StarterFx }> = ({ era, sweep }) => {
+  const { params: p, a: A, b: B } = era;
+  const slab = useMemo(() => new Slab(), []);
+  const body = useMemo(() => [sweepMaterial(), sweepMaterial(), sweepMaterial()], []);
+  // sweep materials need the `tfPos` attribute only Slab geometry carries; other meshes blend plainly
+  const trim = useMemo(() => plainMaterial(), []);
+  const barrel = useMemo(
+    () => new LatheGeometry([[0, 0], [1, 0], [1, 0.9], [0.92, 1], [0.7, 1], [0.66, 0.96], [0, 0.96]].map(([x, y]) => new Vector2(x, y)), 64),
+    [],
+  );
+  const dial = useMemo(() => new CylinderGeometry(1, 1, 1, 48), []);
+  useLayoutEffect(() => {
+    slab.update({ ...p.body });
+    const sw = { ...sweep, top: p.body.hh, bottom: -p.body.hh };
+    for (const m of body) applyMat(m, A.mats.body, B.mats.body, sw);
+    applyMat(trim, A.mats.trim, B.mats.trim, sw);
+  });
+  // the barrel starts slightly inside the front face so it grows out of it
+  const z0 = p.body.d / 2 - 0.05;
+  return (
+    <>
+      <mesh geometry={slab.geometry} material={body} castShadow receiveShadow />
+      <mesh geometry={barrel} material={trim} position={[p.lens.x, p.lens.y, z0]} rotation={[Math.PI / 2, 0, 0]} scale={[p.lens.r, p.lens.len, p.lens.r]} castShadow />
+      {p.dial.ht > 0.01 ? (
+        <mesh geometry={dial} material={trim} position={[p.dial.x, p.body.hh + p.dial.ht / 2 - 0.05, 0]} scale={[p.dial.r, p.dial.ht + 0.1, p.dial.r]} castShadow />
+      ) : null}
+    </>
+  );
+};
+
+==== 967 src/kits/timeforge/example/params.ts
+// EXAMPLE SUBJECT — a deliberately simple stand-in (a camera in three eras) that proves the
+// TIMEFORGE engine runs with a parameter tree other than the phone's. It is a plumbing test and
+// a template to copy, NOT an art-directed design. Units: cm, object space (front = +z, top = +y).
+
+import type { MatState } from "../../../core/materials/sweep.ts";
+
+export type Cam = {
+  /** Body shell (fed straight to the engine's Slab). */
+  body: { hw: number; hh: number; d: number; rc: number; reF: number; reB: number };
+  /** Lens barrel on the front: radius, how far it stands out, centre offset on the face. */
+  lens: { r: number; len: number; x: number; y: number };
+  /** Top dial: radius and height (0 = sunk flush, i.e. gone). */
+  dial: { r: number; ht: number; x: number };
+  mats: { body: MatState; trim: MatState };
+  /** Object performance is passed separately (StarterFx); this tree is pure design. */
+};
+
+export type StarterFx = Record<string, never>;
+
+==== 543 src/kits/timeforge/example/subject.ts
+import type { Subject } from "../film/subject.ts";
+import { ERA_LABEL, ERA_ORDER } from "./eras.ts";
+import { SWEEP } from "./evolution.ts";
+import { StarterModel } from "./Model.tsx";
+import type { Cam, StarterFx } from "./params.ts";
+
+export const STARTER: Subject<Cam, StarterFx> = {
+  title: "CONTOH SUBJECT",
+  order: ERA_ORDER,
+  labels: ERA_LABEL,
+  rail: ["1950", "1995", "2026"],
+  sweep: SWEEP,
+  halfHeight: (p) => p.body.hh + 0.1,
+  footprint: (p) => ({ w: p.body.hw, d: p.body.d / 2 + p.lens.len / 2 }),
+  Model: StarterModel,
+};
+
+==== 5064 src/kits/timeforge/film/choreography.ts
+// Subject + cut + frame → complete film state. Pure and deterministic: the 3D world, the
+// typography and the QA scripts all sample these functions. Object-specific knowledge comes
+// only through the Subject contract; all timing lives in the cut.
+
+import { Euler, Matrix4, Quaternion, Vector3 } from "three";
+import { shotAt as rigShot } from "../../../core/camera/director.ts";
+import type { Sweep } from "../../../core/materials/sweep.ts";
+import { evaluate, type EraState } from "../morph/eraTimeline.ts";
+import type { Tree } from "../morph/lerpTree.ts";
+import { ease, mix, remap } from "../../../core/motion/easing.ts";
+import { sample } from "../../../core/motion/track.ts";
+import type { Shot } from "../../../core/render/Post.tsx";
+import { PLINTH, type StudioLook } from "../../../core/studio/Studio.tsx";
+import type { Cut } from "./cut.ts";
+import type { Subject } from "./subject.ts";
+
+const D = Math.PI / 180;
+const HOVER = 2.2; // default gap between the object and the plinth
+
+// ── object pose ────────────────────────────────────────────────────────────────
+export const poseAt = <P extends Tree, Fx extends Record<string, number>>(subject: Subject<P, Fx>, cut: Cut<P, Fx>, x: number, p: P) => {
+  const [pitch, roll] = sample(cut.tilt, x);
+  // hover above the plinth by the object's own (rotated) extent, so it never sinks into it
+  const below = subject.halfHeight(p, roll * D);
+  const pos = new Vector3(0, PLINTH.top + (subject.hover ?? HOVER) + below, 0);
+  const [yaw] = sample(cut.yaw, x);
+  const q = new Quaternion().setFromEuler(new Euler(pitch * D, yaw * D, roll * D, "YXZ"));
+  return { pos, q, matrix: new Matrix4().compose(pos, q, new Vector3(1, 1, 1)) };
+};
+
+// ── camera ─────────────────────────────────────────────────────────────────────
+export const shotAt = <P extends Tree, Fx extends Record<string, number>>(cut: Cut<P, Fx>, x: number): Shot =>
+  rigShot(cut.rig, x, { aperture: 0.0009, maxBlur: 0.004, exposure: 1.0 });
+
+// ── materials ──────────────────────────────────────────────────────────────────
+const sweepAt = <P extends Tree>(sweep: Record<string, [number, number]>, era: EraState<P>): Sweep => {
+  if (!era.morph) return { progress: 0, top: 1, bottom: -1, band: 0 };
+  const [a, b] = sweep[era.morph.from] ?? [0, 1];
+  return { progress: ease.inOut(remap(era.t, a, b)), top: 1, bottom: -1, band: 1.4 };
+};
+
+// ── studio ─────────────────────────────────────────────────────────────────────
+const WARM: [number, number, number] = [1.06, 0.97, 0.88];
+const COOL: [number, number, number] = [0.9, 1.03, 1.03];
+/** The studio warms for the past and cools for the future; `eras` = number of eras. */
+const lookAt = (eraPos: number, eras: number, morphing: boolean): StudioLook => {
+  const k = eraPos / (eras - 1); // 0 past … 1 future
+  const tint: [number, number, number] = k < 0.5 ? (WARM.map((w) => mix(w, 1, k * 2)) as [number, number, number]) : (COOL.map((c) => mix(1, c, (k - 0.5) * 2)) as [number, number, number]);
+  return {
+    envRotation: 0.35,
+    envIntensity: 1.0,
+    keyAz: 18 * D,
+    keyEl: 66 * D,
+    keyIntensity: 1.5,
+    tint,
+    tintAmount: 0.9,
+    ring: morphing ? 1 : 0,
+  };
+};
+
+export type FilmState<P extends Tree, Fx extends Record<string, number>> = {
+  era: EraState<P>;
+  sweep: Sweep;
+  pose: ReturnType<typeof poseAt>;
+  shot: Shot;
+  look: StudioLook;
+  blob: { x: number; z: number; sx: number; sz: number; rot: number; opacity: number };
+  /** World points the subject exposes (e.g. a spatial-UI anchor). */
+  anchors: Record<string, Vector3>;
+  fx: Fx;
+};
+
+export const stateAt = <P extends Tree, Fx extends Record<string, number>>(subject: Subject<P, Fx>, cut: Cut<P, Fx>, frame: number, fps: number): FilmState<P, Fx> => {
+  const x = cut.clock(frame, fps);
+  const era = evaluate(cut.evolution, x);
+  const p = era.params;
+  const pose = poseAt(subject, cut, x, p);
+  const ringPulse = era.morph ? Math.sin(Math.PI * era.t) : 0;
+  const look = lookAt(era.eraPos, subject.order.length, false);
+  look.ring = ringPulse;
+  const foot = subject.footprint(p);
+  const fx = Object.fromEntries(Object.entries(cut.fx).map(([k, track]) => [k, Math.max(0, sample(track as Cut<P, Fx>["rig"], x)[0])])) as Fx;
+  return {
+    era,
+    sweep: sweepAt(subject.sweep, era),
+    pose,
+    shot: shotAt(cut, x),
+    look,
+    blob: { x: pose.pos.x, z: pose.pos.z, sx: foot.w * 3.2, sz: foot.d * 3.2 + 1.2, rot: sample(cut.yaw, x)[0] * D, opacity: 0.32 },
+    anchors: subject.anchors?.(p, pose.matrix) ?? {},
+    fx,
+  };
+};
+
+==== 1634 src/kits/timeforge/film/cut.ts
+// A cut is one edit of a film: its clock, where each morph plays, how the object turns, where
+// the camera goes, what the typography and the object perform. Every key is written in the
+// cut's own clock units (`clock`), so the same choreography drives a silent preview (keys in
+// 30 fps frames) and a narrated film (keys in voice-over seconds).
+
+import type { Evolution } from "../morph/eraTimeline.ts";
+import type { Tree } from "../morph/lerpTree.ts";
+import type { Key } from "../../../core/motion/track.ts";
+
+export type Cut<P extends Tree, Fx extends Record<string, number>> = {
+  /** Length in seconds; the composition is `seconds × fps` frames. */
+  seconds: number;
+  /** Composition frame → this cut's clock. */
+  clock: (frame: number, fps: number) => number;
+  evolution: Evolution<P>;
+  /** Turntable yaw (deg). */
+  yaw: Key[];
+  /** Pitch and roll (deg). */
+  tilt: Key[];
+  /** Camera rig: [tx, ty, tz, azDeg, elDeg, dist, fovDeg]. */
+  rig: Key[];
+  /** Visibility of year, descriptor and time rail (dropped during detail close-ups). */
+  labels: Key[];
+  /** Object performance channels (screen moments, lights…), one single-channel track each. */
+  fx: { [K in keyof Fx]: Key[] };
+  /** Title fades (clock units). */
+  title: { in: [number, number]; out: [number, number] };
+  /** Closing line under the year, faded in over `in`. */
+  closing?: { text: string; in: [number, number] };
+  /** Fade the whole frame to the studio white over this window. */
+  fadeOut?: [number, number];
+  /** Voice-over (path under public/), placed `offset` seconds into the film. */
+  vo?: { src: string; offset: number };
+};
+
+==== 4175 src/kits/timeforge/film/Overlay.tsx
+// Typography: rolling year at the top, one descriptor line, a time rail at the bottom (one stop
+// per era). Laid out at 1080 × 1920 and scaled to the render size. All words come from the
+// subject and the cut.
+
+import { evaluate } from "../morph/eraTimeline.ts";
+import type { Tree } from "../morph/lerpTree.ts";
+import { sample } from "../../../core/motion/track.ts";
+import { ease, mix, remap } from "../../../core/motion/easing.ts";
+import { INK, INK_SOFT } from "../../../core/type/fonts.ts";
+import { TimeRail } from "../type/TimeRail.tsx";
+import { YearCounter } from "../type/YearCounter.tsx";
+import type { Cut } from "./cut.ts";
+import type { Subject } from "./subject.ts";
+
+const ACCENT = "#46bfb0";
+
+const yearAt = <P extends Tree, Fx extends Record<string, number>>(subject: Subject<P, Fx>, cut: Cut<P, Fx>, x: number) => {
+  const L = subject.labels;
+  const e = evaluate(cut.evolution, x);
+  if (!e.morph) return { year: L[subject.order[e.eraPos]].year, e };
+  const a = L[e.morph.from].year;
+  const b = L[e.morph.to].year;
+  return { year: mix(a, b, ease.inOut(remap(e.t, 0.12, 0.88))), e };
+};
+
+type Props<P extends Tree, Fx extends Record<string, number>> = { subject: Subject<P, Fx>; cut: Cut<P, Fx>; frame: number; fps: number; width: number; font: string };
+
+export const Overlay = <P extends Tree, Fx extends Record<string, number>>({ subject, cut, frame, fps, width, font }: Props<P, Fx>) => {
+  const ERA_LABEL = subject.labels;
+  const k = width / 1080;
+  const x = cut.clock(frame, fps);
+  const { year, e } = yearAt(subject, cut, x);
+  const prev = yearAt(subject, cut, cut.clock(Math.max(0, frame - 1), fps)).year;
+  const from = e.morph ? e.morph.from : subject.order[e.eraPos];
+  const to = e.morph ? e.morph.to : from;
+  const t = e.morph ? e.t : 0;
+  const sOpacity = Math.max(ERA_LABEL[from].decade ? 1 - remap(t, 0.02, 0.14) : 0, ERA_LABEL[to].decade ? remap(t, 0.88, 0.98) : 0);
+  // descriptor: out early in the morph, the next one in late
+  const outK = e.morph ? ease.type(remap(t, 0.0, 0.18)) : 0;
+  const inK = e.morph ? ease.type(remap(t, 0.8, 1.0)) : 1;
+  const tag = e.morph && t < 0.5 ? ERA_LABEL[from].tag : ERA_LABEL[to].tag;
+  const tagK = e.morph ? (t < 0.5 ? 1 - outK : inK) : 1;
+  const labels = Math.min(1, Math.max(0, sample(cut.labels, x)[0]));
+  const intro = ease.type(remap(x, ...cut.title.in)) * labels;
+  const title = 1 - ease.type(remap(x, ...cut.title.out));
+  const closing = cut.closing ? ease.type(remap(x, ...cut.closing.in)) : 0;
+  const isConcept = (subject.accentEras ?? []).includes(to) && (!e.morph || t > 0.8);
+
+  return (
+    <div style={{ position: "absolute", inset: 0, width: 1080, height: 1920, transform: `scale(${k})`, transformOrigin: "0 0", fontFamily: font }}>
+      <div style={{ position: "absolute", top: 70, left: 0, right: 0, textAlign: "center", opacity: intro }}>
+        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: "0.42em", paddingLeft: "0.42em", color: INK_SOFT, opacity: title, height: 40 }}>
+          {subject.title}
+        </div>
+        <div style={{ marginTop: 4, transform: `translateY(${(1 - intro) * 18}px)` }}>
+          <YearCounter year={year} prev={prev} size={150} font={font} color={INK} weight={200} suffix={{ text: "s", opacity: sOpacity }} />
+        </div>
+        <div
+          style={{
+            marginTop: 6, fontSize: 28, fontWeight: 600, letterSpacing: "0.3em", paddingLeft: "0.3em",
+            color: isConcept ? ACCENT : INK_SOFT, opacity: tagK, transform: `translateY(${(1 - tagK) * 10}px)`,
+          }}
+        >
+          {tag}
+        </div>
+        {closing > 0 ? (
+          <div
+            style={{
+              marginTop: 28, fontSize: 40, fontWeight: 300, letterSpacing: "0.01em", color: INK,
+              opacity: closing, transform: `translateY(${(1 - closing) * 14}px)`,
+            }}
+          >
+            {cut.closing!.text}
+          </div>
+        ) : null}
+      </div>
+      <div style={{ position: "absolute", left: 150, top: 1752, opacity: intro }}>
+        <TimeRail labels={subject.rail} pos={e.eraPos} width={780} font={font} ink={INK} soft={INK_SOFT} accent={ACCENT} />
+      </div>
+    </div>
+  );
+};
+
+==== 2275 src/kits/timeforge/film/subject.ts
+// The contract between the TIMEFORGE engine and one evolving object (a "subject"). The engine
+// owns time, camera, studio, materials sweep, typography and voice-over; a subject supplies the
+// parameter tree's eras (via its cuts), how it is labelled, how big it is, and how it is drawn.
+// The phone film (src/subjects/phones) is the only art-directed implementation so far.
+
+import type React from "react";
+import type { Matrix4, Vector3 } from "three";
+import type { Sweep } from "../../../core/materials/sweep.ts";
+import type { EraState } from "../morph/eraTimeline.ts";
+import type { Tree } from "../morph/lerpTree.ts";
+import type { FilmState } from "./choreography.ts";
+
+export type EraLabel = {
+  year: number;
+  /** Show an "s" after the year while holding this era (1990s), hidden while rolling. */
+  decade: boolean;
+  /** One short descriptor line under the year. */
+  tag: string;
+};
+
+export type Subject<P extends Tree, Fx extends Record<string, number>> = {
+  /** Small caps line over the year at the start (e.g. "EVOLUSI PONSEL"). */
+  title: string;
+  /** Era ids in time order. */
+  order: readonly string[];
+  labels: Record<string, EraLabel>;
+  /** Stops on the time rail, one per era. */
+  rail: string[];
+  /** Eras whose descriptor turns accent-coloured near the end of the morph into them (speculative concepts). */
+  accentEras?: string[];
+  /** Material scan window per morph, keyed by the morph's `from` era (fractions of the morph). */
+  sweep: Record<string, [number, number]>;
+  /** Distance from the object origin down to its lowest point for these params and roll (rad). */
+  halfHeight: (p: P, roll: number) => number;
+  /** Contact-shadow footprint half-sizes in object space. */
+  footprint: (p: P) => { w: number; d: number };
+  /** Gap between the object and the plinth (default 2.2). */
+  hover?: number;
+  /** Named world points derived from the object (e.g. where a spatial UI attaches). */
+  anchors?: (p: P, matrix: Matrix4) => Record<string, Vector3>;
+  /** The object in its own space; the film poses it. */
+  Model: React.FC<{ era: EraState<P>; sweep: Sweep; font: string; fx: Fx }>;
+  /** World-space extras that are not part of the object (spatial UI, props). */
+  Extras?: React.FC<{ s: FilmState<P, Fx>; font: string }>;
+};
+
+==== 2531 src/kits/timeforge/film/TimeforgeFilm.tsx
+import { useEffect, useMemo, useState } from "react";
+import { AbsoluteFill, continueRender, delayRender, Html5Audio, Sequence, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { PCFShadowMap } from "three";
+import type { Tree } from "../morph/lerpTree.ts";
+import { remap } from "../../../core/motion/easing.ts";
+import { MANROPE, manropeReady } from "../../../core/type/fonts.ts";
+import { stateAt } from "./choreography.ts";
+import type { Cut } from "./cut.ts";
+import { Overlay } from "./Overlay.tsx";
+import type { Subject } from "./subject.ts";
+import { World } from "./World.tsx";
+
+/**
+ * One TIMEFORGE film: a subject played through a cut. Compositions wrap this with a small
+ * component that maps a serialisable prop (the cut id) to the subject and cut objects.
+ */
+export const TimeforgeFilm = <P extends Tree, Fx extends Record<string, number>>({ subject, cut }: { subject: Subject<P, Fx>; cut: Cut<P, Fx> }) => {
+  const frame = useCurrentFrame();
+  const { width, height, fps } = useVideoConfig();
+  // canvases (screen, key legends, panels) are drawn with the web font: wait for it
+  const [handle] = useState(() => delayRender("Manrope"));
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    manropeReady().then(() => {
+      setReady(true);
+      continueRender(handle);
+    });
+  }, [handle]);
+  const s = useMemo(() => stateAt(subject, cut, frame, fps), [subject, cut, frame, fps]);
+  const fade = cut.fadeOut ? remap(cut.clock(frame, fps), ...cut.fadeOut) : 0;
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#e9e6e0" }}>
+      {ready ? (
+        <>
+          <ThreeCanvas
+            width={width}
+            height={height}
+            shadows={{ type: PCFShadowMap }}
+            dpr={1}
+            gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+            camera={{ fov: 24, near: 1, far: 900, position: [0, 0, 60] }}
+          >
+            <World subject={subject} s={s} frame={frame} font={MANROPE} />
+          </ThreeCanvas>
+          <Overlay subject={subject} cut={cut} frame={frame} fps={fps} width={width} font={MANROPE} />
+        </>
+      ) : null}
+      {fade > 0 ? <AbsoluteFill style={{ backgroundColor: "#ece9e3", opacity: fade }} /> : null}
+      {cut.vo ? (
+        <Sequence from={Math.round(cut.vo.offset * fps)} layout="none">
+          <Html5Audio src={staticFile(cut.vo.src)} />
+        </Sequence>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+==== 1216 src/kits/timeforge/film/World.tsx
+import { useLayoutEffect, useRef } from "react";
+import type { Group } from "three";
+import type { Tree } from "../morph/lerpTree.ts";
+import { CameraRig, Post } from "../../../core/render/Post.tsx";
+import { Studio } from "../../../core/studio/Studio.tsx";
+import type { FilmState } from "./choreography.ts";
+import type { Subject } from "./subject.ts";
+
+/** The whole physical scene for one frame of state: studio, the posed object, its extras, camera, post. */
+export const World = <P extends Tree, Fx extends Record<string, number>>({ subject, s, frame, font }: { subject: Subject<P, Fx>; s: FilmState<P, Fx>; frame: number; font: string }) => {
+  const object = useRef<Group>(null);
+  useLayoutEffect(() => {
+    object.current!.matrix.copy(s.pose.matrix);
+    object.current!.matrixWorldNeedsUpdate = true;
+  });
+  const { Model, Extras } = subject;
+  return (
+    <>
+      <Studio look={s.look} blob={s.blob} />
+      <group ref={object} matrixAutoUpdate={false}>
+        <Model era={s.era} sweep={s.sweep} font={font} fx={s.fx} />
+      </group>
+      {Extras ? <Extras s={s} font={font} /> : null}
+      <CameraRig shot={s.shot} />
+      <Post shot={s.shot} frame={frame} aoRadius={0.45} />
+    </>
+  );
+};
+
+==== 3237 src/kits/timeforge/morph/eraTimeline.ts
+// An evolution is a sequence of eras (parameter trees of one shape) joined by morphs.
+// Holds show an era as-is; a morph interpolates leaf by leaf with its own timing rules.
+// A morph can also play in reverse (a rewind through time): the object then passes through
+// exactly the states of the forward morph, backwards. Times are in whatever clock the caller
+// samples with (frames, seconds).
+
+import { lerpTree, ruled, type Rule, type Tree } from "./lerpTree.ts";
+
+export type Morph = {
+  from: string;
+  to: string;
+  f0: number;
+  f1: number;
+  rules: Rule[];
+  /** Timing for leaves no rule matches (fractions of the morph). */
+  fallback?: { start: number; end: number };
+  ease: (t: number) => number;
+  /** Play from `to` back to `from` (the forward morph's states, in reverse order). */
+  reverse?: boolean;
+};
+
+export type Evolution<P extends Tree> = {
+  eras: Record<string, P>;
+  order: string[];
+  morphs: Morph[];
+};
+
+/** A morph without timing: which eras it joins and how its leaves are staggered. */
+export type MorphDef = { from: string; to: string; rules: readonly Rule[]; fallback?: { start: number; end: number } };
+
+/** Where (and which way) a morph plays, in the caller's clock units. */
+export type MorphWindow<Id extends string = string> = { id: Id; t0: number; t1: number; reverse?: boolean };
+
+/** Place timing-free morph definitions on a clock: the same object can be cut many ways. */
+export const placeMorphs = <P extends Tree, Id extends string>(
+  eras: Record<string, P>,
+  order: readonly string[],
+  defs: Record<Id, MorphDef>,
+  windows: MorphWindow<Id>[],
+  ease: (t: number) => number,
+): Evolution<P> => ({
+  eras,
+  order: [...order],
+  morphs: windows.map((w) => ({ ...defs[w.id], rules: [...defs[w.id].rules], f0: w.t0, f1: w.t1, reverse: w.reverse, ease })),
+});
+
+export type EraState<P> = {
+  params: P;
+  /** The two eras being joined (equal during a hold) — for spatial material sweeps. */
+  a: P;
+  b: P;
+  /** Continuous era coordinate: 0 = first era … n-1 = last; fractional inside a morph. */
+  eraPos: number;
+  /** The morph in progress (null during a hold) and its linear time in forward terms (a reverse morph runs 1 → 0). */
+  morph: Morph | null;
+  t: number;
+};
+
+const startEra = (m: Morph) => (m.reverse ? m.to : m.from);
+const endEra = (m: Morph) => (m.reverse ? m.from : m.to);
+
+export const evaluate = <P extends Tree>(evo: Evolution<P>, frame: number): EraState<P> => {
+  const idx = (id: string) => evo.order.indexOf(id);
+  const m = evo.morphs.find((m) => frame >= m.f0 && frame < m.f1) ?? null;
+  if (m) {
+    const u = (frame - m.f0) / (m.f1 - m.f0);
+    const t = m.reverse ? 1 - u : u;
+    const p = ruled(t, m.rules, m.fallback ?? { start: 0, end: 1 }, m.ease);
+    const a = evo.eras[m.from], b = evo.eras[m.to];
+    return { params: lerpTree(a, b, p), a, b, eraPos: idx(m.from) + t, morph: m, t };
+  }
+  // hold: where the last finished morph ended (or where the first one starts)
+  const done = evo.morphs.filter((m) => frame >= m.f1);
+  const id = done.length ? endEra(done[done.length - 1]) : evo.morphs.length ? startEra(evo.morphs[0]) : evo.order[0];
+  const e = evo.eras[id];
+  return { params: e, a: e, b: e, eraPos: idx(id), morph: null, t: 0 };
+};
+
+==== 2339 src/kits/timeforge/morph/lerpTree.ts
+// TIMEFORGE morph core: interpolate two parameter trees of identical shape. Each numeric
+// leaf gets its own progress from a timing function keyed by its dotted path, so every
+// component of an object can transform on its own schedule (component-level animation)
+// while the whole object stays one continuous state. Pure: same inputs, same output.
+
+export type Tree = number | boolean | string | Tree[] | { [k: string]: Tree };
+
+/** Maps a leaf path ("keys.7.h", "body.hw") to that leaf's eased progress 0..1. */
+export type Progress = (path: string) => number;
+
+export const lerpTree = <T extends Tree>(a: T, b: T, p: Progress, path = ""): T => {
+  if (typeof a === "number") {
+    const t = p(path);
+    return (a + ((b as number) - a) * t) as T;
+  }
+  if (typeof a === "boolean" || typeof a === "string") return (p(path) < 0.5 ? a : b) as T;
+  if (Array.isArray(a)) {
+    const bb = b as Tree[];
+    if (bb.length !== a.length) throw new Error(`lerpTree: length mismatch at "${path}"`);
+    return a.map((x, i) => lerpTree(x, bb[i], p, path ? `${path}.${i}` : String(i))) as T;
+  }
+  const out: Record<string, Tree> = {};
+  const bo = b as Record<string, Tree>;
+  for (const k of Object.keys(a)) {
+    if (!(k in bo)) throw new Error(`lerpTree: key "${k}" missing in target at "${path}"`);
+    out[k] = lerpTree((a as Record<string, Tree>)[k], bo[k], p, path ? `${path}.${k}` : k);
+  }
+  return out as T;
+};
+
+/** One timing rule: leaves whose path matches run over [start, end] of the transition. */
+export type Rule = { match: RegExp | string; start: number; end: number; ease?: (t: number) => number };
+
+/**
+ * Build a Progress from ordered rules (first match wins) for a transition at local time
+ * `t` (0..1). `fallback` covers unmatched leaves.
+ */
+export const ruled = (
+  t: number,
+  rules: Rule[],
+  fallback: Omit<Rule, "match">,
+  defaultEase: (t: number) => number,
+): Progress => {
+  const cache = new Map<string, number>();
+  return (path) => {
+    const hit = cache.get(path);
+    if (hit !== undefined) return hit;
+    const r = rules.find((r) => (typeof r.match === "string" ? path.startsWith(r.match) : r.match.test(path))) ?? fallback;
+    const x = Math.min(1, Math.max(0, (t - r.start) / Math.max(1e-6, r.end - r.start)));
+    const v = (r.ease ?? defaultEase)(x);
+    cache.set(path, v);
+    return v;
+  };
+};
+
+==== 1907 src/kits/timeforge/type/TimeRail.tsx
+// Time rail: a hairline with one stop per era and a marker that travels with the morph.
+
+import React from "react";
+
+export const TimeRail: React.FC<{
+  labels: string[];
+  pos: number; // continuous era coordinate
+  width: number;
+  font: string;
+  ink: string;
+  soft: string;
+  accent: string;
+}> = ({ labels, pos, width, font, ink, soft, accent }) => {
+  const n = labels.length;
+  const x = (i: number) => (i / (n - 1)) * width;
+  const mx = x(pos);
+  return (
+    <div style={{ position: "relative", width, height: 70, fontFamily: font }}>
+      <div style={{ position: "absolute", left: 0, top: 14, width, height: 2, background: soft, opacity: 0.45 }} />
+      <div style={{ position: "absolute", left: 0, top: 14, width: mx, height: 2, background: accent }} />
+      {labels.map((l, i) => {
+        const near = Math.max(0, 1 - Math.abs(pos - i) * 1.4);
+        return (
+          <React.Fragment key={l}>
+            <div
+              style={{
+                position: "absolute", left: x(i) - 5, top: 10, width: 10, height: 10, borderRadius: 5,
+                background: i <= pos + 1e-3 ? accent : "#f4f2ee", border: `2px solid ${i <= pos + 1e-3 ? accent : soft}`, boxSizing: "border-box",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute", left: x(i) - 60, top: 34, width: 120, textAlign: "center",
+                fontSize: 25, fontWeight: near > 0.5 ? 600 : 500, letterSpacing: "0.08em", color: near > 0.5 ? ink : soft, opacity: 0.6 + 0.4 * near,
+              }}
+            >
+              {l}
+            </div>
+          </React.Fragment>
+        );
+      })}
+      <div
+        style={{
+          position: "absolute", left: mx - 11, top: 4, width: 22, height: 22, borderRadius: 11,
+          border: `2px solid ${accent}`, boxSizing: "border-box", background: "rgba(255,255,255,0.6)",
+        }}
+      />
+    </div>
+  );
+};
+
+==== 1992 src/kits/timeforge/type/YearCounter.tsx
+// Rolling year counter: mechanical odometer digits that pass through every year of a
+// transition. Higher digits roll only while every lower digit is turning over (9 → 0),
+// exactly like a real counter; fast-spinning digits pick up a little motion blur.
+
+import React from "react";
+
+const digitPos = (y: number, k: number) => {
+  const p = 10 ** k;
+  const base = Math.floor(y / p) % 10;
+  if (k === 0) return y % 10;
+  return base + Math.min(1, Math.max(0, (y % p) - (p - 1)));
+};
+
+export const YearCounter: React.FC<{
+  year: number;
+  /** Year one frame earlier, for blur. */
+  prev: number;
+  size: number;
+  font: string;
+  color: string;
+  weight?: number;
+  suffix?: { text: string; opacity: number };
+}> = ({ year, prev, size, font, color, weight = 200, suffix }) => {
+  const lineH = size * 1.04;
+  const cellW = size * 0.6;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", fontFamily: font, fontWeight: weight, fontSize: size, color, lineHeight: `${lineH}px` }}>
+      {[3, 2, 1, 0].map((k) => {
+        const pos = digitPos(year, k);
+        const speed = Math.abs(pos - digitPos(prev, k));
+        const blur = Math.min(size * 0.035, Math.max(0, (speed > 5 ? 10 - speed : speed) - 0.15) * size * 0.05);
+        return (
+          <div key={k} style={{ width: cellW, height: lineH, overflow: "hidden", position: "relative" }}>
+            <div style={{ transform: `translateY(${-pos * lineH}px)`, filter: blur > 0.2 ? `blur(${blur}px)` : undefined, textAlign: "center" }}>
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((d, i) => (
+                <div key={i} style={{ height: lineH }}>
+                  {d}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {suffix ? (
+        <div style={{ width: size * 0.44 * suffix.opacity, opacity: suffix.opacity, overflow: "hidden", height: lineH, textAlign: "left" }}>{suffix.text}</div>
+      ) : null}
+    </div>
+  );
+};

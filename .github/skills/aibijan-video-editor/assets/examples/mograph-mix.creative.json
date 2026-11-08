@@ -1,0 +1,374 @@
+{
+  "concept": {
+    "idea": "Editing that used to take hours now happens in a chat: the person talks, the edit builds itself around them.",
+    "signature": "'AI' huge behind the speaker's head on the hook, then the edit literally assembling as scenes (raw phone -> edited phone -> prompt -> features)."
+  },
+  "style": "mograph-mix",
+  "settings": {
+    "editing_intensity": "high",
+    "aspect_ratio": "9:16",
+    "music": "enabled",
+    "sound_effects": "medium",
+    "visual_overlays": "moderate"
+  },
+  "trim": {
+    "end_after_word": 92,
+    "tail": 0.15
+  },
+  "end_hold": 1.3,
+  "glossary": {
+    "Creator Lab": "Kreator Lab"
+  },
+  "emphasize": [
+    17,
+    23,
+    51,
+    55,
+    69,
+    75,
+    92
+  ],
+  "camera": [
+    {
+      "at": "t:0",
+      "preset": "talk",
+      "s": 1.25,
+      "fy": 0.37
+    },
+    {
+      "at": "w:13",
+      "preset": "punch",
+      "amount": 0.08,
+      "hold": 0.45
+    },
+    {
+      "at": "w:39",
+      "preset": "punch",
+      "amount": 0.07,
+      "hold": 0.4
+    },
+    {
+      "at": "w:62",
+      "preset": "punch",
+      "amount": 0.07,
+      "hold": 0.4
+    },
+    {
+      "at": "w:84",
+      "preset": "punch",
+      "amount": 0.08,
+      "hold": 0.5
+    }
+  ],
+  "layouts": [
+    {
+      "at": "t:0",
+      "preset": "full",
+      "transition": "cut",
+      "dur": 0
+    },
+    {
+      "at": "w:16-0.05",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:36-0.06",
+      "preset": "full",
+      "transition": "bars"
+    },
+    {
+      "at": "w:44-0.05",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:57-0.1",
+      "preset": "full",
+      "transition": "bars"
+    },
+    {
+      "at": "w:69-0.1",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:81-0.12",
+      "preset": "full",
+      "transition": "bars"
+    },
+    {
+      "at": "w:92e+0.02",
+      "preset": "none",
+      "transition": "orb"
+    }
+  ],
+  "overlays": [
+    {
+      "type": "Accents",
+      "start": "t:0",
+      "end": "end",
+      "items": [
+        "glints"
+      ]
+    },
+    {
+      "type": "Accents",
+      "start": "t:0",
+      "end": "w:16-0.1",
+      "items": [
+        "brackets"
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "t:0.02",
+      "end": "w:10-0.06",
+      "at": "w:2-0.04",
+      "kicker": "percaya nggak?",
+      "kickerAt": "t:0.05",
+      "text": "Semua editing",
+      "accent": "editing",
+      "size": 136,
+      "y": 1100,
+      "layout": "left",
+      "x": 80,
+      "fx": "slide"
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:10-0.06",
+      "end": "w:16-0.07",
+      "at": "w:13-0.15",
+      "tagAt": "w:14-0.1",
+      "kicker": "pake",
+      "kickerAt": "w:12-0.05",
+      "text": "AI",
+      "accent": "AI",
+      "size": 330,
+      "tag": "doang!",
+      "y": 420,
+      "layer": "behind",
+      "fx": "slam",
+      "signature": true
+    },
+    {
+      "type": "ScenePhones",
+      "start": "w:16-0.05",
+      "end": "w:22-0.1",
+      "exit": "slide",
+      "phones": [
+        {
+          "label": "mentah",
+          "at": "w:17-0.05",
+          "grade": 0
+        },
+        {
+          "label": "setelah",
+          "at": "w:19",
+          "grade": 1,
+          "icon": "sparkle"
+        }
+      ]
+    },
+    {
+      "type": "ScenePrompt",
+      "start": "w:22-0.1",
+      "end": "w:26-0.08",
+      "enter": "slide",
+      "exit": "slide",
+      "attach": true,
+      "attachAt": "w:23",
+      "prompt": "Edit videonya",
+      "at": "w:23+0.05",
+      "typing": 0.45,
+      "y": 470
+    },
+    {
+      "type": "SceneFeatures",
+      "start": "w:26-0.08",
+      "end": "w:36-0.05",
+      "enter": "slide",
+      "items": [
+        {
+          "text": "Potong jeda",
+          "word": "Potong",
+          "at": "w:27",
+          "art": "cut"
+        },
+        {
+          "text": "Subtitle",
+          "word": "Subtitle",
+          "at": "w:29",
+          "art": "caption",
+          "caption": "subtitle"
+        },
+        {
+          "text": "Animasi",
+          "word": "Animasi",
+          "at": "w:30",
+          "art": "motion"
+        },
+        {
+          "text": "Zoom",
+          "word": "Zoom",
+          "at": "w:31",
+          "art": "zoom"
+        },
+        {
+          "text": "B-roll",
+          "word": "B-roll",
+          "at": "w:32",
+          "art": "broll"
+        },
+        {
+          "text": "Sound effect",
+          "word": "Sound effect",
+          "at": "w:34",
+          "art": "sound"
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:36-0.02",
+      "end": "w:44-0.07",
+      "at": "w:39",
+      "tagAt": "w:41",
+      "kicker": "semuanya",
+      "kickerAt": "w:36",
+      "text": "Lewat chat",
+      "accent": "chat",
+      "size": 140,
+      "tag": "doang",
+      "y": 1090,
+      "fx": "type"
+    },
+    {
+      "type": "SceneChat",
+      "start": "w:44-0.05",
+      "end": "w:57-0.12",
+      "y": 370,
+      "messages": [
+        {
+          "media": "clip",
+          "side": "left",
+          "at": "w:44+0.15",
+          "grade": 1
+        },
+        {
+          "text": "Kurang cocok, revisi ya",
+          "side": "right",
+          "typed": true,
+          "typing": 1.0,
+          "at": "w:51e"
+        },
+        {
+          "text": "AI kerjain lagi",
+          "side": "left",
+          "at": "w:55-0.1",
+          "progress": {
+            "at": "w:55+0.1",
+            "dur": 0.55
+          }
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:60-0.05",
+      "end": "w:66-0.05",
+      "at": "w:62",
+      "tagAt": "w:63",
+      "kicker": "mau belajar",
+      "kickerAt": "w:60",
+      "text": "Workflow",
+      "accent": "Workflow",
+      "size": 150,
+      "tag": "editing",
+      "y": 1110,
+      "layout": "right",
+      "x": 1000,
+      "fx": "slam"
+    },
+    {
+      "type": "SceneStack",
+      "start": "w:69-0.1",
+      "end": "w:81-0.12",
+      "y": 520,
+      "items": [
+        {
+          "title": "Tutorial dari nol",
+          "icon": "play",
+          "at": "w:69"
+        },
+        {
+          "title": "AI skill",
+          "icon": "sparkle",
+          "at": "w:74",
+          "tone": "accent2"
+        },
+        {
+          "title": "Pakai sendiri",
+          "icon": "wand",
+          "at": "w:79",
+          "tone": "yellow"
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:81-0.05",
+      "end": "w:92e",
+      "at": "w:84",
+      "tagAt": "w:87",
+      "kicker": "langsung cek",
+      "kickerAt": "w:81",
+      "text": "Kreator Lab",
+      "accent": "Lab",
+      "size": 140,
+      "tag": "tombol di bawah",
+      "tagIcon": "arrowDown",
+      "y": 1040,
+      "stack": true,
+      "sizes": [
+        0.62,
+        1
+      ]
+    },
+    {
+      "type": "EndCard",
+      "start": "w:92e+0.02",
+      "end": "end",
+      "word1": "Kreator",
+      "word2": "Lab",
+      "y": 860,
+      "at": {
+        "wordmark": "w:92e+0.12"
+      }
+    }
+  ],
+  "music": {
+    "hit_at": "w:92"
+  },
+  "_beats": [
+    "HOOK face: 'Semua editing' slides in from the left, then a huge 'AI' slams in BEHIND the head (signature), glints + focus brackets, punch on 'AI'",
+    "ORB -> phones scene: raw 'mentah' phone then edited 'setelah' phone turning in 3D, light arc between them",
+    "PUSH -> AI prompt window: the clip arcs into the input, 'Edit videonya' typed and sent",
+    "PUSH -> features scene: chips + big gradient word + art per spoken feature (cut, caption, motion, zoom, b-roll, sound)",
+    "BARS -> face: 'Lewat chat' typed letter by letter + 'doang'",
+    "ORB -> chat scene: video bubble, revision typed and sent, AI reply with progress + check",
+    "BARS -> face: 'Workflow' slams in on the right + 'editing'",
+    "ORB -> stack scene: Tutorial dari nol / AI skill / Pakai sendiri glass cards flipping up",
+    "BARS -> face CTA: 'Kreator Lab' as a stacked poster title (small 'Kreator', big 'Lab') + 'tombol di bawah', ORB -> hero end card, music hit on 'go!'"
+  ],
+  "captions": {
+    "zones": [
+      {
+        "from": "w:92e+0.02",
+        "to": "end",
+        "hidden": true
+      }
+    ]
+  }
+}

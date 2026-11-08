@@ -1,0 +1,2319 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 60894 project/src/director/compile.ts
+// The director: story.json → a complete film plan. Resolves word cues, blocks and performs every person
+// (walks, sits, looks, props), picks a camera for every beat (cutting in VO pauses), tracks the set state,
+// grade and letterbox per scene, places UI overlays and writes the sound department's cue sheet. Pure
+// data + functions of film time; the same plan drives the picture (Film.tsx) and the sound (sound-story.ts).
+
+import type { CharSpec } from "../cine/character/Character.tsx";
+import { lookSpec, LOOKS } from "../cine/character/looks.ts";
+import { blend, type HoldKind, type Pose } from "../cine/character/pose.ts";
+import { eyeExact, fromChest, planPath, walkState } from "../cine/character/rig.ts";
+import type { Cam, Grade } from "../cine/types.ts";
+import { WORLDS } from "../worlds/index.ts";
+import type { Place, SetState, V3, WorldData } from "../worlds/types.ts";
+import { STUDIO } from "../worlds/studio/data.ts";
+import { buildWorld, navPath, toWorld, type Built } from "../gen/build.ts";
+import type { Dyn } from "../gen/dyn.ts";
+import { actPose, CARRY_CHEST, DEFAULT_FACE, NEEDS, yawTo, type CState, type Seg } from "./actions.ts";
+import { makeCues, type Cues } from "./cues.ts";
+import { BARS, DARK, gradeFor } from "./grade.ts";
+import { ALT, shotCam, type ShotCtx, type Subject } from "./shots.ts";
+import { ACTIONS, CUTS, FACES, MOODS, PROPS, SHOTS, type ActionName, type Beat, type Mood, type Scene, type ShotName, type Story, type Transition, type Ui, type Word } from "./story.ts";
+
+export type SceneP = { i: number; t0: number; t1: number; place: Place; time: string; mood: Mood; cut: Transition; cast: string[]; dark: number };
+export type ShotP = { t0: number; t1: number; scene: number; kind: ShotName; who?: string; target?: string; ctx: ShotCtx; forced?: boolean };
+export type UiP = { t0: number; t1: number; ui: Ui; scene: number };
+/** a burned-in caption line: the words of a short phrase with their film times */
+export type CaptionP = { t0: number; t1: number; words: { w: string; t0: number; t1: number }[] };
+export type Format = "portrait" | "landscape";
+export type BrandP = { name?: string; handle?: string; cta?: string; accent?: string; logo?: string; intro?: { t0: number; t1: number }; watermark?: boolean };
+export type SoundPlan = {
+  duration: number; offset: number; voFile: string; voEnd: number;
+  amb: { t0: number; t1: number; id: string; time: string; reverb: number }[];
+  music: { t0: number; t1: number; mood: Mood; dark: number }[];
+  hits: number[];
+  quiet: [number, number][];
+  steps: { t: number; run: boolean; surface: string; g: number }[];
+  sfx: { t: number; name: string; dur?: number; g?: number }[];
+  cuts: { t: number; kind: Transition }[];
+  title?: number;
+  endCard: number;
+};
+export type Plan = {
+  story: Story;
+  world: WorldData;
+  duration: number;
+  offset: number;
+  voEnd: number;
+  scenes: SceneP[];
+  shots: ShotP[];
+  ui: UiP[];
+  specs: Record<string, CharSpec>;
+  props: Record<string, HoldKind | "phone" | undefined>;
+  sceneAt: (t: number) => SceneP;
+  shotAt: (t: number) => ShotP;
+  poseOf: (who: string, t: number) => Pose | null;
+  setAt: (t: number) => SetState;
+  cam: (t: number) => Cam;
+  grade: (t: number) => Grade;
+  bars: (t: number) => number;
+  titleCard?: { t0: number; t1: number; text: string; sub?: string; kicker?: string };
+  disclaimer?: { t0: number; t1: number; text: string };
+  endCard: { t0: number; t1: number; text: string; sub?: string };
+  /** 9:16 portrait (default) or 16:9 landscape */
+  format: Format;
+  aspect: number;
+  captions: CaptionP[];
+  brand?: BrandP;
+  sound: SoundPlan;
+  warnings: string[];
+  /** generated world geometry (dynamic worlds) */
+  built?: Built;
+  /** where every movable object is at film time t (pushed, carried, rolling) */
+  objectsAt: (t: number) => Dyn;
+};
+
+const WALK = 1.15, WALK_MAX = 1.75, RUN = 3.0, RUN_MAX = 4.2, BLEND = 0.45;
+const ease = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+const seedOf = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7);
+const list = <T,>(x: T | T[] | undefined): T[] => (x === undefined ? [] : Array.isArray(x) ? x : [x]);
+/** a story's "fov" is a landscape lens: in portrait keep the same width of view (capped at 62°) */
+const portraitFov = (f: number) => Math.min(62, (2 * Math.atan(Math.tan((f * Math.PI) / 360) * (16 / 9) / (9 / 16)) * 180) / Math.PI);
+
+export const compile = (story: Story): Plan => {
+  const errs: string[] = [], warnings: string[] = [];
+  const err = (m: string) => errs.push(m);
+  // ── 0. inputs ──────────────────────────────────────────────────────────────
+  if (!Array.isArray(story.words)) throw new Error("story.words must be resolved (run make.mjs)");
+  const gen = story.worldSpec ? buildWorld(story.worldSpec, story.objectSpecs ?? []) : null;
+  const W = gen ? gen.data : WORLDS[story.world];
+  if (!W) throw new Error(`world "${story.world}" does not exist (built-in: ${Object.keys(WORLDS).join(", ")}; or write worlds/${story.world}.world.json)`);
+  const built: Built | undefined = gen?.built;
+  const offset = story.vo.offset ?? 1.5;
+  const format: Format = story.format === "landscape" ? "landscape" : "portrait";
+  const aspect = format === "portrait" ? 9 / 16 : 16 / 9;
+  const cues: Cues = makeCues(story.words as Word[], offset);
+  const T = (c: Beat["at"], label: string, after = -1) => cues.at(c, label, after) + offset;
+  const specs: Record<string, CharSpec> = {};
+  const props: Plan["props"] = {};
+  for (const m of story.cast ?? []) {
+    if (!/^[a-z0-9-]+$/.test(m.id)) err(`cast id "${m.id}": use only a-z, 0-9 and "-"`);
+    if (!LOOKS[m.look]) { err(`cast "${m.id}": unknown look "${m.look}" (looks: ${Object.keys(LOOKS).join(", ")})`); continue; }
+    specs[m.id] = lookSpec(m.id, m.look, m.custom);
+    if (m.prop && !PROPS.includes(m.prop)) err(`cast "${m.id}": unknown prop "${m.prop}" (props: ${PROPS.join(", ")})`);
+    props[m.id] = m.prop;
+  }
+  if (!story.scenes?.length) throw new Error("story.scenes is empty");
+  // two people sharing a scene must be told apart at a glance (top colour / pattern)
+  const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  for (const sc of story.scenes) {
+    const ids = Object.keys(sc.cast ?? {}).filter((id) => specs[id]);
+    for (let a = 0; a < ids.length; a++) for (let b = a + 1; b < ids.length; b++) {
+      const A = specs[ids[a]], B = specs[ids[b]];
+      const [x, y] = [rgb(A.topColor ?? "#808080"), rgb(B.topColor ?? "#808080")];
+      const d = Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+      const msg = `${ids[a]} and ${ids[b]} wear similar tops — give one a clearly different "custom": { "topColor": … }`;
+      if (d < 70 && !!A.batik === !!B.batik && !warnings.includes(msg)) warnings.push(msg);
+    }
+  }
+  const tail = story.tail ?? 1.2, endSec = story.endCard?.seconds ?? 4;
+  const voEndT = cues.voEnd + offset;
+  const duration = Math.round((voEndT + tail + endSec) * 100) / 100;
+
+  // ── 1. scenes ──────────────────────────────────────────────────────────────
+  const scenes: SceneP[] = [];
+  const sceneV: number[] = [];
+  let lastV = -1;
+  story.scenes.forEach((sc, i) => {
+    const place = W.places[sc.place] ?? STUDIO[sc.place];
+    if (!place) { err(`scene ${i + 1}: place "${sc.place}" is not in world "${W.id}" (places: ${[...Object.keys(W.places), ...Object.keys(STUDIO)].join(", ")})`); return; }
+    const time = sc.time ?? (i > 0 ? scenes[i - 1]?.time : undefined) ?? W.times[0];
+    if (!W.times.includes(time) && place.kind !== "studio") err(`scene ${i + 1}: time "${time}" not available (times: ${W.times.join(", ")})`);
+    const mood = sc.mood ?? (i > 0 ? scenes[i - 1]?.mood : undefined) ?? "mystery";
+    if (!MOODS.includes(mood)) err(`scene ${i + 1}: mood "${mood}" unknown (moods: ${MOODS.join(", ")})`);
+    if (sc.cut && !CUTS.includes(sc.cut)) err(`scene ${i + 1}: cut "${sc.cut}" unknown (cuts: ${CUTS.join(", ")})`);
+    let t0 = 0;
+    try {
+      const v = i === 0 ? 0 : cues.at(sc.at, `scene ${i + 1} "at"`, lastV);
+      if (i > 0) lastV = v;
+      t0 = i === 0 ? 0 : cues.cutFor(v) + offset;
+      sceneV.push(v);
+    } catch (e) { err((e as Error).message); sceneV.push(lastV); }
+    for (const id of Object.keys(sc.cast ?? {})) {
+      if (!specs[id]) err(`scene ${i + 1}: "${id}" is not in story.cast`);
+      const m = sc.cast![id];
+      if (!place.marks[m.at]) err(`scene ${i + 1}: mark "${m.at}" for ${id} is not in place "${sc.place}" (marks: ${Object.keys(place.marks).join(", ") || "none"})`);
+      else if (m.do === "sit" && place.marks[m.at].seat === undefined) err(`scene ${i + 1}: ${id} starts sitting at "${m.at}", which has no seat`);
+      else if (m.do === "lie" && !place.marks[m.at].bed) err(`scene ${i + 1}: ${id} starts lying at "${m.at}", which is not a bed`);
+    }
+    scenes.push({ i, t0, t1: 0, place, time, mood, cut: sc.cut ?? "cut", cast: Object.keys(sc.cast ?? {}), dark: DARK[time] ?? 1 });
+  });
+  if (errs.length) throw new Error(errs.join("\n"));
+  scenes.forEach((s, i) => (s.t1 = i + 1 < scenes.length ? scenes[i + 1].t0 : duration));
+  scenes.forEach((s, i) => { if (s.t1 - s.t0 < 0.8) err(`scene ${i + 1} is only ${(s.t1 - s.t0).toFixed(2)} s long — scenes must start in time order`); });
+
+  // ── 2. performance ─────────────────────────────────────────────────────────
+  const segs = new Map<string, Seg[]>(); // key `${scene}|${who}`
+  // ── objects that move: rolling on their own, pushed, carried, put down, handed over ──
+  type ObjEv = { t0: number; t1: number; kind: "move" | "push" | "carry" | "place"; who?: string; from?: V3; to?: V3; yaw0?: number; yaw1?: number; seg?: Seg; d?: number };
+  const objEv = new Map<string, ObjEv[]>();
+  const instById = new Map((built?.insts ?? []).map((i) => [i.id, i]));
+  const evs = (id: string) => { if (!objEv.has(id)) objEv.set(id, []); return objEv.get(id)!; };
+  const extraSets: { k: string; t: number; v: number; fade: number }[] = [];
+  const objSfx: { t: number; name: string; dur?: number }[] = [];
+  let poseRef: (who: string, t: number) => Pose | null = () => null;
+  const floorAt = (x: number, z: number) => (built ? built.nav.floor(x, z) : 0);
+  const objectAt = (id: string, t: number): { pos: V3; yaw: number } => {
+    const inst = instById.get(id)!;
+    let cur = { pos: inst.pos, yaw: inst.yaw };
+    for (const e of objEv.get(id) ?? []) {
+      if (e.t0 > t) break;
+      const u = Math.min(1, Math.max(0, (t - e.t0) / Math.max(0.01, e.t1 - e.t0)));
+      if (e.kind === "move") { const k = u * u * (3 - 2 * u); cur = { pos: [e.from![0] + (e.to![0] - e.from![0]) * k, e.from![1] + (e.to![1] - e.from![1]) * k, e.from![2] + (e.to![2] - e.from![2]) * k], yaw: e.yaw0! + (e.yaw1! - e.yaw0!) * k }; }
+      else if (e.kind === "push" && e.seg?.path) {
+        const sg = e.seg, tt = Math.min(Math.max(t, sg.moveT0!), sg.moveT1!);
+        const w = walkState(sg.path!, tt, sg.moveT0!, sg.moveT1!, 0.4, 0.6, 1.15, 0.85);
+        const ox = w.p[0] + Math.sin(w.yaw) * e.d!, oz = w.p[1] + Math.cos(w.yaw) * e.d!;
+        cur = { pos: [ox, floorAt(ox, oz), oz], yaw: w.yaw };
+      } else if (e.kind === "carry" && e.who) {
+        const p = poseRef(e.who, t);
+        if (p) { const hp = fromChest(p, CARRY_CHEST, specs[e.who]); cur = { pos: [hp[0], hp[1] - inst.info.bounds[1] * 0.55 * inst.scale, hp[2]], yaw: p.yaw }; }
+      } else if (e.kind === "place") cur = { pos: e.to!, yaw: e.yaw1 ?? cur.yaw };
+    }
+    return cur;
+  };
+  const holderOf = (id: string, t: number) => { let h: string | undefined; for (const e of objEv.get(id) ?? []) { if (e.t0 > t) break; h = e.kind === "carry" ? e.who : undefined; } return h; };
+  const carriedBy = (who: string, t: number) => [...objEv.keys()].find((id) => holderOf(id, t) === who);
+  /** a mark, recomputed from the object's current transform when it belongs to an object ("<obj>:push") */
+  const markAt = (place: Place, name: string, t: number) => {
+    const [oid, anc] = name.split(":");
+    const inst = instById.get(oid);
+    const mk = place.marks[name];
+    if (!inst || !anc || !mk) return mk;
+    const o = objectAt(oid, t);
+    const a = inst.info.anchors;
+    const local: V3 | undefined = anc === "push" && a.push ? [a.push[0], 0, a.push[2] - 0.38] : anc === "seat" ? a.seat : anc === "front" ? (a.front ?? [0, 0, inst.info.bounds[2] / 2 + 0.55]) : anc === "behind" ? a.behind : undefined;
+    if (!local) return mk;
+    const w = toWorld(o.pos, o.yaw, inst.scale, local);
+    return { ...mk, p: [w[0], w[2]] as [number, number], yaw: anc === "front" ? o.yaw + Math.PI : o.yaw, seat: anc === "seat" ? w[1] - floorAt(w[0], w[2]) : mk.seat };
+  };
+  /** a point to reach for: "<obj>:<anchor>", an object id, a POI or a mark */
+  const pointAt = (place: Place, name: string | undefined, t: number): V3 | undefined => {
+    if (!name) return undefined;
+    const [oid, anc] = name.split(":");
+    const inst = instById.get(oid);
+    if (inst) { const o = objectAt(oid, t); const a = anc ? inst.info.anchors[anc] : undefined; return a ? toWorld(o.pos, o.yaw, inst.scale, a) : [o.pos[0], o.pos[1] + inst.info.bounds[1] * 0.6 * inst.scale, o.pos[2]]; }
+    return place.pois[name] ?? (place.marks[name] ? [place.marks[name].p[0], (place.marks[name].y ?? place.floor) + 0.9, place.marks[name].p[1]] : undefined);
+  };
+  const rideFor = (st: CState): Seg["ride"] => {
+    if (!st.on || !instById.has(st.on)) return undefined;
+    const id = st.on, t0 = st.onT ?? 0;
+    return (tt) => { const a = objectAt(id, t0), b2 = objectAt(id, tt); return { dx: b2.pos[0] - a.pos[0], dz: b2.pos[2] - a.pos[2], dyaw: b2.yaw - a.yaw, px: a.pos[0], pz: a.pos[2] }; };
+  };
+  const pathOf = (a: [number, number], b: [number, number]) => planPath(built ? navPath(built.nav, a, b) : [a, b]);
+
+  const beatT: number[][] = [];
+  const poiOf = (place: Place, name: string | undefined, sceneI: number, at: number): V3 | undefined => {
+    if (!name) return undefined;
+    if (instById.has(name.split(":")[0])) return pointAt(place, name, at);
+    if (place.pois[name]) return place.pois[name];
+    const mk = place.marks[name];
+    if (mk) return [mk.p[0], (mk.y ?? place.floor) + 1.5, mk.p[1]];
+    if (specs[name]) {
+      const st = stateAt(sceneI, name, at);
+      if (st) return [st.x, st.y + 1.55 * specs[name].scale / 0.92, st.z];
+    }
+    return undefined;
+  };
+  const stateAt = (sceneI: number, who: string, at: number): CState | null => {
+    const list = segs.get(`${sceneI}|${who}`);
+    if (!list?.length) return null;
+    let s = list[0];
+    for (const x of list) if (x.t0 <= at) s = x;
+    return s.to;
+  };
+  story.scenes.forEach((sc, si) => {
+    const S = scenes[si];
+    const place = S.place;
+    const times: number[] = [];
+    // start states
+    for (const [who, m] of Object.entries(sc.cast ?? {})) {
+      const mk = markAt(place, m.at, S.t0)!;
+      const y = mk.y ?? place.floor;
+      const posture = m.do === "sit" ? "sit" : m.do === "lie" ? "lie" : "stand";
+      const onObj = m.at.endsWith(":seat") && instById.has(m.at.split(":")[0]) ? m.at.split(":")[0] : undefined;
+      const st: CState = { x: mk.p[0], z: mk.p[1], y, yaw: mk.yaw ?? 0, posture, seat: mk.seat, bedHead: mk.bed?.head, bedY: mk.bed?.y, on: onObj, onT: S.t0 };
+      const act: ActionName = posture === "lie" ? "lie" : "stand";
+      if (m.holding) { if (instById.has(m.holding)) evs(m.holding).push({ t0: S.t0, t1: S.t0, kind: "carry", who }); else err(`scene ${si + 1}: ${who} holding "${m.holding}" — not an object of this world`); }
+      segs.set(`${si}|${who}`, [{ who, act, t0: S.t0, t1: S.t1, from: st, to: st, face: m.face ?? (posture === "lie" ? "sleep" : "calm"), hold: holdFor(who, act), seed: seedOf(who), floor: place.kind === "exterior" ? place.ground : undefined, carry: (tt) => !!carriedBy(who, tt), ride: rideFor(st) }]);
+    }
+    let after = sceneV[si] ?? -1;
+    (sc.beats ?? []).forEach((b, bi) => {
+      const label = `scene ${si + 1} beat ${bi + 1}`;
+      let t = S.t0;
+      try { t = T(b.at, `${label} "at"`, after); after = t - offset; } catch (e) { err((e as Error).message); }
+      times.push(t);
+      if (t < S.t0 - 0.05 || t >= S.t1) err(`${label}: "${b.at}" (${(t - offset).toFixed(2)} s in the VO) is outside its scene — beats must fall inside their scene, in time order`);
+      if (b.do && !ACTIONS.includes(b.do)) { err(`${label}: unknown action "${b.do}" (actions: ${ACTIONS.join(", ")})`); return; }
+      if (b.face && !FACES.includes(b.face)) err(`${label}: unknown face "${b.face}"`);
+      const shotName = typeof b.shot === "string" ? b.shot : b.shot?.type;
+      if (shotName && !SHOTS.includes(shotName)) err(`${label}: unknown shot "${shotName}" (shots: ${SHOTS.join(", ")})`);
+      for (const k of Object.keys(b.set ?? {})) if (!W.props[k]) err(`${label}: set prop "${k}" does not exist in world "${W.id}" (props: ${Object.keys(W.props).join(", ")})`);
+      const isObj = (n?: string) => !!n && instById.has(n.split(":")[0]) && (!n.includes(":") || !!instById.get(n.split(":")[0])!.info.anchors[n.split(":")[1]]);
+      if (b.show && !isObj(b.show) && !place.pois[b.show] && !place.marks[b.show] && !specs[b.show]) err(`${label}: show "${b.show}" is not a POI/mark of "${place.id}" or a cast id (POIs: ${Object.keys(place.pois).join(", ")})`);
+      if (b.target && !isObj(b.target) && !place.pois[b.target] && !place.marks[b.target] && !specs[b.target]) err(`${label}: target "${b.target}" is not a POI/mark of "${place.id}" or a cast id (POIs: ${Object.keys(place.pois).join(", ")}; marks: ${Object.keys(place.marks).join(", ")})`);
+      if (b.move) {
+        const inst = instById.get(b.move.obj);
+        if (!inst) err(`${label}: move: "${b.move.obj}" is not an object of this world (objects: ${[...instById.keys()].join(", ") || "none"})`);
+        else {
+          const cur = objectAt(b.move.obj, t);
+          let to: V3 | undefined;
+          if (Array.isArray(b.move.to)) to = [b.move.to[0], floorAt(b.move.to[0], b.move.to[1]), b.move.to[1]];
+          else { const m = place.marks[b.move.to], pp = place.pois[b.move.to]; to = m ? [m.p[0], floorAt(m.p[0], m.p[1]), m.p[1]] : pp ? [pp[0], floorAt(pp[0], pp[2]), pp[2]] : undefined; }
+          if (!to) err(`${label}: move.to "${b.move.to}" is not a mark/POI of "${place.id}" (or give [x, z])`);
+          else { evs(b.move.obj).push({ t0: t, t1: t + (b.move.dur ?? 3), kind: "move", from: cur.pos, to, yaw0: cur.yaw, yaw1: b.move.yaw ?? cur.yaw }); objSfx.push({ t, name: "roll", dur: b.move.dur ?? 3 }); }
+        }
+      }
+      if (!b.do) return;
+      const whos = list(b.who).length ? list(b.who) : S.cast.slice(0, 1);
+      if (!whos.length) { err(`${label}: "${b.do}" but nobody is in this scene (add scene.cast)`); return; }
+      for (const who of whos) {
+        const key = `${si}|${who}`;
+        const L = segs.get(key);
+        if (!L) { err(`${label}: ${who} is not in this scene's cast (add "${who}": { "at": <mark> } to scene.cast)`); continue; }
+        const prev = L[L.length - 1];
+        prev.t1 = Math.min(prev.t1, t);
+        let from: CState = { ...prev.to };
+        // a walk still under way when the next beat starts: stop where they are
+        if (prev.path && prev.moveT1 !== undefined && t < prev.moveT1) {
+          const w = walkState(prev.path, t, prev.moveT0!, prev.moveT1, 0.4, 0.6, 1.15, 0.85);
+          from = { ...from, x: w.p[0], z: w.p[1], yaw: w.yaw };
+          prev.to = from;
+          prev.moveT1 = t;
+          warnings.push(`${label}: ${who} had not finished walking — stopped mid-way`);
+        }
+        const need = NEEDS[b.do];
+        if (need && !need.includes(from.posture)) { err(`${label}: ${who} cannot "${b.do}" while ${from.posture === "sit" ? "sitting (standUp first)" : from.posture === "lie" ? "lying (sitUp/wake first, or start the scene standing)" : from.posture === "bedsit" ? "sitting up in bed" : "standing"}`); continue; }
+        const target = poiOf(place, b.target, si, t);
+        const faceName = b.face ?? DEFAULT_FACE[b.do] ?? "calm";
+        const mk = b.to ? markAt(place, b.to, t) : undefined;
+        if (b.to && !mk) { err(`${label}: mark "${b.to}" is not in place "${place.id}" (marks: ${Object.keys(place.marks).join(", ")})`); continue; }
+        // a phone in hand as the scene opens is already up at the cut (raising it takes 0.7 s)
+        const mkSeg = (act: ActionName, t0: number, to: CState, extra: Partial<Seg> = {}): Seg => ({ who, act, t0: act === "phone" && t0 < S.t0 + 0.35 ? t0 - 0.7 : t0, t1: S.t1, from, to, target, face: faceName, hold: holdFor(who, act), seed: seedOf(who) + bi, floor: place.kind === "exterior" ? place.ground : undefined, carry: (tt) => !!carriedBy(who, tt), ride: rideFor(to), ...extra });
+        if (b.do === "push") {
+          const oid = b.obj ?? b.target ?? "";
+          const inst = instById.get(oid);
+          if (!inst || !inst.info.anchors.push) { err(`${label}: push needs "obj": an object with handles (pushable here: ${[...instById.values()].filter((i) => i.info.anchors.push).map((i) => i.id).join(", ") || "none"})`); continue; }
+          if (!mk) { err(`${label}: push needs "to": the mark to walk to while pushing`); continue; }
+          const grip = markAt(place, `${oid}:push`, t)!;
+          let t1 = t;
+          if (Math.hypot(grip.p[0] - from.x, grip.p[1] - from.z) > 0.35) {
+            const path0 = pathOf([from.x, from.z], grip.p), d0 = path0.length / WALK + 0.8;
+            const at0: CState = { ...from, x: grip.p[0], z: grip.p[1], yaw: grip.yaw ?? from.yaw, posture: "stand" };
+            L.push(mkSeg("walk", t, at0, { path: path0, moveT0: t, moveT1: t + d0, face: "calm", target: undefined }));
+            from = at0; t1 = t + d0;
+          }
+          const D = 0.38 - inst.info.anchors.push[2] * inst.scale;
+          const path = planPath([[from.x, from.z], ...(built ? navPath(built.nav, [from.x + Math.sin(from.yaw) * 0.3, from.z + Math.cos(from.yaw) * 0.3], mk.p).slice(1) : [mk.p])] as [number, number][]);
+          const next = nextBeatT(sc, bi, who, cues, offset, S.t1, t - offset);
+          let dur = path.length / 0.85 + 1.0;
+          if (dur > next - t1 - 0.2) dur = Math.max(path.length / 1.3 + 0.6, next - t1 - 0.2);
+          const ed = path.at(path.length).dir;
+          const arrive: CState = { ...from, x: mk.p[0], z: mk.p[1], yaw: Math.atan2(ed[0], ed[1]), posture: "stand" };
+          const pseg = mkSeg("push", t1, arrive, { path, moveT0: t1, moveT1: t1 + dur, face: faceName, target: undefined });
+          const a = inst.info.anchors.push;
+          pseg.hands = (tt) => {
+            const w = Math.min(1, Math.max(0, (tt - t1 + 0.35) / 0.35)) * (1 - Math.min(1, Math.max(0, (tt - t1 - dur - 0.2) / 0.4)));
+            if (w <= 0) return null;
+            const o = objectAt(oid, tt);
+            return { L: toWorld(o.pos, o.yaw, inst.scale, [a[0] + 0.22, a[1], a[2]]), R: toWorld(o.pos, o.yaw, inst.scale, [a[0] - 0.22, a[1], a[2]]), w };
+          };
+          evs(oid).push({ t0: t1, t1: t1 + dur, kind: "push", seg: pseg, d: D });
+          objSfx.push({ t: t1 + 0.2, name: "roll", dur: dur - 0.3 });
+          L.push(pseg);
+          continue;
+        }
+        if (b.do === "walk" || b.do === "run" || (b.do === "sit" && mk && Math.hypot(mk.p[0] - from.x, mk.p[1] - from.z) > 0.3)) {
+          const dest = mk ?? (b.do === "sit" ? undefined : undefined);
+          if (!dest) { err(`${label}: "${b.do}" needs "to": a mark name`); continue; }
+          const run = b.do === "run";
+          const path = pathOf([from.x, from.z], dest.p);
+          const next = nextBeatT(sc, bi, who, cues, offset, Infinity, t - offset);
+          let dur = path.length / (run ? RUN : WALK) + (run ? 0.6 : 0.9);
+          const room = next - t - (b.do === "sit" ? 1.3 : 0.2);
+          // no later beat for this person in the scene: walk at a natural pace, the cut takes us away
+          if (dur > room && Number.isFinite(next)) {
+            const fast = path.length / (run ? RUN_MAX : WALK_MAX) + 0.6;
+            if (fast > room) warnings.push(`${label}: ${who} needs ${dur.toFixed(1)} s to ${run ? "run" : "walk"} to "${b.to}" but has ${Math.max(0, room).toFixed(1)} s — the walk will be cut short`);
+            dur = Math.max(fast, Math.min(dur, room));
+          }
+          const endYaw = dest.yaw ?? yawTo(dest.p[0], dest.p[1], target ?? [dest.p[0] + Math.sin(from.yaw), 0, dest.p[1] + Math.cos(from.yaw)]);
+          const arrive: CState = { x: dest.p[0], z: dest.p[1], y: dest.y ?? place.floor, yaw: target && dest.yaw === undefined ? yawTo(dest.p[0], dest.p[1], target) : endYaw, posture: "stand", seat: dest.seat, bedHead: dest.bed?.head, bedY: dest.bed?.y };
+          const walkSeg = mkSeg(run ? "run" : "walk", t, arrive, { path, moveT0: t, moveT1: t + dur, face: b.do === "sit" ? "calm" : faceName });
+          L.push(walkSeg);
+          if (b.do === "sit") {
+            from = arrive;
+            const on = b.to?.endsWith(":seat") && instById.has(b.to.split(":")[0]) ? b.to.split(":")[0] : undefined;
+            const sat: CState = { ...arrive, posture: "sit", on, onT: t + dur };
+            L.push(mkSeg("sit", t + dur, sat, { ride: rideFor(sat) }));
+          }
+          continue;
+        }
+        let to: CState = { ...from };
+        if (b.do === "sit") {
+          const here = mk ?? Object.values(place.marks).find((m) => Math.hypot(m.p[0] - from.x, m.p[1] - from.z) < 0.35 && m.seat !== undefined);
+          if (!here || here.seat === undefined) { err(`${label}: ${who} can only sit at a mark with a seat ("to": ${Object.entries(place.marks).filter(([, m]) => m.seat !== undefined).map(([k]) => `"${k}"`).join(" / ") || "none here"})`); continue; }
+          const on = b.to?.endsWith(":seat") && instById.has(b.to.split(":")[0]) ? b.to.split(":")[0] : undefined;
+          to = { ...from, x: here.p[0], z: here.p[1], yaw: here.yaw ?? from.yaw, posture: "sit", seat: here.seat, on, onT: t };
+        } else if (b.do === "standUp") {
+          to = { ...from, posture: "stand", x: from.x + Math.sin(from.yaw) * 0.22, z: from.z + Math.cos(from.yaw) * 0.22 };
+        } else if (b.do === "sitUp") {
+          to = { ...from, posture: "bedsit" };
+        } else if (b.do === "turn") {
+          to = { ...from, yaw: target ? yawTo(from.x, from.z, target) : mk?.yaw ?? from.yaw + Math.PI };
+        } else if (b.do === "look" && target && from.posture === "stand") {
+          let rel = yawTo(from.x, from.z, target) - from.yaw;
+          while (rel > Math.PI) rel -= Math.PI * 2;
+          while (rel < -Math.PI) rel += Math.PI * 2;
+          if (Math.abs(rel) > 1.25) to = { ...from, yaw: from.yaw + rel - Math.sign(rel) * 0.9 };
+        }
+        if (b.do === "look" && to.yaw !== from.yaw) {
+          L.push(mkSeg("turn", t, to));
+          continue;
+        }
+        if (b.do === "pickUp" || b.do === "putDown" || b.do === "give" || b.do === "open" || b.do === "close") {
+          let pt: V3 | undefined;
+          if (b.do === "pickUp") {
+            const oid = b.obj ?? b.target ?? "";
+            const inst = instById.get(oid);
+            if (!inst) { err(`${label}: pickUp needs "obj": an object id (objects: ${[...instById.keys()].join(", ") || "none"})`); continue; }
+            if (!inst.info.hand && inst.info.bounds[1] * inst.scale > 0.6) warnings.push(`${label}: "${oid}" is big for one hand (${inst.info.bounds.map((v) => v.toFixed(2)).join("×")} m)`);
+            pt = pointAt(place, oid, t);
+            if (pt && Math.hypot(pt[0] - from.x, pt[2] - from.z) > 1.3) { err(`${label}: ${who} is ${Math.hypot(pt[0] - from.x, pt[2] - from.z).toFixed(1)} m from "${oid}" — walk to "${oid}:front" first`); continue; }
+            evs(oid).push({ t0: t + 0.55, t1: t + 0.55, kind: "carry", who });
+          } else if (b.do === "putDown") {
+            const oid = b.obj ?? carriedBy(who, t + 0.7);
+            if (!oid) { err(`${label}: ${who} is not carrying anything to put down`); continue; }
+            pt = pointAt(place, b.target, t);
+            if (!pt) { err(`${label}: putDown needs "target": where to put it ("<object>:top", a POI or a mark)`); continue; }
+            const tp = Math.max(t + 0.55, ...(objEv.get(oid) ?? []).map((e) => e.t0 + 0.35));
+            evs(oid).push({ t0: tp, t1: tp, kind: "place", to: [pt[0], pt[1], pt[2]], yaw1: from.yaw });
+          } else if (b.do === "give") {
+            const oid = b.obj ?? carriedBy(who, t + 0.7);
+            const to2 = b.target && specs[b.target] ? b.target : undefined;
+            if (!oid || !to2) { err(`${label}: give needs "target": the person, and ${who} must carry something (or "obj")`); continue; }
+            const RL = segs.get(`${si}|${to2}`);
+            if (!RL) { err(`${label}: ${to2} is not in this scene`); continue; }
+            const rst = stateAt(si, to2, t)!;
+            pt = [(from.x + rst.x) / 2, from.y + 1.0, (from.z + rst.z) / 2];
+            const rprev = RL[RL.length - 1];
+            rprev.t1 = Math.min(rprev.t1, t);
+            RL.push({ who: to2, act: "receive", t0: t + 0.15, t1: S.t1, from: rst, to: rst, target: pt, face: "smile", hold: holdFor(to2, "receive"), seed: seedOf(to2) + bi, carry: (tt) => !!carriedBy(to2, tt), ride: rideFor(rst) });
+            const tg = Math.max(t + 0.75, ...(objEv.get(oid) ?? []).map((e) => e.t0 + 0.35));
+            evs(oid).push({ t0: tg, t1: tg, kind: "carry", who: to2 });
+          } else {
+            const door = b.obj ?? b.target ?? "";
+            if (!W.props[door]) { err(`${label}: ${b.do} needs a door / openable prop (here: ${Object.keys(W.props).join(", ")})`); continue; }
+            pt = place.pois[door] ? [place.pois[door][0], place.floor + 1.0, place.pois[door][2]] : undefined;
+            if (pt && Math.hypot(pt[0] - from.x, pt[2] - from.z) > 0.95) warnings.push(`${label}: ${who} is ${Math.hypot(pt[0] - from.x, pt[2] - from.z).toFixed(1)} m from "${door}" — the hand cannot reach it; stand at a mark ≤ 0.8 m in front of it`);
+            extraSets.push({ k: door, t: t + 0.45, v: b.do === "open" ? 1 : 0, fade: 0.9 });
+          }
+          L.push(mkSeg(b.do, t, to, { target: pt }));
+          continue;
+        }
+        if (b.do === "binoculars" && props[who] !== "binoculars") err(`${label}: ${who} needs "prop": "binoculars" in story.cast`);
+        if (b.do === "phone" && props[who] !== "phone") err(`${label}: ${who} needs "prop": "phone" in story.cast`);
+        if (b.do === "raise" && props[who] !== "lantern" && props[who] !== "flashlight") err(`${label}: "raise" needs a lantern or flashlight prop for ${who}`);
+        if (b.do === "write" && target && Math.hypot(target[0] - from.x, target[2] - from.z) > 0.62) warnings.push(`${label}: ${who} sits ${Math.hypot(target[0] - from.x, target[2] - from.z).toFixed(2)} m from "${b.target}" — the hand cannot reach it (insert shows no hand); put that anchor ≤ 0.3 m from the desk edge or the seat closer`);
+        // aiming a light / pointing at something behind or beside: turn the body toward it first
+        if ((b.do === "raise" || b.do === "point") && target && from.posture === "stand") {
+          let rel = yawTo(from.x, from.z, target) - from.yaw;
+          while (rel > Math.PI) rel -= Math.PI * 2;
+          while (rel < -Math.PI) rel += Math.PI * 2;
+          if (Math.abs(rel) > 0.5) {
+            const turned: CState = { ...from, yaw: from.yaw + rel * 0.85 };
+            L.push(mkSeg("turn", t, turned));
+            from = turned;
+            L.push(mkSeg(b.do, t + 0.55, turned));
+            continue;
+          }
+        }
+        L.push(mkSeg(b.do, t, to));
+      }
+    });
+    beatT.push(times);
+  });
+  if (errs.length) throw new Error(errs.join("\n"));
+  // the same hand gesture over and over reads as a tic: thinking again within 12 s keeps the hand down
+  {
+    const last = new Map<string, number>();
+    for (const sg of [...segs.values()].flat().filter((x) => x.act === "think").sort((a, b) => a.t0 - b.t0)) {
+      const l = last.get(sg.who);
+      if (l !== undefined && sg.t0 - l < 12) sg.again = true;
+      else last.set(sg.who, sg.t0);
+    }
+  }
+  function holdFor(who: string, act: ActionName): HoldKind | null {
+    const p = props[who];
+    if (act === "write") return "pen";
+    if (p === "binoculars") return act === "binoculars" ? "binoculars" : null;
+    if (p === "lantern" || p === "flashlight" || p === "mug" || p === "book") return p;
+    return null;
+  }
+  const voenv = story.voenv ?? [];
+  const talk = (t: number) => voenv[Math.max(0, Math.min(voenv.length - 1, Math.round((t - offset) * 60)))] ?? 0;
+  const cache = new Map<string, Pose | null>();
+  const sceneAt = (t: number) => { let s = scenes[0]; for (const x of scenes) if (x.t0 <= t) s = x; return s; };
+  const poseOf = (who: string, t: number): Pose | null => {
+    const key = `${who}@${t.toFixed(4)}`;
+    if (cache.has(key)) return cache.get(key)!;
+    if (cache.size > 4000) cache.clear();
+    const S = sceneAt(t);
+    const L = segs.get(`${S.i}|${who}`);
+    let p: Pose | null = null;
+    if (L) {
+      let i = 0;
+      for (let k = 0; k < L.length; k++) if (L[k].t0 <= t) i = k;
+      const c = specs[who];
+      p = actPose({ seg: L[i], t, c, talk });
+      const u = t - L[i].t0;
+      if (i > 0 && u < BLEND && L[i].act !== "walk" && L[i].act !== "run") {
+        const q = actPose({ seg: L[i - 1], t, c, talk });
+        p = blend(q, p, ease(u / BLEND));
+      }
+      if (L[i].hold && !p.hold) p.hold = { kind: L[i].hold!, side: L[i].hold === "mug" || L[i].hold === "book" ? 1 : -1, on: 1 };
+      if (L[i].hold === "pen" && p.hold) p.hold = { ...p.hold, kind: "pen" };
+    }
+    cache.set(key, p);
+    return p;
+  };
+  poseRef = poseOf;
+  // smoothed subjects for cameras
+  const subject = (who: string): Subject => {
+    const c = specs[who];
+    const root = (t: number): V3 => { const p = poseOf(who, t); return p ? [p.x, p.y + (p.hipY > -0.3 ? 0 : 0), p.z] : [0, 0, 0]; };
+    // smoothing never reaches into another scene (the person may be somewhere else entirely)
+    const within = (t: number, d: number) => { const S = sceneAt(t); return Math.min(S.t1 - 0.002, Math.max(S.t0, t + d)); };
+    const sm = (t: number): V3 => {
+      let x = 0, y = 0, z = 0;
+      for (const d of [-0.3, -0.15, 0, 0.15, 0.3]) { const r = root(within(t, d)); x += r[0]; y += r[1]; z += r[2]; }
+      return [x / 5, y / 5, z / 5];
+    };
+    const eye = (t: number) => { const p = poseOf(who, t); return p ? eyeExact(p, c) : { pos: [0, 1.6, 0] as V3, dir: [0, 0, 1] as V3, head: [0, 1.6, 0] as V3 }; };
+    return {
+      pos: (t) => { const s = sceneAt(t); const p = poseOf(who, t); const floor = s.place.marks && p ? p.y : 0; return [sm(t)[0], floor, sm(t)[2]]; },
+      head: (t) => { const e = eye(t); const s = sm(t); const r = root(t); return [e.head[0] + (s[0] - r[0]), e.head[1], e.head[2] + (s[2] - r[2])]; },
+      yaw: (t) => { let a = 0, b = 0; for (const d of [-0.3, 0, 0.3]) { const p = poseOf(who, within(t, d)); if (p) { a += Math.sin(p.yaw); b += Math.cos(p.yaw); } } return Math.atan2(a, b); },
+      eye: (t) => { const e = eye(t); return { pos: e.pos, dir: e.dir }; },
+      hand: (t) => { const p = poseOf(who, t); return p ? fromChest(p, [-0.15, -0.15, 0.35], c) : [0, 1, 0]; },
+      // where phoneArm holds the phone (also while it is still being raised: the camera waits there)
+      phone: (t) => { const p = poseOf(who, t); return p ? fromChest(p, [-0.05, 0.1, 0.33], c) : [0, 1, 0]; },
+    };
+  };
+
+  // ── 3. shots ───────────────────────────────────────────────────────────────
+  const shots: ShotP[] = [];
+  story.scenes.forEach((sc, si) => {
+    const S = scenes[si];
+    const beats = sc.beats ?? [];
+    type Cut = { t: number; b?: Beat; bi: number };
+    // only beats that change what we should see make a cut (set/ui/sfx-only beats play inside the shot)
+    const cuts: Cut[] = [{ t: S.t0, bi: -1 }];
+    beats.forEach((b, bi) => {
+      if (!(b.do || b.show || b.shot || b.hit)) return;
+      if (cuts.length === 1 && cuts[0].bi < 0 && beatT[si][bi] < S.t0 + 1.4) { cuts[0] = { t: S.t0, b, bi }; return; }
+      const vt = beatT[si][bi] - offset;
+      const ct = Math.max(S.t0 + 0.6, cues.cutFor(vt) + offset);
+      if (ct - cuts[cuts.length - 1].t < 0.9 && !b.shot && !b.hit) return; // too close: plays inside the previous shot
+      cuts.push({ t: Math.min(ct, beatT[si][bi]), b, bi });
+    });
+    const firstVisit = !scenes.slice(0, si).some((x) => x.place.id === S.place.id);
+    // the framing before the cut, also across a scene cut within the same place (same person, same framing = a jump)
+    const before = shots[shots.length - 1];
+    let prev: ShotName | undefined = before && scenes[before.scene].place.id === S.place.id && before.who === S.cast[0] ? before.kind : undefined;
+    // when this person's last close-up ended (portrait: a face again and again tells nothing new)
+    const lastCu = (w: string) => { for (let i = shots.length - 1; i >= 0; i--) if (shots[i].who === w && (shots[i].kind === "cu" || shots[i].kind === "ecu")) return shots[i].t1; return -99; };
+    cuts.forEach((c, ci) => {
+      const t0 = c.t, t1 = ci + 1 < cuts.length ? cuts[ci + 1].t : S.t1;
+      if (t1 - t0 < 0.05) return;
+      const b = c.b;
+      const who = b ? (list(b.who)[0] ?? (b.show && specs[b.show] ? b.show : S.cast[0])) : S.cast[0];
+      const tgtName = b?.show && !specs[b.show] ? b.show : b?.target;
+      let kind: ShotName;
+      const forced = b ? (typeof b.shot === "string" ? b.shot : b.shot?.type) : undefined;
+      kind = forced ?? choose(b, ci === 0 && firstVisit, S, prev, tgtName, who || tgtName ? poiOf(S.place, tgtName, si, t0) : undefined, who ? subject(who).head(t0) : undefined, format === "portrait");
+      // portrait: a reaction close-up only when the last one of this face ended ≥ 4 s ago (a startle keeps its own)
+      const spaced = !forced && format === "portrait" && !!who && !["startle", "freeze"].includes(b?.do ?? "") && t0 - lastCu(who) < 4;
+      if (spaced && kind === "cu") kind = "medium";
+      if (!forced && kind === prev) kind = spaced && ALT[kind] === "cu" ? "mediumWide" : ALT[kind];
+      const parts: [number, number, ShotName][] = [];
+      // long shots get a second angle in a VO pause near the middle
+      if (!forced && t1 - t0 > 5.6) {
+        const mid = (t0 + t1) / 2 - offset;
+        const p = cues.pauses.map((x) => (x[0] + x[1]) / 2).filter((x) => x + offset > t0 + 2 && x + offset < t1 - 2).sort((a, b2) => Math.abs(a - mid) - Math.abs(b2 - mid))[0];
+        if (p !== undefined) {
+          const second = kind === "ots" && tgtName ? "long" : ALT[kind] === kind ? "medium" : ALT[kind];
+          parts.push([t0, p + offset, kind], [p + offset, t1, second]);
+        }
+      }
+      if (!parts.length) parts.push([t0, t1, kind]);
+      for (const [a, z, k] of parts) {
+        const spec = b && typeof b.shot === "object" ? b.shot : undefined;
+        const subjWho = spec?.subject ?? (k === "long" && !who ? undefined : who);
+        const tgt = spec?.target ?? tgtName;
+        const side: 1 | -1 = spec?.side === "left" ? 1 : spec?.side === "right" ? -1 : (shots.length % 2 ? 1 : -1);
+        const target = tgt ? (specs[tgt] && tgt !== subjWho ? (t: number) => subject(tgt).head(t) : (() => { const p = poiOf(S.place, tgt, si, a); return p ? () => p : undefined; })()) : undefined;
+        const other = tgt && specs[tgt] && tgt !== subjWho ? tgt : S.cast.find((x) => x !== subjWho);
+        const others = S.cast.filter((x) => x !== subjWho && x !== tgt);
+        // inserts frame the handled thing by its size: a sheet of paper close, a basket on a scale further back
+        const sizeOf = (id?: string) => { const i = id ? instById.get(id) : undefined; return i ? Math.max(...i.info.bounds) * i.scale : 0; };
+        const size = k === "insert" ? Math.max(sizeOf(tgt && !tgt.includes(":") ? tgt : undefined), sizeOf(subjWho ? carriedBy(subjWho, (a + z) / 2) : undefined)) : 0;
+        const ctx: ShotCtx = { kind: k, t0: a, t1: z, place: S.place, subj: subjWho && specs[subjWho] && S.cast.includes(subjWho) ? subject(subjWho) : undefined, subj2: other ? subject(other) : undefined, target, side, mood: S.mood, fov: spec?.fov === undefined ? undefined : format === "portrait" ? portraitFov(spec.fov) : spec.fov, seed: shots.length * 3.1, size, aspect, phone: b?.do === "phone",
+          others: others.length ? (tt: number) => others.map((o) => { const p = poseOf(o, tt); return p ? ([p.x, p.y, p.z] as V3) : ([0, -99, 0] as V3); }) : undefined };
+        shots.push({ t0: a, t1: z, scene: si, kind: k, who: subjWho, target: tgt, ctx, forced: !!forced });
+        prev = k;
+      }
+    });
+  });
+  // pacing: a long static hold tells nothing new on a phone — split it into a second framing (portrait
+  // > 4.6 s, landscape > 6.4 s; moving shots may run longer), cutting in a VO pause when there is one
+  const MAXS = format === "portrait" ? 4.6 : 6.4;
+  const MOVING: ShotName[] = ["track", "lead", "push", "pull", "orbit", "reveal", "drone"];
+  for (let i = 0; i < shots.length; i++) {
+    const sh = shots[i], lim = MOVING.includes(sh.kind) ? MAXS * 1.5 : MAXS;
+    if (sh.t1 - sh.t0 <= lim) continue;
+    const n = Math.ceil((sh.t1 - sh.t0) / lim), step = (sh.t1 - sh.t0) / n;
+    const cutsAt: number[] = [];
+    for (let k = 1; k < n; k++) {
+      const want = sh.t0 + step * k;
+      const pz = cues.pauses.map((x) => (x[0] + x[1]) / 2 + offset).filter((x) => x > sh.t0 + 1.6 && x < sh.t1 - 1.6 && Math.abs(x - want) < step * 0.4).sort((a, b) => Math.abs(a - want) - Math.abs(b - want))[0];
+      cutsAt.push(pz ?? want);
+    }
+    const bounds = [sh.t0, ...cutsAt, sh.t1];
+    const pieces: ShotP[] = [];
+    for (let k = 0; k + 1 < bounds.length; k++) {
+      // forced framings keep their type and change side (a forced face framing alternates too: the same face from
+      // the other side is a jump cut); automatic ones alternate with their ALT framing
+      const keep = sh.forced && !FACE.includes(sh.kind) && sh.kind !== "insert";
+      const kind = keep || k % 2 === 0 ? sh.kind : ALT[sh.kind] === sh.kind ? "medium" : ALT[sh.kind];
+      const side = (k % 2 ? -sh.ctx.side : sh.ctx.side) as 1 | -1;
+      pieces.push({ ...sh, t0: bounds[k], t1: bounds[k + 1], kind, ctx: { ...sh.ctx, kind, t0: bounds[k], t1: bounds[k + 1], side, seed: sh.ctx.seed + k * 1.7 } });
+    }
+    shots.splice(i, 1, ...pieces);
+    i += pieces.length - 1;
+  }
+  // a flash of a shot (< 0.85 s) reads as a glitch: fold it into the shot before it (same scene, not forced)
+  for (let i = shots.length - 1; i > 0; i--) {
+    const s = shots[i], p = shots[i - 1];
+    if (s.t1 - s.t0 < 0.85 && !s.forced && p.scene === s.scene) { p.t1 = s.t1; p.ctx.t1 = s.t1; shots.splice(i, 1); }
+  }
+  // a phone insert opens on the screen: the phone comes up (0.7 s) just before the cut, in the shot before, instead of
+  // the insert opening on a shoulder while it rises
+  for (const sh of shots) {
+    if (sh.kind !== "insert" || !sh.ctx.phone || !sh.who) continue;
+    const L = segs.get(`${sh.scene}|${sh.who}`) ?? [];
+    const i = L.findIndex((sg) => sg.act === "phone" && sg.t0 > sh.t0 - 0.7 && sg.t0 >= sh.t0 - 0.25 && sg.t0 < sh.t1);
+    if (i < 0) continue;
+    L[i].t0 = Math.max(sh.t0 - 0.7, i > 0 ? L[i - 1].t0 + 0.4 : -Infinity);
+    cache.clear();
+  }
+  const shotAt = (t: number) => { let s = shots[0]; for (const x of shots) if (x.t0 <= t) s = x; return s; };
+  {
+    // storytelling: the script's own story first — an explainer studio or one graphic object repeated over
+    // many scenes tells the viewer nothing new
+    const studioT = scenes.filter((x) => x.place.kind === "studio").reduce((a, x) => a + (x.t1 - x.t0), 0);
+    const storyT = Math.max(1, scenes.reduce((a, x) => a + (x.t1 - x.t0), 0));
+    if (studioT / storyT > 0.25) warnings.push(`pacing: the "mind" studio fills ${Math.round((100 * studioT) / storyT)} % of the film — visualise the script's own places, objects and people for the explanation (use the studio only where the script is about the brain / thoughts)`);
+    let run = 1;
+    for (let i = 1; i < shots.length; i++) {
+      const a = shots[i - 1], b2 = shots[i];
+      const same = a.target && a.target === b2.target && !a.who && !b2.who;
+      run = same ? run + 1 : 1;
+      if (run === 4) warnings.push(`pacing: "${b2.target}" is the only thing on screen for 4+ shots in a row from ${shots[i - 3].t0.toFixed(1)} s — show other parts of the story there`);
+    }
+    // people holding one pose for long with nothing new: add a reaction / gesture beat
+    for (const sc of scenes) for (const who of sc.cast) {
+      const held = shots.filter((x) => x.scene === sc.i && x.who === who).reduce((a, x) => a + (x.t1 - x.t0), 0);
+      const beatsOf = (story.scenes[sc.i].beats ?? []).filter((b) => b.do && (list(b.who).length ? list(b.who).includes(who) : true)).length;
+      if (held > 9 && beatsOf <= 1) warnings.push(`pacing: ${who} is on screen ${held.toFixed(0)} s in scene ${sc.i + 1} with ${beatsOf} action — add reactions / gestures on the words (look, turn, sigh, startle, reach…)`);
+    }
+  }
+
+  // ── 4. set state ───────────────────────────────────────────────────────────
+  type Key = { t: number; v: number; fade: number };
+  const keys: Record<string, Key[]> = {};
+  for (const [k, d] of Object.entries(W.props)) keys[k] = [{ t: -1, v: d.default, fade: 0 }];
+  story.scenes.forEach((sc, si) => {
+    for (const [k, v] of Object.entries(sc.set ?? {})) {
+      if (!keys[k]) { err(`scene ${si + 1}: set prop "${k}" does not exist in world "${W.id}" (props: ${Object.keys(W.props).join(", ")})`); continue; }
+      keys[k].push({ t: scenes[si].t0, v, fade: 0 });
+    }
+    (sc.beats ?? []).forEach((b, bi) => {
+      for (const [k, v] of Object.entries(b.set ?? {})) if (keys[k]) keys[k].push({ t: beatT[si][bi], v, fade: b.fade ?? 0.6 });
+    });
+  });
+  for (const e of extraSets) if (keys[e.k]) keys[e.k].push({ t: e.t, v: e.v, fade: e.fade });
+  for (const k of Object.keys(keys)) keys[k].sort((a, b) => a.t - b.t);
+  const setAt = (t: number): SetState => {
+    const out: SetState = {};
+    for (const [k, L] of Object.entries(keys)) {
+      let v = L[0].v;
+      for (let i = 1; i < L.length; i++) {
+        if (L[i].t > t) break;
+        const prevV = v;
+        v = L[i].fade > 0 ? prevV + (L[i].v - prevV) * ease((t - L[i].t) / L[i].fade) : L[i].v;
+      }
+      out[k] = v;
+    }
+    return out;
+  };
+
+  // ── 5. UI, cards ───────────────────────────────────────────────────────────
+  const ui: UiP[] = [];
+  story.scenes.forEach((sc, si) => {
+    (sc.beats ?? []).forEach((b, bi) => {
+      for (const u of list(b.ui)) {
+        const t0 = beatT[si][bi];
+        let t1 = bi + 1 < (sc.beats ?? []).length ? beatT[si][bi + 1] : scenes[si].t1;
+        if (b.until !== undefined) { try { t1 = T(b.until, `scene ${si + 1} beat ${bi + 1} "until"`, t0 - offset); } catch (e) { err((e as Error).message); } }
+        if (u.type === "callout" && !scenes[si].place.pois[u.poi] && !specs[u.poi]) err(`scene ${si + 1} beat ${bi + 1}: callout poi "${u.poi}" is not a POI of "${scenes[si].place.id}"`);
+        ui.push({ t0, t1: Math.min(t1, scenes[si].t1), ui: u, scene: si });
+      }
+    });
+  });
+  // portrait: a face filling the frame leaves no room for a title / stamp / card — use a waist-up framing while
+  // such text is on screen (not for forced shots)
+  if (format === "portrait") {
+    const big = ui;
+    for (const sh of shots) {
+      if (sh.forced || (sh.kind !== "cu" && sh.kind !== "ecu")) continue;
+      const covered = big.filter((u) => ["title", "stamp", "card", "clock", "steps"].includes(u.ui.type)).reduce((a2, u) => a2 + Math.max(0, Math.min(u.t1, sh.t1) - Math.max(u.t0, sh.t0)), 0);
+      if (covered > 0.5 * (sh.t1 - sh.t0)) { sh.kind = "medium"; sh.ctx = { ...sh.ctx, kind: "medium" }; }
+    }
+  }
+  // the same face (or the same hands' insert) in the same framing twice in a row (across beats and scenes) is a jump
+  // cut: the automatic one of the two changes to a framing neither neighbour has
+  for (let i = 1; i < shots.length; i++) {
+    const a = shots[i - 1], b = shots[i];
+    if (!b.who || a.who !== b.who || a.kind !== b.kind || !(FACE.includes(b.kind) || b.kind === "insert")) continue;
+    // both forced: the later one changes (two forced close-ups of one face in a row are a jump cut too)
+    const j = !b.forced ? i : !a.forced ? i - 1 : i;
+    const sh = shots[j], near = [shots[j - 1], shots[j + 1]].filter((x) => x && x.who === sh.who).map((x) => x.kind);
+    const kind = (sh.kind === "cu" || sh.kind === "ecu" || sh.kind === "insert" ? ["medium", "mediumWide"] : ["mediumWide", "cu"] as ShotName[]).find((k) => !near.includes(k as ShotName)) as ShotName | undefined;
+    if (kind) { sh.kind = kind; sh.ctx = { ...sh.ctx, kind }; }
+  }
+  // a hand at the chin in a close-up covers the face: thinking inside a cu / ecu is played with the head only
+  for (const sh of shots) {
+    if (!sh.who || (sh.kind !== "cu" && sh.kind !== "ecu")) continue;
+    for (const sg of segs.get(`${sh.scene}|${sh.who}`) ?? []) if (sg.act === "think" && sg.t0 + 2.8 > sh.t0 && sg.t0 < sh.t1) sg.again = true;
+  }
+  cache.clear();
+  if (errs.length) throw new Error(errs.join("\n"));
+  const card = (c: { at: Beat["at"]; until?: Beat["at"] } | undefined, dflt: number) => {
+    if (!c) return undefined;
+    const t0 = T(c.at, "card");
+    return { t0, t1: c.until !== undefined ? T(c.until, "card until", t0 - offset) : t0 + dflt };
+  };
+  const tc = card(story.titleCard, 3.5), dc = card(story.disclaimer, 4);
+  // portrait: the title card sits across the middle of the frame — over a close-up it covers the eyes; hold waist-up
+  if (format === "portrait" && tc) for (let i = 0; i < shots.length; i++) {
+    const sh = shots[i];
+    if (sh.forced || (sh.kind !== "cu" && sh.kind !== "ecu") || Math.min(tc.t1, sh.t1) - Math.max(tc.t0, sh.t0) <= 0.5 * (sh.t1 - sh.t0)) continue;
+    const near = [shots[i - 1], shots[i + 1]].filter((x) => x && x.who === sh.who).map((x) => x.kind);
+    const kind: ShotName = near.includes("medium") ? "mediumWide" : "medium";
+    sh.kind = kind; sh.ctx = { ...sh.ctx, kind };
+  }
+  const endCard = { t0: voEndT + tail, t1: duration, text: story.endCard?.text ?? story.title, sub: story.endCard?.sub };
+  // branding is the user's own and optional (aibijan-brand.json, resolved by make.mjs): never invented
+  const B = story.brand;
+  const brand: BrandP | undefined = B ? { name: B.brand, handle: B.handle, cta: B.cta, accent: B.colors?.accent, logo: B.logoFile, watermark: B.watermark, intro: B.intro && offset >= 0.9 ? { t0: 0, t1: Math.min(offset, B.intro.seconds ?? offset) } : undefined } : undefined;
+  if (B?.intro && offset < 0.9) warnings.push(`brand intro needs the VO to start ≥ 0.9 s in (vo.offset is ${offset}) — skipped`);
+  // burned-in captions: short phrases (portrait ≤ 4 words / 26 characters a line), cut at punctuation and pauses
+  const captions: CaptionP[] = [];
+  const capOn = story.captions ? story.captions === "burn" : format === "portrait";
+  if (capOn) {
+    const maxW = format === "portrait" ? 4 : 7, maxC = format === "portrait" ? 26 : 42;
+    let cur: CaptionP["words"] = [];
+    const flush = () => { if (cur.length) captions.push({ t0: cur[0].t0, t1: cur[cur.length - 1].t1, words: cur }); cur = []; };
+    const Ws = story.words as Word[];
+    Ws.forEach((w, i) => {
+      const word = { w: w[0].replace(/^["“]|["”]$/g, ""), t0: w[1] + offset, t1: w[2] + offset };
+      const chars = cur.reduce((a, x) => a + x.w.length + 1, 0) + word.w.length;
+      if (cur.length && (cur.length >= maxW || chars > maxC)) flush();
+      cur.push(word);
+      const next = Ws[i + 1];
+      if (/[.?!…,;:]["”]?$/.test(w[0]) || (next && next[1] - w[2] > 0.45)) flush();
+    });
+    flush();
+    // hold each line until the next one starts (short gaps), never into the end card
+    captions.forEach((c, i) => { const n = captions[i + 1]; c.t1 = Math.min(n ? Math.min(n.t0, c.t1 + 0.6) : c.t1 + 0.6, voEndT + tail); });
+  }
+
+  // ── 6. look ────────────────────────────────────────────────────────────────
+  const grade = (t: number): Grade => {
+    const S = sceneAt(t);
+    let g = gradeFor(S.mood, S.dark, S.place.kind === "interior", S.place.kind === "studio", format === "portrait");
+    // transitions around scene starts
+    const i = S.i, inT = t - S.t0;
+    const nxt = scenes[i + 1], outT = nxt ? nxt.t0 - t : 99;
+    const fadeIn = S.cut === "fade" && i > 0 ? 1 - ease(inT / 0.45) : 0;
+    const fadeOut = nxt?.cut === "fade" ? 1 - ease(outT / 0.45) : 0;
+    const dip = (S.cut === "dip" && i > 0 ? 1 - ease(inT / 0.35) : 0) + (nxt?.cut === "dip" ? 1 - ease(outT / 0.2) : 0);
+    const flash = S.cut === "flash" && i > 0 ? Math.max(0, 1 - inT / 0.18) : 0;
+    const opening = 1 - ease(t / 0.8);
+    const ending = ease((t - (duration - 1.0)) / 1.0);
+    g = { ...g, black: Math.max(g.black, fadeIn, fadeOut, opening, ending), flash: Math.max(g.flash, Math.min(1, dip), flash), flashColor: "#ffffff" };
+    return g;
+  };
+  const bars = (t: number) => {
+    const S = sceneAt(t);
+    const target = format === "portrait" ? 0 : BARS[S.mood];
+    const prevS = scenes[S.i - 1];
+    if (!prevS) return target;
+    const from = format === "portrait" ? 0 : BARS[prevS.mood];
+    return from + (target - from) * ease((t - S.t0) / 0.6);
+  };
+  const cam = (t: number) => shotCam(shotAt(t).ctx, t);
+
+  // ── 7. sound cue sheet ─────────────────────────────────────────────────────
+  const sound: SoundPlan = { duration, offset, voFile: story.vo.file, voEnd: voEndT, amb: [], music: [], hits: [], quiet: [], steps: [], sfx: [], cuts: [], title: tc?.t0, endCard: endCard.t0 };
+  scenes.forEach((S) => {
+    sound.amb.push({ t0: S.t0, t1: S.t1, id: S.place.ambience, time: S.time, reverb: S.place.reverb });
+    sound.music.push({ t0: S.t0, t1: S.t1, mood: S.mood, dark: S.dark });
+    if (S.i > 0) sound.cuts.push({ t: S.t0, kind: S.cut });
+  });
+  story.scenes.forEach((sc, si) => {
+    (sc.beats ?? []).forEach((b, bi) => {
+      const t = beatT[si][bi];
+      if (b.hit) sound.hits.push(t);
+      if (b.quiet) { let t1 = bi + 1 < (sc.beats ?? []).length ? beatT[si][bi + 1] : scenes[si].t1; if (b.until !== undefined) t1 = T(b.until, "until", t - offset); sound.quiet.push([t - 0.3, t1]); }
+      for (const n of list(b.sfx)) sound.sfx.push({ t, name: n });
+      for (const [k, v] of Object.entries(b.set ?? {})) {
+        const before = setAt(t - 0.01)[k];
+        const sfx = W.props[k]?.sfx;
+        if (sfx && v > before + 0.01 && sfx.up) sound.sfx.push({ t, name: sfx.up });
+        if (sfx && v < before - 0.01 && sfx.down) sound.sfx.push({ t, name: sfx.down });
+      }
+    });
+  });
+  const AUTO: Partial<Record<ActionName, [string, number][]>> = {
+    startle: [["hit", 0]], freeze: [["heartbeat", 0.2]], sit: [["creak", 0.7]], standUp: [["creak", 0.25]], phone: [["rustle", 0]], binoculars: [["rustle", 0.05]],
+    turn: [["rustle", 0]], reach: [["rustle", 0.1]], wake: [["breath", 0.3]], sitUp: [["creak", 0.4], ["breath", 0.5]], shiver: [["breath", 0.2]], sigh: [["breath", 0.1]], point: [["rustle", 0.1]], raise: [["rustle", 0.05]],
+  };
+  for (const [key, L] of segs) {
+    const si = Number(key.split("|")[0]);
+    const surface = scenes[si].place.surface;
+    for (const s of L) {
+      for (const [n, d] of AUTO[s.act] ?? []) if (s.t0 > scenes[si].t0 + 0.05) sound.sfx.push({ t: s.t0 + d, name: n, dur: s.act === "freeze" ? Math.min(6, s.t1 - s.t0) : undefined });
+      if (s.act === "write") sound.sfx.push({ t: s.t0 + 0.8, name: "scribble", dur: Math.max(0.5, s.t1 - s.t0 - 1.3) });
+      if (s.path && s.moveT0 !== undefined && s.moveT1 !== undefined) {
+        const run = s.act === "run";
+        let last = -1;
+        for (let t = s.moveT0; t <= s.moveT1 + 0.5; t += 1 / 120) {
+          const w = run ? walkState(s.path, t, s.moveT0, s.moveT1, 0.35, 0.45, 1.9, 1.0) : walkState(s.path, t, s.moveT0, s.moveT1, 0.4, 0.6, 1.15, 0.85);
+          const k = Math.floor(w.phase * 2 + 0.5);
+          if (last >= 0 && k !== last && w.speed > 0.15) sound.steps.push({ t, run, surface, g: Math.min(1, w.speed / (run ? 3 : 1.1)) });
+          last = k;
+        }
+      }
+    }
+  }
+  sound.sfx.push(...objSfx);
+  sound.sfx.sort((a, b) => a.t - b.t);
+  sound.steps.sort((a, b) => a.t - b.t);
+
+  return {
+    story, world: W, duration, offset, voEnd: voEndT, scenes, shots, ui, specs, props, sceneAt, shotAt, poseOf, setAt, cam, grade, bars, format, aspect, captions, brand,
+    titleCard: tc && story.titleCard ? { ...tc, text: story.titleCard.text, sub: story.titleCard.sub, kicker: story.titleCard.kicker } : undefined,
+    disclaimer: dc && story.disclaimer ? { ...dc, text: story.disclaimer.text } : undefined,
+    endCard, sound, warnings, built,
+    objectsAt: (t: number) => { const out: Dyn = {}; for (const id of objEv.keys()) out[id] = objectAt(id, t); return out; },
+  };
+};
+
+function nextBeatT(sc: Scene, bi: number, who: string, cues: Cues, offset: number, end: number, after: number) {
+  let a = after;
+  for (let k = bi + 1; k < (sc.beats ?? []).length; k++) {
+    const b = sc.beats[k];
+    let v: number;
+    try { v = cues.at(b.at, "", a); } catch { return end; }
+    a = v;
+    if (!b.do) continue;
+    const ws = Array.isArray(b.who) ? b.who : b.who ? [b.who] : [];
+    if (ws.length && !ws.includes(who)) continue;
+    return v + offset;
+  }
+  return end;
+}
+
+/** framings that hold a face */
+const FACE: ShotName[] = ["cu", "ecu", "medium"];
+
+/** The automatic shot for a beat. */
+function choose(b: Beat | undefined, first: boolean, S: SceneP, prev: ShotName | undefined, tgtName: string | undefined, tgt: V3 | undefined, head: V3 | undefined, portrait = false): ShotName {
+  const far = tgt && head ? Math.hypot(tgt[0] - head[0], tgt[2] - head[2]) > 12 : false;
+  // on a phone a reaction reads on the face: close-up first, waist-up the next time; a gesture with the hands (a
+  // hand to the chin, arms round the body) reads waist-up — in a close-up the forearm crosses the face
+  if (portrait && b?.do && !first && ["peer", "look", "sigh", "nod", "shake"].includes(b.do) && !far) return prev === "cu" ? "medium" : "cu";
+  if (portrait && b?.do && !first && ["think", "shiver"].includes(b.do)) return prev === "medium" ? "mediumWide" : "medium";
+  if (first) return S.place.kind === "interior" ? "wide" : S.place.kind === "studio" ? "orbit" : "establish";
+  if (!b) return "wide";
+  // nobody here: something high up (a lamp, a window, a bird) is seen from eye height, the rest orbited
+  if (!S.cast.length) return b.show || tgtName ? (tgt && tgt[1] - S.place.floor > 2.5 ? "long" : prev === "orbit" ? "long" : "orbit") : prev === "establish" ? "orbit" : "establish";
+  if (b.show && !b.do) return far ? "long" : prev === "reveal" ? "ots" : "reveal";
+  switch (b.do) {
+    case "walk": return prev === "track" ? "lead" : "track";
+    case "push": return prev === "profile" ? "track" : "profile";
+    case "kneel": case "pickUp": case "putDown": case "open": case "close": return "mediumWide";
+    case "give": case "receive": return "twoShot";
+    case "run": return "track";
+    case "startle": case "freeze": return "cu";
+    case "peer": case "binoculars": case "look": return far ? (prev === "ots" ? "long" : "ots") : "medium";
+    case "point": return far ? "ots" : "mediumWide";
+    // a light aimed at something: from behind the shoulder, along the beam
+    case "raise": return tgt ? "ots" : "mediumWide";
+    case "phone": case "write": return "insert";
+    case "reach": return "mediumWide";
+    case "sit": case "standUp": case "sitUp": return "mediumWide";
+    case "lie": case "sleep": case "wake": return "high";
+    case "think": case "sigh": case "nod": case "shake": case "talk": return prev === "medium" ? "cu" : "medium";
+    case "shiver": case "turn": case "wave": return "medium";
+    case "stand": return "wide";
+  }
+  return "medium";
+}
+
+==== 3105 project/src/director/cues.ts
+// Spoken-word cues → VO seconds, and the VO's pauses (where cuts like to land).
+
+import type { Cue, Word } from "./story.ts";
+
+export const norm = (w: string) => w.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
+
+export type Cues = {
+  words: Word[];
+  offset: number;
+  voEnd: number;
+  /** VO seconds of a cue (throws a plain-language error when the word isn't spoken) */
+  at: (c: Cue, label?: string, after?: number) => number;
+  /** pauses in the VO: [start, end] VO seconds, gaps ≥ 0.18 s */
+  pauses: [number, number][];
+  /** the best cut time (VO s) for an action that starts at `v`: a pause just before it, else v − 0.12 */
+  cutFor: (v: number) => number;
+};
+
+export const makeCues = (words: Word[], offset: number): Cues => {
+  const map = new Map<string, number[]>();
+  words.forEach(([w, s]) => {
+    const k = norm(w);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(s);
+  });
+  const pauses: [number, number][] = [];
+  for (let i = 1; i < words.length; i++) if (words[i][1] - words[i - 1][2] >= 0.18) pauses.push([words[i - 1][2], words[i][1]]);
+  const voEnd = words.length ? words[words.length - 1][2] : 0;
+  const toks = words.map(([w]) => norm(w));
+  /** VO seconds of a cue. Without "#n" the first occurrence at/after `after` (VO s) is used, so beats
+   *  written in order never need counting. A cue may be a short phrase ("di balik"). */
+  const at = (c: Cue, label = "cue", after = -1) => {
+    if (typeof c === "number") return c;
+    const [w, n] = c.split("#");
+    const parts = w.split(/\s+/).map(norm).filter(Boolean);
+    if (!parts.length) throw new Error(`${label}: empty cue`);
+    const hits: number[] = [];
+    for (let i = 0; i + parts.length <= toks.length; i++) if (parts.every((p, k) => toks[i + k] === p)) hits.push(words[i][1]);
+    if (!hits.length) {
+      const k = parts[0];
+      const near = [...map.keys()].filter((x) => x.startsWith(k.slice(0, 3))).slice(0, 6);
+      throw new Error(`${label}: "${w}" is not spoken in the VO${near.length ? ` (similar words: ${near.join(", ")})` : ""}`);
+    }
+    if (n !== undefined) {
+      const i = Number(n);
+      if (!(i >= 0 && i < hits.length)) throw new Error(`${label}: "${w}" is spoken ${hits.length}× — "${c}" asks for occurrence #${n} (use #0…#${hits.length - 1}, or leave "#n" out to take the next one in order)`);
+      return hits[i];
+    }
+    const next = hits.find((h) => h >= after - 0.05);
+    if (next === undefined) throw new Error(`${label}: "${w}" is not spoken again after ${after.toFixed(2)} s in the VO (beats must be in VO order; spoken at ${hits.map((h) => h.toFixed(2)).join(", ")} s)`);
+    return next;
+  };
+  const cutFor = (v: number) => {
+    // the latest pause that ends just before (or at) the word: cut inside it, shortly before the word
+    let best: [number, number] | null = null;
+    for (const p of pauses) if (p[1] <= v + 0.05 && p[1] >= v - 0.9 && (!best || p[1] > best[1])) best = p;
+    return best ? Math.max(best[0] + 0.05, best[1] - 0.15) : v - 0.12;
+  };
+  return { words, offset, voEnd, at, pauses, cutFor };
+};
+
+==== 3145 project/src/director/grade.ts
+// Mood × time of day → film grade and letterbox. Night stories keep CINÉSTORY's readable moonlight
+// (never crushed blacks); explanation moods open the frame to full 16:9.
+
+import { GRADE0, type Grade } from "../cine/types.ts";
+import type { Mood } from "./story.ts";
+
+const NIGHT: Grade = { ...GRADE0, exposure: 1.5, lift: [0.02, 0.03, 0.058], gain: [0.96, 1.0, 1.07], sat: 0.9, contrast: 1.05, vignette: 0.36, grain: 0.022, bloom: 0.32, bloomRadius: 0.55, bloomThreshold: 0.92, ca: 0.0016 };
+const DAY: Grade = { ...GRADE0, exposure: 0.98, lift: [0.01, 0.01, 0.012], gain: [1.02, 1.0, 0.98], sat: 1.0, contrast: 1.03, vignette: 0.2, grain: 0.012, bloom: 0.18, bloomThreshold: 1.05, ca: 0.0008 };
+
+const MOOD: Record<Mood, (g: Grade) => Grade> = {
+  mystery: (g) => g,
+  tense: (g) => ({ ...g, contrast: g.contrast + 0.08, sat: g.sat * 0.88, vignette: g.vignette + 0.1, grain: g.grain + 0.008 }),
+  calm: (g) => ({ ...g, sat: g.sat * 1.04, vignette: g.vignette - 0.05 }),
+  memory: (g) => ({ ...g, lift: [0.045, 0.035, 0.02], gain: [1.06, 0.98, 0.86], sat: 0.7, vignette: 0.48, grain: 0.04, bloom: g.bloom + 0.1 }),
+  told: (g) => ({ ...g, lift: [0.01, 0.03, 0.04], gain: [0.86, 0.98, 1.0], sat: 0.55, contrast: 1.12, vignette: 0.5, grain: 0.045 }),
+  reveal: (g) => ({ ...g, exposure: g.exposure * 1.06, sat: 1.0, contrast: 1.0, vignette: 0.22, grain: 0.012, bloom: g.bloom * 0.7 }),
+  science: (g) => ({ ...g, sat: 1.05, contrast: 1.04, vignette: 0.24, grain: 0.01 }),
+  warm: (g) => ({ ...g, lift: [0.035, 0.025, 0.012], gain: [1.07, 1.0, 0.9], sat: 1.05, vignette: 0.3 }),
+  cctv: () => ({ ...GRADE0, exposure: 1.35, lift: [0.04, 0.05, 0.04], gain: [0.92, 1.0, 0.9], sat: 0.0, contrast: 1.18, vignette: 0.5, grain: 0.06, bloom: 0.1, bloomThreshold: 1.2, ca: 0.003 }),
+};
+
+const MIND: Grade = { ...GRADE0, exposure: 1.1, lift: [0.0, 0.01, 0.02], sat: 1.05, contrast: 1.05, vignette: 0.3, grain: 0.014, bloom: 0.45, bloomRadius: 0.6, bloomThreshold: 0.75, ca: 0.0012, ao: 0 };
+
+/** `dark` 1 = night, 0 = full day (from the world's time of day). */
+export const gradeFor = (mood: Mood, dark: number, interior: boolean, studio = false, mobile = false): Grade => {
+  if (studio) return mood === "science" ? MIND : MOOD[mood](MIND);
+  const b = dark > 0.5 ? { ...NIGHT, exposure: NIGHT.exposure * (interior ? 1.0 : 1.0) } : dark > 0.2 ? { ...DAY, exposure: 1.12, sat: 0.95 } : DAY;
+  const g = MOOD[mood](b);
+  if (!mobile || mood === "cctv") return g;
+  // a phone screen (small, often bright surroundings): open the shadows and ease the corners — the night
+  // stays a night (blue, low key), but faces and the important shapes read
+  const lift = dark > 0.5 ? 0.024 : 0.008;
+  return { ...g, exposure: g.exposure * (dark > 0.5 ? 1.16 : 1.04), lift: [g.lift[0] + lift * 0.8, g.lift[1] + lift, g.lift[2] + lift * 1.2], contrast: Math.max(0.98, g.contrast - 0.04), vignette: g.vignette * 0.72 };
+};
+
+export const BARS: Record<Mood, number> = { mystery: 1, tense: 1, calm: 1, memory: 1, told: 1, reveal: 1, science: 0, warm: 1, cctv: 0 };
+
+export const DARK: Record<string, number> = { night: 1, storm: 1, dusk: 0.6, dawn: 0.35, day: 0 };
+
+==== 19801 project/src/director/preflight.ts
+// Geometry preflight: checks a compiled plan BEFORE anything is rendered. Pure data (no TSX), run by
+// scripts/make.mjs after "direct". Errors stop the render (--force overrides); warnings are listed in
+// out/<id>/qa/preflight.json for the visual review. What it checks:
+//   objects   floating (not on the floor, not resting on / hanging from anything), sunk into each other or a wall
+//   marks     standing marks inside an object / wall (nobody can stand there)
+//   people    body inside an object or wall, two people inside each other, feet off the ground
+//   cameras   lens inside a solid / under the ground, subject hidden behind something for most of a shot,
+//             subject outside the (9:16 or 16:9) frame, a near surface (a wall at the lens) covering the picture
+//   continuity small position jumps across a cut in the same place, held prop appearing / vanishing
+// Boxes are axis-aligned part boxes, so this catches the big mistakes, not millimetre contact.
+
+import type { Plan } from "./compile.ts";
+import type { Box, V3 } from "../worlds/types.ts";
+import { partBoxes, type Built } from "../gen/build.ts";
+import { frameOf, nearCover } from "./shots.ts";
+
+export type Issue = { check: string; level: "error" | "warn"; t?: number; msg: string };
+export type Preflight = { errors: Issue[]; warnings: Issue[]; stats: Record<string, number> };
+
+const depth = (a: Box, b: Box, m = 0) => {
+  let d = Infinity;
+  for (let k = 0; k < 3; k++) d = Math.min(d, Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]) + m);
+  return d;
+};
+const grow = (b: Box, m: number): Box => ({ min: [b.min[0] - m, b.min[1] - m, b.min[2] - m], max: [b.max[0] + m, b.max[1] + m, b.max[2] + m] });
+const inside = (p: V3, b: Box, m = 0) => p[0] > b.min[0] + m && p[0] < b.max[0] - m && p[1] > b.min[1] + m && p[1] < b.max[1] - m && p[2] > b.min[2] + m && p[2] < b.max[2] - m;
+/** segment a→b crosses box (slab test), ignoring the first/last `trim` of the segment */
+const crosses = (a: V3, b: V3, box: Box, trim = 0.25) => {
+  const d: V3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(d[0], d[1], d[2]);
+  if (L < 2 * trim) return false;
+  let t0 = trim / L, t1 = 1 - trim / L;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(d[k]) < 1e-9) { if (a[k] < box.min[k] || a[k] > box.max[k]) return false; continue; }
+    let u = (box.min[k] - a[k]) / d[k], v = (box.max[k] - a[k]) / d[k];
+    if (u > v) [u, v] = [v, u];
+    t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+    if (t0 > t1) return false;
+  }
+  return true;
+};
+const trunks = (b: Built): Box[] => b.scatter.filter((s) => s.use.startsWith("tree")).flatMap((s) => s.items.map((it) => {
+  const r = 0.3 * it.scale;
+  return { min: [it.pos[0] - r, it.pos[1], it.pos[2] - r] as V3, max: [it.pos[0] + r, it.pos[1] + 4.5 * it.scale, it.pos[2] + r] as V3 };
+}));
+
+export function preflight(P: Plan): Preflight {
+  const out: Issue[] = [];
+  const add = (check: string, level: Issue["level"], msg: string, t?: number) => out.push({ check, level, msg, t: t === undefined ? undefined : Math.round(t * 100) / 100 });
+  const stats: Record<string, number> = {};
+  const b = P.built;
+  const walls: Box[] = b ? (Object.values(P.world.places)[0]?.occluders ?? []) : [];
+  const tr = b ? trunks(b) : [];
+  const fps = 10;
+
+  // ── objects (where the world puts them) ──────────────────────────────────
+  if (b) {
+    const insts = b.insts.filter((i) => !i.info.walkable);
+    stats.objects = insts.length;
+    // objects already in someone's hand (or moving) at the start are placed by the timeline, not the world
+    const dyn0 = P.objectsAt(0);
+    for (const i of insts) {
+      if (dyn0[i.id]) continue;
+      const floor = b.nav.floor(i.pos[0], i.pos[2]);
+      const gap = i.box.min[1] - floor;
+      if (i.box.max[1] < floor - 0.01) add("buried", "error", `"${i.id}" (${i.use}) is entirely under the floor`);
+      else if (gap > 0.05) {
+        const others = [...insts.filter((o) => o !== i).flatMap((o) => (o.parts.length ? o.parts : [o.box])), ...walls, ...tr];
+        if (!others.some((o) => depth(i.box, o, 0.04) > 0)) add("floating", "error", `"${i.id}" (${i.use}) floats ${gap.toFixed(2)} m above the floor and touches nothing — set "on": "<object>:top" or lower it`);
+      }
+    }
+    // part against part between different objects; resting contact (a few cm) is fine
+    for (let a = 0; a < insts.length; a++) for (let c = a + 1; c < insts.length; c++) {
+      const A = insts[a], C = insts[c];
+      if (depth(A.box, C.box) <= 0.04) continue;
+      let worst = 0;
+      for (const pa of A.parts.length ? A.parts : [A.box]) for (const pc of C.parts.length ? C.parts : [C.box]) worst = Math.max(worst, depth(pa, pc));
+      if (worst > 0.06) add("objects-overlap", worst > 0.15 ? "error" : "warn", `"${A.id}" and "${C.id}" sink ${worst.toFixed(2)} m into each other`);
+    }
+    for (const i of insts) for (const w of walls) {
+      let worst = 0;
+      for (const pa of i.parts.length ? i.parts : [i.box]) worst = Math.max(worst, depth(pa, w));
+      if (worst > 0.06) add("object-in-wall", worst > 0.15 ? "error" : "warn", `"${i.id}" sticks ${worst.toFixed(2)} m into a wall`);
+    }
+  }
+
+  // ── surroundings: an open side / exterior must look onto something, not bare ground to the horizon
+  if (b) {
+    const sp = b.spec;
+    // an open side counts only when no other room continues on that side (a nurse station open to its corridor is inside)
+    const rooms = sp.rooms ?? [];
+    const outward = (r: (typeof rooms)[number], side: string) => !rooms.some((o) => o !== r && (
+      side === "north" ? Math.abs(o.rect[3] - r.rect[1]) < 0.3 && o.rect[0] < r.rect[2] && o.rect[2] > r.rect[0]
+      : side === "south" ? Math.abs(o.rect[1] - r.rect[3]) < 0.3 && o.rect[0] < r.rect[2] && o.rect[2] > r.rect[0]
+      : side === "west" ? Math.abs(o.rect[2] - r.rect[0]) < 0.3 && o.rect[1] < r.rect[3] && o.rect[3] > r.rect[1]
+      : Math.abs(o.rect[0] - r.rect[2]) < 0.3 && o.rect[1] < r.rect[3] && o.rect[3] > r.rect[1]));
+    const opens = rooms.some((r) => (r.open ?? []).some((sd) => outward(r, sd))) || Object.values(sp.places).some((p) => p.kind === "exterior");
+    // per direction: is there a building, or a scatter reaching beyond the action, on that side?
+    const ax = Object.values(b.spec.places).map((p) => p.area).find(Boolean) ?? [b.bounds.min[0] + 3, b.bounds.min[2] + 3, b.bounds.max[0] - 3, b.bounds.max[2] - 3];
+    const rs = rooms.map((r) => r.rect);
+    const box = rs.length ? [Math.min(...rs.map((r) => r[0])), Math.min(...rs.map((r) => r[1])), Math.max(...rs.map((r) => r[2])), Math.max(...rs.map((r) => r[3]))] : ax;
+    const cx = (box[0] + box[2]) / 2, cz = (box[1] + box[3]) / 2;
+    const dirOf = (x: number, z: number) => (Math.abs(x - cx) > Math.abs(z - cz) ? (x > cx ? "east" : "west") : z > cz ? "south" : "north");
+    const covered = new Set<string>();
+    for (const bd of sp.buildings ?? []) covered.add(dirOf((bd.rect[0] + bd.rect[2]) / 2, (bd.rect[1] + bd.rect[3]) / 2));
+    for (const sc of (sp.scatter ?? []).filter((x) => !["grass-tuft", "fern"].includes(x.use) && x.count >= 8)) {
+      if (sc.area[0] < box[0] - 4) covered.add("west"); if (sc.area[2] > box[2] + 4) covered.add("east");
+      if (sc.area[1] < box[1] - 4) covered.add("north"); if (sc.area[3] > box[3] + 4) covered.add("south");
+    }
+    const empty = ["north", "south", "east", "west"].filter((d) => !covered.has(d));
+    if (opens && empty.length) add("empty-surroundings", "warn", `nothing stands to the ${empty.join(" / ")} of the action: shots looking that way show bare ground to the horizon — add "buildings" (a street, shops) or tree/bush "scatter" on ${empty.length > 1 ? "those sides" : "that side"}`);
+  }
+
+  // ── marks the story uses ─────────────────────────────────────────────────
+  if (b) {
+    const used = new Set<string>();
+    for (const sc of P.story.scenes) {
+      for (const c of Object.values(sc.cast ?? {})) used.add(`${sc.place}|${c.at}`);
+      for (const bt of sc.beats) if (bt.to && !bt.to.includes(":")) used.add(`${sc.place}|${bt.to}`);
+    }
+    const free = (x: number, z: number) => {
+      const i = Math.floor((x - b.nav.x0) / b.nav.cell), j = Math.floor((z - b.nav.z0) / b.nav.cell);
+      return i >= 0 && j >= 0 && i < b.nav.nx && j < b.nav.nz && b.nav.free[j * b.nav.nx + i] === 1;
+    };
+    for (const k of used) {
+      const [pid, name] = k.split("|");
+      const m = P.world.places[pid]?.marks[name];
+      if (!m || m.seat !== undefined || m.bed) continue;
+      // a standing spot needs some free floor around it (nav cells shrink solids by the body radius)
+      const ok = [[0, 0], [0.12, 0], [-0.12, 0], [0, 0.12], [0, -0.12]].some(([dx, dz]) => free(m.p[0] + dx, m.p[1] + dz));
+      if (!ok) add("mark-blocked", "error", `mark "${name}" in "${pid}" is inside an object or wall — move it to open floor`);
+    }
+    stats.marks = used.size;
+  }
+
+  // ── people over time ─────────────────────────────────────────────────────
+  const end = P.voEnd + 0.5;
+  const hits = new Map<string, { t0: number; n: number; d: number }>();
+  const note = (key: string, t: number, d: number) => { const h = hits.get(key); if (h) { h.n++; h.d = Math.max(h.d, d); } else hits.set(key, { t0: t, n: 1, d }); };
+  let samples = 0;
+  for (let t = 0; t < end; t += 1 / fps) {
+    const S = P.sceneAt(t);
+    const dyn = P.objectsAt(t);
+    const set = P.setAt(t) as Record<string, number>;
+    const people = S.cast.map((who) => ({ who, p: P.poseOf(who, t) })).filter((x): x is { who: string; p: NonNullable<typeof x.p> } => !!x.p);
+    samples++;
+    const solids: { id: string; box: Box }[] = [];
+    if (b) {
+      for (const i of b.insts) {
+        if (i.info.walkable) continue;
+        const d = dyn[i.id];
+        if (d?.hidden || (set[`${i.id}.visible`] ?? 1) < 0.5) continue;
+        const boxes = d ? partBoxes(i.use, b.objects, d.pos, d.yaw, i.scale) : i.parts;
+        for (const box of boxes.length ? boxes : [i.box]) solids.push({ id: i.id, box });
+      }
+      for (const w of walls) solids.push({ id: "wall", box: w });
+      for (const x of tr) solids.push({ id: "tree", box: x });
+    }
+    for (const { who, p } of people) {
+      // lying = hips pitched flat (in a bed); standing = upright with the feet at floor height
+      const lying = Math.abs(p.hips[0]) > 0.8;
+      const standing = !lying && p.hipY > -0.15 && Math.abs(p.y - (b ? b.nav.floor(p.x, p.z) : S.place.floor)) < 0.12;
+      // torso cylinder (standing) or chest only (sitting / kneeling)
+      const lo = standing ? 0.4 : 0.85 + p.hipY, hi = standing ? 1.45 : 1.25 + p.hipY;
+      const body: Box = { min: [p.x - 0.14, p.y + lo, p.z - 0.14], max: [p.x + 0.14, p.y + hi, p.z + 0.14] };
+      for (const s of solids) {
+        if (dyn[s.id]) {
+          // objects being handled (pushed, carried, given) sit right at the body
+          const d = dyn[s.id];
+          if (Math.hypot(d.pos[0] - p.x, d.pos[2] - p.z) < 1.0) continue;
+        }
+        if (!standing && s.box.min[0] < p.x && s.box.max[0] > p.x && s.box.min[2] < p.z && s.box.max[2] > p.z) continue;
+        if (lying) continue; // the bed holds the body; a lying body is checked by its bed mark, not by boxes
+        const dd = depth(body, s.box);
+        if (dd > 0.06) note(`body|${who}|${s.id}`, t, dd);
+      }
+      // feet on the ground while walking (terrain following); standing still is set by the mark height
+      const q = P.poseOf(who, t + 0.1);
+      if (b && q && Math.hypot(q.x - p.x, q.z - p.z) > 0.04 && p.hipY > -0.1) {
+        const gap = p.y - b.nav.floor(p.x, p.z);
+        if (Math.abs(gap) > 0.08) note(`feet|${who}`, t, Math.abs(gap));
+      }
+    }
+    for (let a = 0; a < people.length; a++) for (let c = a + 1; c < people.length; c++) {
+      const A = people[a].p, C = people[c].p, d = Math.hypot(A.x - C.x, A.z - C.z);
+      if (d < 0.4) note(`pair|${people[a].who}|${people[c].who}`, t, 0.4 - d);
+    }
+  }
+  stats.peopleSamples = samples;
+  for (const [k, h] of hits) {
+    const [kind, a, c] = k.split("|");
+    const dur = h.n / fps;
+    if (kind === "body") add("person-in-object", dur > 0.3 && h.d > 0.1 ? "error" : "warn", `${a}'s body is inside ${c === "wall" ? "a wall" : c === "tree" ? "a tree trunk" : `"${c}"`} (${h.d.toFixed(2)} m deep, ${dur.toFixed(1)} s from ${h.t0.toFixed(1)} s)`, h.t0);
+    if (kind === "feet") add("feet-off-ground", dur > 0.5 && h.d > 0.15 ? "error" : "warn", `${a}'s feet are ${h.d.toFixed(2)} m off the ground (${dur.toFixed(1)} s from ${h.t0.toFixed(1)} s)`, h.t0);
+    if (kind === "pair") add("people-overlap", dur > 0.3 ? "error" : "warn", `${a} and ${c} stand inside each other (${dur.toFixed(1)} s from ${h.t0.toFixed(1)} s)`, h.t0);
+  }
+
+  // ── cameras ──────────────────────────────────────────────────────────────
+  let camFrames = 0;
+  P.shots.forEach((sh, si) => {
+    const S = P.scenes[sh.scene];
+    const pl = S.place;
+    const blockers = [...pl.solids, ...(pl.occluders ?? [])];
+    // named copies for the messages (what is in the way)
+    const named: { id: string; box: Box }[] = b ? [...b.insts.filter((i) => !i.info.walkable).flatMap((i) => (i.parts.length ? i.parts : [i.box]).map((box) => ({ id: i.id, box }))), ...walls.map((box) => ({ id: "a wall", box })), ...tr.map((box) => ({ id: "a tree trunk", box }))] : blockers.map((box) => ({ id: "an object", box }));
+    const why = new Map<string, number>();
+    let inSolid = 0, under = 0, blocked = 0, n = 0, firstBad = -1;
+    let crowd = 0, crowdBad = 0, outF = 0, fn = 0, crowdMax = 0, firstCrowd = -1, lastFrameT = -1, away = 0, faceN = 0;
+    const faceShot = sh.who && sh.ctx.subj && ["cu", "ecu", "medium", "push"].includes(sh.kind), faceLim = sh.kind === "cu" || sh.kind === "ecu" ? 0.45 : 0.42;
+    for (let t = sh.t0 + 0.05; t < Math.min(sh.t1, P.duration) - 0.02; t += 1 / fps) {
+      n++; camFrames++;
+      const c = P.cam(t);
+      const g = pl.ground ? pl.ground(c.pos[0], c.pos[2]) : b ? b.nav.floor(c.pos[0], c.pos[2]) : pl.floor;
+      if (c.pos[1] < g + 0.08) { under++; if (firstBad < 0) firstBad = t; }
+      if ([...blockers, ...(pl.soft ?? []), ...(pl.swings ?? [])].some((x) => inside(c.pos, grow(x, 0.02)))) { inSolid++; if (firstBad < 0) firstBad = t; }
+      // framing on screen, sampled every 0.25 s: near surfaces over the picture, the subject outside the frame
+      if (t - lastFrameT >= 0.25) {
+        lastFrameT = t; fn++;
+        if (sh.kind !== "pov" && sh.kind !== "ecu") {
+          const focus = c.focus ?? Math.hypot(c.target[0] - c.pos[0], c.target[1] - c.pos[1], c.target[2] - c.pos[2]);
+          const cov = nearCover(pl, c.pos, c.target, c.fov, P.aspect, focus);
+          crowdMax = Math.max(crowdMax, cov);
+          if (cov > 0.3) { crowd++; if (firstCrowd < 0) firstCrowd = t; }
+          if (cov > 0.45) crowdBad++;
+        }
+        // a face shot shows the face: the lens within ~63° (close-up) / 65° (medium) of where the person looks
+        if (faceShot) {
+          const e = sh.ctx.subj!.eye(t).dir, h = sh.ctx.subj!.head(t), vx = c.pos[0] - h[0], vz = c.pos[2] - h[2];
+          faceN++;
+          if ((e[0] * vx + e[2] * vz) / ((Math.hypot(e[0], e[2]) * Math.hypot(vx, vz)) || 1) < faceLim) away++;
+        }
+        // only framings that are about the person (inserts frame the hands, reveals swing to the thing, OTS / long look past them)
+        if (sh.who && ["wide", "mediumWide", "medium", "cu", "push", "pull", "profile", "low", "high", "lead", "track", "orbit", "twoShot"].includes(sh.kind)) {
+          const p = P.poseOf(sh.who, t);
+          if (p) {
+            const pj = frameOf(c.pos, c.target, c.fov, P.aspect).project([p.x, p.y + 1.45 + p.hipY, p.z]);
+            if (pj.z <= 0 || Math.abs(pj.x) > 0.98 || Math.abs(pj.y) > 0.98) outF++;
+          }
+        }
+      }
+      if (sh.who && sh.kind !== "pov") {
+        const p = P.poseOf(sh.who, t);
+        if (p) {
+          const head: V3 = [p.x, p.y + 1.45 + p.hipY, p.z];
+          // the box the subject stands in / sits on never counts as a blocker
+          const hit = named.find((x) => !inside(head, grow(x.box, 0.3)) && !inside([p.x, p.y + 0.5 + p.hipY, p.z], grow(x.box, 0.2)) && crosses(c.pos, head, x.box));
+          if (hit) { blocked++; why.set(hit.id, (why.get(hit.id) ?? 0) + 1); }
+        }
+      }
+    }
+    const label = `shot ${si + 1} (${sh.kind}${sh.who ? " " + sh.who : ""}, ${sh.t0.toFixed(1)}–${sh.t1.toFixed(1)} s)`;
+    if (inSolid > 0) add("camera-in-solid", inSolid / Math.max(1, n) > 0.1 ? "error" : "warn", `${label}: lens inside an object / wall / foliage on ${inSolid}/${n} samples`, firstBad);
+    if (under > 0) add("camera-underground", "error", `${label}: lens below the ground on ${under}/${n} samples`, firstBad);
+    if (fn && crowd / fn > 0.3) add("camera-crowded", crowdBad / fn > 0.4 ? "error" : "warn", `${label}: a surface right at the lens covers up to ${Math.round(100 * crowdMax)}% of the picture on ${Math.round((100 * crowd) / fn)}% of the shot (a wall / furniture too close) — move the people / force another shot or side`, firstCrowd);
+    if (fn && outF / fn > 0.25) add("subject-out-of-frame", outF / fn > 0.6 ? "error" : "warn", `${label}: ${sh.who}'s head is outside the ${P.format} frame on ${Math.round((100 * outF) / fn)}% of the shot`, sh.t0);
+    if (faceN && away / faceN > 0.5) add("face-turned-away", away / faceN > 0.7 && (sh.kind === "cu" || sh.kind === "ecu") ? "error" : "warn", `${label}: ${sh.who}'s face is turned away from the camera on ${Math.round((100 * away) / faceN)}% of the shot (only the side / back of the head shows) — they face a wall, window or thing too close for a camera in front: give the mark ≥ 1.5 m in front of the face, turn them to the room, or show what they look at over the shoulder (ots)`, sh.t0);
+    if (n && blocked / n > 0.4) add("subject-hidden", blocked / n > 0.75 ? "error" : "warn", `${label}: ${sh.who} hidden behind ${[...why.entries()].sort((x, y) => y[1] - x[1]).slice(0, 2).map(([k]) => (k.startsWith("a ") ? k : `"${k}"`)).join(" / ")} on ${Math.round((100 * blocked) / n)}% of the shot`, sh.t0);
+  });
+  stats.cameraSamples = camFrames;
+  stats.shots = P.shots.length;
+
+  // ── continuity across scene cuts ─────────────────────────────────────────
+  for (let k = 1; k < P.scenes.length; k++) {
+    const A = P.scenes[k - 1], B = P.scenes[k];
+    if (A.place.id !== B.place.id || B.cut !== "cut") continue;
+    for (const who of B.cast) {
+      if (!A.cast.includes(who)) continue;
+      const pa = P.poseOf(who, B.t0 - 0.05), pb = P.poseOf(who, B.t0 + 0.05);
+      if (!pa || !pb) continue;
+      const jump = Math.hypot(pa.x - pb.x, pa.z - pb.z);
+      if (jump > 0.12 && jump < 1.2) add("jump-cut", "warn", `scene ${k + 1} at ${B.t0.toFixed(1)} s: ${who} jumps ${jump.toFixed(2)} m across a hard cut in the same place (reads as a glitch — start the scene where the last one ended, or move further)`, B.t0);
+      const ha = pa.hold?.kind, hb = pb.hold?.kind;
+      if (ha !== hb && (ha === "lantern" || ha === "flashlight" || hb === "lantern" || hb === "flashlight")) add("prop-continuity", "warn", `scene ${k + 1}: ${who}'s ${ha ?? hb} ${ha ? "vanishes" : "appears"} across the cut`, B.t0);
+    }
+  }
+
+  return { errors: out.filter((x) => x.level === "error"), warnings: out.filter((x) => x.level === "warn"), stats };
+}
+
+==== 38360 project/src/director/shots.ts
+// Camera library. Every shot type is a function (context, film time) → Cam, computed from the people's
+// performance and the place (POIs, establish hint, camera-safe box). Hand-held drift scales with the
+// mood; positions are clamped legal (inside the place, out of walls); depth of field focuses on the
+// shot's subject automatically.
+// Portrait (9:16) has its own framings — not a crop of the landscape ones: subjects stay centred, eyes on
+// the upper third, the frame is sized by how much of a person it should hold (face, waist-up, full figure),
+// over-the-shoulder and two-shots are staggered in depth instead of side by side. Before a shot is used,
+// every candidate framing is scored for: the lens pushed by walls, the view to the subject / target blocked,
+// the subject outside the frame, and near surfaces (a wall at the lens) covering the picture.
+
+import type { Cam } from "../cine/types.ts";
+import { legalCam, type Place, type V3 } from "../worlds/types.ts";
+import type { Mood, ShotName } from "./story.ts";
+
+export type Subject = {
+  /** root on the floor, smoothed over ±0.3 s (no walk bob) */
+  pos: (t: number) => V3;
+  head: (t: number) => V3;
+  yaw: (t: number) => number;
+  eye: (t: number) => { pos: V3; dir: V3 };
+  hand: (t: number) => V3;
+  /** where a raised phone is held */
+  phone?: (t: number) => V3;
+};
+
+export type ShotCtx = {
+  kind: ShotName;
+  t0: number;
+  t1: number;
+  place: Place;
+  subj?: Subject;
+  subj2?: Subject;
+  /** the thing looked at / shown */
+  target?: (t: number) => V3;
+  /** other people in the scene (they must not block the lens) */
+  others?: (t: number) => V3[];
+  side: 1 | -1;
+  mood: Mood;
+  fov?: number;
+  seed: number;
+  /** inserts: size (m) of the object handled — the camera stands back for big things */
+  size?: number;
+  /** frame width / height: 9 / 16 portrait (default), 16 / 9 landscape */
+  aspect?: number;
+  /** the person is using a phone (inserts look over the shoulder at its screen) */
+  phone?: boolean;
+};
+
+const add = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const len = (a: V3) => Math.hypot(a[0], a[1], a[2]);
+const mix = (a: V3, b: V3, k: number): V3 => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+const ease = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+const fwd = (yaw: number): V3 => [Math.sin(yaw), 0, Math.cos(yaw)];
+const right = (yaw: number): V3 => [-Math.cos(yaw), 0, Math.sin(yaw)];
+const n1 = (t: number, s: number) => Math.sin(t * 1.31 + s) * 0.6 + Math.sin(t * 2.17 + s * 1.7) * 0.3 + Math.sin(t * 3.71 + s * 2.3) * 0.1;
+
+export const SHAKE: Record<Mood, number> = { mystery: 0.32, tense: 0.5, told: 0.2, memory: 0.15, calm: 0.12, reveal: 0.1, science: 0.04, warm: 0.1, cctv: 0 };
+const SHAKE_K: Partial<Record<ShotName, number>> = { pov: 1.7, track: 1.3, lead: 1.2, establish: 0.25, drone: 0.2, map: 0.1, long: 0.9, insert: 0.6, cu: 0.8, ecu: 0.6, orbit: 0.3 };
+const APERTURE: Partial<Record<ShotName, number>> = { cu: 0.012, ecu: 0.016, insert: 0.012, medium: 0.006, ots: 0.007, profile: 0.006, push: 0.006, lead: 0.004, track: 0.003, low: 0.004, twoShot: 0.004 };
+
+type Rig = { pos: V3; target: V3; fov: number; focus?: V3; free?: boolean };
+const isPortrait = (c: ShotCtx) => (c.aspect ?? 16 / 9) < 1;
+/** a vertical FOV (deg) that holds `h` metres at distance `d` */
+const fovFor = (h: number, d: number) => (2 * Math.atan2(h / 2, Math.max(0.05, d)) * 180) / Math.PI;
+
+const rig = (c: ShotCtx, t: number, rot = 0, dk = 1, from?: V3): Rig => {
+  // an insert of something out of reach is really a long-lens shot of it
+  if (c.kind === "insert" && c.subj && c.target && len(sub(c.target(t), c.subj.head(t))) > 1.6) return rig({ ...c, kind: "long" }, t, rot, dk, from);
+  // a far target the subject cannot see from here: shoot it from a clear vantage point instead
+  if (from && c.target && (c.kind === "long" || c.kind === "ots" || c.kind === "reveal")) {
+    const look = c.target(t), d = len(sub(look, from));
+    return { pos: from, target: look, fov: c.fov ?? Math.max(4, Math.min(30, (2 * Math.atan2(d > 30 ? 6 : 1.6, d) * 180) / Math.PI)), focus: look, free: true };
+  }
+  const u = ease((t - c.t0) / Math.max(0.01, c.t1 - c.t0));
+  const s = c.subj;
+  const tgt = c.target ? c.target(t) : undefined;
+  const E = c.place.establish;
+  const P = isPortrait(c);
+  if (!s) {
+    // no person in shot: frame the target or the place (rot / dk: the candidate search swings and pulls in)
+    const look = tgt ?? (c.place.pois[c.place.view] as V3) ?? E.center;
+    switch (c.kind) {
+      case "long": case "pov": case "ots": {
+        // from the establishing ring, toward the target
+        const a = E.yaw + c.side * 0.15 + rot;
+        const from: V3 = add(E.center, [Math.sin(a) * E.radius * dk, E.height * 0.5, Math.cos(a) * E.radius * dk]);
+        const d = len(sub(look, from));
+        const f = Math.max(3, Math.min(30, (2 * Math.atan2(9, d) * 180) / Math.PI));
+        return { pos: from, target: look, fov: c.fov ?? (P ? (d < 3 ? 56 : Math.min(46, f * 1.6)) : f) };
+      }
+      case "map": return { pos: add(E.center, [0.3 * E.radius * c.side, 1.7 * E.radius, 0.6 * E.radius]), target: E.center, fov: P ? 54 : 42 };
+      case "orbit": {
+        const a = E.yaw + c.side * (0.4 * u - 0.2) + rot, R = E.radius * 0.7 * dk;
+        return { pos: add(look, [Math.sin(a) * R, E.height * 0.5, Math.cos(a) * R]), target: look, fov: P ? 48 : 36 };
+      }
+      default: {
+        const a = E.yaw + c.side * 0.12 * u + rot, R = E.radius * dk * (c.kind === "drone" ? 1.6 - 0.25 * u : 1.1 - 0.12 * u), H = E.height * (c.kind === "drone" ? 2.0 - 0.4 * u : 1.25 - 0.3 * u);
+        return { pos: add(E.center, [Math.sin(a) * R, H, Math.cos(a) * R]), target: mix(E.center, look, 0.25), fov: c.fov ?? (P ? 56 : 38) };
+      }
+    }
+  }
+  if (P) { const pr = portraitRig(c, t, u, s, tgt, rot, dk); if (pr) return pr; }
+  const p = s.pos(t), h = s.head(t);
+  // faces are framed from where the face looks, bodies from where the body faces
+  const faceShot = c.kind === "cu" || c.kind === "ecu" || c.kind === "medium" || c.kind === "push";
+  const ed = s.eye(t).dir, bodyYaw = s.yaw(t);
+  const yaw = (faceShot && Math.hypot(ed[0], ed[2]) > 0.3 ? Math.atan2(ed[0], ed[2]) : bodyYaw) + rot, F = fwd(bodyYaw), Rt = right(bodyYaw);
+  switch (c.kind) {
+    case "establish": case "drone": {
+      const a = E.yaw + c.side * 0.12 * u, R = E.radius * (c.kind === "drone" ? 1.6 - 0.25 * u : 1.05 - 0.15 * u), H = E.height * (c.kind === "drone" ? 2.0 - 0.4 * u : 1.2 - 0.35 * u);
+      return { pos: add(E.center, [Math.sin(a) * R, H, Math.cos(a) * R]), target: mix(E.center, h, 0.45), fov: c.fov ?? 38 };
+    }
+    case "wide": {
+      const a = yaw + c.side * 0.6, D = (c.place.kind === "interior" ? 3.4 : 6.5) * dk;
+      const pos = add(add(p, fwd(a), D), [0, 1.55 + 0.1 * u, 0]);
+      return { pos: add(pos, Rt, 0.25 * u * c.side), target: add(p, [0, 1.15, 0]), fov: c.fov ?? 42 };
+    }
+    case "mediumWide": {
+      const a = yaw + c.side * 0.5;
+      return { pos: add(add(p, fwd(a), (3.0 - 0.2 * u) * dk), [0, 1.35, 0]), target: add(p, [0, 0.95, 0]), fov: c.fov ?? (dk < 0.9 ? 44 : 36), focus: h };
+    }
+    case "medium": {
+      const a = yaw + c.side * 0.42;
+      return { pos: add(add(h, fwd(a), (1.75 - 0.15 * u) * dk), [0, -0.05, 0]), target: add(h, [0, -0.22, 0]), fov: c.fov ?? (dk < 0.9 ? 38 : 30), focus: h };
+    }
+    case "cu": {
+      const a = yaw + c.side * 0.32;
+      return { pos: add(add(h, fwd(a), 0.86 - 0.14 * u), [0, 0.0, 0]), target: add(h, [0, -0.02, 0]), fov: c.fov ?? 26, focus: h };
+    }
+    case "ecu": {
+      const e = s.eye(t), a = yaw + c.side * 0.2;
+      return { pos: add(add(e.pos, fwd(a), 0.42 - 0.06 * u), [0, 0.01, 0]), target: e.pos, fov: c.fov ?? 22, focus: e.pos };
+    }
+    case "ots": {
+      const look = tgt ?? add(h, F, 6);
+      const far = len(sub(look, h)) > 15;
+      const back = sub(h, look);
+      const bn = len(back) || 1;
+      // a target well above the head (a bird in a tree, a window): drop to a low angle so the shoulder stays in frame
+      const up = look[1] - h[1], low = up > 0.6;
+      const pos = add(add(add(h, [back[0] / bn, 0, back[2] / bn], 1.25), Rt, 0.42 * c.side), [0, low ? 0.14 - Math.min(0.55, up * 0.25) : 0.14, 0]);
+      return { pos, target: mix(look, h, far ? 0 : low ? 0.3 : 0.15), fov: c.fov ?? (far ? 30 : low ? 40 : 32), focus: look };
+    }
+    case "pov": {
+      const e = s.eye(t), look = tgt ?? add(e.pos, e.dir, 8);
+      const far = len(sub(look, e.pos)) > 15;
+      return { pos: add(e.pos, F, 0.06), target: look, fov: c.fov ?? (far ? 24 : 40), focus: look };
+    }
+    case "long": {
+      const look = tgt ?? add(h, F, 30);
+      const win = c.place.window ? c.place.pois[c.place.window] : undefined;
+      const through = c.place.kind === "interior" && !!win && len(sub(look, h)) > 15;
+      // through a window: stand just outside the glass (a pane in front of a long lens reads as milk)
+      const from = through ? add(win, sub(win, h), 0.12 / Math.max(0.3, len(sub(win, h)))) : add(add(h, Rt, 0.3 * c.side), [0, 0.05, 0]);
+      const d = len(sub(look, from));
+      const fov = c.fov ?? Math.max(2.5, Math.min(24, (2 * Math.atan2(d > 60 ? 9 : 3, d) * 180) / Math.PI));
+      return { pos: from, target: look, fov: fov * (1 - 0.08 * u), focus: look, free: through };
+    }
+    case "track": {
+      const pos = add(add(add(p, F, -2.3), Rt, 0.45 * c.side), [0, 1.62, 0]);
+      return { pos, target: add(add(p, F, 3), [0, 1.3, 0]), fov: c.fov ?? 42, focus: h };
+    }
+    case "lead": {
+      const pos = add(add(add(p, F, 2.6), Rt, 0.25 * c.side), [0, 1.5, 0]);
+      return { pos, target: add(h, [0, -0.1, 0]), fov: c.fov ?? 34, focus: h };
+    }
+    case "profile": return { pos: add(add(p, right(yaw), 2.3 * c.side * dk), [0, 1.3, 0]), target: add(p, [0, 1.15, 0]), fov: c.fov ?? (dk < 0.9 ? 42 : 32), focus: h };
+    case "low": return { pos: add(add(add(p, F, 1.9), Rt, 0.3 * c.side), [0, 0.42, 0]), target: add(h, [0, 0.1, 0]), fov: c.fov ?? 38, focus: h };
+    case "high": return { pos: add(add(add(p, F, 1.4), Rt, 0.4 * c.side), [0, 3.3, 0]), target: add(p, [0, 0.7, 0]), fov: c.fov ?? 42, focus: h };
+    case "insert": {
+      // a phone in use and a thing the person looks at (not handles) are framed as in portrait: over the phone
+      // hand's shoulder onto the screen; on the eye line, close to the thing's face
+      if (c.phone) {
+        const ph = s.phone?.(t) ?? s.hand(t);
+        return { pos: add(add(add(h, F, -0.55), Rt, 0.45), [0, 0.18, 0]), target: ph, fov: c.fov ?? 26, focus: ph };
+      }
+      if (tgt && len(sub(tgt, s.hand(t))) > 0.45 && len(sub(tgt, h)) < 10) {
+        const d = sub(tgt, h), dl = Math.hypot(d[0], d[2]) || 1, dn: V3 = [d[0] / dl, 0, d[2] / dl];
+        const pos = add(add(tgt, dn, -0.75), [dn[2], 0, -dn[0]], 0.3 * c.side);
+        return { pos: [pos[0], tgt[1] + 0.35, pos[2]], target: tgt, fov: c.fov ?? 30, focus: tgt };
+      }
+      // frame the hand AND what it handles: aim between them when the hand is near the target
+      const hand = s.hand(t);
+      const at = tgt && len(sub(tgt, h)) < 1.5 ? (len(sub(tgt, hand)) < 0.8 ? mix(tgt, hand, 0.45) : tgt) : hand;
+      const fw = fwd(yaw);
+      // from across the work, three-quarter on the working hand's side, looking down at hand + object;
+      // the person is behind it, soft (the body can never cover the hand from here)
+      const rt = right(yaw), hd = sub(hand, h), hs = Math.sign(hd[0] * rt[0] + hd[2] * rt[2]) || c.side;
+      const sk = Math.min(2.6, Math.max(1, (c.size ?? 0) / 0.18));
+      const pos = add(add(add(at, rt, 0.26 * hs * sk), fw, 0.34 * sk), [0, 0.4 * sk, 0]);
+      return { pos, target: at, fov: c.fov ?? 38, focus: at };
+    }
+    case "orbit": {
+      const look = tgt && len(sub(tgt, h)) < 6 ? mix(h, tgt, 0.5) : h;
+      const a = yaw + c.side * (0.35 + 0.45 * u), R = 2.3;
+      return { pos: add(look, [Math.sin(a) * R, 0.25, Math.cos(a) * R]), target: look, fov: c.fov ?? 34, focus: look };
+    }
+    case "push": {
+      const a = yaw + c.side * 0.25;
+      return { pos: add(add(h, fwd(a), 3.1 - 1.6 * u), [0, -0.05, 0]), target: add(h, [0, -0.08, 0]), fov: c.fov ?? 32, focus: h };
+    }
+    case "pull": {
+      const a = yaw + c.side * 0.3;
+      return { pos: add(add(h, fwd(a), 1.2 + 3.6 * u), [0, 0.1 + 0.8 * u, 0]), target: add(h, [0, -0.2 - 0.3 * u, 0]), fov: c.fov ?? 34, focus: h };
+    }
+    case "reveal": {
+      const look = tgt ?? add(h, F, 10);
+      const back = sub(h, look), bn = len(back) || 1;
+      // from behind the shoulder, the head a third of the way in, then the view swings onto the thing
+      const pos = add(add(add(h, [back[0] / bn, 0, back[2] / bn], 1.45), Rt, 0.62 * c.side), [0, 0.12, 0]);
+      const k = ease((t - c.t0 - 0.4) / Math.max(0.5, (c.t1 - c.t0) * 0.6));
+      return { pos, target: mix(mix(h, look, 0.3), look, k), fov: c.fov ?? 36, focus: k < 0.5 ? h : look };
+    }
+    case "map": return { pos: add(E.center, [0.3 * E.radius * c.side, 1.7 * E.radius, 0.6 * E.radius]), target: E.center, fov: 42 };
+    case "twoShot": {
+      const q = c.subj2 ? c.subj2.pos(t) : add(p, F, 1.5);
+      const mid = mix(p, q, 0.5), d = sub(q, p), gap = Math.hypot(d[0], d[2]) || 1;
+      const perp: V3 = [-d[2] / gap * c.side, 0, d[0] / gap * c.side];
+      return { pos: add(add(mid, perp, Math.max(2.0, 1.15 * gap) * dk), [0, 1.45, 0]), target: add(mid, [0, 1.2, 0]), fov: c.fov ?? 40, focus: add(mid, [0, 1.5, 0]) };
+    }
+  }
+  return { pos: add(h, F, 2), target: h, fov: 35 };
+};
+
+/** Portrait framings for a person (null = use the landscape one). Sizes are the frame height held at the
+ *  subject (metres) — a 9:16 frame is 0.56 × as wide, so a face, a waist-up figure or a whole body fills it
+ *  as it would on a phone; the aim point keeps the eyes on the upper third. */
+/** Camera for a phone insert: behind / above one shoulder; k lifts and swings it out step by step. */
+const phoneCam = (h: V3, F: V3, Rt: V3, k: number, side: number): V3 => add(add(add(h, F, -0.55 + 0.06 * k), Rt, (0.45 + 0.1 * k) * side), [0, 0.18 + 0.13 * k, 0]);
+const PHONE_VIEW = new Map<string, { k: number; side: number }>();
+/** The first lift / shoulder at which the head, neck and shoulders stay off the line to the phone (checked across the shot). */
+const phoneView = (c: ShotCtx, s: Subject) => {
+  const key = `${c.t0.toFixed(3)}:${c.t1.toFixed(3)}`;
+  let v = PHONE_VIEW.get(key);
+  if (v) return v;
+  const ts = [0.25, 0.5, 0.8].map((f) => c.t0 + (c.t1 - c.t0) * f);
+  const clear = (k: number, side: number) => ts.every((t) => {
+    const h = s.head(t), yw = s.yaw(t), F = fwd(yw), Rt = right(yw), ph = s.phone?.(t) ?? s.hand(t), pos = legalCam(c.place, phoneCam(h, F, Rt, k, side));
+    const neck = add(h, [0, -0.24, 0]), shoulder = add(add(h, [0, -0.34, 0]), Rt, 0.17 * side);
+    return segDist(h, pos, ph) > 0.19 && segDist(neck, pos, ph) > 0.12 && segDist(shoulder, pos, ph) > 0.1;
+  });
+  v = { k: 5, side: 1 };
+  search: for (let k = 0; k <= 5; k++) for (const side of [1, -1]) if (clear(k, side)) { v = { k, side }; break search; }
+  PHONE_VIEW.set(key, v);
+  return v;
+};
+
+function portraitRig(c: ShotCtx, t: number, u: number, s: Subject, tgt: V3 | undefined, rot: number, dk: number): Rig | null {
+  const p = s.pos(t), h = s.head(t);
+  const faceShot = c.kind === "cu" || c.kind === "ecu" || c.kind === "medium" || c.kind === "push";
+  const ed = s.eye(t).dir, bodyYaw = s.yaw(t);
+  const yaw = (faceShot && Math.hypot(ed[0], ed[2]) > 0.3 ? Math.atan2(ed[0], ed[2]) : bodyYaw) + rot, F = fwd(bodyYaw), Rt = right(bodyYaw);
+  const at = (H: number, d: number, fovDeg: number, aim: V3, from: V3): Rig => ({ pos: from, target: aim, fov: c.fov ?? fovDeg, focus: h });
+  const interior = c.place.kind === "interior";
+  switch (c.kind) {
+    case "wide": {
+      // the whole figure in its place, a little high, more depth than width
+      const a = yaw + c.side * 0.38, D = (interior ? 3.5 : 6.0) * dk, fv = interior ? 54 : 50;
+      const pos = add(add(p, fwd(a), D), [0, 1.62 + 0.1 * u, 0]);
+      return { pos: add(pos, Rt, 0.12 * u * c.side), target: add(p, [0, 0.95, 0]), fov: c.fov ?? fv, focus: h };
+    }
+    case "mediumWide": {
+      const a = yaw + c.side * 0.34, D = (2.55 - 0.15 * u) * dk;
+      return { pos: add(add(p, fwd(a), D), [0, 1.4, 0]), target: add(p, [0, 0.98, 0]), fov: c.fov ?? fovFor(2.1, D), focus: h };
+    }
+    case "medium": {
+      // waist up, eyes on the upper third
+      const a = yaw + c.side * 0.3, D = (1.55 - 0.12 * u) * dk;
+      return at(1.25, D, fovFor(1.25, D), add(h, [0, -0.3, 0]), add(add(h, fwd(a), D), [0, -0.04, 0]));
+    }
+    case "cu": {
+      const a = yaw + c.side * 0.24, D = (0.95 - 0.1 * u) * Math.max(0.8, dk);
+      return at(0.64, D, fovFor(0.64, D), add(h, [0, -0.12, 0]), add(add(h, fwd(a), D), [0, 0.0, 0]));
+    }
+    case "ecu": {
+      const e = s.eye(t), a = yaw + c.side * 0.14, D = 0.5 - 0.05 * u;
+      return { pos: add(add(e.pos, fwd(a), D), [0, 0.01, 0]), target: add(e.pos, [0, -0.04, 0]), fov: c.fov ?? fovFor(0.32, D), focus: e.pos };
+    }
+    case "push": {
+      const a = yaw + c.side * 0.2, D = (2.6 - 1.45 * u) * Math.max(0.75, dk);
+      return at(1.0, D, fovFor(1.05, 2.0), add(h, [0, -0.18 - 0.06 * (1 - u), 0]), add(add(h, fwd(a), D), [0, -0.04, 0]));
+    }
+    case "pull": {
+      const a = yaw + c.side * 0.24, D = 1.1 + 3.2 * u;
+      return { pos: add(add(h, fwd(a), D), [0, 0.1 + 0.7 * u, 0]), target: add(h, [0, -0.28 - 0.35 * u, 0]), fov: c.fov ?? 46, focus: h };
+    }
+    case "profile": {
+      const D = 2.0 * dk;
+      return { pos: add(add(p, right(yaw), D * c.side), [0, 1.32, 0]), target: add(p, [0, 1.12, 0]), fov: c.fov ?? fovFor(1.75, D), focus: h };
+    }
+    case "low": return { pos: add(add(add(p, F, 1.75 * dk), Rt, 0.18 * c.side), [0, 0.45, 0]), target: add(h, [0, -0.05, 0]), fov: c.fov ?? 50, focus: h };
+    case "high": return { pos: add(add(add(p, F, 1.3 * dk), Rt, 0.25 * c.side), [0, 3.1, 0]), target: add(p, [0, 0.6, 0]), fov: c.fov ?? 52, focus: h };
+    case "lead": {
+      const D = 2.4 * dk;
+      return { pos: add(add(add(p, F, D), Rt, 0.14 * c.side), [0, 1.5, 0]), target: add(h, [0, -0.3, 0]), fov: c.fov ?? fovFor(1.9, D), focus: h };
+    }
+    case "track": {
+      // from behind, close to the line of the path: the figure low in frame, the way ahead above it
+      const pos = add(add(add(p, F, -2.0 * dk), Rt, 0.16 * c.side), [0, 1.68, 0]);
+      return { pos, target: add(add(p, F, 2.6), [0, 1.15, 0]), fov: c.fov ?? 54, focus: h };
+    }
+    case "orbit": {
+      const look = tgt && len(sub(tgt, h)) < 6 ? mix(h, tgt, 0.5) : h;
+      const a = yaw + c.side * (0.35 + 0.45 * u), R = 2.0 * dk;
+      return { pos: add(look, [Math.sin(a) * R, 0.2, Math.cos(a) * R]), target: add(look, [0, -0.15, 0]), fov: c.fov ?? 44, focus: look };
+    }
+    case "insert": {
+      // a phone in the hand: over the shoulder onto its screen
+      if (c.phone) {
+        // behind the phone hand's shoulder, wide enough of the big head that the ear stays out of the lens; lifted and
+        // swung out (or to the other shoulder) until head, neck and shoulder leave the line to the phone
+        const ph = s.phone?.(t) ?? s.hand(t);
+        const { k, side } = phoneView(c, s);
+        const pos = phoneCam(h, F, Rt, k, side);
+        return { pos, target: ph, fov: c.fov ?? 30 + 3 * k, focus: ph };
+      }
+      const hand = s.hand(t);
+      // a thing the person looks at, not one in the hand (a QR code, a sign, a screen on the counter), near or
+      // across the room: on the line from the eyes, close to its face; the person is behind the lens
+      if (tgt && len(sub(tgt, hand)) > 0.45 && len(sub(tgt, h)) < 10) {
+        const d = sub(tgt, h), dl = Math.hypot(d[0], d[2]) || 1, dn: V3 = [d[0] / dl, 0, d[2] / dl];
+        const pos = add(add(tgt, dn, -0.75), [dn[2], 0, -dn[0]], 0.3 * c.side);
+        return { pos: [pos[0], tgt[1] + 0.35, pos[2]], target: tgt, fov: c.fov ?? 36, focus: tgt };
+      }
+      // from above, hand + thing in the middle of the tall frame
+      const aim = tgt && len(sub(tgt, h)) < 1.5 ? (len(sub(tgt, hand)) < 0.8 ? mix(tgt, hand, 0.45) : tgt) : hand;
+      const rt = right(yaw), fw = fwd(yaw), hd = sub(hand, h), hs = Math.sign(hd[0] * rt[0] + hd[2] * rt[2]) || c.side;
+      const sk = Math.min(2.6, Math.max(1, (c.size ?? 0) / 0.18));
+      const pos = add(add(add(aim, rt, 0.16 * hs * sk), fw, 0.26 * sk), [0, 0.52 * sk, 0]);
+      return { pos, target: aim, fov: c.fov ?? 46, focus: aim };
+    }
+    case "ots": {
+      // close behind the shoulder, almost on the line of sight: the shoulder is a dark edge low in frame
+      const look = tgt ?? add(h, F, 6);
+      const far = len(sub(look, h)) > 15;
+      const back = sub(h, look), bn = len(back) || 1;
+      const up = look[1] - h[1], low = up > 0.6;
+      const pos = add(add(add(h, [back[0] / bn, 0, back[2] / bn], 1.5), Rt, 0.38 * c.side), [0, low ? 0.12 - Math.min(0.45, up * 0.22) : 0.24, 0]);
+      return { pos, target: mix(look, h, low ? 0.12 : 0), fov: c.fov ?? (far ? 30 : low ? 46 : 40), focus: look };
+    }
+    case "reveal": {
+      const look = tgt ?? add(h, F, 10);
+      const back = sub(h, look), bn = len(back) || 1;
+      const pos = add(add(add(h, [back[0] / bn, 0, back[2] / bn], 1.55), Rt, 0.34 * c.side), [0, 0.2, 0]);
+      const k = ease((t - c.t0 - 0.4) / Math.max(0.5, (c.t1 - c.t0) * 0.6));
+      return { pos, target: mix(mix(h, look, 0.2), look, k), fov: c.fov ?? 44, focus: k < 0.5 ? h : look };
+    }
+    case "twoShot": {
+      // staggered in depth: past the first person's shoulder onto the second one's face
+      if (!c.subj2) return null;
+      const h2 = c.subj2.head(t), d = sub(h, h2), dn = Math.hypot(d[0], d[2]) || 1;
+      const dir: V3 = [d[0] / dn, 0, d[2] / dn], perp: V3 = [-dir[2] * c.side, 0, dir[0] * c.side];
+      const pos = add(add(add(h, dir, 1.0 * dk), perp, 0.32), [0, 0.12, 0]);
+      return { pos, target: mix(add(h2, [0, -0.18, 0]), h, 0.22), fov: c.fov ?? 46, focus: h2 };
+    }
+    case "establish": case "drone": {
+      const E = c.place.establish;
+      const a = E.yaw + c.side * 0.12 * u + rot, R = E.radius * dk * (c.kind === "drone" ? 1.5 - 0.25 * u : 0.95 - 0.15 * u), H = E.height * (c.kind === "drone" ? 1.9 - 0.4 * u : 1.15 - 0.3 * u);
+      return { pos: add(E.center, [Math.sin(a) * R, H, Math.cos(a) * R]), target: mix(E.center, h, 0.55), fov: c.fov ?? 56, focus: h };
+    }
+    case "long": {
+      const look = tgt ?? add(h, F, 30);
+      const from = add(add(h, Rt, 0.18 * c.side), [0, 0.05, 0]);
+      const d = len(sub(look, from));
+      const fv = Math.max(4, Math.min(40, (2 * Math.atan2(d > 60 ? 12 : 4.2, d) * 180) / Math.PI));
+      return { pos: from, target: look, fov: c.fov ?? fv * (1 - 0.08 * u), focus: look };
+    }
+    case "pov": {
+      const e = s.eye(t), look = tgt ?? add(e.pos, e.dir, 8);
+      const far = len(sub(look, e.pos)) > 15;
+      return { pos: add(e.pos, F, 0.06), target: look, fov: c.fov ?? (far ? 32 : 50), focus: look };
+    }
+  }
+  return null;
+}
+
+// ── framing checks (shared by the candidate search and the preflight) ─────────────────────────────────
+/** camera basis + projection of a world point to the frame: x, y in −1…1 inside the picture, z = depth */
+export const frameOf = (pos: V3, target: V3, fov: number, aspect: number) => {
+  const f = sub(target, pos), fl = len(f) || 1;
+  const F: V3 = [f[0] / fl, f[1] / fl, f[2] / fl];
+  let R: V3 = [F[2], 0, -F[0]];
+  const rl = Math.hypot(R[0], R[2]) || 1;
+  R = [-R[0] / rl, 0, -R[2] / rl];
+  const U: V3 = [R[1] * F[2] - R[2] * F[1], R[2] * F[0] - R[0] * F[2], R[0] * F[1] - R[1] * F[0]];
+  const th = Math.tan((fov * Math.PI) / 360);
+  const project = (w: V3) => { const d = sub(w, pos); const z = d[0] * F[0] + d[1] * F[1] + d[2] * F[2]; return { x: (d[0] * R[0] + d[1] * R[1] + d[2] * R[2]) / (z * th * aspect), y: (d[0] * U[0] + d[1] * U[1] + d[2] * U[2]) / (z * th), z }; };
+  const ray = (x: number, y: number): V3 => { const v: V3 = [F[0] + R[0] * x * th * aspect + U[0] * y * th, F[1] + R[1] * x * th * aspect + U[1] * y * th, F[2] + R[2] * x * th * aspect + U[2] * y * th]; const l = len(v); return [v[0] / l, v[1] / l, v[2] / l]; };
+  return { project, ray };
+};
+/** distance along a ray to a box (Infinity = miss); a ray starting inside the box never hits it */
+const rayBox = (o: V3, d: V3, bx: { min: V3; max: V3 }) => {
+  let t0 = 0, t1 = Infinity;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(d[k]) < 1e-9) { if (o[k] < bx.min[k] || o[k] > bx.max[k]) return Infinity; continue; }
+    let a = (bx.min[k] - o[k]) / d[k], b = (bx.max[k] - o[k]) / d[k];
+    if (a > b) [a, b] = [b, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    if (t0 > t1) return Infinity;
+  }
+  return t0 > 1e-4 ? t0 : Infinity;
+};
+/** distance along a ray to the inside wall of a room box the ray starts in */
+const rayExit = (o: V3, d: V3, bx: { min: V3; max: V3 }) => {
+  let t = Infinity;
+  for (let k = 0; k < 3; k++) { if (d[k] > 1e-9) t = Math.min(t, (bx.max[k] - o[k]) / d[k]); else if (d[k] < -1e-9) t = Math.min(t, (bx.min[k] - o[k]) / d[k]); }
+  return Math.max(0, t);
+};
+/** Share of the picture covered by a surface right at the lens (a wall in a narrow corridor, a shelf edge, a
+ *  door frame): rays through a grid of the frame, near = closer than 30 % of the focus distance (at least
+ *  22 cm, at most 60 cm). Foreground furniture further away is composition, not an obstruction. */
+export const nearCover = (place: Place, pos: V3, target: V3, fov: number, aspect: number, focusD: number, grid: [number, number] = aspect < 1 ? [4, 7] : [7, 4]) =>
+  coverOf(place, pos, target, fov, aspect, focusD, grid).near;
+/** near: share of rays hitting a surface right at the lens; fg: share hitting anything nearer than 85 % of the
+ *  focus distance (an open door leaf, a wall running past the lens, furniture in front of the person) */
+export const coverOf = (place: Place, pos: V3, target: V3, fov: number, aspect: number, focusD: number, grid: [number, number] = aspect < 1 ? [4, 7] : [7, 4]) => {
+  const fr = frameOf(pos, target, fov, aspect);
+  const lim = Math.min(0.6, Math.max(0.22, 0.3 * focusD)), fgLim = 0.85 * focusD;
+  const boxes = [...place.solids, ...(place.occluders ?? []), ...(place.kind === "interior" ? [...(place.soft ?? []), ...(place.swings ?? [])] : [])].filter((b) => !inside(pos, b));
+  const room = place.kind === "interior" ? (place.zones?.find((z) => inside(pos, z)) ?? (inside(pos, place.box) ? place.box : undefined)) : undefined;
+  let near = 0, fg = 0, n = 0;
+  for (let i = 0; i < grid[0]; i++) for (let j = 0; j < grid[1]; j++) {
+    const x = -0.9 + (1.8 * (i + 0.5)) / grid[0], y = -0.9 + (1.8 * (j + 0.5)) / grid[1];
+    const d = fr.ray(x, y);
+    let hit = room ? rayExit(pos, d, room) : Infinity;
+    for (const b of boxes) { if (hit < lim) break; hit = Math.min(hit, rayBox(pos, d, b)); }
+    // the floor is not an obstruction (a high shot looks down at it on purpose)
+    n++;
+    if (d[1] < -0.35) continue;
+    if (hit < lim) near++;
+    if (hit < fgLim) fg++;
+  }
+  return { near: n ? near / n : 0, fg: n ? fg / n : 0 };
+};
+
+// framings placed around the subject: if the ideal spot is inside a wall/furniture, swing around the
+// subject (once per shot, so the camera never jumps mid-shot) until the spot is free
+const ORBITS: ShotName[] = ["wide", "mediumWide", "medium", "cu", "ecu", "profile", "low", "high", "push", "pull", "lead", "orbit", "insert", "twoShot"];
+const SIDED: ShotName[] = ["long", "ots", "reveal", "track"];
+
+/** Does the segment a→b pass through the box (shrunk by m)? (slab test) */
+const hitsBox = (a: V3, b: V3, bx: { min: V3; max: V3 }, m = 0.03) => {
+  let t0 = 0, t1 = 1;
+  for (let k = 0; k < 3; k++) {
+    const d = b[k] - a[k], lo = bx.min[k] + m, hi = bx.max[k] - m;
+    if (Math.abs(d) < 1e-9) { if (a[k] < lo || a[k] > hi) return false; continue; }
+    let u0 = (lo - a[k]) / d, u1 = (hi - a[k]) / d;
+    if (u0 > u1) [u0, u1] = [u1, u0];
+    t0 = Math.max(t0, u0); t1 = Math.min(t1, u1);
+    if (t0 > t1) return false;
+  }
+  return t1 > 0.02 && t0 < 0.98;
+};
+const inside = (p: V3, bx: { min: V3; max: V3 }) => p[0] > bx.min[0] && p[0] < bx.max[0] && p[1] > bx.min[1] && p[1] < bx.max[1] && p[2] > bx.min[2] && p[2] < bx.max[2];
+/** distance from point p to segment a→b */
+const segDist = (p: V3, a: V3, b: V3) => {
+  const ab = sub(b, a), ap = sub(p, a), L = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
+  const k = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L));
+  return len(sub(p, add(a, ab, k)));
+};
+
+/** How bad a framing is at a few moments: camera pushed by walls/furniture, view blocked by walls,
+ *  furniture or the subject's own head. Lower is better. */
+const dbg = (k: string, v: number) => { const g = globalThis as { __shotDebug?: Record<string, number> }; if (g.__shotDebug && v) g.__shotDebug[k] = (g.__shotDebug[k] ?? 0) + v; };
+const badness = (c: ShotCtx, rot: number, flip: number, dk = 1) => {
+  let bad = 0;
+  const cc = flip !== 1 ? { ...c, side: (c.side * flip) as 1 | -1 } : c;
+  for (const k of [0.15, 0.5, 0.85]) {
+    const t = c.t0 + (c.t1 - c.t0) * k, q = rig(cc, t, c.subj ? rot * cc.side : rot, dk);
+    const pos = legalCam(c.place, q.pos);
+    bad += len(sub(pos, q.pos)) * 2; dbg("pushed by walls", len(sub(pos, q.pos)) * 2);
+    const look = q.focus ?? q.target;
+    const head = c.subj ? c.subj.head(t) : undefined;
+    // what must be seen: the subject's head (people shots) and the target (shots aimed at something)
+    const musts: V3[] = [];
+    if (head && c.kind !== "long" && c.kind !== "pov") musts.push(head);
+    // nobody in shot: what it shows must be seen
+    if (!head && c.target && c.kind !== "map") musts.push(look);
+    // body shots: the chest too (a post or a shelf across the torso spoils a medium-wide)
+    if (head && (c.kind === "mediumWide" || c.kind === "wide" || c.kind === "medium" || c.kind === "twoShot")) musts.push([head[0], head[1] - 0.45, head[2]]);
+    if (c.kind === "long" || c.kind === "ots" || c.kind === "reveal" || c.kind === "insert") musts.push(look);
+    const people = (c.others?.(t) ?? []).map((p) => ({ min: [p[0] - 0.25, p[1], p[2] - 0.25] as V3, max: [p[0] + 0.25, p[1] + 1.75, p[2] + 0.25] as V3 }));
+    // the lens at another person (a cashier behind the counter): the line-of-sight test below skips a box the
+    // camera is inside, so their head would fill the frame unseen
+    for (const b of people) if (Math.hypot(pos[0] - (b.min[0] + b.max[0]) / 2, pos[2] - (b.min[2] + b.max[2]) / 2) < 0.45 && pos[1] < b.max[1] + 0.2) { bad += 3; dbg("camera at a person", 3); }
+    for (const m of musts) {
+      for (const s of [...c.place.solids, ...(c.place.occluders ?? []), ...people]) {
+        if (inside(m, s) || inside(pos, s)) continue;
+        // grown by 5 cm: a thin post that only just misses the line still covers the face on screen
+        if (hitsBox(pos, m, s, -0.05)) { bad += 1.5; dbg(`blocked ${m === head ? "head" : "target"}`, 1.5); break; }
+      }
+    }
+    // portrait (and landscape) framing: what must be seen has to be inside the picture, and no near surface
+    // may cover it (a wall at the lens in a narrow corridor)
+    const asp = c.aspect ?? 16 / 9;
+    const fr = frameOf(pos, q.target, q.fov, asp);
+    const PEOPLE = ["wide", "mediumWide", "medium", "cu", "push", "pull", "profile", "low", "high", "lead", "orbit", "twoShot", "track", "establish"];
+    const inFrame = [...new Set(musts)].filter((m) => m !== head || PEOPLE.includes(c.kind));
+    for (const m of inFrame) {
+      const pj = fr.project(m);
+      if (pj.z <= 0.05) { bad += 3; continue; }
+      const ox = Math.abs(pj.x) - 0.86, oy = Math.abs(pj.y) - 0.9;
+      if (ox > 0) { bad += 1 + ox * 3; dbg("out of frame x", 1 + ox * 3); }
+      if (oy > 0) { bad += 0.6 + oy * 2; dbg("out of frame y", 0.6 + oy * 2); }
+    }
+    if (c.kind !== "pov" && c.kind !== "ecu") {
+      const fd = len(sub(look, pos));
+      const cv = coverOf(c.place, pos, q.target, q.fov, asp, fd, asp < 1 ? [3, 5] : [5, 3]);
+      if (cv.near > 0.22) bad += (cv.near - 0.22) * 9;
+      if (head && PEOPLE.includes(c.kind) && cv.fg > 0.4) bad += (cv.fg - 0.4) * 6;
+      // portrait: the person a shot is about stays near the middle of the narrow frame
+      if (asp < 1 && head && !["ots", "reveal", "long", "insert", "pov", "twoShot", "track"].includes(c.kind)) { const hx = Math.abs(fr.project(head).x); if (hx > 0.42) bad += (hx - 0.42) * 1.6; }
+    }
+    // a face shot shows the face: the camera in front of / beside where the face looks, never behind the head
+    if (head && c.subj && (c.kind === "cu" || c.kind === "ecu" || c.kind === "medium" || c.kind === "push")) {
+      const e = c.subj.eye(t).dir, el = Math.hypot(e[0], e[2]) || 1, v = sub(pos, head), vl = Math.hypot(v[0], v[2]) || 1;
+      const facing = (e[0] * v[0] + e[2] * v[2]) / (el * vl);
+      if (facing < 0.05) { bad += 1.2 + (0.05 - facing) * 3; dbg("behind the face", 1.2 + (0.05 - facing) * 3); }
+      // a profile from behind hides the face (hair covers the cheek): close-ups want ≤ 63° off the gaze, mediums ≤ 65°
+      else { const lim = c.kind === "cu" || c.kind === "ecu" ? 0.45 : 0.42; if (facing < lim) { bad += (lim - facing) * 3; dbg("face turned away", (lim - facing) * 3); } }
+    }
+    // over the shoulder in a narrow frame: the head is an edge, not the picture
+    if (head && asp < 1 && (c.kind === "ots" || c.kind === "reveal")) {
+      const hd = len(sub(head, pos)), half = Math.tan((q.fov * Math.PI) / 360) * asp;
+      const frac = 0.13 / Math.max(0.05, hd) / half;
+      if (frac > 0.5) { bad += (frac - 0.5) * 4; dbg("head too big", (frac - 0.5) * 4); }
+    }
+    // the subject's own head in front of the lens on shots aimed past them
+    if (head && (c.kind === "long" || c.kind === "ots" || c.kind === "insert" || c.kind === "reveal") && segDist(head, pos, look) < (c.kind === "long" ? 0.26 : c.kind === "insert" ? 0.16 : c.kind === "reveal" ? 0.18 : 0.12)) { bad += 3; dbg("own head in the lens", 3); }
+    if (head && c.kind === "insert" && len(sub(pos, head)) < 0.22) bad += 3;
+  }
+  return bad;
+};
+
+type Pick = { rot: number; flip: number; dk: number; from?: V3 };
+/** development aid: the score of a candidate framing (lower is better) */
+export const scoreFraming = (c: ShotCtx, rot: number, flip: number, dk: number) => badness(c, rot, flip, dk);
+export const pickOf = (c: ShotCtx) => pick(c);
+const pickCache = new WeakMap<ShotCtx, Pick>();
+const pick = (c: ShotCtx): Pick => {
+  const hit = pickCache.get(c);
+  if (hit) return hit;
+  let best: Pick = { rot: 0, flip: 1, dk: 1 }, bestB = Infinity;
+  if (c.subj && ORBITS.includes(c.kind)) {
+    outer: for (const dk of [1, 0.75, 0.55]) {
+      for (const r of [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.9, -1.9, Math.PI]) {
+        const b = badness(c, r, 1, dk) + (1 - dk) * 0.6;
+        if (b < 0.1) { best = { rot: r, flip: 1, dk }; bestB = b; break outer; }
+        if (b < bestB - 0.05) { best = { rot: r, flip: 1, dk }; bestB = b; }
+      }
+    }
+    best = { ...best, rot: best.rot * c.side };
+  } else if (!c.subj && c.kind !== "map") {
+    // nobody in shot (a place, a thing): swing around the establishing ring and pull in until the view is clear
+    outer2: for (const dk of [1, 0.8, 0.62]) {
+      for (const r of [0, 0.35, -0.35, 0.7, -0.7, 1.15, -1.15, 1.7, -1.7, Math.PI]) {
+        const b = badness(c, r, 1, dk) + (1 - dk) * 0.9 + Math.abs(r) * 0.18;
+        if (b < 0.1) { best = { rot: r, flip: 1, dk }; bestB = b; break outer2; }
+        if (b < bestB - 0.05) { best = { rot: r, flip: 1, dk }; bestB = b; }
+      }
+    }
+  } else if (c.subj && SIDED.includes(c.kind)) {
+    const a = badness(c, 0, 1), b = badness(c, 0, -1);
+    best = b < a - 0.05 ? { rot: 0, flip: -1, dk: 1 } : { rot: 0, flip: 1, dk: 1 };
+    bestB = Math.min(a, b);
+    if (bestB >= 2.5 && c.target && c.kind !== "track") {
+      // the subject cannot see it: find a clear vantage point (marks of the place at eye height)
+      const tm = (c.t0 + c.t1) / 2, look = c.target(tm), me = c.subj.pos(tm);
+      const blockers = [...c.place.solids, ...(c.place.occluders ?? [])];
+      const cands = Object.values(c.place.marks).map((m) => [m.p[0], (m.y ?? c.place.floor) + 1.55, m.p[1]] as V3)
+        .filter((q) => { const d = len(sub(look, q)); return d > 2.5 && d < 40 && segDist(c.subj!.head(tm), q, look) > 0.6 && !blockers.some((bx) => !inside(look, bx) && hitsBox(q, look, bx)); })
+        .sort((q1, q2) => len(sub(q1, me)) - len(sub(q2, me)));
+      if (cands[0]) best = { rot: 0, flip: 1, dk: 1, from: legalCam(c.place, cands[0]) };
+    }
+  }
+  pickCache.set(c, best);
+  return best;
+};
+
+export const shotCam = (c0: ShotCtx, t: number): Cam => {
+  const pk = pick(c0);
+  const c = pk.flip !== 1 ? { ...c0, side: (c0.side * pk.flip) as 1 | -1 } : c0;
+  const r = rig(c, t, pk.rot, pk.dk, pk.from);
+  const k = SHAKE[c.mood] * (SHAKE_K[c.kind] ?? 1);
+  let pos: V3 = [r.pos[0] + k * 0.012 * n1(t, 1 + c.seed), r.pos[1] + k * 0.01 * n1(t, 2 + c.seed), r.pos[2] + k * 0.012 * n1(t, 3 + c.seed)];
+  if (c.kind !== "pov" && !r.free) pos = legalCam(c.place, pos);
+  const target: V3 = [r.target[0] + k * 0.03 * n1(t, 4 + c.seed), r.target[1] + k * 0.025 * n1(t, 5 + c.seed), r.target[2] + k * 0.03 * n1(t, 6 + c.seed)];
+  const f = r.focus ?? r.target;
+  const ap = APERTURE[c.kind] ?? 0.0015;
+  return { pos, target, fov: r.fov, roll: k * 0.006 * n1(t, 7 + c.seed), focus: Math.max(0.3, len(sub(f, pos))), aperture: ap, maxBlur: ap > 0.005 ? 0.01 : 0.005, near: c.kind === "ecu" || c.kind === "insert" ? 0.02 : 0.05 };
+};
+
+/** The framing to use instead when the same framing would repeat. */
+export const ALT: Record<ShotName, ShotName> = {
+  establish: "wide", drone: "establish", wide: "mediumWide", mediumWide: "medium", medium: "cu", cu: "medium", ecu: "medium", ots: "long", pov: "cu",
+  long: "ots", track: "lead", lead: "profile", profile: "medium", low: "medium", high: "mediumWide", insert: "medium", orbit: "medium", push: "cu",
+  pull: "wide", reveal: "long", map: "establish", twoShot: "medium",
+};
+
+==== 5586 project/src/director/story.ts
+// story.json — the ONE file written per video. Everything else (blocking, acting, cameras, light, grade,
+// letterbox, UI, sound) is derived from it by the director (compile.ts). Plain data, validated with
+// plain-language errors (validate.ts). Cues: a spoken word ("cahaya", "cahaya#1" = its 2nd occurrence,
+// 0-based) or a number = VO seconds.
+
+import type { CustomLook } from "../cine/character/looks.ts";
+import type { HoldKind } from "../cine/character/pose.ts";
+
+export type Cue = string | number;
+export type Word = [string, number, number];
+
+export const MOODS = ["mystery", "tense", "calm", "memory", "told", "reveal", "science", "warm", "cctv"] as const;
+export type Mood = (typeof MOODS)[number];
+export const CUTS = ["cut", "fade", "dip", "flash"] as const;
+export type Transition = (typeof CUTS)[number];
+
+export const ACTIONS = [
+  "stand", "look", "turn", "walk", "run", "startle", "freeze", "peer", "point", "reach", "wave",
+  "phone", "binoculars", "raise", "think", "nod", "shake", "sigh", "talk", "shiver",
+  "sit", "standUp", "write", "lie", "sleep", "wake", "sitUp",
+  "push", "pickUp", "putDown", "give", "receive", "open", "close", "kneel",
+] as const;
+export type ActionName = (typeof ACTIONS)[number];
+
+export const SHOTS = [
+  "establish", "drone", "wide", "mediumWide", "medium", "cu", "ecu", "ots", "pov", "long", "track", "lead", "profile",
+  "low", "high", "insert", "orbit", "push", "pull", "reveal", "map", "twoShot",
+] as const;
+export type ShotName = (typeof SHOTS)[number];
+
+export const FACES = ["neutral", "calm", "alert", "fear", "panic", "squint", "read", "sleep", "drowsy", "smile", "laugh", "sad", "think", "uneasy", "serious", "relief", "surprised", "curious"] as const;
+export type FaceName = (typeof FACES)[number];
+
+export const PROPS = ["phone", "binoculars", "lantern", "flashlight", "mug", "book"] as const;
+export type PropName = (typeof PROPS)[number];
+export type { HoldKind };
+
+export type Ui =
+  | { type: "title"; text: string; sub?: string; kicker?: string }
+  | { type: "lower"; text: string; sub?: string }
+  | { type: "tag"; text: string; sub?: string; pos?: "tl" | "tr" | "bl" | "br" | "c" }
+  | { type: "callout"; text: string; sub?: string; poi: string }
+  | { type: "card"; title?: string; lines: string[]; pos?: "l" | "r" }
+  | { type: "stamp"; text: string }
+  | { type: "clock"; text: string; sub?: string }
+  | { type: "steps"; items: string[] };
+
+export type ShotSpec = { type: ShotName; subject?: string; target?: string; side?: "left" | "right"; fov?: number };
+
+export type Beat = {
+  at: Cue;
+  /** optional end (otherwise the next beat / scene end) */
+  until?: Cue;
+  do?: ActionName;
+  who?: string | string[];
+  /** a mark name (walk/run/sit destination) */
+  to?: string;
+  /** what to look at / point at / show: a POI name, a mark, or a cast id */
+  target?: string;
+  /** a camera-only beat: show this POI or person (no acting needed) */
+  show?: string;
+  face?: FaceName;
+  shot?: ShotName | ShotSpec;
+  set?: Record<string, number>;
+  /** seconds for set changes to fade (default 0.6) */
+  fade?: number;
+  sfx?: string | string[];
+  ui?: Ui | Ui[];
+  /** music accent + sound hit on this beat */
+  hit?: boolean;
+  /** music drops out during this beat */
+  quiet?: boolean;
+  /** an object moves on its own (rolling, sliding): to a mark / POI / [x, z], over `dur` seconds */
+  move?: { obj: string; to: string | [number, number]; dur?: number; yaw?: number };
+  /** what the action handles: the object pushed / picked up / given, or the door opened */
+  obj?: string;
+};
+
+export type SceneCast = { at: string; do?: "stand" | "sit" | "lie"; face?: FaceName; /** object id held in the hand from the scene start */ holding?: string };
+
+export type Scene = {
+  at: Cue;
+  place: string;
+  time?: string;
+  mood?: Mood;
+  set?: Record<string, number>;
+  cast?: Record<string, SceneCast>;
+  cut?: Transition;
+  beats: Beat[];
+};
+
+export type CastMember = {
+  id: string; look: string; name?: string; custom?: CustomLook; prop?: PropName;
+  /** what the phone shows when this person reads it ("phone" action) */
+  phoneText?: { from?: string; text?: string; time?: string; date?: string };
+};
+
+export type Story = {
+  id: string;
+  title: string;
+  /** resolved by make.mjs when `world` names a world.json (dynamic world) */
+  worldSpec?: import("../gen/spec.ts").WorldSpec;
+  objectSpecs?: import("../gen/spec.ts").ObjectSpec[];
+  vo: { file: string; offset?: number };
+  words: string | Word[];
+  world: string;
+  cast: CastMember[];
+  scenes: Scene[];
+  titleCard?: { at: Cue; until?: Cue; text: string; sub?: string; kicker?: string };
+  disclaimer?: { at: Cue; until?: Cue; text: string };
+  endCard?: { text?: string; sub?: string; seconds?: number };
+  /** seconds of picture after the VO ends before the end card (default 1.2) */
+  tail?: number;
+  /** VO loudness envelope (filled in by make.mjs; 60 values per second) */
+  voenv?: number[];
+  /** the mixed soundtrack in public/ (filled in by make.mjs once the sound step ran) */
+  audio?: string;
+  /** "portrait" 1080×1920 (default) or "landscape" 1920×1080 */
+  format?: "portrait" | "landscape";
+  /** "burn" = captions in the picture (portrait default), "off" = only the .srt (landscape default) */
+  captions?: "burn" | "off";
+  /** the user's brand kit (aibijan-brand.json), resolved by make.mjs; false in story.json = no branding */
+  brand?: { brand?: string; handle?: string; cta?: string; colors?: { primary?: string; accent?: string; background?: string }; logoFile?: string; watermark?: boolean; intro?: { seconds?: number } };
+};
+
+==== 4854 project/src/film/Film.tsx
+// One generic renderer for every story: compile once, then per frame — scene, set state, light rig
+// (+ props carried by people), the world's set, the people, the camera, the grade, the overlay, audio.
+
+import React, { useMemo } from "react";
+import { Html5Audio, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { Stage } from "../cine/Stage.tsx";
+import { Lights, type LightState } from "../cine/Lights.tsx";
+import { CameraRig, FilmPost } from "../cine/Post.tsx";
+import { Character } from "../cine/character/Character.tsx";
+import { fromChest } from "../cine/character/rig.ts";
+import { phys } from "../cine/mats.ts";
+import { phoneScreenTex, type PhoneMsg } from "../cine/set/tex.ts";
+import { compile } from "../director/compile.ts";
+import type { Story } from "../director/story.ts";
+import { SETS } from "../worlds/sets.tsx";
+import { studioLight } from "../worlds/studio/data.ts";
+import { MindStudio } from "../worlds/studio/Mind.tsx";
+import { GenSet } from "../gen/GenSet.tsx";
+import { FilmOverlay } from "./Overlay.tsx";
+
+const phoneScreen = (msg?: PhoneMsg) => phys(`phoneOn${JSON.stringify(msg ?? {})}`, { color: "#000000", emissive: "#ffffff", emissiveMap: phoneScreenTex("notif", msg), emissiveIntensity: 0.62, roughness: 0.08, clearcoat: 1 });
+
+export const Film: React.FC<{ story: Story; audio?: string }> = ({ story, audio }) => {
+  const plan = useMemo(() => compile(story), [story]);
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps;
+  const S = plan.sceneAt(t);
+  const shot = plan.shotAt(t);
+  const cam = plan.cam(t);
+  const s = plan.setAt(t);
+  const Set = SETS[plan.world.id] ?? (() => null);
+  const people = S.cast.map((who) => ({ who, p: plan.poseOf(who, t) })).filter((x) => x.p);
+  const studio = S.place.kind === "studio";
+  let L: LightState = studio ? studioLight() : plan.world.light(S.place.id, S.time, s, t);
+  // light carried by people: a lantern glows (point 4), a flashlight throws a spot (spot 1)
+  for (const { who, p } of people) {
+    if (!p?.hold) continue;
+    const hand = fromChest(p, p.armR.ik && p.armR.ik.w > 0.3 ? [-p.armR.ik.t[0], p.armR.ik.t[1], p.armR.ik.t[2]] : [-0.2, -0.4, 0.1], plan.specs[who]);
+    if (p.hold.kind === "lantern") L = { ...L, pts: [L.pts[0], L.pts[1], L.pts[2], L.pts[3], { pos: [hand[0], hand[1] - 0.15, hand[2]], color: "#ffb45e", i: 2.4, dist: 6 }, L.pts[5]] };
+    if (p.hold.kind === "flashlight") {
+      const f = [Math.sin(p.yaw), 0, Math.cos(p.yaw)];
+      const aim: [number, number, number] = p.aim ?? [hand[0] + f[0] * 6, hand[1] - 0.9, hand[2] + f[2] * 6];
+      L = { ...L, spots: [L.spots[0], { pos: hand, target: aim, color: "#fff4dc", i: 55, angle: 0.3, penumbra: 0.55, dist: 26 }] };
+    }
+  }
+  // overview shots (establish, drone, map) see through the haze a little more: cinematic licence
+  if (shot.kind === "map" || shot.kind === "drone" || shot.kind === "establish") L = { ...L, fog: { ...L.fog, density: L.fog.density * 0.45 } };
+  const pov = shot.kind === "pov" ? shot.who : undefined;
+  // portrait / phone: a soft eye-light from the camera side on the subject's face in dark scenes, short
+  // reach (it lights the face, not the room) — the night stays dark, the face reads on a small screen
+  let fill = { pos: [0, -60, 0] as [number, number, number], i: 0 };
+  const fp = shot.who ? people.find((x) => x.who === shot.who)?.p : undefined;
+  if (plan.format === "portrait" && fp && S.dark > 0.3 && !studio && !["pov", "long", "establish", "drone", "map"].includes(shot.kind)) {
+    const head: [number, number, number] = [fp.x, fp.y + 1.45 + fp.hipY, fp.z];
+    const d = [cam.pos[0] - head[0], cam.pos[1] - head[1], cam.pos[2] - head[2]], dl = Math.hypot(d[0], d[1], d[2]) || 1;
+    const k = Math.min(1.1, dl);
+    fill = { pos: [head[0] + (d[0] / dl) * k, head[1] + (d[1] / dl) * k + 0.28, head[2] + (d[2] / dl) * k], i: 1.5 * Math.min(1, S.dark) };
+  }
+  return (
+    <Stage overlay={() => <FilmOverlay plan={plan} t={t} cam={cam} />}>
+      <Lights s={L} />
+      <pointLight position={fill.pos} intensity={fill.i} distance={3.2} decay={2} color="#dfe8ff" />
+      {studio ? <MindStudio t={t} /> : plan.built ? (
+        <GenSet b={plan.built} place={S.place.id} time={S.time} s={s} t={t} cam={cam} dyn={plan.objectsAt(t)} area={[S.place.box.min[0], S.place.box.min[2], S.place.box.max[0], S.place.box.max[2]]} />
+      ) : <Set place={S.place.id} time={S.time} s={s} t={t} cam={cam} />}
+      {people.map(({ who, p }) => <Character key={who} spec={plan.specs[who]} pose={p!} t={t} visible={who !== pov} phoneScreen={phoneScreen(plan.story.cast.find((c) => c.id === who)?.phoneText)} />)}
+      <CameraRig cam={cam} />
+      <FilmPost cam={cam} grade={plan.grade(t)} frame={frame} />
+      {audio ? <Html5Audio src={staticFile(audio)} /> : null}
+    </Stage>
+  );
+};
+
+==== 15999 project/src/film/Overlay.tsx
+// 2D layer over the picture, laid out for the frame's orientation: portrait 1080 × 1920 (default) or
+// landscape 1920 × 1080. Portrait keeps everything inside the TikTok / Reels safe area (top 230 px, bottom
+// 420 px and the right-hand button column stay clear), shades top and bottom instead of letterbox bars and
+// burns in short word-timed captions. The story's UI overlays (titles, lower thirds, tags, callouts on 3D
+// points, cards, stamps, clock, steps), title card, disclaimer and end card; branding only from the user's
+// own brand kit (story.brand, resolved by make.mjs) — intro, outro and an optional watermark.
+
+import React from "react";
+import { AbsoluteFill, Img, interpolate, staticFile } from "remotion";
+import { AMBER, Callout, Card, CYAN, Flow, INK, Lower, span, Stamp, Tag, Title, Clock } from "../cine/ui.tsx";
+import type { Cam } from "../cine/Post.tsx";
+import type { Plan, UiP } from "../director/compile.ts";
+import { project } from "./project.ts";
+
+const FONT = "Manrope, sans-serif";
+const ease = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+
+type Pos = "tl" | "tr" | "bl" | "br" | "c";
+type Lay = {
+  W: number; H: number; portrait: boolean;
+  safe: { l: number; r: number; t: number; b: number };
+  pos: Record<Pos, [number, number]>;
+  lower: { x: number; y: number; size: number };
+  card: { y: number; w: number; title: number; line: number };
+  stamp: [number, number]; title: { y: number; size: number }; clock: number;
+  steps: { x: number; y: number; w: number; vertical: boolean };
+  cap: { y: number; size: number; w: number };
+  tag: number;
+};
+const PORTRAIT: Lay = {
+  W: 1080, H: 1920, portrait: true,
+  safe: { l: 72, r: 930, t: 230, b: 1500 },
+  pos: { tl: [72, 320], tr: [930, 320], bl: [72, 1110], br: [930, 1110], c: [501, 860] },
+  lower: { x: 72, y: 1190, size: 50 },
+  card: { y: 330, w: 858, title: 36, line: 34 },
+  stamp: [501, 1010], title: { y: 820, size: 66 }, clock: 980,
+  steps: { x: 501, y: 460, w: 640, vertical: true },
+  cap: { y: 1335, size: 58, w: 840 },
+  tag: 30,
+};
+const LANDSCAPE: Lay = {
+  W: 1920, H: 1080, portrait: false,
+  safe: { l: 120, r: 1800, t: 90, b: 990 },
+  pos: { tl: [140, 200], tr: [1780, 200], bl: [140, 840], br: [1780, 840], c: [960, 540] },
+  lower: { x: 120, y: 860, size: 40 },
+  card: { y: 300, w: 600, title: 30, line: 27 },
+  stamp: [1450, 300], title: { y: 540, size: 84 }, clock: 540,
+  steps: { x: 960, y: 540, w: 300, vertical: false },
+  cap: { y: 935, size: 44, w: 1400 },
+  tag: 26,
+};
+
+export const Letterbox: React.FC<{ k: number }> = ({ k }) => {
+  const bar = interpolate(k, [0, 1], [0, (1080 - 1920 / 2.2) / 2]);
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: bar, background: "#000" }} />
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: bar, background: "#000" }} />
+    </AbsoluteFill>
+  );
+};
+
+/** portrait: soft shade under the app's top bar and behind the captions — the picture stays full height */
+const PortraitShade: React.FC = () => (
+  <AbsoluteFill style={{ pointerEvents: "none" }}>
+    <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 320, background: "linear-gradient(rgba(0,0,0,0.42), rgba(0,0,0,0))" }} />
+    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 760, background: "linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.5))" }} />
+  </AbsoluteFill>
+);
+
+/** the subject's face on screen (overlay pixels): text keeps off it */
+type Face = { top: number; bottom: number; left: number; right: number } | null;
+const faceOf = (plan: Plan, t: number, cam: Cam, L: Lay): Face => {
+  const sh = plan.shotAt(t);
+  if (!sh.who || sh.kind === "pov") return null;
+  const p = plan.poseOf(sh.who, t);
+  if (!p) return null;
+  const c = project(cam, [p.x, p.y + 1.5 + p.hipY, p.z], L.W, L.H);
+  if (c.z <= 0.05) return null;
+  const r = (0.16 / c.z / Math.tan((cam.fov * Math.PI) / 360)) * (L.H / 2);
+  return { top: c.y - r * 1.25, bottom: c.y + r * 1.35, left: c.x - r, right: c.x + r };
+};
+/** move a block of text (centre y, height h) off the face: below it when there is room, else above it */
+const avoid = (y: number, h: number, f: Face, L: Lay) => {
+  if (!f || y + h / 2 < f.top || y - h / 2 > f.bottom) return y;
+  const below = f.bottom + h / 2 + 30, above = f.top - h / 2 - 30;
+  if (below + h / 2 < L.lower.y - 70) return below;
+  if (above - h / 2 > L.safe.t) return above;
+  // a close-up face fills the frame: the top of the safe area (over the hair) hides the least of it
+  return L.safe.t + h / 2 + 10;
+};
+
+const UiItem: React.FC<{ u: UiP; t: number; cam: Cam; plan: Plan; bars: number; L: Lay; face: Face; dim: number }> = ({ u, t, cam, plan, bars, L, face, dim }) => {
+  // the title / end card owns the screen while it shows: other overlays step back
+  const a = span(t, u.t0, u.t1) * dim;
+  if (a <= 0.001) return null;
+  const x = u.ui;
+  const lowY = L.lower.y - 40 * bars;
+  switch (x.type) {
+    case "title": return <Title a={a} text={x.text} sub={x.sub} kicker={x.kicker} y={L.portrait ? avoid(L.title.y, 180, face, L) : L.title.y} size={L.title.size} maxWidth={L.safe.r - L.safe.l} left={L.portrait ? L.safe.l : 0} right={L.portrait ? L.W - L.safe.r : 0} />;
+    case "lower": return <Lower a={a} text={x.text} sub={x.sub} y={lowY + (L.portrait ? 0 : 40)} x={L.lower.x} size={L.lower.size} maxWidth={L.safe.r - L.safe.l} />;
+    case "tag": { const [px, py0] = L.pos[x.pos ?? "tl"]; const py = L.portrait ? avoid(py0, 80, face, L) : py0; return <Tag x={px} y={py + (x.pos?.startsWith("t") ? 40 * bars : x.pos?.startsWith("b") ? -40 * bars : 0)} a={a} text={x.text} sub={x.sub} size={L.tag} anchor={x.pos?.endsWith("r") ? "r" : x.pos === "c" ? "c" : "l"} />; }
+    case "callout": {
+      const S = plan.scenes[u.scene];
+      const moved = plan.objectsAt(t)[x.poi];
+      const inst = plan.built?.insts.find((i) => i.id === x.poi);
+      const w = moved && inst ? ([moved.pos[0], moved.pos[1] + inst.info.bounds[1] * 0.7 * inst.scale, moved.pos[2]] as [number, number, number]) : S.place.pois[x.poi] ?? (() => { const p = plan.poseOf(x.poi, t); return p ? ([p.x, p.y + 1.7, p.z] as [number, number, number]) : undefined; })();
+      if (!w) return null;
+      const p = project(cam, w, L.W, L.H);
+      // keep the label inside the safe area: lead it towards the side with more room
+      const left = p.x > (L.safe.l + L.safe.r) / 2 + (L.portrait ? 60 : 340);
+      // the label (estimated width) stays inside the safe area: lead towards the side where it fits
+      const lw = Math.max(x.text.length, (x.sub ?? "").length * 0.72) * L.tag * 0.66 + 48;
+      const reach = L.portrait ? 110 : 170;
+      const fitsR = p.x + reach + 8 + lw <= L.safe.r, fitsL = p.x - reach - 8 - lw >= L.safe.l;
+      let dx = (left ? (fitsL || !fitsR ? -1 : 1) : (fitsR || !fitsL ? 1 : -1)) * reach;
+      if (dx > 0 && p.x + dx + 8 + lw > L.safe.r) dx = Math.max(12, L.safe.r - lw - 8 - p.x);
+      if (dx < 0 && p.x + dx - 8 - lw < L.safe.l) dx = -Math.max(12, p.x - L.safe.l - lw - 8);
+      let dy = p.y < L.safe.t + 150 ? 90 : -90;
+      if (p.y + dy < L.safe.t + 40) dy = L.safe.t + 40 - p.y;
+      if (p.y + dy > L.lower.y - 90) dy = L.lower.y - 90 - p.y;
+      return <Callout p={p} a={a} text={x.text} sub={x.sub} dx={dx} dy={dy} W={L.W} H={L.H} size={L.tag} />;
+    }
+    case "card": {
+      const left = (x.pos ?? "l") === "l";
+      const cx = L.portrait ? L.safe.l : left ? 120 : 1920 - 120 - L.card.w;
+      return (
+        <Card x={cx} y={L.portrait ? avoid(L.card.y + 40 + x.lines.length * 25, 80 + x.lines.length * 50, face, L) - 40 - x.lines.length * 25 : L.card.y} w={L.card.w} a={a}>
+          {x.title ? <div style={{ fontSize: L.card.title, fontWeight: 600, color: CYAN, letterSpacing: "0.06em", marginBottom: 16 }}>{x.title}</div> : null}
+          {x.lines.map((l, i) => (
+            <div key={i} style={{ fontSize: L.card.line, lineHeight: 1.45, color: INK, opacity: ease((t - u.t0 - 0.35 - i * 0.45) / 0.4), display: "flex", gap: 14 }}>
+              <span style={{ color: AMBER }}>•</span><span>{l}</span>
+            </div>
+          ))}
+        </Card>
+      );
+    }
+    case "stamp": return <Stamp x={L.stamp[0]} y={L.portrait ? avoid(L.stamp[1], 110, face, L) : L.stamp[1] + 40 * bars} a={a} text={x.text} size={L.portrait ? 72 : 64} />;
+    case "clock": return <Clock a={a} text={x.text} sub={x.sub} y={L.portrait ? avoid(L.clock, 200, face, L) : L.clock} />;
+    case "steps": {
+      const k = ease((t - u.t0 - 0.3) / Math.max(0.5, (u.t1 - u.t0) * 0.6));
+      return L.steps.vertical
+        ? <Flow x={L.steps.x - L.steps.w / 2} y={L.steps.y} a={a} items={x.items} k={k * x.items.length} w={L.steps.w} vertical />
+        : <Flow x={960 - (x.items.length * 330) / 2} y={540} a={a} items={x.items} k={k} />;
+    }
+  }
+  return null;
+};
+
+/** word-timed caption line, current word lit (the brand accent when it reads, else warm yellow) */
+const Captions: React.FC<{ plan: Plan; t: number; L: Lay; hide: number }> = ({ plan, t, L, hide }) => {
+  const c = plan.captions.find((x) => t >= x.t0 - 0.04 && t < x.t1);
+  if (!c || hide > 0.98) return null;
+  const a = ease((t - c.t0 + 0.04) / 0.1) * (1 - ease((t - c.t1 + 0.12) / 0.12)) * (1 - hide);
+  const hot = plan.brand?.accent && /^#[0-9a-f]{6}$/i.test(plan.brand.accent) ? plan.brand.accent : "#ffd76a";
+  // the line sits on its own dark plate: an outline alone vanishes on a bright or same-coloured background (a
+  // yellow shirt under the lit yellow word)
+  return (
+    <div style={{ position: "absolute", left: (L.safe.l + L.safe.r) / 2 - L.cap.w / 2, width: L.cap.w, top: L.cap.y, transform: `translateY(-50%) scale(${0.96 + 0.04 * a})`, textAlign: "center", opacity: a, fontFamily: FONT, fontWeight: 800, fontSize: L.cap.size, lineHeight: 1.12, letterSpacing: "0.01em" }}>
+      <span style={{ display: "inline", padding: `${L.cap.size * 0.1}px ${L.cap.size * 0.3}px`, borderRadius: L.cap.size * 0.26, background: "rgba(8,10,14,0.62)", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>
+        {c.words.map((w, i) => {
+          const on = t >= w.t0 - 0.02 && t < w.t1 + 0.05;
+          return <span key={i} style={{ color: on ? hot : "#ffffff", paintOrder: "stroke fill", WebkitTextStroke: "6px rgba(0,0,0,0.85)", textShadow: "0 3px 10px rgba(0,0,0,0.6)" }}>{w.w}{i < c.words.length - 1 ? " " : ""}</span>;
+        })}
+      </span>
+    </div>
+  );
+};
+
+export const FilmOverlay: React.FC<{ plan: Plan; t: number; cam: Cam }> = ({ plan, t, cam }) => {
+  const L = plan.format === "portrait" ? PORTRAIT : LANDSCAPE;
+  const bars = plan.bars(t);
+  const tc = plan.titleCard, dc = plan.disclaimer, ec = plan.endCard, br = plan.brand;
+  const ta = tc ? span(t, tc.t0, tc.t1, 0.9, 0.8) : 0;
+  const da = dc ? span(t, dc.t0, dc.t1, 0.6, 0.6) : 0;
+  const ea = ease((t - ec.t0) / 1.2) * (1 - ease((t - (ec.t1 - 0.9)) / 0.9));
+  // once the end card is up the story's overlays are done: they never come back while it fades out
+  const eOn = ease((t - ec.t0) / 1.2);
+  const ia = br?.intro ? span(t, br.intro.t0, br.intro.t1, 0.25, 0.35) : 0;
+  const face = L.portrait ? faceOf(plan, t, cam, L) : null;
+  const col: React.CSSProperties = L.portrait ? { position: "absolute", left: L.safe.l, right: L.W - L.safe.r, top: 0, bottom: 0 } : { position: "absolute", inset: 0 };
+  return (
+    <div style={{ position: "absolute", inset: 0, fontFamily: FONT }}>
+      {L.portrait ? <PortraitShade /> : null}
+      {plan.ui.map((u, i) => (t >= u.t0 - 0.1 && t <= u.t1 + 0.1 ? <UiItem key={i} u={u} t={t} cam={cam} plan={plan} bars={bars} L={L} face={face} dim={1 - Math.max(ta, eOn, ia)} /> : null))}
+      {L.portrait ? null : <Letterbox k={bars} />}
+      <Captions plan={plan} t={t} L={L} hide={Math.max(ta, eOn, ia)} />
+      {br?.watermark && br.logo && eOn < 0.5 ? <Img src={staticFile(br.logo)} style={L.portrait ? { position: "absolute", right: L.W - L.safe.r, top: L.safe.b - 82, height: 72, opacity: 0.7 } : { position: "absolute", left: L.safe.l, top: L.safe.t + 30, height: 56, opacity: 0.7 }} /> : null}
+      {ia > 0.001 && br ? (
+        <div style={{ ...col, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#e9eef8", opacity: ia }}>
+          {br.logo ? <Img src={staticFile(br.logo)} style={{ height: L.portrait ? 150 : 120, marginBottom: 26 }} /> : null}
+          {br.name ? <div style={{ fontSize: L.portrait ? 44 : 38, fontWeight: 300, letterSpacing: "0.32em", paddingLeft: "0.32em", textAlign: "center" }}>{br.name}</div> : null}
+        </div>
+      ) : null}
+      {ta > 0.001 && tc ? (
+        <div style={{ ...col, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#e9eef8", background: L.portrait ? undefined : `rgba(0,0,0,${0.35 * ta})` }}>
+          {L.portrait ? <div style={{ position: "absolute", left: -L.safe.l, right: -(L.W - L.safe.r), top: 0, bottom: 0, background: `rgba(0,0,0,${0.35 * ta})` }} /> : null}
+          {tc.kicker ? <div style={{ position: "relative", fontSize: L.portrait ? 26 : 22, fontWeight: 500, letterSpacing: "0.45em", opacity: ta * 0.75, marginBottom: 26, paddingLeft: "0.45em", textAlign: "center" }}>{tc.kicker}</div> : null}
+          <div style={{ position: "relative", fontSize: L.portrait ? 76 : 74, fontWeight: 200, whiteSpace: L.portrait ? "normal" : "nowrap", textAlign: "center", lineHeight: 1.15, letterSpacing: `${(L.portrait ? 0.24 : 0.42) - 0.1 * ta}em`, paddingLeft: "0.2em", opacity: ta, textShadow: "0 0 40px rgba(120,150,220,0.35)" }}>{tc.text}</div>
+          {tc.sub ? <><div style={{ position: "relative", width: 120 * ta, height: 1, background: "rgba(233,238,248,0.6)", margin: "30px 0 26px" }} /><div style={{ position: "relative", fontSize: L.portrait ? 34 : 30, fontWeight: 300, letterSpacing: "0.04em", opacity: ta * 0.85, textAlign: "center" }}>{tc.sub}</div></> : null}
+        </div>
+      ) : null}
+      {da > 0.001 && dc ? <div style={{ position: "absolute", left: L.safe.l, maxWidth: L.safe.r - L.safe.l, ...(L.portrait ? { top: L.safe.t + 10 } : { bottom: 70 + 84 * bars }), fontSize: L.portrait ? 26 : 24, fontWeight: 500, color: "#dfe6f2", opacity: da * 0.9, letterSpacing: "0.04em", textShadow: "0 2px 12px #000" }}>{dc.text}</div> : null}
+      {ea > 0.001 ? (
+        <div style={{ position: "absolute", inset: 0, background: `rgba(2,4,8,${0.85 * ea})` }}>
+          <div style={{ ...col, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#e9eef8" }}>
+            <div style={{ fontSize: L.portrait ? 64 : 64, fontWeight: 200, letterSpacing: L.portrait ? "0.2em" : "0.3em", paddingLeft: "0.2em", opacity: ea, whiteSpace: L.portrait ? "normal" : "nowrap", textAlign: "center", lineHeight: 1.2 }}>{ec.text}</div>
+            {ec.sub ? <div style={{ fontSize: L.portrait ? 32 : 28, fontWeight: 300, marginTop: 26, opacity: ea * 0.8, textAlign: "center" }}>{ec.sub}</div> : null}
+            {br ? (
+              <div style={{ marginTop: L.portrait ? 90 : 60, display: "flex", flexDirection: "column", alignItems: "center", opacity: ease((t - ec.t0 - 0.5) / 0.8) * ea }}>
+                {br.logo ? <Img src={staticFile(br.logo)} style={{ height: L.portrait ? 130 : 96, marginBottom: 22 }} /> : null}
+                {br.name ? <div style={{ fontSize: L.portrait ? 40 : 34, fontWeight: 600, letterSpacing: "0.08em" }}>{br.name}</div> : null}
+                {br.handle ? <div style={{ fontSize: L.portrait ? 32 : 28, fontWeight: 400, marginTop: 10, color: br.accent ?? CYAN }}>{br.handle}</div> : null}
+                {br.cta ? <div style={{ fontSize: L.portrait ? 30 : 26, fontWeight: 400, marginTop: 18, opacity: 0.85, textAlign: "center", maxWidth: L.safe.r - L.safe.l }}>{br.cta}</div> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+==== 1015 project/src/film/project.ts
+import { Vector3 } from "three";
+import type { Cam } from "../cine/Post.tsx";
+import type { V3 } from "../cine/Lights.tsx";
+
+/** Project a world point to overlay pixels (W × H: 1080×1920 portrait, 1920×1080 landscape); z < 0 = behind. */
+export const project = (cam: Cam, p: V3, W = 1920, H = 1080): { x: number; y: number; z: number } => {
+  const pos = new Vector3(...cam.pos), f = new Vector3(...cam.target).sub(pos).normalize();
+  const right = new Vector3().crossVectors(f, new Vector3(0, 1, 0)).normalize();
+  let up = new Vector3().crossVectors(right, f).normalize();
+  const r = cam.roll ?? 0;
+  if (r) {
+    const u2 = up.clone().multiplyScalar(Math.cos(r)).addScaledVector(right, Math.sin(r));
+    right.crossVectors(f, u2).normalize();
+    up = u2;
+  }
+  const d = new Vector3(...p).sub(pos);
+  const z = d.dot(f), x = d.dot(right), y = d.dot(up);
+  const th = Math.tan((cam.fov * Math.PI) / 360);
+  return { x: W / 2 + (x / (z * th * (W / H))) * (W / 2), y: H / 2 - (y / (z * th)) * (H / 2), z };
+};

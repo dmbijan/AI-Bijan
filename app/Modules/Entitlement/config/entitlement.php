@@ -89,6 +89,8 @@ return [
                 // Modul integrasi sumber terbuka (9 suite)
                 'open_gen_ai', 'voice_studio', 'open_whispr', 'open_seo', 'workspace',
                 'work_management', 'scheduling', 'shared_inbox', 'screen_recorder',
+                // VideoStudio — skill video (mograph / motion 3D / editor)
+                'video_studio',
             ],
             'limits' => [
                 ['limit_key' => 'seats', 'name' => 'Pengguna', 'limit_value' => 25, 'unit' => 'pengguna', 'period' => 'total'],

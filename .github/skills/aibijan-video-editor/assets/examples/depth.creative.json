@@ -1,0 +1,37 @@
+{
+  "_note": "Worked plan for the DEPTH style. Hypothetical 30 s talking head (plain light wall) about comparing yourself to others: 'Jujur aja (w:0-1), kamu sering bandingin diri sama orang lain? (w:2-7) Liat temen udah sukses (w:9-12), kamu ngerasa ketinggalan (w:13-15). Padahal (w:17) yang kamu liat cuma highlight-nya (w:18-21), bukan prosesnya (w:22-23). Mereka juga jatuh bangun (w:25-28), berkali-kali (w:29). Jadi (w:31) bandingin diri kamu sama kamu kemarin (w:32-37), bukan sama orang lain (w:38-41).' Word indices are this script's own - never copy them, its words or its compositions into another video.",
+  "concept": {
+    "idea": "Everyone else's life is a highlight reel playing behind him; the only fair comparison is him against himself",
+    "signature": "A wall of 'highlight' rows (grotesk) and 'prosesnya' rows (italic serif) sliding against each other behind his head, then 'orang lain / kamu kemarin' parting on the accent colour as he pops forward"
+  },
+  "style": "depth",
+  "settings": {"editing_intensity": "medium", "sound_effects": "medium", "visual_overlays": "moderate"},
+  "emphasize": [14, 20, 23, 29, 36],
+  "camera": [
+    {"at": "t:0", "preset": "talk"},
+    {"at": "w:6", "preset": "punch", "amount": 0.06, "hold": 0.4},
+    {"at": "w:14", "preset": "shake", "amount": 0.7, "dur": 0.4},
+    {"at": "w:25", "preset": "close", "dur": 1.6},
+    {"at": "w:31", "preset": "talk", "dur": 0.6}
+  ],
+  "overlays": [
+    {"type": "DepthText", "mode": "stack", "start": "w:0", "end": "w:5", "y": 270,
+     "lines": [{"text": "jujur", "at": "w:0", "size": 125, "font": "accent"}, {"text": "aja", "at": "w:1", "size": 280}]},
+    {"type": "DepthText", "mode": "echo", "text": "ketinggalan", "start": "w:14-0.02", "end": "w:16+0.2", "y": 440, "tone": "accent", "echoTone": "auto"},
+    {"type": "DepthText", "mode": "wall", "signature": true, "lines": [{"text": "highlight"}, {"text": "bukan prosesnya"}], "start": "w:18-0.1", "end": "w:24",
+     "y": 230, "rows": 5, "size": 150, "speed": 180, "ramp": 1.6, "fonts": ["display", "accent"], "looks": ["fill", "fill", "outline", "fill"]},
+    {"type": "Doodles", "start": "w:25", "end": "w:30", "items": [{"kind": "drops", "at": "w:26", "side": "right"}]},
+    {"type": "HeadRing", "text": "berkali-kali", "start": "w:29-0.1", "end": "w:31+0.2", "tone": "paper", "size": 56, "lift": 0.64},
+    {"type": "Cutout", "start": "w:36-0.1", "end": "w:41e+0.3", "bg": "color", "color": "accent", "pattern": false},
+    {"type": "DepthText", "mode": "split", "text": "orang lain", "text2": "kamu kemarin", "start": "w:36-0.08", "end": "w:41e+0.3", "y": 280,
+     "fonts": ["accent", "display"], "tones": ["paper", "paper"]}
+  ],
+  "_beats": [
+    "HOOK 'jujur aja' italic lead word + huge AJA behind the head, hook push",
+    "QUESTION clean face beat, one punch-in on 'orang lain'",
+    "SHOCK 'ketinggalan' echoes out behind the head in the accent colour + a light shake",
+    "MOTIF 'cuma highlight-nya, bukan prosesnya' a wall of grotesk 'HIGHLIGHT' rows and italic 'bukan prosesnya' rows sliding against each other (signature)",
+    "STRUGGLE 'jatuh bangun' close push + sweat drops doodle; 'berkali-kali' circles the head on a ring",
+    "PAYOFF 'kamu kemarin, bukan orang lain' Cutout on the accent colour, 'orang lain' (italic) and KAMU KEMARIN part behind him"
+  ]
+}

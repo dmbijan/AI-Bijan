@@ -1,0 +1,191 @@
+{
+ "_note": "Worked plan for the NOTED style. Hypothetical 32 s talking head (light wall, dark t-shirt): 'Bingung pilih laptop buat kuliah? (w:0-5) Banyak yang langsung lihat merek, padahal yang penting itu tiga hal: (w:6-15) prosesor, RAM, dan penyimpanan. (w:16-20) Dulu aku beli yang paling mahal, (w:21-26) tapi ternyata cuma dipakai ngetik doang. (w:27-33) Sekarang aku cek dulu kebutuhan jurusan: (w:34-39) desain, coding, atau cuma tugas. (w:40-44) Simpan video ini biar nggak salah beli. (w:45-51)' The user uploaded three photos of their own work (desain.jpg, coding.jpg, tugas.jpg). Word indices are this script's own - never copy them, its words or its compositions into another video.",
+ "concept": {
+  "idea": "buying a laptop as a page of notes above her head: what she thought mattered gets crossed out, what really matters stays",
+  "signature": "'paling mahal' taped above her head and crossed out with a marker on 'ternyata', replaced by a yellow 'ngetik doang' strip pointing at her"
+ },
+ "style": "noted",
+ "settings": {
+  "editing_intensity": "medium",
+  "sound_effects": "medium",
+  "visual_overlays": "moderate"
+ },
+ "emphasize": [
+  14,
+  31,
+  37,
+  47
+ ],
+ "camera": [
+  {
+   "at": "t:0",
+   "preset": "talk"
+  },
+  {
+   "at": "w:28",
+   "preset": "punch",
+   "amount": 0.07,
+   "hold": 0.5
+  }
+ ],
+ "overlays": [
+  {
+   "type": "HeadNote",
+   "start": "t:0.02",
+   "end": "w:13-0.1",
+   "y": 310,
+   "items": [
+    {
+     "text": "laptop kuliah",
+     "at": "t:0.1"
+    },
+    {
+     "text": "yang penting",
+     "at": "w:11"
+    }
+   ],
+   "priority": 1
+  },
+  {
+   "type": "BigNote",
+   "start": "w:1-0.1",
+   "end": "w:6",
+   "text": "laptop",
+   "at": "w:2",
+   "kicker": "bingung pilih",
+   "kickerAt": "w:0",
+   "kickerPos": "above",
+   "y": 460,
+   "layer": "behind",
+   "mark": "highlight",
+   "priority": 1
+  },
+  {
+   "type": "NoteBoard",
+   "start": "w:13-0.05",
+   "end": "w:21-0.1",
+   "title": "tiga hal",
+   "titleAt": "w:13",
+   "priority": 1,
+   "groups": [
+    {
+     "label": "yang penting",
+     "items": [
+      {
+       "text": "prosesor",
+       "at": "w:16"
+      },
+      {
+       "text": "RAM",
+       "at": "w:17"
+      },
+      {
+       "text": "penyimpanan",
+       "at": "w:19"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "HeadNote",
+   "start": "w:21-0.1",
+   "end": "w:34-0.1",
+   "y": 310,
+   "items": [
+    {
+     "text": "dulu",
+     "at": "w:21"
+    }
+   ],
+   "priority": 2
+  },
+  {
+   "type": "NoteTags",
+   "start": "w:24-0.05",
+   "end": "w:34-0.1",
+   "slot": "above",
+   "pointer": true,
+   "size": 50,
+   "signature": true,
+   "items": [
+    {
+     "text": "paling mahal",
+     "at": "w:24",
+     "strikeAt": "w:28"
+    },
+    {
+     "text": "ngetik doang",
+     "at": "w:31",
+     "tone": "accent"
+    }
+   ],
+   "priority": 1
+  },
+  {
+   "type": "HeadNote",
+   "start": "w:34-0.1",
+   "end": "w:45-0.1",
+   "y": 310,
+   "dot": true,
+   "items": [
+    {
+     "text": "sekarang",
+     "at": "w:34"
+    },
+    {
+     "text": "kebutuhan jurusan",
+     "at": "w:37",
+     "mode": "add"
+    }
+   ],
+   "priority": 1
+  },
+  {
+   "type": "NoteClips",
+   "start": "w:40-0.1",
+   "end": "w:45-0.1",
+   "priority": 1,
+   "items": [
+    {
+     "src": "/mnt/user-data/uploads/desain.jpg",
+     "label": "desain",
+     "at": "w:40"
+    },
+    {
+     "src": "/mnt/user-data/uploads/coding.jpg",
+     "label": "coding",
+     "at": "w:41"
+    },
+    {
+     "src": "/mnt/user-data/uploads/tugas.jpg",
+     "label": "tugas",
+     "at": "w:44"
+    }
+   ]
+  },
+  {
+   "type": "NoteTags",
+   "start": "w:45-0.05",
+   "end": "end",
+   "slot": "right",
+   "surface": "outline",
+   "size": 44,
+   "items": [
+    {
+     "text": "simpan video ini",
+     "at": "w:45"
+    },
+    {
+     "text": "nggak salah beli",
+     "at": "w:48",
+     "tone": "accent"
+    }
+   ],
+   "priority": 1
+  }
+ ],
+ "music": {
+  "hit_at": "w:51"
+ }
+}

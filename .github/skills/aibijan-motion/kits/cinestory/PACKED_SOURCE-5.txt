@@ -1,0 +1,2698 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 33612 project/src/cine/neural/Brain.tsx
+// The neural world (a metaphor, not a scan): a glass brain with sulci, a neuron network carrying
+// signals, hero neurons for macro shots, the optic-fibre tunnel, the prediction core with its two
+// streams (information = cyan, experience = orange), the pareidolia point cloud and the socket face.
+// Brain-local units: the cerebrum spans z −1…1.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import {
+  AdditiveBlending,
+  BufferGeometry,
+  CatmullRomCurve3,
+  Color,
+  DoubleSide,
+  Float32BufferAttribute,
+  IcosahedronGeometry,
+  Line,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  Points,
+  ShaderMaterial,
+  TubeGeometry,
+  Vector3,
+} from "three";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { FX_LAYER } from "../../core/render/Post.tsx";
+import { ease, remap } from "../../core/motion/easing.ts";
+import { cached, cyl, sphere, torus, box } from "../../kits/worldforge/geo.ts";
+import { mulberry32 } from "../../kits/worldforge/noise.ts";
+import { canvasTex, phys } from "../mats.ts";
+import { planeG } from "./plane.ts";
+import { HUMAN, resample, inside, type Poly } from "./silhouettes.ts";
+import { BLUE, CYAN, glowMat, noise3, ORANGE, pointsMat } from "./glow.ts";
+
+const fx = (o: { layers: { set: (n: number) => void } } | null) => o?.layers.set(FX_LAYER);
+
+// ── brain shell ─────────────────────────────────────────────────────────────
+
+const ridged = (x: number, y: number, z: number) => {
+  const wx = x + 0.6 * noise3(x * 0.7 + 3, y * 0.7, z * 0.7);
+  const wz = z + 0.6 * noise3(x * 0.7, y * 0.7 + 5, z * 0.7);
+  const a = 1 - Math.abs(2 * noise3(wx, y, wz) - 1);
+  const b = 1 - Math.abs(2 * noise3(wx * 2.1 + 9, y * 2.1, wz * 2.1) - 1);
+  return Math.pow(a, 1.6) * 0.72 + b * 0.28;
+};
+
+export const brainGeo = () =>
+  cached("brainShell", () => {
+    let g: BufferGeometry = new IcosahedronGeometry(1, 6);
+    g.deleteAttribute("normal");
+    g.deleteAttribute("uv");
+    g = mergeVertices(g);
+    const a = g.attributes.position;
+    const fold = new Float32Array(a.count);
+    for (let i = 0; i < a.count; i++) {
+      const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i));
+      const p = new Vector3(v.x * 0.8, v.y * 0.68, v.z * 1.0);
+      // longitudinal fissure between the hemispheres
+      const fis = Math.exp(-((v.x / 0.09) ** 2)) * Math.min(1, Math.max(0, (v.y + 0.25) * 1.6));
+      p.y -= 0.1 * fis;
+      p.x *= 1 + 0.04 * fis;
+      // flatter base, temporal lobes, narrower occipital
+      if (p.y < -0.2) p.y = -0.2 + (p.y + 0.2) * 0.55;
+      const temp = Math.exp(-(((Math.abs(v.x) - 0.85) / 0.25) ** 2) - ((v.y + 0.35) / 0.3) ** 2 - ((v.z - 0.15) / 0.45) ** 2);
+      p.x += Math.sign(v.x) * 0.06 * temp;
+      p.y -= 0.05 * temp;
+      if (v.z < -0.3) p.x *= 1 - 0.1 * (-0.3 - v.z);
+      const f = ridged(v.x * 4.2, v.y * 4.2, v.z * 4.2);
+      fold[i] = f;
+      const n = p.clone().normalize();
+      p.addScaledVector(n, (f - 0.55) * 0.055 * (1 - 0.7 * fis));
+      a.setXYZ(i, p.x, p.y, p.z);
+    }
+    g.setAttribute("fold", new Float32BufferAttribute(fold, 1));
+    g.computeVertexNormals();
+    return g;
+  });
+
+const cerebellumGeo = () =>
+  cached("cerebellum", () => {
+    let g: BufferGeometry = new IcosahedronGeometry(1, 4);
+    g.deleteAttribute("normal");
+    g.deleteAttribute("uv");
+    g = mergeVertices(g);
+    const a = g.attributes.position;
+    const fold = new Float32Array(a.count);
+    for (let i = 0; i < a.count; i++) {
+      const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i));
+      const f = 0.5 + 0.5 * Math.sin(v.y * 34 + v.z * 6);
+      fold[i] = f;
+      const p = new Vector3(v.x * 0.5, v.y * 0.24, v.z * 0.3).addScaledVector(v, (f - 0.5) * 0.015);
+      a.setXYZ(i, p.x, p.y, p.z);
+    }
+    g.setAttribute("fold", new Float32BufferAttribute(fold, 1));
+    g.computeVertexNormals();
+    return g;
+  });
+
+const shellMat = () =>
+  new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: DoubleSide,
+    fog: false,
+    uniforms: {
+      uCyan: { value: new Color(CYAN) },
+      uOrange: { value: new Color(ORANGE) },
+      uTime: { value: 0 },
+      uOpacity: { value: 1 },
+      uOrangeAmt: { value: 1 },
+    },
+    vertexShader: /* glsl */ `attribute float fold; varying vec3 vN; varying vec3 vV; varying float vFold; varying vec3 vP;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); vFold = fold; vP = position; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `uniform vec3 uCyan; uniform vec3 uOrange; uniform float uTime; uniform float uOpacity; uniform float uOrangeAmt;
+      varying vec3 vN; varying vec3 vV; varying float vFold; varying vec3 vP;
+      void main(){
+        float f = clamp(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0);
+        float rim = f * f;
+        float sulc = 1.0 - smoothstep(0.08, 0.42, vFold);
+        float crest = smoothstep(0.72, 1.0, vFold);
+        vec3 c = uCyan * (0.02 + 0.5 * rim + 0.1 * crest) + vec3(0.2, 0.5, 1.0) * 0.025;
+        float wave = sin(vP.z * 6.0 - uTime * 2.2 + sin(vP.x * 5.0 + vP.y * 3.0) * 1.7);
+        c += uOrange * smoothstep(0.86, 1.0, wave) * sulc * uOrangeAmt * 1.2;
+        c += uCyan * sulc * 0.06;
+        gl_FragColor = vec4(c * uOpacity, 1.0);
+      }`,
+  });
+
+export const BrainShell: React.FC<{ t: number; opacity?: number; orange?: number }> = ({ t, opacity = 1, orange = 1 }) => {
+  const m = useMemo(shellMat, []);
+  const m2 = useMemo(shellMat, []);
+  m.uniforms.uTime.value = t;
+  m.uniforms.uOpacity.value = opacity;
+  m.uniforms.uOrangeAmt.value = orange;
+  m2.uniforms.uTime.value = t + 3;
+  m2.uniforms.uOpacity.value = opacity * 0.8;
+  m2.uniforms.uOrangeAmt.value = orange * 0.5;
+  const stem = useMemo(() => glowMat({ color: CYAN, rim: 0.8, core: 0.05 }), []);
+  (stem.uniforms.uOpacity as { value: number }).value = opacity;
+  return (
+    <group>
+      <mesh geometry={brainGeo()} material={m} ref={fx} renderOrder={5} />
+      <mesh geometry={cerebellumGeo()} material={m2} position={[0, -0.36, -0.72]} ref={fx} renderOrder={5} />
+      <mesh geometry={cyl(0.1, 0.07, 0.55, 20, true)} material={stem} position={[0, -0.55, -0.35]} rotation={[0.35, 0, 0]} ref={fx} renderOrder={5} />
+    </group>
+  );
+};
+
+// ── neuron network ──────────────────────────────────────────────────────────
+
+export type Net = { pts: Vector3[]; edges: [number, number][] };
+export const makeNet = (seed: number, n: number, accept: (p: Vector3) => boolean, rng: () => Vector3, k = 2): Net => {
+  const r = mulberry32(seed);
+  const pts: Vector3[] = [];
+  let guard = 0;
+  while (pts.length < n && guard++ < n * 50) {
+    const p = rng();
+    if (accept(p)) pts.push(p);
+  }
+  const edges: [number, number][] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const d = pts.map((q, j) => [q.distanceToSquared(pts[i]), j] as const).sort((a, b) => a[0] - b[0]);
+    for (let m = 1; m <= k; m++) if (d[m] && (r() < 0.9 || m === 1)) edges.push([i, d[m][1]]);
+  }
+  return { pts, edges };
+};
+
+const inBrain = (p: Vector3) => (p.x / 0.74) ** 2 + ((p.y + 0.03) / 0.58) ** 2 + (p.z / 0.93) ** 2 < 1 && p.y > -0.42;
+
+export const brainNet = (n = 760) =>
+  cached(`brainNet${n}`, () => {
+    const r = mulberry32(17);
+    const net = makeNet(9, n, inBrain, () => new Vector3(r() * 2 - 1, r() * 2 - 1, r() * 2 - 1));
+    const g = new BufferGeometry();
+    g.userData.net = net;
+    return g;
+  });
+
+/** Somas + connections + travelling signals. `pulse` scales signal traffic, `tint` 0 cyan … 1 orange share. */
+export const Network: React.FC<{ net: Net; t: number; opacity?: number; pulse?: number; orangeShare?: number; size?: number; seed?: number }> = ({ net, t, opacity = 1, pulse = 1, orangeShare = 0.25, size = 0.028, seed = 1 }) => {
+  const objs = useMemo(() => {
+    const somaG = new BufferGeometry();
+    const sp: number[] = [], sc: number[] = [];
+    const r = mulberry32(seed);
+    const cy = new Color(CYAN), bl = new Color(BLUE), or = new Color(ORANGE);
+    for (const p of net.pts) {
+      sp.push(p.x, p.y, p.z);
+      const c = r() < 0.12 ? or.clone() : cy.clone().lerp(bl, r() * 0.6);
+      c.multiplyScalar(0.6 + r() * 0.6);
+      sc.push(c.r, c.g, c.b);
+    }
+    somaG.setAttribute("position", new Float32BufferAttribute(sp, 3));
+    somaG.setAttribute("color", new Float32BufferAttribute(sc, 3));
+    const lineG = new BufferGeometry();
+    const lp: number[] = [], lc: number[] = [];
+    for (const [a, b] of net.edges) {
+      const A = net.pts[a], B = net.pts[b];
+      lp.push(A.x, A.y, A.z, B.x, B.y, B.z);
+      const k = 0.25 + r() * 0.35;
+      lc.push(0.25 * k, 0.75 * k, 1.0 * k, 0.25 * k, 0.75 * k, 1.0 * k);
+    }
+    lineG.setAttribute("position", new Float32BufferAttribute(lp, 3));
+    lineG.setAttribute("color", new Float32BufferAttribute(lc, 3));
+    const lineM = new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, blending: AdditiveBlending, depthWrite: false, fog: false });
+    const P = 260;
+    const pulses = Array.from({ length: P }, () => ({ e: Math.floor(r() * net.edges.length), sp: 0.4 + r() * 1.1, ph: r(), orange: r() }));
+    const pulseG = new BufferGeometry();
+    pulseG.setAttribute("position", new Float32BufferAttribute(new Float32Array(P * 3), 3));
+    pulseG.setAttribute("color", new Float32BufferAttribute(new Float32Array(P * 3), 3));
+    return { somaG, lineG, lineM, pulses, pulseG, somaM: pointsMat(size * 2.2), pulseM: pointsMat(size * 2.6) };
+  }, [net, seed, size]);
+  useLayoutEffect(() => {
+    const pos = objs.pulseG.attributes.position as Float32BufferAttribute;
+    const col = objs.pulseG.attributes.color as Float32BufferAttribute;
+    const cy = new Color(CYAN), or = new Color(ORANGE);
+    objs.pulses.forEach((q, i) => {
+      const u = (t * q.sp + q.ph) % 1;
+      const [a, b] = net.edges[(q.e + Math.floor(t * q.sp + q.ph) * 7) % net.edges.length];
+      const A = net.pts[a], B = net.pts[b];
+      pos.setXYZ(i, A.x + (B.x - A.x) * u, A.y + (B.y - A.y) * u, A.z + (B.z - A.z) * u);
+      const c = q.orange < orangeShare ? or : cy;
+      const k = Math.sin(u * Math.PI) * pulse * 1.6;
+      col.setXYZ(i, c.r * k, c.g * k, c.b * k);
+    });
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    objs.somaM.opacity = opacity;
+    objs.pulseM.opacity = opacity;
+    objs.lineM.opacity = 0.45 * opacity;
+  });
+  return (
+    <group>
+      <lineSegments geometry={objs.lineG} material={objs.lineM} ref={fx} renderOrder={4} />
+      <points geometry={objs.somaG} material={objs.somaM} ref={fx} renderOrder={6} />
+      <points geometry={objs.pulseG} material={objs.pulseM} ref={fx} renderOrder={7} frustumCulled={false} />
+    </group>
+  );
+};
+
+// ── hero neurons (macro) ───────────────────────────────────────────────────
+
+const neuronGeo = (seed: number) =>
+  cached(`neuron${seed}`, () => {
+    const r = mulberry32(seed);
+    const tubes: BufferGeometry[] = [];
+    const branch = (o: Vector3, dir: Vector3, len: number, rad: number, depth: number) => {
+      const pts = [o.clone()];
+      let p = o.clone(), d = dir.clone();
+      for (let i = 0; i < 5; i++) {
+        d.add(new Vector3(r() - 0.5, r() - 0.5, r() - 0.5).multiplyScalar(0.7)).normalize();
+        p = p.clone().addScaledVector(d, len / 5);
+        pts.push(p);
+      }
+      const curve = new CatmullRomCurve3(pts);
+      const tg = new TubeGeometry(curve, 24, rad, 6, false);
+      // taper
+      const a = tg.attributes.position;
+      for (let i = 0; i < a.count; i++) {
+        const seg = Math.floor(i / 7) / 24;
+        const c = curve.getPoint(Math.min(1, seg));
+        const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i)).sub(c).multiplyScalar(1 - 0.7 * seg).add(c);
+        a.setXYZ(i, v.x, v.y, v.z);
+      }
+      tubes.push(tg);
+      if (depth > 0) for (let k = 0; k < 2; k++) branch(p, d.clone().add(new Vector3(r() - 0.5, r() - 0.5, r() - 0.5)).normalize(), len * 0.62, rad * 0.6, depth - 1);
+    };
+    for (let k = 0; k < 6; k++) {
+      const d = new Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize();
+      branch(d.clone().multiplyScalar(0.12), d, 0.55 + r() * 0.3, 0.03, 2);
+    }
+    branch(new Vector3(0, -0.1, 0), new Vector3(0.2, -1, 0.3).normalize(), 1.6, 0.035, 0);
+    const parts = tubes.map((g) => { g.deleteAttribute("uv"); return g.index ? g.toNonIndexed() : g; });
+    const merged = new BufferGeometry();
+    let total = 0;
+    for (const p of parts) total += p.attributes.position.count;
+    const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3);
+    let off = 0;
+    for (const p of parts) {
+      pos.set(p.attributes.position.array as Float32Array, off * 3);
+      nor.set(p.attributes.normal.array as Float32Array, off * 3);
+      off += p.attributes.position.count;
+    }
+    merged.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    merged.setAttribute("normal", new Float32BufferAttribute(nor, 3));
+    return merged;
+  });
+
+export const HeroNeuron: React.FC<{ seed: number; p: [number, number, number]; s: number; color?: string; t: number; opacity?: number }> = ({ seed, p, s, color = CYAN, t, opacity = 1 }) => {
+  const m = useMemo(() => glowMat({ color, rim: 0.9, core: 0.1, power: 1.6 }), [color]);
+  const soma = useMemo(() => glowMat({ color: "#ffffff", rim: 0.8, core: 0.35, power: 1.4 }), []);
+  const halo = useMemo(() => glowMat({ color, rim: 0.0, core: 0.2, power: 1 }), [color]);
+  const beat = 0.75 + 0.25 * Math.sin(t * 2.4 + seed);
+  (m.uniforms.uOpacity as { value: number }).value = opacity;
+  (soma.uniforms.uOpacity as { value: number }).value = opacity * beat;
+  (halo.uniforms.uOpacity as { value: number }).value = opacity * 0.25 * beat;
+  return (
+    <group position={p} scale={s}>
+      <mesh geometry={neuronGeo(seed)} material={m} ref={fx} renderOrder={6} />
+      <mesh geometry={sphere(0.13, 24, 16)} material={soma} ref={fx} renderOrder={7} />
+      <mesh geometry={sphere(0.3, 24, 16)} material={halo} ref={fx} renderOrder={7} />
+    </group>
+  );
+};
+
+// ── optic tunnel ───────────────────────────────────────────────────────────
+
+const tunnelGeo = () =>
+  cached("tunnel", () => {
+    const r = mulberry32(31);
+    const pos: number[] = [], col: number[] = [];
+    for (let f = 0; f < 220; f++) {
+      const r0 = 0.18 + r() * 0.32, a0 = r() * Math.PI * 2, tw = 0.6 + r() * 0.6;
+      const k = 0.4 + r() * 0.6;
+      let prev: Vector3 | null = null;
+      for (let i = 0; i <= 60; i++) {
+        const z = 1.4 + (i / 60) * 5.5;
+        const rr = r0 * (0.65 + 0.35 * Math.min(1, (z - 1.4) / 2.5));
+        const a = a0 + z * tw;
+        const p = new Vector3(Math.cos(a) * rr, Math.sin(a) * rr, z);
+        if (prev) {
+          pos.push(prev.x, prev.y, prev.z, p.x, p.y, p.z);
+          const c = r() < 0.15 ? [1, 0.6, 0.24] : [0.37, 0.89, 1];
+          col.push(c[0] * k, c[1] * k, c[2] * k, c[0] * k, c[1] * k, c[2] * k);
+        }
+        prev = p;
+      }
+    }
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new Float32BufferAttribute(col, 3));
+    return g;
+  });
+
+const OpticTunnel: React.FC<{ t: number; opacity: number }> = ({ t, opacity }) => {
+  const m = useMemo(() => new LineBasicMaterial({ vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false }), []);
+  m.opacity = opacity;
+  const streaks = useMemo(() => {
+    const r = mulberry32(5);
+    const g = new BufferGeometry();
+    const n = 300;
+    g.setAttribute("position", new Float32BufferAttribute(new Float32Array(n * 3), 3));
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const o = r() < 0.2; c.set(o ? [1, 0.6, 0.25] : [0.5, 0.92, 1], i * 3); }
+    g.setAttribute("color", new Float32BufferAttribute(c, 3));
+    return { g, seeds: Array.from({ length: n }, () => [r() * Math.PI * 2, 0.05 + r() * 0.45, r(), 0.6 + r()]), m: pointsMat(0.035) };
+  }, []);
+  useLayoutEffect(() => {
+    const a = streaks.g.attributes.position as Float32BufferAttribute;
+    streaks.seeds.forEach(([ang, rr, ph, sp], i) => {
+      const z = 6.9 - (((t * sp * 2.2 + ph) % 1) * 5.5);
+      a.setXYZ(i, Math.cos(ang + z) * rr, Math.sin(ang + z) * rr, z);
+    });
+    a.needsUpdate = true;
+    streaks.m.opacity = opacity;
+  });
+  return (
+    <group>
+      <lineSegments geometry={tunnelGeo()} material={m} ref={fx} renderOrder={4} />
+      <points geometry={streaks.g} material={streaks.m} ref={fx} frustumCulled={false} renderOrder={6} />
+    </group>
+  );
+};
+
+// ── photo card (the "camera" idea that the brain does not follow) ──────────
+
+const photoTex = () =>
+  canvasTex("photo", 512, 640, (g, w, h) => {
+    g.fillStyle = "#a9a396";
+    g.fillRect(0, 0, w, h);
+    const x0 = 28, y0 = 28, W = w - 56, H = h - 150;
+    const gr = g.createLinearGradient(0, y0, 0, y0 + H);
+    gr.addColorStop(0, "#152034");
+    gr.addColorStop(1, "#0a0f18");
+    g.fillStyle = gr;
+    g.fillRect(x0, y0, W, H);
+    g.strokeStyle = "rgba(120,150,200,0.35)";
+    g.lineWidth = 2;
+    const vx = x0 + W * 0.55, vy = y0 + H * 0.45;
+    for (const [ax, ay] of [[x0, y0], [x0 + W, y0], [x0, y0 + H], [x0 + W, y0 + H]]) { g.beginPath(); g.moveTo(ax, ay); g.lineTo(vx + (ax - vx) * 0.2, vy + (ay - vy) * 0.2); g.stroke(); }
+    g.fillStyle = "#7d9fd8";
+    g.fillRect(vx - 40, vy - 70, 80, 95);
+    g.fillStyle = "#04060a";
+    g.beginPath(); g.arc(vx, vy - 52, 13, 0, Math.PI * 2); g.fill();
+    g.fillRect(vx - 22, vy - 38, 44, 92);
+    g.fillRect(vx - 12, vy + 54, 9, 22); g.fillRect(vx + 3, vy + 54, 9, 22);
+    g.fillStyle = "#3a3f47";
+    g.font = "600 30px Manrope, sans-serif";
+    g.textAlign = "center";
+    g.fillText("02:01", w / 2, h - 62);
+  });
+
+// ── pareidolia point cloud ─────────────────────────────────────────────────
+
+/** The coat stand as the eye actually received it: helmet, coat, sleeves, tote, pole, boots. */
+const standPoints = () =>
+  cached("standPts", () => {
+    const r = mulberry32(77);
+    const inStand = (x: number, y: number) =>
+      Math.hypot(x - 0.0, y - 0.9) < 0.085 ||
+      (y > 0.32 && y < 0.82 && Math.abs(x) < 0.17 + (0.82 - y) * 0.05 && !(y > 0.78 && Math.abs(x) > 0.12)) ||
+      (y > 0.48 && y < 0.8 && Math.abs(Math.abs(x) - 0.2) < 0.035) ||
+      (x < -0.18 && x > -0.27 && y > 0.4 && y < 0.62) ||
+      (Math.abs(x) < 0.012 && y > 0.12 && y < 0.34) ||
+      (y < 0.13 && Math.abs(Math.abs(x) - 0.05) < 0.035);
+    const pos: number[] = [], col: number[] = [], home: number[] = [];
+    while (pos.length < 2200 * 3) {
+      const x = r() - 0.5, y = r() * 1.02;
+      if (!inStand(x, y)) continue;
+      const z = (r() - 0.5) * 0.12;
+      pos.push(x, y, z);
+      home.push(x, y, z);
+      const k = 0.9 + r() * 0.8;
+      col.push(1.0 * k, 0.95 * k, 0.85 * k);
+    }
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new Float32BufferAttribute(col, 3));
+    g.userData.home = home;
+    return g;
+  });
+
+const lineFrom = (poly: Poly, z = 0.02) => {
+  const g = new BufferGeometry();
+  const pts = resample(poly, 220);
+  g.setAttribute("position", new Float32BufferAttribute(pts.flatMap(([x, y]) => [x, y, z]), 3));
+  return g;
+};
+
+export const PatternCloud: React.FC<{ t: number; t0: number }> = ({ t, t0 }) => {
+  const pts = standPoints();
+  const m = useMemo(() => pointsMat(0.026), []);
+  const lineG = useMemo(() => lineFrom(HUMAN), []);
+  const lineM = useMemo(() => new LineBasicMaterial({ color: ORANGE, transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false }), []);
+  const glowG = useMemo(() => {
+    const g = new BufferGeometry();
+    const p = resample(HUMAN, 90);
+    g.setAttribute("position", new Float32BufferAttribute(p.flatMap(([x, y]) => [x, y, 0.02]), 3));
+    g.setAttribute("color", new Float32BufferAttribute(p.flatMap(() => [1, 0.55, 0.2]), 3));
+    return g;
+  }, []);
+  const glowM = useMemo(() => pointsMat(0.03), []);
+  const u = t - t0;
+  // points flicker into view blurry (0..1.2), the outline is drawn (2.7..3.4), holds, then flickers out (4.4..5.2)
+  const appear = ease.out(remap(u, 0, 1.2));
+  const draw = ease.inOut(remap(u, 2.6, 3.5));
+  const flick = u > 4.35 && u < 4.75 ? (Math.floor(u * 22) % 2 ? 0.25 : 1) : 1;
+  const out = 1 - ease.inOut(remap(u, 4.7, 5.25));
+  useLayoutEffect(() => {
+    const a = pts.attributes.position as Float32BufferAttribute;
+    const home = pts.userData.home as number[];
+    const jit = 0.06 * (1 - ease.out(remap(u, 0, 2.4)));
+    for (let i = 0; i < a.count; i++) {
+      const s = Math.sin(i * 12.9898 + t * 3.1) * 0.5;
+      a.setXYZ(i, home[i * 3] + s * jit, home[i * 3 + 1] + Math.cos(i * 4.1 + t * 2.3) * 0.5 * jit, home[i * 3 + 2]);
+    }
+    a.needsUpdate = true;
+    m.opacity = appear * (0.75 + 0.25 * Math.sin(t * 9));
+    lineG.setDrawRange(0, Math.floor(220 * draw));
+    lineM.opacity = draw * flick * out;
+    glowM.opacity = draw * flick * out * 0.9;
+  });
+  return (
+    <group>
+      <points geometry={pts} material={m} ref={fx} frustumCulled={false} renderOrder={6} />
+      <primitive object={useMemo(() => new Line(lineG, lineM), [lineG, lineM])} ref={fx} renderOrder={8} />
+      <points geometry={glowG} material={glowM} ref={fx} renderOrder={8} />
+    </group>
+  );
+};
+
+/** Wall socket with a face drawn over it. */
+export const SocketFace: React.FC<{ t: number; t0: number }> = ({ t, t0 }) => {
+  const u = t - t0;
+  const ring = useMemo(() => {
+    const mk = (cx: number, cy: number, r: number, a0 = 0, a1 = Math.PI * 2, n = 48) => {
+      const g = new BufferGeometry();
+      const p: number[] = [];
+      for (let i = 0; i <= n; i++) { const a = a0 + ((a1 - a0) * i) / n; p.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.09); }
+      g.setAttribute("position", new Float32BufferAttribute(p, 3));
+      return g;
+    };
+    return [mk(-0.06, 0.02, 0.042), mk(0.06, 0.02, 0.042), mk(0, -0.02, 0.105, Math.PI * 1.22, Math.PI * 1.78)];
+  }, []);
+  const lm = useMemo(() => new LineBasicMaterial({ color: ORANGE, transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false }), []);
+  const draw = ease.inOut(remap(u, 0.5, 1.3));
+  lm.opacity = draw;
+  ring.forEach((g) => g.setDrawRange(0, Math.floor(49 * draw)));
+  const plate = phys("bigPlate", { color: "#8f99a4", roughness: 0.45, clearcoat: 0.4 });
+  const holeM = phys("bigHole", { color: "#0d0f12", roughness: 0.9 });
+  const lines = useMemo(() => ring.map((g) => new Line(g, lm)), [ring, lm]);
+  return (
+    <group rotation={[0, 0.25 * (1 - ease.out(remap(u, 0, 2.4))), 0]}>
+      <mesh geometry={box(0.5, 0.5, 0.06, 0.04)} material={plate} castShadow />
+      <mesh geometry={cyl(0.17, 0.17, 0.05, 48)} material={phys("bigRecess", { color: "#d9dde1", roughness: 0.5 })} position={[0, 0, 0.03]} rotation={[Math.PI / 2, 0, 0]} />
+      {[-0.06, 0.06].map((x) => (
+        <mesh key={x} geometry={cyl(0.022, 0.022, 0.06, 20)} material={holeM} position={[x, 0.02, 0.04]} rotation={[Math.PI / 2, 0, 0]} />
+      ))}
+      <mesh geometry={box(0.08, 0.012, 0.02, 0.004)} material={phys("ground", { color: "#a9adb2", metalness: 0.9, roughness: 0.3 })} position={[0, -0.1, 0.06]} />
+      {lines.map((l, i) => <primitive key={i} object={l} ref={fx} renderOrder={8} />)}
+    </group>
+  );
+};
+
+// ── backdrop ───────────────────────────────────────────────────────────────
+
+export const NeuralBackdrop: React.FC<{ top: string; bottom: string; glow: string; r?: number }> = ({ top, bottom, glow, r = 140 }) => {
+  const m = useMemo(
+    () =>
+      new ShaderMaterial({
+        side: 1, depthWrite: false, fog: false,
+        uniforms: { uTop: { value: new Color(top) }, uBot: { value: new Color(bottom) }, uGlow: { value: new Color(glow) } },
+        vertexShader: /* glsl */ `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: /* glsl */ `uniform vec3 uTop; uniform vec3 uBot; uniform vec3 uGlow; varying vec3 vD;
+          float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453); }
+          void main(){ vec3 d = normalize(vD); vec3 c = mix(uBot, uTop, d.y * 0.5 + 0.5);
+            c += uGlow * pow(max(0.0, 1.0 - length(d.xy - vec2(0.0, 0.05))), 3.0) * 0.35 * smoothstep(-0.2, 0.6, d.z);
+            gl_FragColor = vec4(c, 1.0); }`,
+      }),
+    [top, bottom, glow],
+  );
+  (m.uniforms.uTop.value as Color).set(top);
+  (m.uniforms.uBot.value as Color).set(bottom);
+  (m.uniforms.uGlow.value as Color).set(glow);
+  return <mesh geometry={sphere(r, 32, 16)} material={m} renderOrder={-10} />;
+};
+
+/** Dust motes of light drifting in the neural space. */
+export const Motes: React.FC<{ t: number; n?: number; R?: number; opacity?: number }> = ({ t, n = 500, R = 4, opacity = 1 }) => {
+  const o = useMemo(() => {
+    const r = mulberry32(55);
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(new Float32Array(n * 3), 3));
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const k = 0.2 + r() * 0.5; const orn = r() < 0.15; c.set(orn ? [k, 0.55 * k, 0.2 * k] : [0.4 * k, 0.8 * k, k], i * 3); }
+    g.setAttribute("color", new Float32BufferAttribute(c, 3));
+    return { g, s: Array.from({ length: n }, () => [r() * 2 - 1, r() * 2 - 1, r() * 2 - 1, r() * 6]), m: pointsMat(0.02 * R) };
+  }, [n, R]);
+  useLayoutEffect(() => {
+    const a = o.g.attributes.position as Float32BufferAttribute;
+    o.s.forEach(([x, y, z, ph], i) => a.setXYZ(i, (x + Math.sin(t * 0.21 + ph) * 0.05) * R, (y + ((t * 0.02 + ph) % 2) * 0.05) * R, (z + Math.cos(t * 0.17 + ph) * 0.05) * R));
+    a.needsUpdate = true;
+    o.m.opacity = opacity;
+  });
+  return <points geometry={o.g} material={o.m} ref={fx} frustumCulled={false} renderOrder={3} />;
+};
+
+// ── streams into the prediction core ───────────────────────────────────────
+
+export const Stream: React.FC<{ curve: CatmullRomCurve3; color: string; t: number; on: number; n?: number; thin?: boolean }> = ({ curve, color, t, on, n = 90, thin }) => {
+  const tube = useMemo(() => new TubeGeometry(curve, 80, thin ? 0.004 : 0.012, 6, false), [curve, thin]);
+  const tm = useMemo(() => glowMat({ color, rim: 1.2, core: 0.25 }), [color]);
+  (tm.uniforms.uOpacity as { value: number }).value = on * 0.8;
+  const o = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(new Float32Array(n * 3), 3));
+    const c = new Color(color);
+    g.setAttribute("color", new Float32BufferAttribute(Array.from({ length: n }, () => [c.r * 1.5, c.g * 1.5, c.b * 1.5]).flat(), 3));
+    return { g, m: pointsMat(thin ? 0.022 : 0.05) };
+  }, [n, color, thin]);
+  useLayoutEffect(() => {
+    const a = o.g.attributes.position as Float32BufferAttribute;
+    for (let i = 0; i < n; i++) {
+      const u = ((i / n) + t * 0.32) % 1;
+      const p = curve.getPoint(u);
+      a.setXYZ(i, p.x + Math.sin(i * 7.3) * 0.02, p.y + Math.cos(i * 3.1) * 0.02, p.z);
+    }
+    a.needsUpdate = true;
+    o.m.opacity = on;
+  });
+  return (
+    <group>
+      <mesh geometry={tube} material={tm} ref={fx} renderOrder={6} />
+      <points geometry={o.g} material={o.m} ref={fx} frustumCulled={false} renderOrder={7} />
+    </group>
+  );
+};
+
+export const CORE: [number, number, number] = [0, 0.06, -0.15];
+const INFO_CURVE = new CatmullRomCurve3([new Vector3(0.05, 0.12, 1.25), new Vector3(0.25, 0.2, 0.7), new Vector3(0.1, 0.1, 0.2), new Vector3(...CORE)]);
+const EXP_CURVE = new CatmullRomCurve3([new Vector3(-0.42, -0.32, -0.55), new Vector3(-0.35, -0.15, -0.2), new Vector3(-0.15, 0.0, -0.1), new Vector3(...CORE)]);
+
+const PredictionCore: React.FC<{ t: number; on: number; info: number; exp: number }> = ({ t, on, info, exp }) => {
+  const m = useMemo(() => glowMat({ color: "#ffd9a8", rim: 0.9, core: 0.55, power: 1.5 }), []);
+  const h = useMemo(() => glowMat({ color: ORANGE, rim: 0, core: 0.3, power: 1 }), []);
+  const ringM = useMemo(() => glowMat({ color: CYAN, rim: 1, core: 0.6 }), []);
+  const beat = 0.8 + 0.2 * Math.sin(t * 5.2) + 0.25 * info * exp;
+  (m.uniforms.uOpacity as { value: number }).value = on * beat;
+  (h.uniforms.uOpacity as { value: number }).value = on * 0.22 * beat;
+  (ringM.uniforms.uOpacity as { value: number }).value = on * 0.6;
+  return (
+    <group>
+      <group position={CORE}>
+        <mesh geometry={sphere(0.06, 32, 20)} material={m} ref={fx} renderOrder={8} />
+        <mesh geometry={sphere(0.17, 32, 20)} material={h} ref={fx} renderOrder={8} />
+        <mesh geometry={torus(0.12, 0.003, 6, 64)} material={ringM} rotation={[Math.PI / 2 + Math.sin(t) * 0.3, t * 0.7, 0]} ref={fx} renderOrder={8} />
+        <mesh geometry={torus(0.15, 0.002, 6, 64)} material={ringM} rotation={[0.4, -t * 0.5, 0.3]} ref={fx} renderOrder={8} />
+      </group>
+      <Stream curve={INFO_CURVE} color={CYAN} t={t} on={info} />
+      <Stream curve={EXP_CURVE} color={ORANGE} t={t * 0.8 + 0.3} on={exp} />
+    </group>
+  );
+};
+
+// ── the whole neural set for scene 5 ───────────────────────────────────────
+
+export const BrainSet: React.FC<{ t: number }> = ({ t }) => {
+  const net = brainNet().userData.net as Net;
+  const tunnel = 1 - ease.inOut(remap(t, 34.3, 35.0));
+  const photoIn = ease.out(remap(t, 35.5, 36.1));
+  const photoGone = ease.inOut(remap(t, 36.6, 37.5));
+  // dimmer while the camera is inside it, and behind the pattern / socket close-ups
+  const shell = ease.inOut(remap(t, 33.6, 34.8)) * (1 - 0.72 * ease.inOut(remap(t, 37.2, 37.9)) + 0.1 * ease.inOut(remap(t, 42.8, 43.6)));
+  const info = ease.inOut(remap(t, 37.9, 38.8));
+  const heroOn = ease.inOut(remap(t, 36.5, 37.3)) * (1 - ease.inOut(remap(t, 42.7, 43.3)));
+  const exp = ease.inOut(remap(t, 39.8, 40.6));
+  const photo = useMemo(() => phys("photoCard", { map: photoTex(), roughness: 0.5, emissive: "#ffffff", emissiveMap: photoTex(), emissiveIntensity: 0.08, transparent: true }), []);
+  photo.opacity = photoIn * (1 - photoGone);
+  return (
+    <group>
+      <NeuralBackdrop top="#0f3b66" bottom="#06162b" glow="#3aa6e8" r={60} />
+      <Motes t={t} R={4} />
+      {t < 35.2 ? <OpticTunnel t={t} opacity={tunnel} /> : null}
+      <BrainShell t={t} opacity={shell} orange={t > 38 ? 1.2 : 0.6} />
+      <Network net={net} t={t} opacity={Math.min(1, shell * 1.3) * (t > 42.9 ? 0.55 : 1)} pulse={1 + info + exp} orangeShare={0.2 + 0.25 * exp} />
+      {t > 36.5 && t < 43.4 ? (
+        <>
+          <HeroNeuron seed={3} p={[0.62, 0.34, 0.18]} s={0.3} t={t} opacity={heroOn} />
+          <HeroNeuron seed={7} p={[-0.32, 0.05, 0.25]} s={0.28} color={ORANGE} t={t} opacity={heroOn} />
+          <HeroNeuron seed={11} p={[0.2, -0.18, -0.35]} s={0.3} t={t} opacity={heroOn} />
+          <PredictionCore t={t} on={ease.inOut(remap(t, 37.0, 37.8)) * (1 - ease.inOut(remap(t, 42.8, 43.3)))} info={info} exp={exp} />
+        </>
+      ) : null}
+      {photo.opacity > 0.01 ? (
+        <mesh geometry={planeG(0.3, 0.37)} material={photo} position={[0.45 - photoGone * 0.3, 0.25 - photoGone * 0.12, 2.2 - photoGone * 0.8]} rotation={[0.02, 0.25 + photoGone * 0.2, 0.05]} />
+      ) : null}
+      {t > 36.6 && t < 37.8 ? <PhotoDust t={t} /> : null}
+      {t > 42.9 && t < 48.4 ? (
+        <group position={[0, -0.32, 1.55]} scale={0.6}>
+          <PatternCloud t={t} t0={43.0} />
+        </group>
+      ) : null}
+      {t > 48.2 ? (
+        <group position={[0, 0.0, 1.62]} scale={0.55}>
+          <SocketFace t={t} t0={48.4} />
+        </group>
+      ) : null}
+    </group>
+  );
+};
+
+const PhotoDust: React.FC<{ t: number }> = ({ t }) => {
+  const o = useMemo(() => {
+    const r = mulberry32(91);
+    const n = 600;
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(new Float32Array(n * 3), 3));
+    const c: number[] = [];
+    for (let i = 0; i < n; i++) { const w = r() < 0.5; c.push(w ? 0.9 : 0.4, w ? 0.9 : 0.75, 1); }
+    g.setAttribute("color", new Float32BufferAttribute(c, 3));
+    return { g, s: Array.from({ length: n }, () => [r() - 0.5, r() - 0.5, r(), r()]), m: pointsMat(0.012) };
+  }, []);
+  useLayoutEffect(() => {
+    const u = ease.inOut(remap(t, 36.6, 37.8));
+    const a = o.g.attributes.position as Float32BufferAttribute;
+    o.s.forEach(([x, y, d, w], i) => {
+      const k = Math.min(1, u * (1 + w));
+      a.setXYZ(i, 0.45 + x * 0.3 * (1 - k * 0.8) - k * 0.4, 0.25 + y * 0.37 * (1 - k * 0.8) - k * 0.2, 2.2 - k * (1.2 + d * 0.7));
+    });
+    a.needsUpdate = true;
+    o.m.opacity = 1 - ease.in(remap(t, 37.3, 37.8));
+  });
+  return <points geometry={o.g} material={o.m} ref={fx} frustumCulled={false} renderOrder={8} />;
+};
+
+export { inside, Mesh, MeshBasicMaterial, Points, LineSegments };
+
+==== 3122 project/src/cine/neural/glow.ts
+// Additive "light" materials for the neural world: fresnel glow shells, soft point sprites, 3D noise.
+
+import { AdditiveBlending, CanvasTexture, Color, DoubleSide, PointsMaterial, ShaderMaterial, type Side } from "three";
+
+const h3 = (x: number, y: number, z: number) => {
+  let n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return n - Math.floor(n);
+};
+const sm = (t: number) => t * t * (3 - 2 * t);
+/** Smooth 3D value noise in 0..1. */
+export const noise3 = (x: number, y: number, z: number) => {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = sm(x - xi), yf = sm(y - yi), zf = sm(z - zi);
+  const l = (a: number, b: number, t: number) => a + (b - a) * t;
+  const c = (dx: number, dy: number, dz: number) => h3(xi + dx, yi + dy, zi + dz);
+  return l(
+    l(l(c(0, 0, 0), c(1, 0, 0), xf), l(c(0, 1, 0), c(1, 1, 0), xf), yf),
+    l(l(c(0, 0, 1), c(1, 0, 1), xf), l(c(0, 1, 1), c(1, 1, 1), xf), yf),
+    zf,
+  );
+};
+
+export type GlowOpts = { color: string; rim?: number; core?: number; power?: number; side?: Side; opacity?: number };
+
+/** Fresnel glow (additive): bright silhouettes, faint faces. Uniform `uOpacity` fades it. */
+export const glowMat = (o: GlowOpts) =>
+  new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: o.side ?? DoubleSide,
+    fog: false,
+    uniforms: {
+      uColor: { value: new Color(o.color) },
+      uRim: { value: o.rim ?? 1.0 },
+      uCore: { value: o.core ?? 0.15 },
+      uPow: { value: o.power ?? 2.0 },
+      uOpacity: { value: o.opacity ?? 1 },
+    },
+    vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uRim; uniform float uCore; uniform float uPow; uniform float uOpacity;
+      varying vec3 vN; varying vec3 vV;
+      void main(){ float f = clamp(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0);
+        float g = uCore + uRim * pow(f, uPow);
+        gl_FragColor = vec4(uColor * g * uOpacity, 1.0); }`,
+  });
+
+let sprite: CanvasTexture | null = null;
+/** Soft round sprite for points (never square). */
+export const spriteTex = () => {
+  if (sprite) return sprite;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, "rgba(255,255,255,1)");
+  gr.addColorStop(0.25, "rgba(255,255,255,0.55)");
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  sprite = new CanvasTexture(c);
+  return sprite;
+};
+
+export const pointsMat = (size: number, opacity = 1) =>
+  new PointsMaterial({
+    size, map: spriteTex(), vertexColors: true, transparent: true, opacity, depthWrite: false, blending: AdditiveBlending, sizeAttenuation: true, fog: false,
+  });
+
+export const CYAN = "#5fe3ff";
+export const ORANGE = "#ff9a3d";
+export const BLUE = "#2f7bff";
+
+==== 197 project/src/cine/neural/plane.ts
+import { PlaneGeometry } from "three";
+import { cached } from "../../kits/worldforge/geo.ts";
+
+export const planeG = (w: number, h: number) => cached(`pl${w},${h}`, () => new PlaneGeometry(w, h));
+
+==== 4889 project/src/cine/neural/silhouettes.ts
+// 2D silhouettes shared by the memory shadows, the expectation templates and the ending ghosts.
+// Drawn on canvases (alpha masks, white on transparent) and as polylines in a unit box
+// (x −0.5…0.5, y 0…1, y up), so the same shape can be a shadow, a glowing outline or points.
+
+import { canvasTex } from "../mats.ts";
+
+export type Poly = [number, number][];
+
+/** Human standing figure outline (the "pattern" the brain completes). */
+export const HUMAN: Poly = [
+  [0, 1.0], [0.07, 0.985], [0.1, 0.93], [0.09, 0.87], [0.05, 0.835], [0.06, 0.81], [0.2, 0.78], [0.24, 0.72], [0.26, 0.5], [0.24, 0.42],
+  [0.2, 0.44], [0.19, 0.62], [0.16, 0.55], [0.15, 0.3], [0.13, 0.02], [0.03, 0.02], [0.02, 0.3], [0, 0.4], [-0.02, 0.3], [-0.03, 0.02],
+  [-0.13, 0.02], [-0.15, 0.3], [-0.16, 0.55], [-0.19, 0.62], [-0.2, 0.44], [-0.24, 0.42], [-0.26, 0.5], [-0.24, 0.72], [-0.2, 0.78],
+  [-0.06, 0.81], [-0.05, 0.835], [-0.09, 0.87], [-0.1, 0.93], [-0.07, 0.985], [0, 1.0],
+];
+
+/** Kuntilanak: long hair, long gown, floating, arms hanging. */
+export const KUNTI: Poly = [
+  [0, 1.0], [0.08, 0.98], [0.12, 0.92], [0.15, 0.8], [0.19, 0.66], [0.27, 0.55], [0.3, 0.42], [0.26, 0.4], [0.24, 0.5], [0.22, 0.38],
+  [0.28, 0.12], [0.36, 0.0], [0.18, 0.05], [0.06, 0.0], [-0.05, 0.04], [-0.2, 0.0], [-0.34, 0.03], [-0.27, 0.14], [-0.22, 0.38],
+  [-0.24, 0.5], [-0.26, 0.4], [-0.3, 0.42], [-0.27, 0.55], [-0.19, 0.66], [-0.15, 0.8], [-0.12, 0.92], [-0.08, 0.98], [0, 1.0],
+];
+
+/** Pocong: a wrapped shroud tied above the head and at the feet. */
+export const POCONG: Poly = [
+  [0, 1.0], [0.05, 0.96], [0.03, 0.92], [0.11, 0.88], [0.15, 0.78], [0.17, 0.62], [0.17, 0.4], [0.15, 0.2], [0.1, 0.09], [0.06, 0.06],
+  [0.1, 0.0], [-0.1, 0.0], [-0.06, 0.06], [-0.1, 0.09], [-0.15, 0.2], [-0.17, 0.4], [-0.17, 0.62], [-0.15, 0.78], [-0.11, 0.88],
+  [-0.03, 0.92], [-0.05, 0.96], [0, 1.0],
+];
+
+/** Haunted house: crooked roof, a broken shutter, a dead tree. */
+export const RUMAH: Poly = [
+  [-0.5, 0.0], [-0.5, 0.42], [-0.56, 0.42], [-0.2, 0.78], [-0.16, 0.74], [-0.12, 0.9], [-0.05, 0.9], [-0.05, 0.82], [0.12, 0.98],
+  [0.52, 0.5], [0.44, 0.5], [0.46, 0.0], [-0.5, 0.0],
+];
+
+const drawPoly = (g: CanvasRenderingContext2D, poly: Poly, w: number, h: number, pad = 0.06) => {
+  const s = Math.min(w, h) * (1 - pad * 2);
+  g.beginPath();
+  poly.forEach(([x, y], i) => {
+    const px = w / 2 + x * s, py = h - (pad * h + y * s);
+    if (i === 0) g.moveTo(px, py);
+    else g.lineTo(px, py);
+  });
+  g.closePath();
+};
+
+/** Soft-edged white mask of a silhouette (for shadows on walls and dissolving ghosts). */
+export const silhouetteTex = (key: string, poly: Poly, extra?: (g: CanvasRenderingContext2D, w: number, h: number) => void) =>
+  canvasTex(`sil${key}`, 512, 512, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.filter = "blur(6px)";
+    g.fillStyle = "#fff";
+    drawPoly(g, poly, w, h);
+    g.fill();
+    if (extra) extra(g, w, h);
+    g.filter = "none";
+  });
+
+export const KUNTI_TEX = () =>
+  silhouetteTex("kunti", KUNTI, (g, w, h) => {
+    // hair strands falling past the shoulders
+    g.strokeStyle = "#fff";
+    g.lineWidth = 6;
+    for (let i = -3; i <= 3; i++) {
+      g.beginPath();
+      g.moveTo(w / 2 + i * 9, h * 0.1);
+      g.bezierCurveTo(w / 2 + i * 14, h * 0.3, w / 2 + i * 22, h * 0.42, w / 2 + i * 18, h * 0.58);
+      g.stroke();
+    }
+  });
+export const POCONG_TEX = () => silhouetteTex("pocong", POCONG);
+export const RUMAH_TEX = () =>
+  silhouetteTex("rumah", RUMAH, (g, w, h) => {
+    // windows cut out like eyes
+    g.globalCompositeOperation = "destination-out";
+    g.fillStyle = "#000";
+    g.fillRect(w * 0.3, h * 0.55, w * 0.1, h * 0.12);
+    g.fillRect(w * 0.58, h * 0.5, w * 0.1, h * 0.15);
+    g.fillRect(w * 0.45, h * 0.78, w * 0.1, h * 0.16);
+    g.globalCompositeOperation = "source-over";
+  });
+export const HUMAN_TEX = () => silhouetteTex("human", HUMAN);
+
+/** Resample a closed polyline to n evenly spaced points. */
+export const resample = (poly: Poly, n: number): Poly => {
+  const seg: number[] = [];
+  let L = 0;
+  for (let i = 0; i < poly.length - 1; i++) {
+    const d = Math.hypot(poly[i + 1][0] - poly[i][0], poly[i + 1][1] - poly[i][1]);
+    seg.push(d);
+    L += d;
+  }
+  const out: Poly = [];
+  for (let k = 0; k < n; k++) {
+    let s = (k / (n - 1)) * L, i = 0;
+    while (i < seg.length - 1 && s > seg[i]) { s -= seg[i]; i++; }
+    const f = seg[i] > 0 ? Math.min(1, s / seg[i]) : 0;
+    out.push([poly[i][0] + (poly[i + 1][0] - poly[i][0]) * f, poly[i][1] + (poly[i + 1][1] - poly[i][1]) * f]);
+  }
+  return out;
+};
+
+/** Even-odd point-in-polygon test. */
+export const inside = (poly: Poly, x: number, y: number) => {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+};
+
+==== 7846 project/src/cine/Post.tsx
+// CINÉSTORY camera + finishing chain: MSAA → NaN guard → GTAO → bokeh DOF → bloom → PBR Neutral tone
+// map → film grade (lift/gain, saturation, contrast, landscape vignette, lens chromatic fringe, grain,
+// flash, fade to black). The grade is driven per shot and blends across lamp changes and transitions.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { Color, HalfFloatType, NeutralToneMapping, PerspectiveCamera, Vector2, Vector3, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { FX_LAYER, withoutFx } from "../core/render/Post.tsx";
+import { mixC } from "./Lights.tsx";
+
+import { GRADE0, type Cam, type Grade } from "./types.ts";
+export { GRADE0, type Cam, type Grade };
+
+export const CameraRig: React.FC<{ cam: Cam }> = ({ cam }) => {
+  const { camera } = useThree();
+  useLayoutEffect(() => {
+    const c = camera as PerspectiveCamera;
+    c.position.set(...cam.pos);
+    const f = new Vector3(...cam.target).sub(c.position).normalize();
+    const r = cam.roll ?? 0;
+    // roll about the view axis
+    const up = new Vector3(0, 1, 0);
+    const side = new Vector3().crossVectors(f, up).normalize();
+    const u2 = new Vector3().crossVectors(side, f).normalize();
+    c.up.copy(u2.multiplyScalar(Math.cos(r)).addScaledVector(side, Math.sin(r)));
+    c.lookAt(...cam.target);
+    c.fov = cam.fov;
+    c.near = cam.near ?? 0.05;
+    c.far = cam.far ?? 900;
+    c.updateProjectionMatrix();
+    c.updateMatrixWorld();
+    c.layers.enable(FX_LAYER);
+  }, [cam, camera]);
+  return null;
+};
+
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uRes: { value: new Vector2(1920, 1080) },
+    uCA: { value: 0.0012 },
+    uLift: { value: new Vector3() },
+    uGain: { value: new Vector3(1, 1, 1) },
+    uSat: { value: 1 },
+    uContrast: { value: 1 },
+    uVignette: { value: 0.2 },
+    uGrain: { value: 0.015 },
+    uFlash: { value: 0 },
+    uFlashColor: { value: new Color("#fff") },
+    uBlack: { value: 0 },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes;
+    uniform vec3 uLift; uniform vec3 uGain; uniform float uSat; uniform float uContrast;
+    uniform float uVignette; uniform float uGrain; uniform float uFlash; uniform vec3 uFlashColor; uniform float uBlack; uniform float uCA;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec2 cd = vUv - 0.5;
+      float ca = uCA * dot(cd, cd) * 4.0;
+      vec3 c = vec3(texture2D(tDiffuse, vUv - cd * ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv + cd * ca).b);
+      vec3 x = clamp(c, 0.0, 1.0);
+      x = x * uGain + uLift * (1.0 - x);
+      float l = dot(x, vec3(0.2126, 0.7152, 0.0722));
+      x = mix(vec3(l), x, uSat);
+      x = clamp((x - 0.5) * uContrast + 0.5, 0.0, 1.0);
+      x = mix(x, x * x * (3.0 - 2.0 * x), 0.18);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 0.86);
+      x *= 1.0 - uVignette * smoothstep(0.28, 0.82, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      x += g * uGrain * (0.5 + 0.5 * (1.0 - l));
+      x = mix(x, uFlashColor, clamp(uFlash, 0.0, 1.0));
+      x *= 1.0 - clamp(uBlack, 0.0, 1.0);
+      gl_FragColor = vec4(x, 1.0);
+    }`,
+};
+
+export const FilmPost: React.FC<{ cam: Cam; grade: Grade; frame: number }> = ({ cam, grade, frame }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(NanGuardShader));
+    const gtao = new GTAOPass(scene, camera, w, h);
+    gtao.blendIntensity = 1.0;
+    gtao.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.6, thickness: 0.6, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+    composer.addPass(withoutFx(gtao, camera));
+    const dof = withoutFx(new BokehPass(scene, camera, { focus: 3, aperture: 0.002, maxblur: 0.008 }), camera);
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.25, 0.5, 0.85);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const g = new ShaderPass(GradeShader);
+    g.uniforms.uRes.value.set(w, h);
+    composer.addPass(g);
+    return { composer, dof, bloom, gtao, g };
+  }, [gl, scene, camera, size.width, size.height]);
+
+  useLayoutEffect(() => {
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = grade.exposure;
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    const dist = new Vector3(...cam.pos).distanceTo(new Vector3(...cam.target));
+    u.focus.value = cam.focus ?? dist;
+    u.aperture.value = cam.aperture ?? 0;
+    u.maxblur.value = cam.maxBlur ?? 0;
+    chain.dof.enabled = (cam.aperture ?? 0) > 0 && (cam.maxBlur ?? 0) > 0;
+    chain.bloom.strength = grade.bloom;
+    chain.bloom.radius = grade.bloomRadius;
+    chain.bloom.threshold = grade.bloomThreshold;
+    chain.gtao.blendIntensity = grade.ao;
+    chain.gtao.enabled = grade.ao > 0.01;
+    const U = chain.g.uniforms;
+    U.uTime.value = frame % 997;
+    U.uLift.value.set(...grade.lift);
+    U.uGain.value.set(...grade.gain);
+    U.uSat.value = grade.sat;
+    U.uContrast.value = grade.contrast;
+    U.uVignette.value = grade.vignette;
+    U.uGrain.value = grade.grain;
+    U.uFlash.value = grade.flash;
+    U.uFlashColor.value.set(grade.flashColor);
+    U.uBlack.value = grade.black;
+    U.uCA.value = grade.ca;
+  }, [frame, chain, cam, grade, gl]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+const mixN = (a: number, b: number, k: number) => a + (b - a) * k;
+export const mixGrade = (a: Grade, b: Grade, k: number): Grade => {
+  if (k <= 0) return a;
+  if (k >= 1) return b;
+  const o = { ...a };
+  for (const key of Object.keys(a) as (keyof Grade)[]) {
+    const va = a[key], vb = b[key];
+    if (typeof va === "number" && typeof vb === "number") (o as Record<string, unknown>)[key] = mixN(va, vb, k);
+    else if (Array.isArray(va) && Array.isArray(vb)) (o as Record<string, unknown>)[key] = [0, 1, 2].map((i) => mixN(va[i], vb[i], k));
+    else if (typeof va === "string" && typeof vb === "string") (o as Record<string, unknown>)[key] = mixC(va, vb, k);
+  }
+  return o;
+};
+
+==== 12408 project/src/cine/set/parts.tsx
+// Set-building kit for any world: axis-aligned slabs, walls with openings, hinged doors, windows and a
+// small furniture library (bed, desk, chair, oil lamp, shelf, wall clock). Geometry + materials cached.
+
+import React from "react";
+import { DoubleSide, type Material } from "three";
+import { box, cyl, sphere, torus } from "../../kits/worldforge/geo.ts";
+import { phys, plankTex, tileTex, weaveTex } from "../mats.ts";
+import { ceilTex, concreteTex, doorTex, plasterTex } from "./tex.ts";
+import type { V3 } from "../Lights.tsx";
+
+export const MAT = {
+  wall: (c = "#d3cdbb") => phys(`wall${c}`, { color: c, roughness: 0.92, map: plasterTex("up", [1, 1], 0.12) }),
+  dado: (c = "#5d7a74") => phys(`dado${c}`, { color: c, roughness: 0.55, map: plasterTex("dado", [1, 1], 0.3), clearcoat: 0.15 }),
+  trim: (c = "#3c4b47") => phys(`trim${c}`, { color: c, roughness: 0.5 }),
+  ceil: (rep: [number, number]) => phys(`ceil${rep}`, { color: "#d9d9d4", roughness: 0.95, map: ceilTex(rep) }),
+  tile: (rep: [number, number]) => phys(`tile${rep}`, { color: "#ffffff", map: tileTex(rep), roughness: 0.34, clearcoat: 0.18, clearcoatRoughness: 0.45 }),
+  planks: (rep: [number, number], c = "#ffffff") => phys(`planks${rep}${c}`, { color: c, map: plankTex(rep), roughness: 0.7, clearcoat: 0.1 }),
+  frame: (c = "#3a2416") => phys(`frame${c}`, { color: c, roughness: 0.5, clearcoat: 0.3 }),
+  door: (key: string, base?: string) => phys(`door${key}`, { color: "#ffffff", map: doorTex(key, base), roughness: 0.42, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
+  chrome: () => phys("chrome", { color: "#c9ccd1", metalness: 1, roughness: 0.22 }),
+  steel: () => phys("steel", { color: "#55585e", metalness: 0.8, roughness: 0.45 }),
+  brass: () => phys("brass", { color: "#b8973f", metalness: 1, roughness: 0.3 }),
+  concrete: (rep: [number, number]) => phys(`concrete${rep}`, { color: "#ffffff", map: concreteTex(rep), roughness: 0.95 }),
+  plastic: (c: string) => phys(`plastic${c}`, { color: c, roughness: 0.45, clearcoat: 0.2 }),
+  matte: (c: string, r = 0.85) => phys(`matte${c}${r}`, { color: c, roughness: r }),
+  wood: (c = "#7a5636") => phys(`wood${c}`, { color: c, roughness: 0.62, clearcoat: 0.12 }),
+  glass: () => phys("glassPane", { color: "#b9cbe0", roughness: 0.05, metalness: 0, transparent: true, opacity: 0.18, clearcoat: 1, side: DoubleSide, depthWrite: false }),
+  fabric: (key: string, c: string, stripe?: string) => phys(`fabric${key}`, { color: "#ffffff", map: weaveTex(key, c, [4, 4], stripe), roughness: 0.9, sheen: 0.5, sheenColor: "#d8dcea" }),
+};
+
+/** Axis-aligned slab from min to max corner. */
+export const Slab: React.FC<{ min: V3; max: V3; m: Material; r?: number; cast?: boolean; recv?: boolean }> = ({ min, max, m, r = 0.004, cast = true, recv = true }) => {
+  const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
+  if (w <= 0 || h <= 0 || d <= 0) return null;
+  return (
+    <mesh geometry={box(+w.toFixed(4), +h.toFixed(4), +d.toFixed(4), r, 1)} material={m} position={[(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]} castShadow={cast} receiveShadow={recv} />
+  );
+};
+
+export type Hole = { a0: number; a1: number; y0: number; y1: number };
+
+/**
+ * A wall along an axis with rectangular openings, from floor y0 to y0 + top. `axis` "z": runs along z at
+ * x = c; "x": runs along x at z = c. Optional dado band (1 m) in a second material on both faces.
+ */
+export const HoledWall: React.FC<{ axis: "x" | "z"; c: number; a0: number; a1: number; holes: Hole[]; t?: number; y0?: number; top?: number; m?: Material; dado?: Material | null }> = ({ axis, c, a0, a1, holes, t = 0.15, y0 = 0, top = 2.8, m, dado = null }) => {
+  const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+  const hs = [...holes].sort((p, q) => Math.min(p.a0, p.a1) - Math.min(q.a0, q.a1)).map((h) => ({ ...h, a0: Math.min(h.a0, h.a1), a1: Math.max(h.a0, h.a1) }));
+  const pieces: Hole[] = [];
+  let cur = lo;
+  for (const h of hs) {
+    if (h.a0 > cur) pieces.push({ a0: cur, a1: h.a0, y0: 0, y1: top });
+    if (h.y0 > 0) pieces.push({ a0: h.a0, a1: h.a1, y0: 0, y1: h.y0 });
+    if (h.y1 < top) pieces.push({ a0: h.a0, a1: h.a1, y0: h.y1, y1: top });
+    cur = Math.max(cur, h.a1);
+  }
+  if (cur < hi) pieces.push({ a0: cur, a1: hi, y0: 0, y1: top });
+  const W = m ?? MAT.wall();
+  const out: React.ReactNode[] = [];
+  pieces.forEach((p, i) => {
+    const mk = (ya: number, yb: number, mm: Material, k: string, inset = 0) => {
+      if (yb <= ya) return;
+      const min: V3 = axis === "z" ? [c - t / 2 - inset, y0 + ya, p.a0] : [p.a0, y0 + ya, c - t / 2 - inset];
+      const max: V3 = axis === "z" ? [c + t / 2 + inset, y0 + yb, p.a1] : [p.a1, y0 + yb, c + t / 2 + inset];
+      out.push(<Slab key={`${i}${k}`} min={min} max={max} m={mm} />);
+    };
+    if (dado && p.y0 < 1) {
+      mk(p.y0, Math.min(1, p.y1), dado, "d", 0.004);
+      mk(Math.max(1, p.y0), p.y1, W, "u");
+    } else mk(p.y0, p.y1, W, "u");
+  });
+  return <>{out}</>;
+};
+
+/** Hinged door leaf in an opening: `at` = floor centre of the opening, `axis` = the wall direction,
+ *  `open` 0..1 (swings 100° toward `inside` = +1/−1 across the wall). */
+export const Door: React.FC<{ at: V3; axis: "x" | "z"; w?: number; h?: number; open?: number; inside?: 1 | -1; leaf?: Material; frame?: Material }> = ({ at, axis, w = 0.86, h = 2.02, open = 0, inside = 1, leaf, frame }) => {
+  const L = leaf ?? MAT.door("plain", "#5a3a24");
+  const F = frame ?? MAT.frame();
+  const rot = axis === "x" ? 0 : Math.PI / 2;
+  return (
+    <group position={at} rotation={[0, rot, 0]}>
+      {/* frame (local: wall along x, thickness along z) */}
+      <Slab min={[-w / 2 - 0.06, 0, -0.1]} max={[-w / 2, h + 0.06, 0.1]} m={F} />
+      <Slab min={[w / 2, 0, -0.1]} max={[w / 2 + 0.06, h + 0.06, 0.1]} m={F} />
+      <Slab min={[-w / 2 - 0.06, h, -0.1]} max={[w / 2 + 0.06, h + 0.06, 0.1]} m={F} />
+      <group position={[-w / 2, 0, 0]} rotation={[0, -open * 1.75 * inside, 0]}>
+        <Slab min={[0.005, 0.01, -0.02]} max={[w - 0.005, h - 0.005, 0.02]} m={L} r={0.006} />
+        {[1, -1].map((s) => <mesh key={s} geometry={sphere(0.028, 12, 8)} material={MAT.brass()} position={[w - 0.09, 1.0, s * 0.04]} castShadow />)}
+      </group>
+    </group>
+  );
+};
+
+/** Window in a wall opening: frame, cross bars, glass, sill. Local like Door (wall along x). */
+export const Window: React.FC<{ at: V3; axis: "x" | "z"; w: number; h: number; frame?: Material; bars?: number }> = ({ at, axis, w, h, frame, bars = 2 }) => {
+  const F = frame ?? MAT.frame("#e8e2d4");
+  const rot = axis === "x" ? 0 : Math.PI / 2;
+  return (
+    <group position={at} rotation={[0, rot, 0]}>
+      <Slab min={[-w / 2, 0, -0.05]} max={[w / 2, 0.05, 0.05]} m={F} />
+      <Slab min={[-w / 2, h - 0.05, -0.05]} max={[w / 2, h, 0.05]} m={F} />
+      <Slab min={[-w / 2, 0, -0.05]} max={[-w / 2 + 0.05, h, 0.05]} m={F} />
+      <Slab min={[w / 2 - 0.05, 0, -0.05]} max={[w / 2, h, 0.05]} m={F} />
+      {Array.from({ length: bars - 1 }, (_, i) => -w / 2 + (w * (i + 1)) / bars).map((x) => <Slab key={x} min={[x - 0.02, 0, -0.03]} max={[x + 0.02, h, 0.03]} m={F} />)}
+      <Slab min={[-w / 2, h / 2 - 0.02, -0.03]} max={[w / 2, h / 2 + 0.02, 0.03]} m={F} />
+      <mesh geometry={box(w - 0.08, h - 0.08, 0.004, 0)} material={MAT.glass()} position={[0, h / 2, 0]} />
+      <Slab min={[-w / 2 - 0.05, -0.04, -0.14]} max={[w / 2 + 0.05, 0.0, 0.14]} m={F} />
+    </group>
+  );
+};
+
+/** Bed with mattress, pillow and a folded blanket; head at −x, local origin = floor centre. */
+export const Bed: React.FC<{ at: V3; yaw?: number; L?: number; W?: number; blanket?: string }> = ({ at, yaw = 0, L = 1.95, W = 0.95, blanket = "#8a4a3a" }) => (
+  <group position={at} rotation={[0, yaw, 0]}>
+    <Slab min={[-L / 2, 0, -W / 2]} max={[L / 2, 0.26, W / 2]} m={MAT.wood("#5a3b26")} />
+    <mesh geometry={box(L - 0.04, 0.2, W - 0.04, 0.06)} material={MAT.fabric("sheet", "#7f8fa8")} position={[0, 0.36, 0]} castShadow receiveShadow />
+    <mesh geometry={box(0.42, 0.11, W - 0.22, 0.05)} material={MAT.matte("#e4e1da", 0.9)} position={[-L / 2 + 0.28, 0.51, 0]} rotation={[0, 0, 0.06]} castShadow receiveShadow />
+    <mesh geometry={box(0.9, 0.09, W + 0.04, 0.045)} material={MAT.fabric(`blanket${blanket}`, blanket)} position={[L / 2 - 0.52, 0.5, 0]} castShadow receiveShadow />
+    <Slab min={[-L / 2 - 0.05, 0, -W / 2]} max={[-L / 2, 0.85, W / 2]} m={MAT.wood("#5a3b26")} />
+  </group>
+);
+
+/** Table/desk: local origin = floor centre, top at `top`. */
+export const Desk: React.FC<{ at: V3; yaw?: number; w?: number; d?: number; top?: number; wood?: string }> = ({ at, yaw = 0, w = 1.3, d = 0.62, top = 0.76, wood = "#7a5636" }) => {
+  const m = MAT.wood(wood);
+  return (
+    <group position={at} rotation={[0, yaw, 0]}>
+      <Slab min={[-w / 2, top - 0.04, -d / 2]} max={[w / 2, top, d / 2]} m={m} />
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => <Slab key={i} min={[sx * (w / 2 - 0.05) - 0.025, 0, sz * (d / 2 - 0.05) - 0.025]} max={[sx * (w / 2 - 0.05) + 0.025, top - 0.04, sz * (d / 2 - 0.05) + 0.025]} m={m} />)}
+      <Slab min={[-w / 2 + 0.05, top - 0.16, -d / 2 + 0.04]} max={[w / 2 - 0.05, top - 0.04, -d / 2 + 0.06]} m={m} />
+    </group>
+  );
+};
+
+/** Wooden chair; the seat faces +z in local space (sitter looks toward +z). */
+export const Chair: React.FC<{ at: V3; yaw?: number; wood?: string }> = ({ at, yaw = 0, wood = "#6a4a2e" }) => {
+  const m = MAT.wood(wood);
+  return (
+    <group position={at} rotation={[0, yaw, 0]}>
+      <Slab min={[-0.21, 0.43, -0.2]} max={[0.21, 0.46, 0.2]} m={m} />
+      <Slab min={[-0.21, 0.46, -0.22]} max={[0.21, 0.92, -0.19]} m={m} />
+      {[[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]].map(([x, z], i) => <mesh key={i} geometry={box(0.03, 0.43, 0.03, 0.005)} material={m} position={[x, 0.215, z]} castShadow />)}
+    </group>
+  );
+};
+
+/** Hurricane oil lamp (glass chimney glows with `on`). */
+export const OilLamp: React.FC<{ at: V3; on: number }> = ({ at, on }) => (
+  <group position={at}>
+    <mesh geometry={cyl(0.06, 0.075, 0.08, 18)} material={MAT.brass()} position={[0, 0.04, 0]} castShadow />
+    <mesh geometry={sphere(0.05, 18, 12)} material={phys(`oilChimney${Math.round(on * 20)}`, { color: "#fff0d8", emissive: "#ffb257", emissiveIntensity: 0.1 + 1.1 * on, roughness: 0.15, transparent: true, opacity: 0.85 })} position={[0, 0.15, 0]} scale={[1, 1.5, 1]} />
+    <mesh geometry={cyl(0.03, 0.04, 0.06, 14, true)} material={phys("oilTop", { color: "#2a2620", metalness: 0.6, roughness: 0.4, side: DoubleSide })} position={[0, 0.25, 0]} />
+    <mesh geometry={torus(0.06, 0.004, 6, 20, Math.PI)} material={MAT.steel()} position={[0, 0.27, 0]} />
+  </group>
+);
+
+/** Wall shelf with a few books and jars. Local: back against −z. */
+export const Shelf: React.FC<{ at: V3; yaw?: number; w?: number }> = ({ at, yaw = 0, w = 1.0 }) => (
+  <group position={at} rotation={[0, yaw, 0]}>
+    <Slab min={[-w / 2, 0, 0]} max={[w / 2, 0.03, 0.24]} m={MAT.wood("#5d4029")} />
+    {[0, 1, 2, 3, 4].map((k) => <mesh key={k} geometry={box(0.05, 0.2 + (k % 3) * 0.03, 0.17, 0.006)} material={MAT.matte(["#7a2f2f", "#2f4f7a", "#c9b27a", "#3d5e3a", "#5a3b6a"][k], 0.7)} position={[-w / 2 + 0.1 + k * 0.06, 0.13 + (k % 3) * 0.015, 0.12]} castShadow />)}
+    <mesh geometry={cyl(0.05, 0.05, 0.14, 16)} material={phys("jar", { color: "#b9d0c4", roughness: 0.1, transparent: true, opacity: 0.5 })} position={[w / 2 - 0.15, 0.1, 0.12]} />
+  </group>
+);
+
+/** Round wall clock (hands from `time` in hours). Local: face toward +z. */
+export const WallClock: React.FC<{ at: V3; yaw?: number; time: number }> = ({ at, yaw = 0, time }) => {
+  const h = ((time % 12) / 12) * Math.PI * 2, m = ((time % 1) * Math.PI * 2);
+  return (
+    <group position={at} rotation={[0, yaw, 0]}>
+      <mesh geometry={cyl(0.16, 0.16, 0.04, 32)} material={MAT.wood("#3e2a1a")} rotation={[Math.PI / 2, 0, 0]} castShadow />
+      <mesh geometry={cyl(0.14, 0.14, 0.005, 32)} material={MAT.matte("#efe8d8", 0.6)} position={[0, 0, 0.022]} rotation={[Math.PI / 2, 0, 0]} />
+      <mesh geometry={box(0.012, 0.08, 0.004, 0)} material={MAT.matte("#141414")} position={[Math.sin(h) * 0.04, Math.cos(h) * 0.04, 0.027]} rotation={[0, 0, -h]} />
+      <mesh geometry={box(0.008, 0.12, 0.004, 0)} material={MAT.matte("#141414")} position={[Math.sin(m) * 0.06, Math.cos(m) * 0.06, 0.029]} rotation={[0, 0, -m]} />
+    </group>
+  );
+};
+
+==== 10769 project/src/cine/set/tex.ts
+// Procedural set textures (drawn once, deterministic, no files): plaster, panel doors, breeze
+// blocks, gypsum ceiling, concrete, LED clock, the phone screen states, poster.
+
+import { canvasTex } from "../mats.ts";
+import { mulberry32 } from "../../kits/worldforge/noise.ts";
+
+/** Mottled wall paint with a little grime toward the bottom (grey, multiplied by the material colour). */
+export const plasterTex = (key: string, rep: [number, number] = [1, 1], grime = 0.25) =>
+  canvasTex(`plaster${key}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(31);
+    g.fillStyle = "#e9e9e9";
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 900; k++) {
+      g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "90,90,90"},${0.015 + r() * 0.03})`;
+      g.beginPath();
+      g.ellipse(r() * w, r() * h, 6 + r() * 40, 4 + r() * 24, r() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    const gr = g.createLinearGradient(0, h * 0.55, 0, h);
+    gr.addColorStop(0, "rgba(60,50,40,0)");
+    gr.addColorStop(1, `rgba(60,50,40,${grime})`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 40; k++) {
+      g.strokeStyle = `rgba(70,60,50,${0.03 + r() * 0.05})`;
+      g.lineWidth = 1 + r() * 2;
+      const x = r() * w;
+      g.beginPath();
+      g.moveTo(x, h * (0.6 + r() * 0.3));
+      g.lineTo(x + (r() - 0.5) * 6, h);
+      g.stroke();
+    }
+  }, rep);
+
+/** Varnished plywood panel door: vertical grain, four recessed panels, wear around the handle. */
+export const doorTex = (key: string, base = "#5a3520") =>
+  canvasTex(`door${key}`, 512, 1024, (g, w, h) => {
+    const r = mulberry32(key.length * 13 + 7);
+    g.fillStyle = base;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 160; k++) {
+      g.strokeStyle = `rgba(${r() > 0.6 ? "120,80,50" : "25,12,6"},${0.08 + r() * 0.14})`;
+      g.lineWidth = 0.6 + r() * 2.2;
+      const x = r() * w;
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.bezierCurveTo(x + (r() - 0.5) * 30, h * 0.33, x + (r() - 0.5) * 30, h * 0.66, x + (r() - 0.5) * 16, h);
+      g.stroke();
+    }
+    const panel = (x: number, y: number, pw: number, ph: number) => {
+      g.strokeStyle = "rgba(15,8,4,0.7)";
+      g.lineWidth = 7;
+      g.strokeRect(x, y, pw, ph);
+      g.strokeStyle = "rgba(160,110,70,0.25)";
+      g.lineWidth = 3;
+      g.strokeRect(x + 6, y + 6, pw - 12, ph - 12);
+    };
+    panel(60, 60, 170, 400); panel(282, 60, 170, 400);
+    panel(60, 540, 170, 420); panel(282, 540, 170, 420);
+    const gr = g.createRadialGradient(w * 0.9, h * 0.52, 0, w * 0.9, h * 0.52, 120);
+    gr.addColorStop(0, "rgba(20,10,4,0.35)");
+    gr.addColorStop(1, "rgba(20,10,4,0)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  });
+
+/** Plank door for the gudang (rougher, paint flaking). */
+export const plankDoorTex = () =>
+  canvasTex("plankdoor", 512, 1024, (g, w, h) => {
+    const r = mulberry32(77);
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = `hsl(${24 + r() * 8}, ${20 + r() * 10}%, ${16 + r() * 7}%)`;
+      g.fillRect((i * w) / n, 0, w / n, h);
+      for (let k = 0; k < 30; k++) {
+        g.strokeStyle = `rgba(0,0,0,${0.1 + r() * 0.2})`;
+        g.lineWidth = 0.5 + r() * 2;
+        const x = (i * w) / n + r() * (w / n);
+        g.beginPath();
+        g.moveTo(x, 0);
+        g.lineTo(x + (r() - 0.5) * 10, h);
+        g.stroke();
+      }
+      g.fillStyle = "rgba(0,0,0,0.7)";
+      g.fillRect((i * w) / n, 0, 4, h);
+    }
+    g.fillStyle = "rgba(40,24,14,0.9)";
+    g.fillRect(0, h * 0.18, w, 40);
+    g.fillRect(0, h * 0.78, w, 40);
+  });
+
+/** Breeze block (roster) pattern: white = solid, black = hole (used as alpha map). */
+export const rosterTex = () =>
+  canvasTex("roster", 512, 128, (g, w, h) => {
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#000";
+    const cell = 64;
+    for (let x = 0; x < w; x += cell) {
+      g.beginPath();
+      g.ellipse(x + cell / 2, h / 2, cell * 0.3, h * 0.36, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillRect(x + cell * 0.12, h * 0.12, cell * 0.12, h * 0.76);
+      g.fillRect(x + cell * 0.76, h * 0.12, cell * 0.12, h * 0.76);
+    }
+  }, undefined, false);
+
+/** Gypsum ceiling boards with seams. */
+export const ceilTex = (rep: [number, number]) =>
+  canvasTex(`ceil${rep}`, 256, 512, (g, w, h) => {
+    const r = mulberry32(41);
+    g.fillStyle = "#ececea";
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 300; k++) {
+      g.fillStyle = `rgba(0,0,0,${r() * 0.02})`;
+      g.fillRect(r() * w, r() * h, 2 + r() * 8, 2 + r() * 8);
+    }
+    g.fillStyle = "rgba(0,0,0,0.22)";
+    g.fillRect(0, 0, w, 2);
+    g.fillRect(0, 0, 2, h);
+  }, rep);
+
+export const concreteTex = (rep: [number, number]) =>
+  canvasTex(`concrete${rep}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(53);
+    g.fillStyle = "#8c8a86";
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 3000; k++) {
+      g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "0,0,0"},${0.02 + r() * 0.05})`;
+      g.fillRect(r() * w, r() * h, 1 + r() * 4, 1 + r() * 4);
+    }
+    for (let k = 0; k < 12; k++) {
+      g.strokeStyle = `rgba(0,0,0,${0.08 + r() * 0.1})`;
+      g.lineWidth = 1;
+      g.beginPath();
+      let x = r() * w, y = r() * h;
+      g.moveTo(x, y);
+      for (let s = 0; s < 8; s++) { x += (r() - 0.5) * 60; y += (r() - 0.5) * 60; g.lineTo(x, y); }
+      g.stroke();
+    }
+  }, rep);
+
+/** 7-segment LED digits (red), e.g. "02:17"; `colon` toggles the blinking colon. */
+export const ledTex = (text: string, colon: boolean) =>
+  canvasTex(`led${text}${colon}`, 512, 192, (g, w, h) => {
+    g.fillStyle = "#000";
+    g.fillRect(0, 0, w, h);
+    const SEG: Record<string, string> = { "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc", "7": "abc", "8": "abcdefg", "9": "abcfgd" };
+    const digit = (x: number, ch: string) => {
+      const on = SEG[ch] ?? "";
+      const sw = 70, sh = 130, t = 13, y = 30;
+      const seg = (id: string, x0: number, y0: number, ww: number, hh: number) => {
+        g.fillStyle = on.includes(id) ? "#ff3b2a" : "rgba(255,40,20,0.07)";
+        g.beginPath();
+        g.roundRect(x0, y0, ww, hh, 5);
+        g.fill();
+      };
+      seg("a", x + t, y, sw - 2 * t, t);
+      seg("g", x + t, y + sh / 2 - t / 2, sw - 2 * t, t);
+      seg("d", x + t, y + sh - t, sw - 2 * t, t);
+      seg("f", x, y + t, t, sh / 2 - t);
+      seg("b", x + sw - t, y + t, t, sh / 2 - t);
+      seg("e", x, y + sh / 2, t, sh / 2 - t);
+      seg("c", x + sw - t, y + sh / 2, t, sh / 2 - t);
+    };
+    const chars = text.replace(":", "");
+    const xs = [40, 135, 270, 365];
+    chars.split("").forEach((c, i) => digit(xs[i], c));
+    g.fillStyle = colon ? "#ff3b2a" : "rgba(255,40,20,0.07)";
+    g.beginPath(); g.arc(236, 70, 8, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(236, 126, 8, 0, Math.PI * 2); g.fill();
+  }, undefined, true);
+
+export type PhoneState = "off" | "notif";
+export type PhoneMsg = { from?: string; text?: string; time?: string; date?: string };
+/** Phone screen: lock screen with one notification (sender + up to two lines). Readable in an insert. */
+export const phoneScreenTex = (state: PhoneState, msg: PhoneMsg = {}) =>
+  canvasTex(`phone${state}${JSON.stringify(msg)}`, 720, 1440, (g, w, h) => {
+    if (state === "off") {
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, w, h);
+      return;
+    }
+    const gr = g.createLinearGradient(0, 0, w, h);
+    gr.addColorStop(0, "#1a2b4a");
+    gr.addColorStop(0.55, "#0e1830");
+    gr.addColorStop(1, "#24183a");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+    // soft wallpaper shapes
+    for (const [x, y, rr, c] of [[180, 420, 260, "rgba(80,120,200,0.18)"], [560, 980, 320, "rgba(120,80,180,0.14)"]] as const) {
+      const rg = g.createRadialGradient(x, y, 0, x, y, rr);
+      rg.addColorStop(0, c);
+      rg.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = rg;
+      g.fillRect(0, 0, w, h);
+    }
+    g.fillStyle = "#eaf2ff";
+    g.textAlign = "center";
+    g.font = "500 38px Manrope, sans-serif";
+    g.fillText(msg.date ?? "Sabtu, 8 Maret", w / 2, 200);
+    g.font = "300 190px Manrope, sans-serif";
+    g.fillText(msg.time ?? "23.47", w / 2, 390);
+    // notification card
+    const x = 40, y = 520, cw = w - 80, ch = 270;
+    g.fillStyle = "rgba(235,240,250,0.9)";
+    g.beginPath();
+    g.roundRect(x, y, cw, ch, 44);
+    g.fill();
+    g.fillStyle = "#2f8f63";
+    g.beginPath();
+    g.roundRect(x + 34, y + 34, 76, 76, 20);
+    g.fill();
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.ellipse(x + 72, y + 68, 22, 18, 0, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.moveTo(x + 58, y + 80); g.lineTo(x + 52, y + 94); g.lineTo(x + 70, y + 84); g.fill();
+    g.textAlign = "left";
+    g.fillStyle = "#11151d";
+    g.font = "700 44px Manrope, sans-serif";
+    g.fillText(msg.from ?? "Pesan baru", x + 134, y + 70);
+    g.fillStyle = "#59606c";
+    g.font = "500 30px Manrope, sans-serif";
+    g.textAlign = "right";
+    g.fillText("sekarang", x + cw - 36, y + 68);
+    g.textAlign = "left";
+    g.fillStyle = "#1b2029";
+    g.font = "500 38px Manrope, sans-serif";
+    // wrap the message into two lines
+    const words = (msg.text ?? "Kamu sudah sampai?").split(" ");
+    const lines = [""];
+    for (const wd of words) { const tryL = (lines[lines.length - 1] + " " + wd).trim(); if (g.measureText(tryL).width > cw - 72 && lines.length < 2) lines.push(wd); else lines[lines.length - 1] = tryL; }
+    lines.forEach((l, i) => g.fillText(l, x + 36, y + 170 + i * 52));
+    g.fillStyle = "rgba(234,242,255,0.75)";
+    g.font = "500 30px Manrope, sans-serif";
+    g.textAlign = "center";
+    g.fillText("Geser ke atas untuk membuka", w / 2, h - 90);
+  });
+
+/** Band-style poster for a bedroom wall (abstract, no real artwork). */
+export const posterTex = () =>
+  canvasTex("poster", 256, 360, (g, w, h) => {
+    g.fillStyle = "#1f2a33";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#e4b34a";
+    g.beginPath();
+    g.arc(w / 2, h * 0.42, 70, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#1f2a33";
+    for (let i = 0; i < 6; i++) g.fillRect(0, h * 0.42 + i * 16 - 20, w, 6);
+    g.fillStyle = "#e8e1d2";
+    g.font = "700 30px Manrope, sans-serif";
+    g.textAlign = "center";
+    g.fillText("SENJA", w / 2, h * 0.82);
+    g.font = "500 13px Manrope, sans-serif";
+    g.fillText("LIVE · TOUR 2026", w / 2, h * 0.9);
+  });
+
+export const numberTex = (label: string) =>
+  canvasTex(`num${label}`, 128, 128, (g, w, h) => {
+    g.fillStyle = "#c9c2b0";
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = "#5a5246";
+    g.lineWidth = 6;
+    g.strokeRect(6, 6, w - 12, h - 12);
+    g.fillStyle = "#2a2622";
+    g.font = "700 74px Manrope, sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(label, w / 2, h / 2 + 4);
+  });
+
+==== 2328 project/src/cine/Stage.tsx
+// CINÉSTORY stage: waits for the bundled font, mounts a Remotion-synchronised ThreeCanvas (PCF shadows,
+// dpr 1, MSAA in the post chain) and lays the 2D overlay on top — designed at 1080 × 1920 for portrait
+// (the default) or 1920 × 1080 for landscape, scaled to the render size. Everything inside must be a pure
+// function of the frame.
+
+import React, { useEffect, useState } from "react";
+import { AbsoluteFill, continueRender, delayRender, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { PCFShadowMap } from "three";
+import { fontReady } from "../core/type/fonts.ts";
+
+/** overlay design space per orientation */
+export const designOf = (width: number, height: number) => (height > width ? { W: 1080, H: 1920 } : { W: 1920, H: 1080 });
+
+/** Draft (fast look checks) and final (delivery) presets per format. */
+export const PRESETS = {
+  portrait: { draft: { width: 540, height: 960, fps: 30 }, final: { width: 1080, height: 1920, fps: 60 } },
+  landscape: { draft: { width: 960, height: 540, fps: 30 }, final: { width: 1920, height: 1080, fps: 60 } },
+} as const;
+
+export const Stage: React.FC<{ children: React.ReactNode; overlay?: () => React.ReactNode }> = ({ children, overlay }) => {
+  const { width, height } = useVideoConfig();
+  const { W, H } = designOf(width, height);
+  const [handle] = useState(() => delayRender("font"));
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    fontReady().then(() => {
+      setReady(true);
+      continueRender(handle);
+    });
+  }, [handle]);
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {ready ? (
+        <>
+          <ThreeCanvas
+            width={width}
+            height={height}
+            shadows={{ type: PCFShadowMap }}
+            dpr={1}
+            gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+            camera={{ fov: 30, near: 0.05, far: 400, position: [0, 1.6, 4] }}
+          >
+            {children}
+          </ThreeCanvas>
+          {overlay ? (
+            <div style={{ position: "absolute", left: 0, top: 0, width: W, height: H, transform: `scale(${width / W})`, transformOrigin: "0 0" }}>
+              {overlay()}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+==== 1824 project/src/cine/types.ts
+// Plain data types + constants shared by the picture (TSX) and Node scripts (director, sound): light rig
+// state, camera, grade. No React / WebGL imports here, so Node's type stripping can load it.
+
+export type V3 = [number, number, number];
+export type PointL = { pos: V3; color: string; i: number; dist: number };
+export type SpotL = { pos: V3; target: V3; color: string; i: number; angle: number; penumbra: number; dist: number };
+export type LightState = {
+  bg: string;
+  fog: { color: string; density: number };
+  env: number;
+  hemi: { sky: string; ground: string; i: number };
+  moon: { dir: V3; color: string; i: number; box: { min: V3; max: V3 } };
+  spots: [SpotL, SpotL];
+  pts: [PointL, PointL, PointL, PointL, PointL, PointL];
+};
+
+export const P_OFF: PointL = { pos: [0, -50, 0], color: "#ffffff", i: 0, dist: 1 };
+export const S_OFF: SpotL = { pos: [0, 40, 0], target: [0, 0, 0], color: "#ffffff", i: 0, angle: 0.6, penumbra: 0.6, dist: 10 };
+
+export type Cam = { pos: V3; target: V3; fov: number; roll?: number; focus?: number; aperture?: number; maxBlur?: number; near?: number; far?: number };
+
+export type Grade = {
+  exposure: number;
+  /** additive lift in the shadows, multiplicative gain */
+  lift: V3; gain: V3;
+  sat: number; contrast: number;
+  vignette: number; grain: number;
+  bloom: number; bloomRadius: number; bloomThreshold: number;
+  /** 0..1 flash toward `flashColor`, 0..1 fade to black */
+  flash: number; flashColor: string; black: number;
+  ao: number;
+  /** lens chromatic fringe at the frame edge (0 = off) */
+  ca: number;
+};
+
+export const GRADE0: Grade = {
+  exposure: 1, lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0.22, grain: 0.016,
+  bloom: 0.22, bloomRadius: 0.45, bloomThreshold: 1.05, flash: 0, flashColor: "#ffffff", black: 0, ao: 1, ca: 0.0012,
+};
+
+
+==== 19126 project/src/cine/ui.tsx
+// CINÉSTORY motion-graphics kit (2D overlay: 1080×1920 portrait or 1920×1080 landscape; sizes and positions come from the layout in film/Overlay.tsx). Every element is driven by an appear amount
+// `a` (0..1) and/or a progress value, so shots animate them as pure functions of time. Readable,
+// documentary style: Manrope, thin rules, glass cards, cyan = information, amber = interpretation.
+
+import React from "react";
+
+export const CYAN = "#8fdcff";
+export const AMBER = "#ffbf73";
+export const RED = "#ff6b5e";
+export const INK = "#eef3fb";
+const FONT = "Manrope, sans-serif";
+const clamp = (x: number) => Math.min(1, Math.max(0, x));
+const eo = (x: number) => 1 - (1 - clamp(x)) ** 3;
+/** appear amount for an element living in [t0, t1] with fades. */
+export const span = (v: number, t0: number, t1: number, fin = 0.45, fout = 0.4) => eo((v - t0) / fin) * (1 - clamp((v - (t1 - fout)) / fout));
+
+const abs = (x: number, y: number): React.CSSProperties => ({ position: "absolute", left: x, top: y });
+
+/** Chip label: small caps text in a thin-bordered glass box. */
+export const Tag: React.FC<{ x: number; y: number; a: number; text: string; sub?: string; color?: string; size?: number; anchor?: "l" | "c" | "r" }> = ({ x, y, a, text, sub, color = CYAN, size = 26, anchor = "l" }) =>
+  a <= 0.001 ? null : (
+    <div style={{ ...abs(x, y), transform: `translate(${anchor === "c" ? "-50%" : anchor === "r" ? "-100%" : "0"}, -50%) translateY(${(1 - a) * 14}px)`, opacity: a, fontFamily: FONT }}>
+      <div style={{ padding: "10px 18px", border: `1.5px solid ${color}`, background: "rgba(8,14,26,0.55)", backdropFilter: "blur(6px)", borderRadius: 6, color: INK, whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: size, fontWeight: 600, letterSpacing: "0.08em", color }}>{text}</div>
+        {sub ? <div style={{ fontSize: size * 0.72, fontWeight: 400, marginTop: 4, color: INK, opacity: 0.9 }}>{sub}</div> : null}
+      </div>
+    </div>
+  );
+
+/** Callout: a dot on a projected 3D point, a leader line, and a label. */
+export const Callout: React.FC<{ p: { x: number; y: number; z?: number }; a: number; text: string; sub?: string; dx?: number; dy?: number; color?: string; W?: number; H?: number; size?: number }> = ({ p, a, text, sub, dx = 160, dy = -90, color = CYAN, W = 1920, H = 1080, size = 26 }) => {
+  if (a <= 0.001 || (p.z !== undefined && p.z <= 0)) return null;
+  const lx = p.x + dx * eo(a * 1.4), ly = p.y + dy * eo(a * 1.4);
+  return (
+    <>
+      <svg width={W} height={H} style={abs(0, 0)}>
+        <circle cx={p.x} cy={p.y} r={7 * a} fill="none" stroke={color} strokeWidth={2} opacity={a} />
+        <circle cx={p.x} cy={p.y} r={2.5} fill={color} opacity={a} />
+        <line x1={p.x} y1={p.y} x2={lx} y2={ly} stroke={color} strokeWidth={1.5} opacity={a * 0.9} />
+      </svg>
+      <Tag x={lx + (dx >= 0 ? 8 : -8)} y={ly} a={clamp(a * 1.6 - 0.4)} text={text} sub={sub} color={color} anchor={dx >= 0 ? "l" : "r"} size={size} />
+    </>
+  );
+};
+
+/** Big centred title (section headings, key terms). */
+export const Title: React.FC<{ a: number; text: string; sub?: string; kicker?: string; y?: number; size?: number; color?: string; maxWidth?: number; left?: number; right?: number }> = ({ a, text, sub, kicker, y = 540, size = 84, color = INK, maxWidth, left = 0, right = 0 }) =>
+  a <= 0.001 ? null : (
+    <div style={{ position: "absolute", left, right, top: y, transform: "translateY(-50%)", textAlign: "center", fontFamily: FONT, color, opacity: a }}>
+      {kicker ? <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "0.5em", color: CYAN, marginBottom: 18, paddingLeft: "0.5em" }}>{kicker}</div> : null}
+      <div style={{ fontSize: size, fontWeight: 300, letterSpacing: `${0.22 + 0.08 * (1 - a)}em`, paddingLeft: "0.22em", whiteSpace: maxWidth ? "normal" : "nowrap", maxWidth, margin: maxWidth ? "0 auto" : undefined, lineHeight: 1.15, textShadow: `${EDGE}, 0 2px 30px rgba(0,0,0,0.45)` }}>{text}</div>
+      {sub ? <div style={{ fontSize: 30, fontWeight: 400, marginTop: 22, opacity: 0.88, textShadow: EDGE }}>{sub}</div> : null}
+    </div>
+  );
+
+// light text that must read on any picture (a white floor, a bright sky) carries a dark edge or sits on glass
+const EDGE = "0 1px 3px rgba(0,0,0,0.6), 0 2px 18px rgba(0,0,0,0.55)";
+
+/** Lower-third statement (left, above the letterbox), on a glass plate. */
+export const Lower: React.FC<{ a: number; text: string; sub?: string; color?: string; y?: number; x?: number; size?: number; maxWidth?: number }> = ({ a, text, sub, color = CYAN, y = 860, x = 120, size = 40, maxWidth }) =>
+  a <= 0.001 ? null : (
+    <div style={{ ...abs(x, y), maxWidth, transform: `translateY(-100%) translateX(${(1 - a) * -20}px)`, opacity: a, fontFamily: FONT, color: INK, padding: "16px 22px 18px", background: "rgba(8,14,26,0.55)", backdropFilter: "blur(6px)", borderRadius: 10, boxSizing: "border-box" }}>
+      <div style={{ width: 70 * a, height: 3, background: color, marginBottom: 14 }} />
+      <div style={{ fontSize: size, fontWeight: 600, letterSpacing: "0.02em", lineHeight: 1.15, textShadow: EDGE }}>{text}</div>
+      {sub ? <div style={{ fontSize: size * 0.65, fontWeight: 400, marginTop: 8, opacity: 0.9, textShadow: EDGE }}>{sub}</div> : null}
+    </div>
+  );
+
+/** Rubber stamp (✓/✗ verdicts). */
+export const Stamp: React.FC<{ x: number; y: number; a: number; text: string; color?: string; rot?: number; size?: number }> = ({ x, y, a, text, color = RED, rot = -8, size = 64 }) =>
+  a <= 0.001 ? null : (
+    <div style={{ ...abs(x, y), transform: `translate(-50%,-50%) rotate(${rot}deg) scale(${1 + 0.6 * (1 - eo(a * 1.5))})`, opacity: clamp(a * 2), fontFamily: FONT, fontWeight: 700, fontSize: size, letterSpacing: "0.1em", color, whiteSpace: "nowrap", border: `5px solid ${color}`, borderRadius: 10, padding: "6px 26px", textShadow: "0 0 18px rgba(0,0,0,0.4)" }}>{text}</div>
+  );
+
+/** Glass card. */
+export const Card: React.FC<{ x: number; y: number; w: number; h?: number; a: number; children: React.ReactNode; color?: string }> = ({ x, y, w, h, a, children, color = "rgba(143,220,255,0.55)" }) =>
+  a <= 0.001 ? null : (
+    <div style={{ ...abs(x, y), width: w, height: h, transform: `translateY(${(1 - a) * 20}px)`, opacity: a, padding: "26px 30px", boxSizing: "border-box", fontFamily: FONT, color: INK, background: "rgba(8,14,26,0.62)", border: `1.5px solid ${color}`, borderRadius: 14, backdropFilter: "blur(8px)" }}>{children}</div>
+  );
+
+/** A row of steps joined by arrows; `k` lights them one by one (0..n). */
+export const Flow: React.FC<{ x: number; y: number; a: number; items: string[]; k: number; colors?: string[]; w?: number; vertical?: boolean }> = ({ x, y, a, items, k, colors, w = 300, vertical }) =>
+  a <= 0.001 ? null : (
+    <div style={{ ...abs(x, y), display: "flex", flexDirection: vertical ? "column" : "row", alignItems: "center", opacity: a, fontFamily: FONT }}>
+      {items.map((it, i) => {
+        const on = clamp(k - i);
+        const c = colors?.[i] ?? CYAN;
+        return (
+          <React.Fragment key={i}>
+            {i > 0 ? <div style={{ width: vertical ? 2 : 70, height: vertical ? 46 : 2, background: c, opacity: 0.25 + 0.75 * on, position: "relative", transform: vertical ? "none" : undefined }}><div style={vertical ? { position: "absolute", left: -7, bottom: -2, width: 0, height: 0, borderTop: `12px solid ${c}`, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", opacity: 0.25 + 0.75 * on } : { position: "absolute", right: -2, top: -7, width: 0, height: 0, borderLeft: `12px solid ${c}`, borderTop: "8px solid transparent", borderBottom: "8px solid transparent", opacity: 0.25 + 0.75 * on }} /></div> : null}
+            <div style={{ width: w, padding: "22px 10px", textAlign: "center", border: `2px solid ${c}`, borderRadius: 12, background: `rgba(8,14,26,${0.5 + 0.2 * on})`, color: INK, fontSize: vertical ? 36 : 30, fontWeight: 600, letterSpacing: "0.06em", opacity: 0.3 + 0.7 * on, transform: `scale(${0.94 + 0.06 * on})`, boxShadow: on > 0.5 ? `0 0 30px ${c}55` : "none" }}>{it}</div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+
+/** Balance scale: two pans with labels; tilt −1 (left heavy) … 1 (right heavy). */
+export const Scale: React.FC<{ x: number; y: number; a: number; tilt: number; left: [string, string]; right: [string, string] }> = ({ x, y, a, tilt, left, right }) => {
+  if (a <= 0.001) return null;
+  const ang = tilt * 12;
+  const pan = (side: -1 | 1, lab: [string, string], col: string) => {
+    const dy = Math.sin((ang * Math.PI) / 180) * 300 * side;
+    return (
+      <div style={{ position: "absolute", left: 300 * side - 190, top: 60 + dy, width: 380, textAlign: "center" }}>
+        <div style={{ height: 3, background: INK, opacity: 0.8, margin: "0 40px" }} />
+        <div style={{ marginTop: 16, padding: "18px 14px", border: `2px solid ${col}`, borderRadius: 12, background: "rgba(8,14,26,0.62)" }}>
+          <div style={{ fontSize: 30, fontWeight: 700, color: col }}>{lab[0]}</div>
+          <div style={{ fontSize: 24, marginTop: 6 }}>{lab[1]}</div>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div style={{ ...abs(x, y), opacity: a, fontFamily: FONT, color: INK }}>
+      <div style={{ position: "absolute", left: -3, top: 0, width: 6, height: 360, background: INK, opacity: 0.7 }} />
+      <div style={{ position: "absolute", left: -320, top: 0, width: 640, height: 4, background: INK, transform: `rotate(${ang}deg)`, transformOrigin: "50% 50%" }} />
+      {pan(-1, left, AMBER)}
+      {pan(1, right, RED)}
+    </div>
+  );
+};
+
+/** Noisy waveform; `word` (0..1) carves a word-shaped burst out of the noise and prints `text`. */
+export const Wave: React.FC<{ x: number; y: number; w: number; a: number; t: number; word: number; text: string }> = ({ x, y, w, a, t, word, text }) => {
+  if (a <= 0.001) return null;
+  const n = 140;
+  const pts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const u = i / (n - 1);
+    const noise = Math.sin(i * 12.9898 + Math.floor(t * 24) * 78.233) * 43758.5453 % 1;
+    const env = Math.exp(-(((u - 0.5) / 0.14) ** 2));
+    const amp = 40 * Math.abs(noise) * (1 - 0.6 * word) + 120 * word * env * Math.abs(Math.sin(u * 60 + t * 3));
+    pts.push(`${(u * w).toFixed(1)},${(-amp).toFixed(1)} ${(u * w).toFixed(1)},${amp.toFixed(1)}`);
+  }
+  return (
+    <div style={{ ...abs(x, y), opacity: a, fontFamily: FONT }}>
+      <svg width={w} height={300} style={{ position: "absolute", left: 0, top: -150, overflow: "visible" }}>
+        <g transform="translate(0,150)">
+          {pts.map((p, i) => {
+            const [a1, b1] = p.split(" ");
+            const [x1, y1] = a1.split(",");
+            const [, y2] = b1.split(",");
+            const u = i / (n - 1);
+            const hot = word * Math.exp(-(((u - 0.5) / 0.14) ** 2));
+            return <line key={i} x1={x1} y1={y1} x2={x1} y2={y2} stroke={hot > 0.3 ? AMBER : CYAN} strokeWidth={4} strokeLinecap="round" opacity={0.5 + 0.5 * hot} />;
+          })}
+        </g>
+      </svg>
+      <div style={{ position: "absolute", left: w / 2, top: -230, transform: "translateX(-50%)", fontSize: 64, fontWeight: 300, letterSpacing: "0.2em", color: AMBER, opacity: word, whiteSpace: "nowrap", textShadow: `0 0 30px ${AMBER}88` }}>{text}</div>
+    </div>
+  );
+};
+
+/** Two horizontal bars on a timeline (e.g. awareness vs. muscle inhibition) with an overlap window. */
+export const Overlap: React.FC<{ x: number; y: number; a: number; k: number; top: [string, number, number]; bottom: [string, number, number]; win: string }> = ({ x, y, a, k, top, bottom, win }) => {
+  if (a <= 0.001) return null;
+  const W = 1100;
+  const bar = (lab: [string, number, number], c: string, yy: number) => (
+    <div style={{ position: "absolute", left: 0, top: yy }}>
+      <div style={{ fontSize: 26, fontWeight: 600, color: c, marginBottom: 10, letterSpacing: "0.06em" }}>{lab[0]}</div>
+      <div style={{ position: "relative", width: W, height: 26, background: "rgba(255,255,255,0.08)", borderRadius: 13 }}>
+        <div style={{ position: "absolute", left: lab[1] * W, width: Math.max(0, Math.min(lab[2], lab[1] + (lab[2] - lab[1]) * eo(k)) - lab[1]) * W, height: 26, background: c, borderRadius: 13, opacity: 0.9 }} />
+      </div>
+    </div>
+  );
+  const o0 = Math.max(top[1], bottom[1]), o1 = Math.min(top[2], bottom[2]);
+  const ow = clamp((k - 0.7) / 0.3);
+  return (
+    <div style={{ ...abs(x, y), opacity: a, fontFamily: FONT, color: INK }}>
+      {bar(top, CYAN, 0)}
+      {bar(bottom, RED, 110)}
+      <div style={{ position: "absolute", left: o0 * W, top: 30, width: (o1 - o0) * W, height: 150, border: `2px dashed ${AMBER}`, borderRadius: 10, opacity: ow, background: "rgba(255,191,115,0.10)" }} />
+      <div style={{ position: "absolute", left: ((o0 + o1) / 2) * W, top: 200, transform: "translateX(-50%)", fontSize: 28, fontWeight: 600, color: AMBER, opacity: ow, whiteSpace: "nowrap" }}>{win}</div>
+    </div>
+  );
+};
+
+/** Stylised sleep-stage strip (no data: a schematic of cycles with REM blocks highlighted). */
+export const SleepStrip: React.FC<{ x: number; y: number; a: number; k: number }> = ({ x, y, a, k }) => {
+  if (a <= 0.001) return null;
+  const W = 1200, H = 220;
+  const lv = [0, 1, 2, 3, 2, 1, -1, 1, 2, 3, 2, 1, -1, 1, 2, 1, -1, 0];
+  const pts = lv.map((l, i) => `${(i / (lv.length - 1)) * W},${l < 0 ? 10 : 30 + l * 55}`).join(" ");
+  return (
+    <div style={{ ...abs(x, y), opacity: a, fontFamily: FONT, color: INK }}>
+      <svg width={W} height={H + 40} style={{ overflow: "visible" }}>
+        <defs>
+          <clipPath id="sleepclip"><rect x={0} y={-20} width={W * eo(k)} height={H + 60} /></clipPath>
+        </defs>
+        {lv.map((l, i) => (l < 0 ? <rect key={i} x={((i - 0.5) / (lv.length - 1)) * W} y={-6} width={W / (lv.length - 1)} height={H} fill={AMBER} opacity={0.16 * eo(k * 1.2 - i / lv.length)} rx={6} /> : null))}
+        <polyline points={pts} fill="none" stroke={CYAN} strokeWidth={4} strokeLinejoin="round" clipPath="url(#sleepclip)" />
+        {["BANGUN", "TIDUR RINGAN", "", "TIDUR DALAM"].map((s, i) => (s ? <text key={s} x={-24} y={i === 0 ? 14 : 30 + i * 55 + 8} fill={INK} opacity={0.7} fontSize={20} textAnchor="end">{s}</text> : null))}
+        <text x={W * 0.36} y={-18} fill={AMBER} fontSize={24} fontWeight={700} opacity={eo(k * 2 - 0.6)}>REM</text>
+      </svg>
+    </div>
+  );
+};
+
+/** CCTV playback HUD: timestamp, REC, channel, scanlines, vignette. */
+export const CctvHud: React.FC<{ time: string; a?: number; speed?: string; zoom?: number }> = ({ time, a = 1, speed, zoom }) => (
+  <div style={{ position: "absolute", inset: 0, opacity: a, fontFamily: "Menlo, monospace", color: "#e8f0e8" }}>
+    <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(0deg, rgba(0,0,0,0.13) 0px, rgba(0,0,0,0.13) 2px, transparent 2px, transparent 4px)" }} />
+    <div style={{ position: "absolute", left: 70, top: 130, fontSize: 30, letterSpacing: "0.06em", textShadow: "0 0 6px #000" }}>CAM 01 · LORONG</div>
+    <div style={{ position: "absolute", right: 70, top: 130, fontSize: 30, letterSpacing: "0.04em", textShadow: "0 0 6px #000" }}>{time}</div>
+    <div style={{ position: "absolute", left: 70, bottom: 130, fontSize: 26, display: "flex", alignItems: "center", gap: 12, textShadow: "0 0 6px #000" }}>
+      <span style={{ width: 16, height: 16, borderRadius: 8, background: "#ff3a2a", display: "inline-block" }} /> PLAYBACK {speed ?? "1×"}
+    </div>
+    {zoom ? <div style={{ position: "absolute", right: 70, bottom: 130, fontSize: 26, textShadow: "0 0 6px #000" }}>ZOOM {zoom.toFixed(1)}×</div> : null}
+  </div>
+);
+
+/** Rolling clock digits (rewind). */
+export const Clock: React.FC<{ a: number; text: string; sub?: string; y?: number }> = ({ a, text, sub, y = 540 }) =>
+  a <= 0.001 ? null : (
+    <div style={{ position: "absolute", left: 0, right: 0, top: y, transform: "translateY(-50%)", textAlign: "center", fontFamily: FONT, color: INK, opacity: a }}>
+      <div style={{ fontSize: 150, fontWeight: 300, letterSpacing: "0.08em", textShadow: `${EDGE}, 0 0 40px rgba(143,220,255,0.35)` }}>{text}</div>
+      {sub ? <div style={{ fontSize: 28, letterSpacing: "0.4em", color: CYAN, marginTop: 6, paddingLeft: "0.4em", textShadow: EDGE }}>{sub}</div> : null}
+    </div>
+  );
+
+/** Dots that become a face, lines that become a body (pattern-recognition demo). */
+export const DotsFace: React.FC<{ x: number; y: number; a: number; k: number }> = ({ x, y, a, k }) => {
+  if (a <= 0.001) return null;
+  const f = eo(k), b = eo(k - 1);
+  return (
+    <svg width={900} height={500} style={{ ...abs(x, y), opacity: a, overflow: "visible" }}>
+      <g transform="translate(200,250)">
+        <circle cx={-55} cy={-40} r={18} fill={INK} />
+        <circle cx={55} cy={-40} r={18} fill={INK} />
+        <path d={`M -60 ${50 - 20 * f} Q 0 ${50 + 30 * f} 60 ${50 - 20 * f}`} stroke={INK} strokeWidth={10} fill="none" strokeLinecap="round" />
+        <circle cx={0} cy={0} r={150} fill="none" stroke={AMBER} strokeWidth={3} strokeDasharray="10 12" opacity={f} />
+      </g>
+      <g transform="translate(640,250)" stroke={INK} strokeWidth={10} strokeLinecap="round" fill="none">
+        <circle cx={0} cy={-150} r={34} />
+        <line x1={0} y1={-110} x2={0} y2={40} />
+        <line x1={0} y1={-70} x2={-80} y2={0} />
+        <line x1={0} y1={-70} x2={80} y2={0} />
+        <line x1={0} y1={40} x2={-55} y2={170} />
+        <line x1={0} y1={40} x2={55} y2={170} />
+        <rect x={-130} y={-210} width={260} height={410} rx={20} stroke={AMBER} strokeWidth={3} strokeDasharray="10 12" opacity={b} />
+      </g>
+    </svg>
+  );
+};
+
+/** Grid of noisy "stimulus" cards; some hide a faint face (schematic of the face-in-noise task). */
+export const NoiseCards: React.FC<{ x: number; y: number; a: number; k: number; t: number }> = ({ x, y, a, k, t }) => {
+  if (a <= 0.001) return null;
+  const cells = Array.from({ length: 8 }, (_, i) => i);
+  return (
+    <div style={{ ...abs(x, y), opacity: a, display: "grid", gridTemplateColumns: "repeat(4, 190px)", gap: 22 }}>
+      {cells.map((i) => {
+        const face = i % 3 === 1;
+        const on = clamp(k * 8 - i);
+        return (
+          <svg key={i} width={190} height={190} style={{ borderRadius: 10, border: `2px solid ${face && k > 1.2 ? AMBER : "rgba(238,243,251,0.35)"}`, background: "#2a2f37", opacity: 0.3 + 0.7 * on }}>
+            {Array.from({ length: 160 }, (_, j) => {
+              const h = Math.abs(Math.sin((i * 160 + j) * 12.9898 + Math.floor(t * 6) * 3.1) * 43758.5453) % 1;
+              const h2 = Math.abs(Math.sin((i * 160 + j) * 78.233) * 12345.678) % 1;
+              return <rect key={j} x={(j % 16) * 12} y={Math.floor(j / 16) * 19} width={12} height={19} fill={`rgba(220,226,235,${0.1 + 0.5 * h * h2})`} />;
+            })}
+            {face ? (
+              <g opacity={0.33} fill="#e9eef6">
+                <circle cx={70} cy={80} r={11} /><circle cx={120} cy={80} r={11} /><rect x={72} y={124} width={46} height={8} rx={4} />
+              </g>
+            ) : null}
+          </svg>
+        );
+      })}
+    </div>
+  );
+};
+
+==== 2937 project/src/core/motion/easing.ts
+// PRECISION easing vocabulary. Every curve is a pure function of normalised time, so the
+// whole film stays deterministic: same frame in, same pose out.
+
+export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
+export const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+export const remap = (x: number, a: number, b: number) => clamp((x - a) / (b - a));
+
+export const smoothstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * (3 - 2 * x);
+};
+
+/** C2-continuous: zero velocity and acceleration at both ends. The house curve. */
+export const smootherstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/** CSS-style cubic bezier easing (x1,y1,x2,y2), solved by Newton + bisection. */
+export const bezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t: number) => ((ay * t + by) * t + cy) * t;
+  const dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    const X = clamp(x);
+    let t = X;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - X;
+      const d = dx(t);
+      if (Math.abs(e) < 1e-6) return sy(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1;
+    t = X;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - X) < 1e-6) break;
+      if (v < X) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+};
+
+// Named curves, tuned for product cinematography (long, confident tails; no bounce).
+export const ease = {
+  /** Default move: decisive start, very long settle. */
+  glide: bezier(0.45, 0, 0.12, 1),
+  /** Symmetric, weighty. Camera and large objects. */
+  inOut: bezier(0.65, 0, 0.35, 1),
+  /** Soft symmetric for subtle drifts. */
+  sine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t)),
+  /** Starts with energy (a magnet letting go), long deceleration. */
+  release: bezier(0.2, 0.7, 0.1, 1),
+  /** Gathers speed and arrives fast (magnetic pull into a dock). */
+  attract: bezier(0.55, 0, 0.95, 0.55),
+  /** Typographic reveal. */
+  type: bezier(0.2, 0, 0, 1),
+  out: bezier(0, 0, 0.2, 1),
+  in: bezier(0.6, 0, 1, 1),
+  smoother: smootherstep,
+};
+
+/** Eased progress of `frame` through [start, end]. */
+export const seg = (frame: number, start: number, end: number, curve: (t: number) => number = ease.inOut) =>
+  curve(remap(frame, start, end));
+
+/**
+ * Critically damped settle used after a mechanical stop: decays to zero with at most one
+ * tiny overshoot. `t` in frames since the stop, `amp` the initial offset.
+ */
+export const settle = (t: number, amp: number, freq = 0.11, damping = 0.16) =>
+  t <= 0 ? 0 : amp * Math.exp(-damping * t) * Math.cos(freq * t * Math.PI);
+
+==== 7055 project/src/core/render/Post.tsx
+// Camera + finishing chain (from PRECISION; proven in PRECISION, TIMEFORGE and BUILDFORGE).
+// The rig applies the shot for this frame before R3F advances, then the composer renders: scene (MSAA) → ground-truth AO → depth of field → restrained
+// bloom → Khronos PBR Neutral tone mapping → grade (warmth, vignette, fine grain).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { type Camera, HalfFloatType, NeutralToneMapping, PerspectiveCamera, Vector2, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import type { Pass } from "three/examples/jsm/postprocessing/Pass.js";
+
+/**
+ * Render layer for additive / volumetric effects (light shafts, glows, halos, beams). Put such
+ * meshes on this layer ONLY (`mesh.layers.set(FX_LAYER)`): the camera still renders them, but the
+ * depth-based passes (GTAO, depth of field) skip them. Large transparent volumes on the default
+ * layer corrupt those passes and can silently blank the whole frame.
+ */
+export const FX_LAYER = 1;
+
+/** Run a pass with the FX layer hidden from the camera (depth/normal passes must not see effects). */
+export const withoutFx = <P extends Pass>(pass: P, camera: Camera): P => {
+  const render = pass.render.bind(pass);
+  pass.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    camera.layers.disable(FX_LAYER);
+    try {
+      render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+    } finally {
+      camera.layers.enable(FX_LAYER);
+    }
+  };
+  return pass;
+};
+
+export type Shot = {
+  pos: [number, number, number];
+  target: [number, number, number];
+  fov: number;
+  roll?: number;
+  /** Focus distance (world units) and lens aperture for the bokeh pass. */
+  focus: number;
+  aperture: number;
+  maxBlur: number;
+  exposure: number;
+};
+
+export const CameraRig: React.FC<{ shot: Shot; near?: number; far?: number }> = ({ shot, near = 1, far = 900 }) => {
+  const { camera, gl } = useThree();
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...shot.pos);
+    cam.up.set(Math.sin(shot.roll ?? 0), Math.cos(shot.roll ?? 0), 0);
+    cam.lookAt(...shot.target);
+    cam.fov = shot.fov;
+    cam.near = near;
+    cam.far = far;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    cam.layers.enable(FX_LAYER);
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = shot.exposure;
+  }, [shot, camera, gl, near, far]);
+  return null;
+};
+
+/**
+ * Replaces non-finite pixels (NaN/Inf from a faulty custom shader) right after the scene render.
+ * Without it, bloom spreads a single NaN pixel across the whole frame and the frame renders blank
+ * with no error — found in testing with a custom light-shaft shader.
+ */
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.14 },
+    uGrain: { value: 0.012 },
+    uRes: { value: new Vector2(1080, 1920) },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uGrain; uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      // ivory highlights, a breath of cool in the shadows
+      c.rgb += smoothstep(0.6, 1.0, l) * vec3(0.002, 0.001, -0.003);
+      c.rgb += (1.0 - smoothstep(0.0, 0.5, l)) * vec3(-0.004, 0.0, 0.006);
+      // gentle S-curve: deeper form shadows without crushing the whites
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.24);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.25);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.35, 0.95, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain;
+      gl_FragColor = c;
+    }`,
+};
+
+export const Post: React.FC<{ shot: Shot; frame: number; ao?: boolean; aoRadius?: number }> = ({ shot, frame, ao = true, aoRadius = 0.28 }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(NanGuardShader));
+    if (ao) {
+      const gtao = new GTAOPass(scene, camera, w, h);
+      gtao.blendIntensity = 1.0;
+      gtao.updateGtaoMaterial({ radius: aoRadius, distanceExponent: 1.8, thickness: 0.5, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+      composer.addPass(withoutFx(gtao, camera));
+    }
+    const dof = withoutFx(new BokehPass(scene, camera, { focus: 10, aperture: 0.002, maxblur: 0.008 }), camera);
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.14, 0.45, 2.2);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const grade = new ShaderPass(GradeShader);
+    grade.uniforms.uRes.value.set(w, h);
+    composer.addPass(grade);
+    return { composer, dof, grade };
+  }, [gl, scene, camera, size.width, size.height, ao, aoRadius]);
+
+  useLayoutEffect(() => {
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    u.focus.value = shot.focus;
+    u.aperture.value = shot.aperture;
+    u.maxblur.value = shot.maxBlur;
+    chain.dof.enabled = shot.maxBlur > 0 && shot.aperture > 0;
+    chain.grade.uniforms.uTime.value = frame % 997;
+  }, [frame, chain, shot]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+==== 1366 project/src/core/type/fonts.ts
+import { continueRender, delayRender, staticFile } from "remotion";
+
+// Default typeface: Manrope (SIL Open Font License, see public/fonts/OFL-manrope.txt).
+// Bundled locally in public/fonts so rendering never depends on Google Fonts being reachable
+// and every OS renders the same glyph metrics.
+const FAMILY = "Manrope";
+const WEIGHTS = ["200", "300", "400", "500", "600"] as const;
+
+let ready: Promise<void> | null = null;
+const load = (): Promise<void> => {
+  if (ready) return ready;
+  if (typeof document === "undefined") return (ready = Promise.resolve());
+  const handle = delayRender("Loading bundled Manrope font");
+  ready = Promise.all(
+    WEIGHTS.map(async (w) => {
+      const face = new FontFace(FAMILY, `url(${staticFile(`fonts/manrope-latin-${w}-normal.woff2`)}) format("woff2")`, {
+        weight: w,
+        style: "normal",
+      });
+      await face.load();
+      (document.fonts as unknown as { add(f: FontFace): void }).add(face);
+    }),
+  ).then(
+    () => continueRender(handle),
+    (err) => {
+      continueRender(handle);
+      throw err;
+    },
+  );
+  return ready;
+};
+load();
+
+export const MANROPE = FAMILY;
+export const manropeReady = load;
+
+/** The font every overlay and canvas texture uses. */
+export const FONT = MANROPE;
+export const fontReady = manropeReady;
+
+export const INK = "#1f2426";
+export const INK_SOFT = "#6a7174";
+
+==== 26001 project/src/director/actions.ts
+// Acting library: every action is a pure function (segment, film time) → Pose for the procedural rig.
+// Postures (stand / sit / lie / bedsit) give the base body; actions layer head, arms, face and timing on
+// top. Blinks, saccades, weight shift and breathing keep everyone alive between actions.
+
+import { blend, FACE0, lerpN, phoneArm, restPose, runCycle, walkCycle, type Face, type HoldKind, type Pose } from "../cine/character/pose.ts";
+import { fromChest, lookAt, toChest, walkState, type PlanPath } from "../cine/character/rig.ts";
+import type { CharSpec } from "../cine/character/Character.tsx";
+import type { V3 } from "../worlds/types.ts";
+import type { ActionName, FaceName } from "./story.ts";
+
+const face = (o: Partial<Face>): Face => ({ ...FACE0, ...o });
+export const FACE: Record<FaceName, Face> = {
+  neutral: face({}),
+  calm: face({ lid: 0.78, mouth: 0.1 }),
+  alert: face({ browUp: 0.55, browIn: 0.2, lid: 1.0, mouth: -0.05 }),
+  fear: face({ browUp: 0.9, browIn: 0.85, lid: 1.1, mouth: -0.3, open: 0.12 }),
+  panic: face({ browUp: 1, browIn: 1, lid: 1.3, mouth: -0.4, open: 0.5 }),
+  squint: face({ browUp: 0.15, browIn: 0.9, lid: 0.66, mouth: -0.2, open: 0.05 }),
+  read: face({ browUp: 0.35, browIn: 0.4, lid: 0.8, mouth: -0.1, eyeY: -0.25 }),
+  sleep: face({ lid: 0, mouth: 0.05 }),
+  drowsy: face({ lid: 0.45, browUp: 0.1, mouth: 0 }),
+  smile: face({ mouth: 0.55, lid: 0.8, browUp: 0.15 }),
+  laugh: face({ mouth: 0.9, open: 0.55, lid: 0.45, browUp: 0.3 }),
+  sad: face({ browUp: 0.45, browIn: 0.9, lid: 0.7, mouth: -0.45 }),
+  think: face({ browUp: 0.3, browIn: 0.5, lid: 0.8, mouth: -0.1, eyeX: 0.15, eyeY: 0.18 }),
+  uneasy: face({ browUp: 0.4, browIn: 0.7, lid: 0.95, mouth: -0.15 }),
+  serious: face({ browUp: 0.2, browIn: 0.4, lid: 0.85, mouth: -0.05 }),
+  relief: face({ browUp: 0.3, browIn: -0.1, lid: 0.82, mouth: 0.5, open: 0.06 }),
+  surprised: face({ browUp: 1, browIn: 0.2, lid: 1.25, mouth: -0.1, open: 0.35 }),
+  curious: face({ browUp: 0.55, browIn: 0.2, lid: 0.95, mouth: 0.1 }),
+};
+
+export const DEFAULT_FACE: Partial<Record<ActionName, FaceName>> = {
+  stand: "calm", look: "alert", turn: "alert", walk: "calm", run: "panic", startle: "surprised", freeze: "fear", peer: "squint",
+  point: "serious", reach: "serious", wave: "smile", phone: "read", binoculars: "squint", raise: "alert", think: "think", nod: "calm",
+  shake: "serious", sigh: "relief", talk: "serious", shiver: "uneasy", sit: "calm", standUp: "calm", write: "read", lie: "calm",
+  sleep: "sleep", wake: "drowsy", sitUp: "drowsy", push: "calm", pickUp: "calm", putDown: "calm", give: "smile", receive: "smile", open: "calm", close: "calm", kneel: "calm",
+};
+
+export type Posture = "stand" | "sit" | "lie" | "bedsit";
+export type CState = { x: number; z: number; y: number; yaw: number; posture: Posture; seat?: number; bedHead?: [number, number]; bedY?: number; on?: string; onT?: number };
+
+export type Seg = {
+  who: string;
+  act: ActionName;
+  t0: number;
+  t1: number;
+  from: CState;
+  to: CState;
+  path?: PlanPath;
+  moveT0?: number;
+  moveT1?: number;
+  target?: V3;
+  face: FaceName;
+  hold: HoldKind | null;
+  seed: number;
+  /** terrain height under the feet (exteriors with hills) */
+  floor?: (x: number, z: number) => number;
+  /** both hands on world points (push handles), weight 0..1 */
+  hands?: (t: number) => { L: V3; R: V3; w: number } | null;
+  /** carrying an object in the right hand */
+  carry?: (t: number) => boolean;
+  /** seated on / riding an object that moves: world displacement of the seat since the segment began */
+  ride?: (t: number) => { dx: number; dz: number; dyaw: number; px: number; pz: number } | null;
+  /** the same hand gesture again soon after the last one: played with the head only */
+  again?: boolean;
+};
+
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+const ss = (a: number, b: number, x: number) => { const k = clamp01((x - a) / (b - a)); return k * k * (3 - 2 * k); };
+const wrap = (a: number) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+export const yawTo = (x: number, z: number, p: V3) => Math.atan2(p[0] - x, p[2] - z);
+
+// ── postures ────────────────────────────────────────────────────────────────
+
+const seated = (st: CState, c: CharSpec): Pose => {
+  const p = restPose();
+  Object.assign(p, { x: st.x, z: st.z, yaw: st.yaw, y: st.y + (st.seat ?? 0.45) - 0.96 * c.scale });
+  p.legL = { sw: 1.45, ab: 0.12, tw: 0, kn: 1.5, an: 0.1 };
+  p.legR = { sw: 1.4, ab: 0.08, tw: 0, kn: 1.55, an: 0.1 };
+  p.chest = [0.06, 0, 0];
+  p.armL = { ...p.armL, sw: 0.55, el: 1.0, ab: 0.15 };
+  p.armR = { ...p.armR, sw: 0.55, el: 1.0, ab: 0.15 };
+  return p;
+};
+
+const lying = (st: CState, c: CharSpec): Pose => {
+  const p = restPose();
+  const head = st.bedHead ?? [st.x, st.z];
+  const dir = [head[0] - st.x, head[1] - st.z], L = Math.hypot(dir[0], dir[1]) || 1;
+  const ux = dir[0] / L, uz = dir[1] / L;
+  // hips sit ~0.74 body-units from the head end; the body's up axis points at the head
+  Object.assign(p, { x: head[0] - ux * 0.74 * c.scale, z: head[1] - uz * 0.74 * c.scale, y: (st.bedY ?? 0.55) + st.y + 0.1 - 0.96 * c.scale, yaw: Math.atan2(-ux, -uz) });
+  p.hips = [-Math.PI / 2, 0, 0];
+  p.neck = [0.3, 0, 0];
+  p.head = [0.12, 0.15, 0.05];
+  p.armL = { ...p.armL, sw: 0.05, ab: 0.1, el: 0.35 };
+  p.armR = { ...p.armR, sw: 0.0, ab: 0.08, el: 0.3 };
+  p.legL = { ...p.legL, sw: 0.02, kn: 0.12 };
+  p.legR = { ...p.legR, sw: 0.0, ab: 0.08, kn: 0.25 };
+  p.breath = 0.8;
+  return p;
+};
+
+const bedSit = (st: CState, c: CharSpec): Pose => {
+  const p = lying(st, c);
+  p.hips = [0, 0, 0];
+  p.y += 0.02;
+  p.spine = [0.12, 0, 0];
+  p.neck = [0.1, 0, 0];
+  p.head = [0.1, 0, 0];
+  p.legL = { ...p.legL, sw: Math.PI / 2 - 0.12, kn: 0.35 };
+  p.legR = { ...p.legR, sw: Math.PI / 2 - 0.1, kn: 0.3 };
+  p.armL = { ...p.armL, sw: 0.25, ab: 0.2, el: 0.25 };
+  p.armR = { ...p.armR, sw: 0.25, ab: 0.2, el: 0.25 };
+  p.breath = 1;
+  return p;
+};
+
+const standing = (st: CState): Pose => {
+  const p = restPose();
+  Object.assign(p, { x: st.x, z: st.z, yaw: st.yaw, y: st.y });
+  return p;
+};
+
+export const base = (st: CState, c: CharSpec): Pose => (st.posture === "sit" ? seated(st, c) : st.posture === "lie" ? lying(st, c) : st.posture === "bedsit" ? bedSit(st, c) : standing(st));
+
+// ── life: blinks, saccades, weight shift ────────────────────────────────────
+
+const hash = (n: number) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+export const blinkAt = (t: number, seed: number) => {
+  const period = 3.2 + 1.4 * hash(seed);
+  const k = Math.floor((t + seed * 0.37) / period), ph = (t + seed * 0.37) - k * period - period * 0.3 * hash(k + seed);
+  return ph > 0 && ph < 0.17 ? Math.sin((ph / 0.17) * Math.PI) : 0;
+};
+const alive = (p: Pose, t: number, seed: number, sleeping: boolean) => {
+  if (!sleeping) {
+    const b = blinkAt(t, seed);
+    if (b > 0) p.face = { ...p.face, lid: lerpN(p.face.lid, 0, b) };
+    const sk = Math.floor(t * 0.9 + seed);
+    p.face = { ...p.face, eyeX: p.face.eyeX + 0.05 * (hash(sk) - 0.5), eyeY: p.face.eyeY + 0.03 * (hash(sk + 9) - 0.5) };
+  }
+  p.head = [p.head[0] + 0.012 * Math.sin(t * 0.7 + seed), p.head[1] + 0.02 * Math.sin(t * 0.43 + seed * 2), p.head[2]];
+  return p;
+};
+const shift = (p: Pose, t: number, seed: number) => {
+  const w = Math.sin(t * 0.38 + seed);
+  p.hips = [p.hips[0], p.hips[1], p.hips[2] + 0.025 * w];
+  p.chest = [p.chest[0], p.chest[1], p.chest[2] - 0.015 * w];
+  p.legL = { ...p.legL, kn: p.legL.kn + 0.04 * Math.max(0, w) };
+  p.legR = { ...p.legR, kn: p.legR.kn + 0.04 * Math.max(0, -w) };
+  return p;
+};
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+const look = (p: Pose, target: V3 | undefined, c: CharSpec, k: number) => {
+  if (!target || k <= 0) return;
+  lookAt(p, target, c, k);
+  // eyes take the rest of the way
+  const dx = target[0] - p.x, dz = target[2] - p.z;
+  const rel = wrap(Math.atan2(dx, dz) - p.yaw - p.head[1] - p.neck[1]);
+  p.face = { ...p.face, eyeX: p.face.eyeX + Math.max(-0.3, Math.min(0.3, rel)) * 0.5 * k };
+};
+const armIK = (p: Pose, side: 1 | -1, t: [number, number, number], w: number, pole: [number, number, number] = [0.5, -0.7, -0.2]) => {
+  const key = side === 1 ? "armL" : "armR";
+  p[key] = { ...p[key], ik: { t: side === 1 ? t : [-t[0], t[1], t[2]], pole, w } };
+};
+/** World point → IK target for the right arm (true chest coordinates, like every armIK target), clamped to reach. */
+const reachR = (p: Pose, w: V3, c: CharSpec, reach = 0.5): [number, number, number] => {
+  const l = toChest(p, w, c);
+  const S = [-0.19, 0.2, -0.01];
+  const d = [l[0] - S[0], l[1] - S[1], l[2] - S[2]], n = Math.hypot(d[0], d[1], d[2]) || 1;
+  const k = Math.min(1, reach / n);
+  // true chest coordinates: armIK's mirror for the right arm and Character's side sign cancel out
+  return [S[0] + d[0] * k, S[1] + d[1] * k, S[2] + d[2] * k];
+};
+
+/** A point on a surface (desk, counter) the right hand can reach: when the real point is too far, the
+ *  nearest reachable point at the SAME height toward it — never a shortened reach down into the furniture. */
+const onSurface = (p: Pose, w: V3, c: CharSpec, reach: number): V3 => {
+  const sh = fromChest(p, [-0.19, 0.2, -0.01], c);
+  const R = reach * c.scale * 0.97, dy = w[1] - sh[1];
+  const dx = w[0] - sh[0], dz = w[2] - sh[2], hd = Math.hypot(dx, dz);
+  if (Math.hypot(hd, dy) <= R || Math.abs(dy) >= R) return w;
+  const hmax = Math.sqrt(R * R - dy * dy), k = hmax / (hd || 1);
+  return [sh[0] + dx * k, w[1], sh[2] + dz * k];
+};
+
+// ── the actions ─────────────────────────────────────────────────────────────
+
+export type ActCtx = { seg: Seg; t: number; c: CharSpec; talk: (t: number) => number };
+
+const idle = ({ seg, t, c }: ActCtx, lookK = 1): Pose => {
+  const p = base(seg.to, c);
+  if (seg.to.posture === "stand") shift(p, t, seg.seed);
+  p.face = FACE[seg.face];
+  look(p, seg.target, c, lookK * ss(seg.t0, seg.t0 + 0.7, t));
+  return p;
+};
+
+const ACT: Record<ActionName, (x: ActCtx) => Pose> = {
+  stand: (x) => idle(x, 0.85),
+  look: (x) => idle(x, 1),
+  turn: (x) => {
+    const { seg, t, c } = x;
+    const k = ss(seg.t0, seg.t0 + 0.9, t);
+    const p = base({ ...seg.to, yaw: seg.from.yaw + wrap(seg.to.yaw - seg.from.yaw) * k }, c);
+    const step = Math.sin(k * Math.PI);
+    p.legL = { ...p.legL, sw: 0.25 * step * Math.sin(k * Math.PI * 2), kn: 0.35 * step };
+    p.legR = { ...p.legR, sw: -0.2 * step * Math.sin(k * Math.PI * 2), kn: 0.2 * step };
+    p.face = FACE[seg.face];
+    look(p, seg.target, c, ss(seg.t0, seg.t0 + 0.5, t));
+    return p;
+  },
+  walk: (x) => move(x, false),
+  run: (x) => move(x, true),
+  startle: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 0);
+    const u = t - seg.t0, jolt = Math.exp(-Math.max(0, u) * 4) * ss(0, 0.06, u);
+    p.chest = [p.chest[0] - 0.12 * jolt, p.chest[1], p.chest[2]];
+    p.spine = [p.spine[0] - 0.05 * jolt, p.spine[1], p.spine[2]];
+    p.armL = { ...p.armL, ab: p.armL.ab + 0.25 * jolt + 0.05, el: p.armL.el + 0.5 * jolt };
+    p.armR = { ...p.armR, ab: p.armR.ab + 0.25 * jolt + 0.05, el: p.armR.el + 0.5 * jolt };
+    p.handL = { curl: 0.1, index: 0.05, thumb: 0.4 };
+    p.handR = { curl: 0.1, index: 0.05, thumb: 0.4 };
+    p.breath = 1.6;
+    if (seg.to.posture === "stand") { const back = 0.12 * ss(0, 0.35, u); p.x -= Math.sin(p.yaw) * back; p.z -= Math.cos(p.yaw) * back; }
+    look(p, seg.target, c, ss(seg.t0, seg.t0 + 0.25, t));
+    return p;
+  },
+  freeze: (x) => {
+    const { seg, t, c } = x;
+    const p = base(seg.to, c);
+    p.face = FACE[seg.face];
+    p.breath = 1.9;
+    p.tremble = 0.6;
+    if (seg.to.posture === "stand") {
+      p.hipY = -0.03;
+      p.legL = { ...p.legL, kn: 0.15 };
+      p.legR = { ...p.legR, kn: 0.12 };
+      p.armL = { ...p.armL, ab: 0.15, el: 0.45 };
+      p.armR = { ...p.armR, ab: 0.15, el: 0.42 };
+    }
+    look(p, seg.target, c, ss(seg.t0, seg.t0 + 0.4, t));
+    return p;
+  },
+  peer: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 0);
+    const k = ss(seg.t0, seg.t0 + 0.8, t);
+    // leans in, head forward, squinting (hands stay down: a raised hand reads as a salute and hides the face)
+    p.spine = [p.spine[0] + 0.06 * k, p.spine[1], p.spine[2]];
+    p.chest = [p.chest[0] + 0.1 * k, p.chest[1], p.chest[2]];
+    p.neck = [p.neck[0] + 0.08 * k, p.neck[1], p.neck[2]];
+    p.armL = { ...p.armL, el: p.armL.el + 0.25 * k };
+    p.armR = { ...p.armR, el: p.armR.el + 0.25 * k };
+    look(p, seg.target, c, ss(seg.t0, seg.t0 + 0.5, t));
+    return p;
+  },
+  point: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0 + 0.1, seg.t0 + 0.7, t) * (1 - ss(seg.t1 - 0.5, seg.t1, t));
+    if (seg.target) armIK(p, -1, reachR(p, seg.target, c, 0.53), k, [0.3, -0.8, 0.1]);
+    p.handR = { curl: lerpN(0.35, 1, k), index: lerpN(0.3, 0, k), thumb: 0.5 };
+    return p;
+  },
+  reach: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0 + 0.1, seg.t0 + 0.8, t) * (1 - ss(seg.t1 - 0.6, seg.t1, t));
+    if (seg.target) armIK(p, -1, reachR(p, seg.target, c, 0.55), k, [0.4, -0.8, -0.1]);
+    p.chest = [p.chest[0] + 0.08 * k, p.chest[1], p.chest[2]];
+    p.handR = { curl: 0.25, index: 0.15, thumb: 0.3 };
+    return p;
+  },
+  wave: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0, seg.t0 + 0.4, t) * (1 - ss(seg.t1 - 0.4, seg.t1, t));
+    p.armR = { ...p.armR, sw: lerpN(p.armR.sw, 0.3, k), ab: lerpN(p.armR.ab, 1.3, k), el: lerpN(p.armR.el, 0.9 + 0.35 * Math.sin(t * 9), k), wr: [0, 0, 0.2 * Math.sin(t * 9)] };
+    p.handR = { curl: 0.05, index: 0.0, thumb: 0.3 };
+    return p;
+  },
+  phone: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 0);
+    const k = ss(seg.t0, seg.t0 + 0.7, t) * (1 - ss(seg.t1 - 0.5, seg.t1, t));
+    p.phone = 2;
+    p.phoneOn = ss(seg.t0, seg.t0 + 0.3, t);
+    const arm = phoneArm();
+    p.armL = { ...arm, ik: { ...arm.ik!, w: k } };
+    p.head = [lerpN(p.head[0], 0.45, k), p.head[1], p.head[2]];
+    p.neck = [lerpN(p.neck[0], 0.12, k), p.neck[1], p.neck[2]];
+    if (k < 0.5) look(p, seg.target, c, 1 - k * 2);
+    return p;
+  },
+  binoculars: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0 + 0.1, seg.t0 + 0.9, t) * (1 - ss(seg.t1 - 0.6, seg.t1, t));
+    // both hands up to the eyes (binoculars sit on the face once raised)
+    const head = p.head, aimDown = Math.max(-0.4, Math.min(0.3, head[0] + p.neck[0]));
+    armIK(p, 1, [0.06, 0.42 - 0.2 * aimDown, 0.26], k, [0.7, -0.6, -0.1]);
+    armIK(p, -1, [0.06, 0.42 - 0.2 * aimDown, 0.26], k, [0.7, -0.6, -0.1]);
+    p.armL = { ...p.armL, wr: [0.2, 0, 0.6] };
+    p.armR = { ...p.armR, wr: [0.2, 0, 0.6] };
+    p.handL = { curl: 0.6, index: 0.5, thumb: 0.4 };
+    p.handR = { curl: 0.6, index: 0.5, thumb: 0.4 };
+    p.hold = { kind: "binoculars", side: -1, on: k };
+    return p;
+  },
+  raise: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0 + 0.1, seg.t0 + 0.8, t) * (1 - ss(seg.t1 - 0.6, seg.t1, t));
+    // aim at the target when there is one (the arm points the light at it), else straight ahead
+    const tgt: [number, number, number] = seg.target ? reachR(p, seg.target, c, 0.56) : seg.hold === "lantern" ? [0.1, 0.32, 0.42] : [0.0, 0.15, 0.5];
+    armIK(p, -1, tgt, k, [0.5, -0.8, 0.0]);
+    if (seg.hold === "flashlight") p.armR = { ...p.armR, wr: [-0.9 * k, 0, 0] };
+    if (seg.target && k > 0.3) p.aim = seg.target;
+    return p;
+  },
+  think: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 0.5);
+    const k = ss(seg.t0 + 0.1, seg.t0 + 0.8, t) * (1 - ss(seg.t1 - 0.5, seg.t1, t));
+    // the hand raised under the jaw for a moment, clear of the mouth (higher lands on the mouth / nose and reads as
+    // biting nails or rubbing it; held, or every time, a hand in front of the face is all a close-up shows) — the head
+    // and the eyes keep thinking
+    const off = Math.min(seg.t1 - 0.5, seg.t0 + 2.2);
+    const kh = seg.again ? 0 : ss(seg.t0 + 0.1, seg.t0 + 0.8, t) * (1 - ss(off, off + 0.6, t));
+    if (kh > 0) armIK(p, -1, [0.0, 0.25, 0.235], kh, [0.6, -0.8, 0.2]);
+    if (kh > 0) p.handR = { curl: 0.7, index: 0.4, thumb: 0.5 };
+    p.head = [p.head[0] + 0.08 * k, p.head[1] + 0.12 * k, p.head[2] + 0.08 * k];
+    return p;
+  },
+  nod: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 1);
+    const u = t - seg.t0;
+    p.head = [p.head[0] + 0.16 * Math.sin(u * 9) * Math.exp(-u * 1.1) * ss(0, 0.1, u), p.head[1], p.head[2]];
+    return p;
+  },
+  shake: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 1);
+    const u = t - seg.t0;
+    p.head = [p.head[0], p.head[1] + 0.22 * Math.sin(u * 8) * Math.exp(-u * 0.9) * ss(0, 0.1, u), p.head[2]];
+    return p;
+  },
+  sigh: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 0.6);
+    const u = t - seg.t0, k = Math.sin(Math.min(1, u / 2.2) * Math.PI);
+    p.chest = [p.chest[0] + 0.1 * k, p.chest[1], p.chest[2]];
+    p.head = [p.head[0] + 0.18 * k, p.head[1], p.head[2]];
+    p.breath = 1.4;
+    return p;
+  },
+  talk: (x) => {
+    const { seg, t, talk } = x;
+    const p = idle(x, 1);
+    const a = talk(t);
+    p.talk = Math.min(0.6, a * 1.3);
+    const g = Math.sin(t * 2.1 + seg.seed) * 0.5 + 0.5;
+    p.armR = { ...p.armR, sw: p.armR.sw + 0.35 * a + 0.1 * g, el: p.armR.el + 0.7 * a + 0.3 * g, ab: p.armR.ab + 0.1 };
+    p.handR = { curl: 0.2, index: 0.1, thumb: 0.3 };
+    p.head = [p.head[0] + 0.05 * Math.sin(t * 5.3) * a, p.head[1] + 0.04 * Math.sin(t * 1.7), p.head[2]];
+    return p;
+  },
+  shiver: (x) => {
+    const { seg, t } = x;
+    const p = idle(x, 0.6);
+    const k = ss(seg.t0, seg.t0 + 0.6, t);
+    armIK(p, 1, [-0.12, 0.1, 0.16], k, [0.6, -0.6, -0.2]);
+    armIK(p, -1, [-0.12, 0.06, 0.18], k, [0.6, -0.6, -0.2]);
+    p.chest = [p.chest[0] + 0.12 * k, p.chest[1], p.chest[2]];
+    p.tremble = 0.8 * k;
+    p.chest = [p.chest[0], p.chest[1] + 0.02 * Math.sin(t * 31) * k, p.chest[2]];
+    return p;
+  },
+  sit: (x) => {
+    const { seg, t, c } = x;
+    // walk to the seat (if needed) is a separate segment; here: stand → sit over 1 s
+    const k = ss(seg.t0, seg.t0 + 1.1, t);
+    const st = base({ ...seg.to, posture: "stand" }, c), si = base(seg.to, c);
+    const p = blend(st, si, k);
+    p.chest = [p.chest[0] + 0.25 * Math.sin(k * Math.PI), p.chest[1], p.chest[2]];
+    p.face = FACE[seg.face];
+    look(p, seg.target, c, ss(seg.t0 + 0.8, seg.t0 + 1.5, t));
+    return p;
+  },
+  standUp: (x) => {
+    const { seg, t, c } = x;
+    const k = ss(seg.t0, seg.t0 + 1.1, t);
+    const si = base(seg.from, c), st = base(seg.to, c);
+    const p = blend(si, st, k);
+    p.chest = [p.chest[0] + 0.3 * Math.sin(k * Math.PI), p.chest[1], p.chest[2]];
+    p.face = FACE[seg.face];
+    look(p, seg.target, c, ss(seg.t0 + 0.9, seg.t0 + 1.6, t));
+    return p;
+  },
+  write: (x) => {
+    const { seg, t, c } = x;
+    const p = base(seg.to, c);
+    const k = ss(seg.t0, seg.t0 + 0.8, t) * (1 - ss(seg.t1 - 0.5, seg.t1, t));
+    p.face = FACE[seg.face];
+    // lean over the desk — further when the paper is further away — so the forearm comes over the edge
+    const far = seg.target ? Math.max(0, Math.min(0.28, (Math.hypot(seg.target[0] - seg.to.x, seg.target[2] - seg.to.z) - 0.3) * 0.9)) : 0;
+    p.spine = [p.spine[0] + far * 0.5 * k, p.spine[1], p.spine[2]];
+    p.chest = [p.chest[0] + (0.22 + far * 0.5) * k, p.chest[1], p.chest[2]];
+    p.neck = [p.neck[0] + 0.15 * k, p.neck[1], p.neck[2]];
+    p.head = [p.head[0] + 0.32 * k, p.head[1], p.head[2]];
+    // write on the target (papers on the desk) when given, else just in front of the chest;
+    // the hand rests ON the paper (its centre ~5 cm above the surface), never inside the desk
+    const base3: [number, number, number] = seg.target ? reachR(p, onSurface(p, [seg.target[0], seg.target[1] + 0.05, seg.target[2]], c, 0.6), c, 0.6) : [-0.08, -0.12, 0.36];
+    const wob: [number, number, number] = [base3[0] + 0.04 * Math.sin(t * 7.3), base3[1] + 0.012 * Math.sin(t * 19), base3[2] + 0.02 * Math.sin(t * 2.3)];
+    // elbow out to the side and up, as when writing at a desk
+    armIK(p, -1, [wob[0], wob[1], wob[2]], k, [0.8, -0.35, -0.2]);
+    armIK(p, 1, [0.14, -0.16, 0.32], 0.8 * k, [0.6, -0.8, -0.2]);
+    p.hold = { kind: "pen", side: -1, on: 1 };
+    p.handR = { curl: 0.7, index: 0.5, thumb: 0.6 };
+    return p;
+  },
+  push: (x) => move(x, false),
+  pickUp: (x) => reachTo(x, 0.55),
+  putDown: (x) => reachTo(x, 0.55),
+  give: (x) => reachTo(x, 0.42),
+  receive: (x) => reachTo(x, 0.42),
+  open: (x) => reachTo(x, 0.55),
+  close: (x) => reachTo(x, 0.55),
+  kneel: (x) => {
+    const { seg, t, c } = x;
+    const p = idle(x, 1);
+    const k = ss(seg.t0, seg.t0 + 0.8, t) * (1 - ss(seg.t1 - 0.6, seg.t1, t));
+    p.hipY = -0.42 * k;
+    p.legL = { ...p.legL, sw: 1.25 * k, kn: 2.0 * k, an: -0.2 * k };
+    p.legR = { ...p.legR, sw: -0.15 * k, kn: 1.75 * k, an: 0.9 * k };
+    p.chest = [p.chest[0] + 0.12 * k, p.chest[1], p.chest[2]];
+    if (seg.target) armIK(p, -1, reachR(p, seg.target, c, 0.55), ss(seg.t0 + 0.5, seg.t0 + 1.1, t) * (1 - ss(seg.t1 - 0.6, seg.t1, t)), [0.4, -0.8, -0.1]);
+    return p;
+  },
+  lie: (x) => { const p = idle(x, 0.6); return p; },
+  sleep: (x) => {
+    const p = base(x.seg.to, x.c);
+    p.face = FACE.sleep;
+    p.breath = 0.7;
+    return p;
+  },
+  wake: (x) => {
+    const { seg, t, c } = x;
+    const p = base(seg.to, c);
+    const k = ss(seg.t0 + 0.2, seg.t0 + 1.4, t);
+    p.face = { ...blend({ ...p, face: FACE.sleep }, { ...p, face: FACE[seg.face] }, k).face };
+    look(p, seg.target, c, 0.6 * ss(seg.t0 + 1.0, seg.t0 + 2.0, t));
+    return p;
+  },
+  sitUp: (x) => {
+    const { seg, t, c } = x;
+    const k = ss(seg.t0, seg.t0 + 1.4, t);
+    const p = blend(lying(seg.from, c), bedSit(seg.to, c), k);
+    p.face = FACE[seg.face];
+    look(p, seg.target, c, ss(seg.t0 + 1.2, seg.t0 + 1.9, t));
+    return p;
+  },
+};
+
+/** reach toward the target (hold on it in the middle of the beat), used by pickUp / putDown / give / open */
+function reachTo(x: ActCtx, reach: number): Pose {
+  const { seg, t, c } = x;
+  const p = idle(x, 1);
+  const dur = Math.min(1.6, seg.t1 - seg.t0);
+  const k = ss(seg.t0 + 0.05, seg.t0 + 0.55, t) * (1 - ss(seg.t0 + dur - 0.4, seg.t0 + dur, t));
+  if (seg.target) {
+    const low = seg.target[1] < p.y + 0.75;
+    if (low) { p.spine = [p.spine[0] + 0.25 * k, p.spine[1], p.spine[2]]; p.chest = [p.chest[0] + 0.3 * k, p.chest[1], p.chest[2]]; p.hipY -= 0.08 * k; p.legL = { ...p.legL, kn: p.legL.kn + 0.4 * k }; p.legR = { ...p.legR, kn: p.legR.kn + 0.4 * k }; }
+    armIK(p, -1, reachR(p, seg.target, c, reach), k, [0.4, -0.8, -0.1]);
+  }
+  p.handR = { curl: lerpN(0.35, 0.15, k), index: 0.1, thumb: 0.3 };
+  return p;
+}
+
+function move(x: ActCtx, running: boolean): Pose {
+  const { seg, t, c } = x;
+  if (!seg.path || seg.moveT0 === undefined || seg.moveT1 === undefined) return idle(x);
+  const t0 = seg.moveT0, t1 = seg.moveT1;
+  if (t <= t1) {
+    const w = running ? walkState(seg.path, t, t0, t1, 0.35, 0.45, 1.9, 1.0) : walkState(seg.path, t, t0, t1, 0.4, 0.6, 1.15, 0.85);
+    let p = base({ ...seg.from, x: w.p[0], z: w.p[1], yaw: w.yaw, posture: "stand" }, c);
+    p = running ? runCycle(p, w.phase, Math.min(1, w.speed / 2.4)) : walkCycle(p, w.phase, w.moving);
+    p.face = FACE[seg.face];
+    look(p, seg.target, c, 0.7);
+    return p;
+  }
+  // arrived: settle into the mark's facing
+  const k = ss(t1, t1 + 0.6, t);
+  const endYaw = Math.atan2(seg.path.at(seg.path.length).dir[0], seg.path.at(seg.path.length).dir[1]);
+  const p = base({ ...seg.to, yaw: endYaw + wrap(seg.to.yaw - endYaw) * k }, c);
+  shift(p, t, seg.seed);
+  p.face = FACE[seg.face];
+  look(p, seg.target, c, 0.8 * k);
+  if (running) p.breath = 1.8;
+  return p;
+}
+
+/** The pose for one segment at film time t, alive (blinks etc.). */
+export const actPose = (x: ActCtx): Pose => {
+  const { seg, t, c } = x;
+  const p = ACT[seg.act](x);
+  const r = seg.ride?.(t);
+  if (r) {
+    // rotate around the object's pivot, then move with it
+    const ox = p.x - r.px, oz = p.z - r.pz, cs = Math.cos(r.dyaw), sn = Math.sin(r.dyaw);
+    p.x = r.px + ox * cs + oz * sn + r.dx; p.z = r.pz - ox * sn + oz * cs + r.dz; p.yaw += r.dyaw;
+  }
+  if (seg.floor && seg.to.posture === "stand") p.y = seg.floor(p.x, p.z);
+  if (seg.carry?.(t) && !(p.armR.ik && p.armR.ik.w > 0.4)) {
+    p.armR = { ...p.armR, sw: 0.28, ab: 0.14, el: 0.95, wr: [0.15, 0, 0.1], ik: undefined };
+    p.handR = { curl: 0.85, index: 0.8, thumb: 0.6 };
+  }
+  const h = seg.hands?.(t);
+  if (h && h.w > 0) {
+    armIK(p, 1, toChest(p, h.L, c), h.w, [0.3, -0.8, -0.4]);
+    const R = toChest(p, h.R, c);
+    armIK(p, -1, [R[0], R[1], R[2]], h.w, [0.3, -0.8, -0.4]);
+    p.handL = { curl: 0.8, index: 0.7, thumb: 0.5 }; p.handR = { curl: 0.8, index: 0.7, thumb: 0.5 };
+    p.chest = [p.chest[0] + 0.1 * h.w, p.chest[1], p.chest[2]];
+  }
+  return alive(p, t, seg.seed, seg.act === "sleep" || seg.face === "sleep");
+};
+/** Where an object held in the right hand sits, in chest space (matches the carry arm pose). */
+export const CARRY_CHEST: [number, number, number] = [-0.21, -0.36, 0.2];
+
+/** Which actions need which posture before they start. */
+export const NEEDS: Partial<Record<ActionName, Posture[]>> = {
+  walk: ["stand"], run: ["stand"], turn: ["stand"], push: ["stand"], kneel: ["stand"], wave: ["stand", "sit", "bedsit"], sit: ["stand"], standUp: ["sit"], write: ["sit"],
+  lie: ["lie", "stand"], sleep: ["lie"], wake: ["lie"], sitUp: ["lie"],
+};

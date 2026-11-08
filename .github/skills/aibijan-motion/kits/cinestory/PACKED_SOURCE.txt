@@ -1,0 +1,5302 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 95 project/.gitignore
+node_modules
+out
+.gl-mode
+.DS_Store
+public/audio/*
+!public/audio/.keep
+src/stories/data/*.json
+
+==== 24254 project/library/lexicon-id.json
+{
+ "doc": "Indonesian word lists for the story analyzer (scripts/analyze.mjs + scripts/story-nlp.mjs). Keys are lowercase ROOTS or word forms (one or two words) — the analyzer strips affixes (me-/mem-/men-/meng-/meny-, ber-, ter-, di-, ke-, -kan, -i, -an, -nya, -lah), so a root covers every form (\"ambil\" = mengambil, mengambilnya, diambil). object values: a library object id, \"builtin:<id>\", \"prop:<id>\" (held prop), \"world:<thing>\" (built by the world itself: doors, windows, lamps), \"ui:<thing>\" (shown as a screen/card insert: a message, a photo, CCTV footage), \"look:<thing>\" (clothing / accessory on a person), \"generate:<english name>\" (author it from primitives) or \"complex:<english name>\" (too organic / detailed for primitives). actions: an engine action, \"face:<face>\" or \"unsupported:<what>\". states: what happens to a thing (on / off / sound / out / open / shut / buzz). sources: sound sources → SFX. figures: words for an unnamed (often uncanny) person. stop: words that are never names or objects.",
+ "places": {
+  "rumah sakit": "hospital",
+  "bangsal": "hospital",
+  "lorong": "corridor",
+  "icu": "hospital",
+  "ugd": "hospital",
+  "puskesmas": "hospital",
+  "klinik": "hospital",
+  "pasar": "market",
+  "lapak": "market",
+  "los": "market",
+  "warung": "shop",
+  "toko": "shop",
+  "kios": "shop",
+  "hutan": "forest",
+  "jalan setapak": "forest",
+  "kemah": "forest",
+  "perkemahan": "forest",
+  "gunung": "mountain",
+  "kebun": "garden",
+  "sawah": "ricefield",
+  "sekolah": "school",
+  "kelas": "school",
+  "kantin": "school",
+  "kantor": "office",
+  "ruang rapat": "office",
+  "meja kerja": "office",
+  "rumah": "house",
+  "kamar": "house",
+  "dapur": "house",
+  "ruang tamu": "house",
+  "teras": "house",
+  "kos": "kos",
+  "kamar kos": "kos",
+  "jalan": "street",
+  "jalan raya": "street",
+  "trotoar": "street",
+  "gang": "street",
+  "perempatan": "street",
+  "halte": "street",
+  "kota": "street",
+  "pantai": "coast",
+  "pesisir": "coast",
+  "mercusuar": "coast",
+  "laut": "coast",
+  "dermaga": "coast",
+  "stasiun": "station",
+  "masjid": "mosque",
+  "taman": "park",
+  "perpustakaan": "library",
+  "kafe": "cafe",
+  "ruang kerja": "office",
+  "lantai": "building",
+  "gedung": "building",
+  "kantor polisi": "office",
+  "ruangan": "room",
+  "ruang": "room",
+  "kamar mandi": "house",
+  "toilet": "house",
+  "parkiran": "street",
+  "basemen": "building",
+  "rooftop": "building",
+  "atap gedung": "building",
+  "gerbang kos": "kos",
+  "rumah kos": "kos",
+  "kos-kosan": "kos",
+  "sudut kamar": "house",
+  "ujung ruangan": "room",
+  "ujung lorong": "corridor",
+  "pantri": "office",
+  "pantry": "office",
+  "ruang baca": "library",
+  "ruang tunggu": "hospital",
+  "kamar tidur": "house",
+  "ruang makan": "house",
+  "minimarket": "shop",
+  "supermarket": "shop",
+  "swalayan": "shop",
+  "kasir": "shop",
+  "apotek": "shop",
+  "laundry": "shop"
+ },
+ "time": {
+  "malam": "night",
+  "tengah malam": "night",
+  "dini hari": "night",
+  "gelap": "night",
+  "subuh": "dawn",
+  "fajar": "dawn",
+  "pagi": "day",
+  "siang": "day",
+  "sore": "dusk",
+  "senja": "dusk",
+  "petang": "dusk",
+  "magrib": "dusk",
+  "larut": "night",
+  "larut malam": "night",
+  "tengah hari": "day",
+  "dini": "night",
+  "jam malam": "night",
+  "pagi buta": "dawn",
+  "malam hari": "night",
+  "siang hari": "day",
+  "sore hari": "dusk",
+  "matahari terbit": "dawn",
+  "matahari terbenam": "dusk"
+ },
+ "roles": {
+  "suster": "perawat",
+  "perawat": "perawat",
+  "dokter": "dokter",
+  "pedagang": "pedagang",
+  "penjual": "pedagang",
+  "pembeli": "ibu",
+  "pemuda": "pemuda",
+  "pemudi": "pemudi",
+  "nenek": "ibu",
+  "kakek": "kakek",
+  "ibu": "ibu",
+  "bu": "ibu",
+  "bapak": "bapak",
+  "pak": "bapak",
+  "anak": "anak",
+  "pendaki": "pendaki",
+  "penjaga": "penjaga-mercusuar",
+  "mbak": "pemudi",
+  "mas": "pemuda",
+  "guru": "bapak",
+  "murid": "anak",
+  "satpam": "bapak",
+  "ibu kos": "ibu",
+  "bapak kos": "bapak",
+  "karyawan": "pemuda",
+  "pegawai": "pemuda",
+  "adik": "anak",
+  "kakak": "pemudi",
+  "pasien": "kakek",
+  "nelayan": "penjaga-mercusuar",
+  "polisi": "bapak",
+  "petugas": "bapak",
+  "sopir": "bapak",
+  "mahasiswa": "pemuda",
+  "mahasiswi": "pemudi",
+  "teman": "pemuda",
+  "penumpang": "pemuda",
+  "supir": "bapak"
+ },
+ "objects": {
+  "kursi roda": "wheelchair",
+  "infus": "iv-stand",
+  "tiang infus": "iv-stand",
+  "meja perawat": "nurse-desk",
+  "meja jaga": "nurse-desk",
+  "troli": "med-trolley",
+  "kursi tunggu": "waiting-chairs",
+  "kursi": "office-chair",
+  "lapak": "market-stall",
+  "keranjang": "orange-basket",
+  "timbangan": "market-scale",
+  "kantong": "plastic-bag",
+  "kantong plastik": "plastic-bag",
+  "kresek": "plastic-bag",
+  "uang": "money",
+  "kaleng": "money-tin",
+  "krat": "crate-stack",
+  "peti": "crate-stack",
+  "karung": "rice-sack",
+  "beras": "rice-sack",
+  "jeruk": "orange-basket",
+  "buah": "fruit-stall",
+  "sayur": "market-stall",
+  "cabai": "market-stall",
+  "tomat": "market-stall",
+  "burung hantu": "owl-branch",
+  "tenda": "tent",
+  "papan": "signpost",
+  "rambu": "signpost",
+  "api unggun": "campfire",
+  "pohon": "builtin:tree-broad",
+  "pinus": "builtin:tree-pine",
+  "kelapa": "builtin:tree-palm",
+  "semak": "builtin:bush",
+  "batu": "builtin:rock",
+  "ranting": "builtin:log",
+  "batang": "builtin:log",
+  "rumput": "builtin:grass-tuft",
+  "pakis": "builtin:fern",
+  "senter": "prop:flashlight",
+  "lentera": "prop:lantern",
+  "ponsel": "prop:phone",
+  "hp": "prop:phone",
+  "telepon": "prop:phone",
+  "buku": "prop:book",
+  "gelas": "prop:mug",
+  "cangkir": "prop:mug",
+  "kopi": "prop:mug",
+  "teropong": "prop:binoculars",
+  "pintu": "world:door",
+  "jendela": "world:window",
+  "lampu": "world:lamp",
+  "tangga": "world:stairs",
+  "dinding": "world:wall",
+  "atap": "world:roof",
+  "meja": "generate:table / desk",
+  "lemari": "library:wardrobe",
+  "rak": "generate:shelf",
+  "kasur": "library:bed",
+  "ranjang": "library:bed",
+  "sofa": "library:sofa",
+  "papan tulis": "library:blackboard",
+  "bangku": "generate:bench / seat",
+  "laptop": "library:laptop",
+  "komputer": "generate:desktop computer",
+  "tas": "generate:bag",
+  "payung": "generate:umbrella",
+  "kotak": "generate:box",
+  "botol": "generate:bottle",
+  "piring": "generate:plate",
+  "kulkas": "library:fridge",
+  "televisi": "library:tv-cabinet",
+  "tv": "library:tv-cabinet",
+  "jam": "library:wall-clock",
+  "gerobak": "generate:food cart",
+  "tiang listrik": "generate:utility pole",
+  "lampu jalan": "world:lamp-post",
+  "mobil": "complex:car",
+  "motor": "complex:motorcycle",
+  "sepeda": "complex:bicycle",
+  "bus": "complex:bus",
+  "kapal": "complex:boat",
+  "perahu": "complex:boat",
+  "pesawat": "complex:airplane",
+  "kucing": "complex:cat",
+  "anjing": "complex:dog",
+  "ayam": "complex:chicken",
+  "kambing": "complex:goat",
+  "sapi": "complex:cow",
+  "kuda": "complex:horse",
+  "ikan": "complex:fish",
+  "burung": "complex:bird",
+  "gitar": "complex:guitar",
+  "piano": "complex:piano",
+  "patung": "complex:statue",
+  "boneka": "complex:doll",
+  "sekeranjang": "orange-basket",
+  "kembalian": "money",
+  "dompet": "generate:wallet",
+  "sekantong": "plastic-bag",
+  "printer": "library:office-printer",
+  "mesin cetak": "library:office-printer",
+  "fotokopi": "library:office-printer",
+  "mesin fotokopi": "library:office-printer",
+  "kertas": "generate:paper sheet",
+  "lembar": "generate:paper sheet",
+  "lembaran": "generate:paper sheet",
+  "dokumen": "generate:paper sheet",
+  "daftar absensi": "generate:attendance sheet",
+  "absensi": "generate:attendance sheet",
+  "map": "generate:folder",
+  "berkas": "generate:folder",
+  "kamera keamanan": "library:cctv-camera",
+  "kamera pengawas": "library:cctv-camera",
+  "cctv": "library:cctv-camera",
+  "layar": "generate:screen / monitor",
+  "monitor": "library:desk-monitor",
+  "jam dinding": "library:wall-clock",
+  "meja kerja": "library:office-desk",
+  "kubikel": "library:office-desk",
+  "lemari arsip": "library:filing-cabinet",
+  "dispenser": "generate:water dispenser",
+  "lift": "world:lift door",
+  "cermin": "generate:mirror",
+  "gagang pintu": "world:door handle",
+  "gagang": "world:door handle",
+  "ambang pintu": "world:door",
+  "gerbang": "world:gate",
+  "pagar": "world:fence",
+  "kipas": "library:standing-fan",
+  "kipas angin": "library:standing-fan",
+  "bantal": "generate:pillow",
+  "foto": "ui:photo on the phone",
+  "pesan": "ui:phone message",
+  "rekaman": "ui:video footage",
+  "notifikasi": "ui:phone message",
+  "video": "ui:video footage",
+  "jaket": "look:jacket",
+  "kemeja": "look:collared shirt",
+  "baju": "look:clothes",
+  "gelang": "look:bracelet",
+  "gelang benang": "look:bracelet",
+  "kacamata": "look:glasses",
+  "topi": "look:cap",
+  "kerudung": "look:hijab",
+  "hijab": "look:hijab",
+  "seragam": "look:uniform",
+  "bel": "generate:call bell",
+  "bel panggilan": "generate:call bell",
+  "telur": "generate:egg tray",
+  "pondok": "generate:wooden cabin",
+  "pondok kayu": "generate:wooden cabin",
+  "kelinci": "complex:rabbit",
+  "lampu meja": "generate:desk lamp",
+  "lampu senter": "prop:flashlight",
+  "kamera": "generate:camera",
+  "jam masuk": "ui:attendance entry",
+  "jam keluar": "ui:attendance entry",
+  "daftar": "generate:paper sheet",
+  "ombak": "world:waves",
+  "kabut": "world:fog",
+  "meja baca": "library:reading-table",
+  "langit": "world:sky",
+  "angkot": "complex:minibus (angkot)",
+  "taksi": "complex:car",
+  "ojek": "complex:motorcycle",
+  "kereta": "complex:train",
+  "becak": "complex:pedicab",
+  "spion": "world:mirror (vehicle)",
+  "loker": "library:locker-row",
+  "surat": "generate:folded letter",
+  "amplop": "generate:envelope",
+  "kue": "generate:cake",
+  "lilin": "generate:candles",
+  "oven": "generate:oven",
+  "kompor": "library:kitchen-counter",
+  "panci": "generate:pot",
+  "kunci": "generate:key",
+  "halte": "generate:bus stop shelter",
+  "kasir": "library:counter",
+  "mesin kasir": "generate:cash register",
+  "antrean": "world:queue (2–3 people at most)",
+  "qris": "library:qris",
+  "uang tunai": "money",
+  "tempat tidur": "library:bed",
+  "whiteboard": "library:whiteboard",
+  "meja makan": "library:dining-table",
+  "meja tamu": "library:coffee-table",
+  "rak buku": "library:bookshelf",
+  "rak sepatu": "library:shoe-rack",
+  "foto keluarga": "library:wall-photo",
+  "bingkai foto": "library:wall-photo",
+  "mading": "library:notice-board",
+  "papan pengumuman": "library:notice-board",
+  "tiang bendera": "library:flagpole",
+  "bendera": "library:flagpole",
+  "meja sekolah": "library:school-desk",
+  "bangku sekolah": "library:school-chair",
+  "kursi kantor": "library:office-chair",
+  "meja rapat": "library:meeting-table",
+  "tanaman": "library:potted-plant",
+  "pot": "library:potted-plant"
+ },
+ "actions": {
+  "berjalan": "walk",
+  "melangkah": "walk",
+  "jalan": "walk",
+  "menyusuri": "walk",
+  "menghampiri": "walk",
+  "mendekat": "walk",
+  "mendekati": "walk",
+  "pulang": "walk",
+  "berlari": "run",
+  "lari": "run",
+  "berlarian": "run",
+  "duduk": "sit",
+  "terduduk": "sit",
+  "berdiri": "standUp",
+  "bangkit": "standUp",
+  "menunjuk": "point",
+  "mengambil": "pickUp",
+  "memungut": "pickUp",
+  "meraih": "reach",
+  "meletakkan": "putDown",
+  "menaruh": "putDown",
+  "menimbang": "putDown",
+  "memasukkan": "pickUp",
+  "memberikan": "give",
+  "menyerahkan": "give",
+  "memberi": "give",
+  "menyodorkan": "give",
+  "menerima": "receive",
+  "membuka": "open",
+  "menutup": "close",
+  "mendorong": "push",
+  "berlutut": "kneel",
+  "jongkok": "kneel",
+  "berjongkok": "kneel",
+  "mengunci": "kneel",
+  "menulis": "write",
+  "mencatat": "write",
+  "menoleh": "look",
+  "melihat": "look",
+  "menatap": "look",
+  "memandang": "look",
+  "mengamati": "look",
+  "memperhatikan": "look",
+  "berhenti": "freeze",
+  "terdiam": "freeze",
+  "membeku": "freeze",
+  "mematung": "freeze",
+  "mengintip": "peer",
+  "mengarahkan": "raise",
+  "mengangkat": "raise",
+  "menyorot": "raise",
+  "berpikir": "think",
+  "mengangguk": "nod",
+  "menggeleng": "shake",
+  "menghela": "sigh",
+  "berbicara": "talk",
+  "berkata": "talk",
+  "bertanya": "talk",
+  "menjawab": "talk",
+  "menawar": "talk",
+  "menggigil": "shiver",
+  "tidur": "sleep",
+  "terbangun": "wake",
+  "bangun": "wake",
+  "terkejut": "startle",
+  "kaget": "startle",
+  "melambai": "wave",
+  "menelepon": "phone",
+  "membaca": "phone",
+  "berbaring": "lie",
+  "memeluk": "unsupported:hug",
+  "berenang": "unsupported:swim",
+  "memanjat": "unsupported:climb",
+  "melompat": "unsupported:jump",
+  "menari": "unsupported:dance",
+  "makan": "unsupported:eat",
+  "minum": "unsupported:drink",
+  "mengemudi": "unsupported:drive",
+  "menyetir": "unsupported:drive",
+  "naik": "unsupported:ride/climb",
+  "menggendong": "unsupported:carry a person",
+  "memukul": "unsupported:hit",
+  "jatuh": "unsupported:fall",
+  "terjatuh": "unsupported:fall",
+  "menangis": "face:sad",
+  "bersembunyi": "unsupported:hide",
+  "membayar": "give",
+  "datang": "walk",
+  "menata": "reach",
+  "menerangi": "raise",
+  "tersesat": "walk",
+  "susur": "walk",
+  "dekati": "walk",
+  "pergi": "walk",
+  "tunjuk": "point",
+  "ambil": "pickUp",
+  "pungut": "pickUp",
+  "raih": "reach",
+  "sentuh": "reach",
+  "pegang": "reach",
+  "tekan": "reach",
+  "letak": "putDown",
+  "taruh": "putDown",
+  "simpan": "putDown",
+  "beri": "give",
+  "serah": "give",
+  "sodor": "give",
+  "bayar": "give",
+  "terima": "receive",
+  "buka": "open",
+  "tutup": "close",
+  "dorong": "push",
+  "lutut": "kneel",
+  "tulis": "write",
+  "catat": "write",
+  "toleh": "look",
+  "lihat": "look",
+  "tatap": "look",
+  "pandang": "look",
+  "amati": "look",
+  "perhati": "look",
+  "perhatikan": "look",
+  "periksa": "look",
+  "baca": "look",
+  "perbesar": "phone",
+  "potret": "phone",
+  "telepon": "phone",
+  "henti": "freeze",
+  "intip": "peer",
+  "sorot": "raise",
+  "angkat": "pickUp",
+  "pikir": "think",
+  "angguk": "nod",
+  "geleng": "shake",
+  "hela": "sigh",
+  "bicara": "talk",
+  "tanya": "talk",
+  "jawab": "talk",
+  "tawar": "talk",
+  "bisik": "talk",
+  "teriak": "talk",
+  "gigil": "shiver",
+  "gemetar": "shiver",
+  "kejut": "startle",
+  "lambai": "wave",
+  "baring": "lie",
+  "balik": "turn",
+  "putar": "turn",
+  "turut": "nod",
+  "peluk": "unsupported:hug",
+  "renang": "unsupported:swim",
+  "panjat": "unsupported:climb",
+  "lompat": "unsupported:jump",
+  "tari": "unsupported:dance",
+  "setir": "unsupported:drive",
+  "gendong": "unsupported:carry a person",
+  "sembunyi": "unsupported:hide",
+  "tangis": "face:sad",
+  "tawa": "face:laugh",
+  "senyum": "face:smile",
+  "meninggalkan": "walk",
+  "menjaga": "stand",
+  "berjaga": "stand",
+  "mengirim": "phone",
+  "mengirimkan": "phone",
+  "terlihat": "none",
+  "tampak": "none",
+  "kelihatan": "none",
+  "tertulis": "none",
+  "tercatat": "none",
+  "terdengar": "none",
+  "terasa": "none",
+  "masuk ke": "walk",
+  "masuk": "walk",
+  "keluar": "walk",
+  "tiup": "unsupported:blow (lean in, face only)",
+  "tepuk": "unsupported:clap",
+  "temu": "look",
+  "tancap": "putDown",
+  "keluarkan": "pickUp",
+  "mengeluarkan": "pickUp",
+  "menunggu": "stand",
+  "tunggu": "stand"
+ },
+ "emotions": {
+  "takut": "fear",
+  "ketakutan": "fear",
+  "ngeri": "fear",
+  "panik": "panic",
+  "lega": "relief",
+  "tersenyum": "smile",
+  "senyum": "smile",
+  "tertawa": "laugh",
+  "sedih": "sad",
+  "menangis": "sad",
+  "cemas": "uneasy",
+  "gelisah": "uneasy",
+  "khawatir": "uneasy",
+  "tersesat": "uneasy",
+  "kaget": "surprised",
+  "terkejut": "surprised",
+  "ternyata": "surprised",
+  "penasaran": "curious",
+  "tenang": "calm",
+  "serius": "serious",
+  "waspada": "alert",
+  "curiga": "alert",
+  "bingung": "think",
+  "lelah": "drowsy",
+  "mengantuk": "drowsy",
+  "ramah": "smile",
+  "senang": "smile",
+  "bahagia": "smile",
+  "gemetar": "fear",
+  "merinding": "fear",
+  "mengerikan": "fear",
+  "seram": "fear",
+  "yakin": "serious",
+  "heran": "curious",
+  "tersentak": "surprised",
+  "napas gemetar": "fear"
+ },
+ "sounds": {
+  "ranting": "twig",
+  "patah": "twig",
+  "berderit": "creak",
+  "derit": "creak",
+  "ketukan": "knock",
+  "mengetuk": "knock",
+  "klik": "click",
+  "terkunci": "click",
+  "mengunci": "click",
+  "bip": "beep",
+  "monitor": "beep",
+  "uang": "coins",
+  "koin": "coins",
+  "kantong": "bag",
+  "kresek": "bag",
+  "roda": "roll",
+  "meluncur": "roll",
+  "angin": "wind-gust",
+  "guntur": "thunder",
+  "petir": "thunder",
+  "ombak": "wave-crash",
+  "lonceng": "bell",
+  "bel": "bell",
+  "mesin": "engine",
+  "notifikasi": "notif",
+  "jantung": "heartbeat",
+  "napas": "breath",
+  "gemerisik": "rustle",
+  "daun": "rustle",
+  "kembalian": "coins",
+  "langkah kaki": "steps",
+  "dengung": "hum",
+  "berdengung": "hum",
+  "dering": "notif",
+  "jepret": "click",
+  "statis": "static",
+  "radio": "radio"
+ },
+ "figures": {
+  "sosok": "figure",
+  "seseorang": "figure",
+  "bayangan": "figure",
+  "orang lain": "figure",
+  "laki-laki": "figure",
+  "perempuan": "figure",
+  "pria": "figure",
+  "wanita": "figure",
+  "hantu": "figure",
+  "makhluk": "figure",
+  "seorang laki-laki": "figure",
+  "seorang perempuan": "figure",
+  "penumpang lain": "figure",
+  "orang asing": "figure"
+ },
+ "states": {
+  "nyala": "on",
+  "padam": "off",
+  "mati": "off",
+  "bunyi": "sound",
+  "dering": "sound",
+  "getar": "buzz",
+  "keluar": "out",
+  "muncul": "appear",
+  "hilang": "vanish",
+  "lenyap": "vanish",
+  "buka": "open",
+  "tutup": "shut",
+  "kedip": "flicker",
+  "kelip": "flicker",
+  "masuk": "arrive",
+  "datang": "arrive"
+ },
+ "sources": {
+  "printer": "machine",
+  "mesin": "machine",
+  "fotokopi": "machine",
+  "pintu": "door-open",
+  "kamera": "click",
+  "klik": "click",
+  "jepret": "click",
+  "bel": "bell",
+  "lonceng": "bell",
+  "ponsel": "notif",
+  "hp": "notif",
+  "pesan": "notif",
+  "langkah": "steps",
+  "kaki": "steps",
+  "jantung": "heartbeat",
+  "napas": "breath",
+  "angin": "wind-gust",
+  "semak": "rustle",
+  "daun": "rustle",
+  "ranting": "twig",
+  "ombak": "wave-crash",
+  "petir": "thunder",
+  "guntur": "thunder",
+  "radio": "radio",
+  "monitor": "beep",
+  "mesin jahit": "machine",
+  "roda": "roll",
+  "ketukan": "knock",
+  "ketuk": "knock"
+ },
+ "stop": [
+  "ada",
+  "adalah",
+  "agar",
+  "akan",
+  "akhirnya",
+  "aku",
+  "andaikan",
+  "aneh",
+  "apa",
+  "apalagi",
+  "arah",
+  "artinya",
+  "asalkan",
+  "atas",
+  "atau",
+  "aturan",
+  "awalnya",
+  "ayo",
+  "badan",
+  "bagian",
+  "bahkan",
+  "bahwa",
+  "balik",
+  "baris",
+  "baru",
+  "bawah",
+  "bayangin",
+  "bayangkan",
+  "beberapa",
+  "begitu",
+  "belakang",
+  "belas",
+  "beliau",
+  "belum",
+  "benar",
+  "berbeda",
+  "besok",
+  "biarpun",
+  "biasa",
+  "bukan",
+  "bunyi",
+  "cara",
+  "coba",
+  "cuma",
+  "dalam",
+  "dan",
+  "dari",
+  "deh",
+  "dengan",
+  "depan",
+  "detik",
+  "detik-detik",
+  "di",
+  "dia",
+  "dirinya",
+  "ditambah",
+  "dong",
+  "engkau",
+  "fenomena",
+  "hai",
+  "hal",
+  "hal-hal",
+  "halo",
+  "hampir",
+  "hanya",
+  "harga",
+  "hati",
+  "hingga",
+  "ia",
+  "ialah",
+  "ini",
+  "itu",
+  "jadi",
+  "jam",
+  "jangan",
+  "jauh",
+  "jika",
+  "juga",
+  "jumlah",
+  "justru",
+  "kaki",
+  "kalau",
+  "kali",
+  "kalimat",
+  "kami",
+  "kamu",
+  "karena",
+  "ke",
+  "keadaan",
+  "kecuali",
+  "kedua",
+  "keduanya",
+  "kegelapan",
+  "kemarin",
+  "kembali",
+  "kemudian",
+  "kepala",
+  "ketiga",
+  "ketika",
+  "kita",
+  "kok",
+  "lagi",
+  "lain",
+  "lainnya",
+  "lalu",
+  "langsung",
+  "lebih",
+  "lho",
+  "luar",
+  "lusa",
+  "maaf",
+  "maka",
+  "malamnya",
+  "mari",
+  "masih",
+  "mata",
+  "mengerikan",
+  "menit",
+  "mereka",
+  "meskipun",
+  "mulai",
+  "nama",
+  "namun",
+  "nanti",
+  "napas",
+  "nomor",
+  "normal",
+  "orang",
+  "pada",
+  "padahal",
+  "paginya",
+  "paling",
+  "pelan-pelan",
+  "per",
+  "pergelangan",
+  "perlahan",
+  "permisi",
+  "persis",
+  "pertama",
+  "pikiran",
+  "puluh",
+  "pun",
+  "rambut",
+  "rambutnya",
+  "rasa",
+  "ratus",
+  "ribu",
+  "saat",
+  "saja",
+  "sama",
+  "sampai",
+  "samping",
+  "sana",
+  "sangat",
+  "saya",
+  "seakan",
+  "sebab",
+  "sebelum",
+  "sebelumnya",
+  "sebenarnya",
+  "sebentar",
+  "sebuah",
+  "sebulan",
+  "sedang",
+  "seekor",
+  "sehingga",
+  "sejenak",
+  "sekarang",
+  "selamat",
+  "selembar",
+  "semakin",
+  "semalaman",
+  "sementara",
+  "semua",
+  "semuanya",
+  "sendiri",
+  "sendirian",
+  "seolah",
+  "seorang",
+  "seperti",
+  "sesaat",
+  "sesekali",
+  "sesuatu",
+  "sesudah",
+  "sesudahnya",
+  "setelah",
+  "setiap",
+  "sewa",
+  "sewanya",
+  "siangnya",
+  "siapa",
+  "siapa-siapa",
+  "sih",
+  "sini",
+  "sisi",
+  "situ",
+  "sorenya",
+  "sosok",
+  "suara",
+  "sudah",
+  "sudut",
+  "sungguh",
+  "supaya",
+  "tadi",
+  "tak",
+  "tangan",
+  "tangannya",
+  "tapi",
+  "tengah",
+  "tepat",
+  "terakhir",
+  "terima",
+  "terkadang",
+  "ternyata",
+  "tersebut",
+  "tetapi",
+  "tiba-tiba",
+  "tidak",
+  "tolong",
+  "tubuh",
+  "tunggu",
+  "ujung",
+  "untuk",
+  "wajah",
+  "wajahnya",
+  "waktu",
+  "walau",
+  "walaupun",
+  "ya",
+  "yang"
+ ],
+ "abstract": [
+  "aturan",
+  "nasihat",
+  "janji",
+  "izin",
+  "kabar",
+  "cerita",
+  "perintah",
+  "tugas",
+  "kesempatan",
+  "waktu",
+  "jawaban",
+  "pertanyaan",
+  "alasan",
+  "peringatan",
+  "salam"
+ ],
+ "generic_places": [
+  "dinding",
+  "gedung",
+  "jalan",
+  "kamar",
+  "kasir",
+  "kota",
+  "lantai",
+  "lorong",
+  "ruang",
+  "ruangan",
+  "sudut kamar",
+  "ujung ruangan"
+ ],
+ "place_hints": {
+  "perawat": "hospital",
+  "suster": "hospital",
+  "dokter": "hospital",
+  "pasien": "hospital",
+  "nurse-desk": "hospital",
+  "wheelchair": "hospital",
+  "iv-stand": "hospital",
+  "pedagang": "market",
+  "penjual": "market",
+  "market-stall": "market",
+  "market-scale": "market",
+  "ibu kos": "kos",
+  "bapak kos": "kos",
+  "karyawan": "office",
+  "pegawai": "office",
+  "penjaga": "coast",
+  "pendaki": "forest",
+  "guru": "school",
+  "murid": "school",
+  "library:sofa": "house",
+  "library:fridge": "house",
+  "library:tv-cabinet": "house",
+  "library:dining-table": "house",
+  "library:coffee-table": "house",
+  "library:kitchen-counter": "house",
+  "library:shoe-rack": "house",
+  "library:wall-photo": "house",
+  "library:bed": "house",
+  "library:blackboard": "school",
+  "library:school-desk": "school",
+  "library:school-chair": "school",
+  "library:notice-board": "school",
+  "library:flagpole": "school",
+  "library:locker-row": "school",
+  "library:office-printer": "office",
+  "library:office-desk": "office",
+  "library:office-chair": "office",
+  "library:filing-cabinet": "office",
+  "library:meeting-table": "office",
+  "library:counter": "shop",
+  "library:qris": "shop",
+  "library:store-shelf": "shop",
+  "library:bookshelf": "library",
+  "library:reading-table": "library",
+  "library:wardrobe": "house"
+ },
+ "implied": {
+  "office": [
+   "office desks with monitors / computers",
+   "office chairs",
+   "ceiling panel lights",
+   "a printer / copier corner",
+   "filing cabinets",
+   "windows with the city outside"
+  ],
+  "hospital": [
+   "nurse station desk",
+   "beds or waiting chairs",
+   "IV stands",
+   "handrails",
+   "ceiling tubes",
+   "door signs"
+  ],
+  "kos": [
+   "bed / mattress",
+   "wardrobe",
+   "small desk",
+   "a corridor of numbered doors",
+   "a yard / gate"
+  ],
+  "house": [
+   "sofa or chairs",
+   "table",
+   "cabinet",
+   "window with curtains",
+   "ceiling lamp"
+  ],
+  "market": [
+   "stalls in rows",
+   "goods on the counters",
+   "string lights / awnings",
+   "shop façades around"
+  ],
+  "forest": [
+   "trees in layers",
+   "bushes and ferns",
+   "a path",
+   "rocks and logs"
+  ],
+  "coast": [
+   "sea",
+   "rocks",
+   "boat",
+   "lighthouse"
+  ],
+  "library": [
+   "bookshelves",
+   "reading tables",
+   "chairs",
+   "ceiling lights"
+  ],
+  "park": [
+   "trees",
+   "benches",
+   "lamp posts",
+   "paths"
+  ],
+  "school": [
+   "desks and chairs in rows",
+   "whiteboard",
+   "teacher's desk",
+   "corridor lockers"
+  ],
+  "street": [
+   "buildings",
+   "sidewalk",
+   "street lamps",
+   "parked vehicles off focus"
+  ]
+ },
+ "generic_subjects": [
+  "otak",
+  "kita",
+  "manusia",
+  "orang",
+  "orang-orang",
+  "fenomena",
+  "ilmuwan",
+  "penelitian",
+  "peneliti",
+  "tubuh",
+  "pikiran",
+  "psikologi",
+  "sains",
+  "cerita-cerita",
+  "banyak",
+  "sebagian",
+  "kebanyakan",
+  "mata",
+  "telinga",
+  "indra"
+ ],
+ "explain_cues": [
+  "disebut",
+  "dinamakan",
+  "dikenal",
+  "artinya",
+  "berarti",
+  "misalnya",
+  "contohnya",
+  "faktanya",
+  "secara",
+  "psikologi",
+  "ilmiah",
+  "penelitian",
+  "fenomena",
+  "teori",
+  "efek",
+  "bias"
+ ]
+}
+==== 1116 project/library/objects/bed.json
+{
+ "id": "bed",
+ "doc": "single bed with a pillow and a folded blanket, headboard at −z; lie on it with <id>:bed",
+ "anchors": {
+  "bed": [
+   0,
+   0.52,
+   0.1
+  ],
+  "head": [
+   0,
+   0.52,
+   -0.75
+  ],
+  "front": [
+   0.75,
+   0,
+   0.2
+  ],
+  "seat": [
+   0.35,
+   0.5,
+   0.25
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.0,
+    0.3,
+    2.0
+   ],
+   "at": [
+    0,
+    0.2,
+    0
+   ],
+   "mat": "wood:#a57a55",
+   "round": 0.03
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.94,
+    0.18,
+    1.92
+   ],
+   "at": [
+    0,
+    0.42,
+    0
+   ],
+   "mat": "fabric:#d9d3c6",
+   "round": 0.06
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.06,
+    0.9,
+    0.08
+   ],
+   "at": [
+    0,
+    0.45,
+    -1.02
+   ],
+   "mat": "wood:#8a6243",
+   "round": 0.03
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.62,
+    0.12,
+    0.36
+   ],
+   "at": [
+    0,
+    0.56,
+    -0.74
+   ],
+   "mat": "fabric:#e0dacd",
+   "round": 0.05
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.96,
+    0.08,
+    0.7
+   ],
+   "at": [
+    0,
+    0.54,
+    0.55
+   ],
+   "mat": "fabric:#7fa7d6",
+   "round": 0.04
+  }
+ ]
+}
+==== 1309 project/library/objects/blackboard.json
+{
+ "id": "blackboard",
+ "doc": "green chalkboard 3.0 × 1.2 m on a wall with a chalk tray, the lesson written on it",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.9
+  ],
+  "tulisan": [
+   0,
+   1.6,
+   0.03
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    3.1,
+    1.3,
+    0.04
+   ],
+   "at": [
+    0,
+    1.55,
+    0
+   ],
+   "mat": "wood:#6a4a2e",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    3.0,
+    1.2,
+    0.02
+   ],
+   "at": [
+    0,
+    1.55,
+    0.02
+   ],
+   "mat": {
+    "color": "#2f4a3a",
+    "roughness": 0.9
+   }
+  },
+  {
+   "shape": "text",
+   "size": [
+    1.6,
+    0.22
+   ],
+   "text": "PELAJARAN HARI INI",
+   "ink": "#e6e2d6",
+   "at": [
+    -0.5,
+    1.95,
+    0.035
+   ],
+   "bg": "#2f4a3a"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.1,
+    0.012,
+    0.004
+   ],
+   "at": [
+    -0.7,
+    1.7,
+    0.035
+   ],
+   "mat": "paint:#e8e4d8",
+   "repeat": {
+    "n": 3,
+    "step": [
+     0.15,
+     -0.16,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.8,
+    0.5,
+    0.004
+   ],
+   "at": [
+    0.9,
+    1.45,
+    0.034
+   ],
+   "mat": {
+    "color": "#3d5a48",
+    "roughness": 0.9
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    2.2,
+    0.03,
+    0.07
+   ],
+   "at": [
+    0,
+    0.88,
+    0.05
+   ],
+   "mat": "wood:#6a4a2e"
+  }
+ ]
+}
+==== 1876 project/library/objects/bookshelf.json
+{
+  "id": "bookshelf",
+  "doc": "wooden bookshelf 1.0 × 1.9 m, five shelves of books; back against a wall, books face +z",
+  "anchors": { "front": [0, 0, 0.75], "books": [0, 1.3, 0.12] },
+  "parts": [
+    { "shape": "box", "size": [0.03, 1.9, 0.34], "at": [0.485, 0.95, 0], "mat": "wood:#7a5534", "mirror": "x" },
+    { "shape": "box", "size": [1.0, 1.9, 0.02], "at": [0, 0.95, -0.16], "mat": "wood:#6a4a2e" },
+    { "shape": "box", "size": [0.94, 0.03, 0.32], "at": [0, 0.04, 0], "mat": "wood:#7a5534", "repeat": { "n": 6, "step": [0, 0.37, 0] } },
+    { "shape": "box", "size": [0.06, 0.27, 0.22], "at": [-0.41, 0.2, 0.01], "mat": "paint:#8a2f2a", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.05, 0.24, 0.22], "at": [-0.34, 0.185, 0.01], "mat": "paint:#2f4f6a", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.06, 0.27, 0.22], "at": [-0.4, 0.57, 0.01], "mat": "paint:#3d5a34", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.05, 0.25, 0.22], "at": [-0.33, 0.56, 0.01], "mat": "paint:#c9a24a", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.06, 0.27, 0.22], "at": [-0.41, 0.94, 0.01], "mat": "paint:#5a3a6a", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.05, 0.23, 0.22], "at": [-0.34, 0.92, 0.01], "mat": "paint:#d8d0c0", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.06, 0.27, 0.22], "at": [-0.4, 1.31, 0.01], "mat": "paint:#2f4f6a", "repeat": { "n": 5, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.05, 0.26, 0.22], "at": [-0.33, 1.3, 0.01], "mat": "paint:#8a2f2a", "repeat": { "n": 4, "step": [0.15, 0, 0] } },
+    { "shape": "box", "size": [0.06, 0.27, 0.22], "at": [-0.41, 1.68, 0.01], "mat": "paint:#3d5a34", "repeat": { "n": 3, "step": [0.15, 0, 0] } }
+  ]
+}
+
+==== 675 project/library/objects/cash.json
+{
+  "id": "cash",
+  "doc": "a small fan of Indonesian banknotes (cash), held in one hand",
+  "hand": true,
+  "anchors": { "grab": [0, 0.02, 0] },
+  "parts": [
+    { "shape": "box", "size": [0.15, 0.012, 0.072], "at": [0, 0.006, 0], "rot": [0, -8, 0], "mat": "paper:#5a8fb0" },
+    { "shape": "box", "size": [0.15, 0.012, 0.072], "at": [0.004, 0.018, 0.004], "rot": [0, 0, 0], "mat": "paper:#c76a5a" },
+    { "shape": "box", "size": [0.15, 0.012, 0.072], "at": [0.008, 0.03, 0.008], "rot": [0, 8, 0], "mat": "paper:#7aa36a" },
+    { "shape": "text", "size": [0.05, 0.03], "text": "Rp", "ink": "#2f4433", "bg": "#7aa36a", "at": [0.03, 0.037, 0.008], "rot": [-90, 8, 0] }
+  ]
+}
+
+==== 1249 project/library/objects/cctv-camera.json
+{
+ "id": "cctv-camera",
+ "doc": "white bullet security camera on a wall bracket, looking down into the room (+z), red REC light",
+ "anchors": {
+  "lens": [
+   0.06,
+   -0.12,
+   0.3
+  ]
+ },
+ "states": {
+  "rec": 1
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.1,
+    0.14,
+    0.015
+   ],
+   "at": [
+    0,
+    0,
+    0.0075
+   ],
+   "mat": "plastic:#cfd0cb"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0,
+    0,
+    0.015
+   ],
+   "to": [
+    0,
+    -0.03,
+    0.13
+   ],
+   "r": 0.014,
+   "mat": "plastic:#cfd0cb"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.085,
+    0.08,
+    0.22
+   ],
+   "at": [
+    0.03,
+    -0.07,
+    0.2
+   ],
+   "rot": [
+    -28,
+    25,
+    0
+   ],
+   "mat": "plastic:#d6d7d2",
+   "round": 0.02
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.1,
+    0.012,
+    0.24
+   ],
+   "at": [
+    0.03,
+    -0.025,
+    0.21
+   ],
+   "rot": [
+    -28,
+    25,
+    0
+   ],
+   "mat": "plastic:#d6d7d2"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.03,
+   "h": 0.012,
+   "at": [
+    0.077,
+    -0.135,
+    0.3
+   ],
+   "rot": [
+    62,
+    25,
+    0
+   ],
+   "mat": "glass"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.007,
+   "at": [
+    0.005,
+    -0.04,
+    0.27
+   ],
+   "mat": "emissive:#ff2a20",
+   "glowState": "rec"
+  }
+ ]
+}
+==== 1283 project/library/objects/cctv-monitor.json
+{
+ "id": "cctv-monitor",
+ "doc": "wall-mounted security (CCTV) monitor 0.58 × 0.36 m on a bracket, screen toward +z; dark when off, shows the camera channel while on",
+ "anchors": {
+  "screen": [
+   0,
+   0,
+   0.11
+  ],
+  "front": [
+   0,
+   -1.7,
+   1
+  ]
+ },
+ "states": {
+  "on": 0
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.22,
+    0.22,
+    0.03
+   ],
+   "at": [
+    0,
+    0,
+    0.015
+   ],
+   "mat": "metal:#2f3236"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.08,
+    0.08,
+    0.03
+   ],
+   "at": [
+    0,
+    0,
+    0.045
+   ],
+   "mat": "metal:#2f3236"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.58,
+    0.36,
+    0.06
+   ],
+   "at": [
+    0,
+    0,
+    0.09
+   ],
+   "mat": "plastic:#141619",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.54,
+    0.31,
+    0.003
+   ],
+   "at": [
+    0,
+    0.005,
+    0.1205
+   ],
+   "mat": "plastic:#07090a"
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.54,
+    0.31
+   ],
+   "at": [
+    0,
+    0.005,
+    0.1225
+   ],
+   "text": "CAM 03 · LT 11 · ● REC",
+   "ink": "#e4f2e2",
+   "bg": "#1c2620",
+   "glowState": "on",
+   "when": "on"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.006,
+   "at": [
+    0.25,
+    -0.165,
+    0.121
+   ],
+   "mat": "emissive:#3aff7a",
+   "glowState": "on"
+  }
+ ]
+}
+==== 1386 project/library/objects/coffee-table.json
+{
+ "id": "coffee-table",
+ "doc": "low wooden coffee table 1.1 × 0.55 m, 0.42 m high, a mug and books on it",
+ "anchors": {
+  "top": [
+   0,
+   0.44,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.7
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.1,
+    0.05,
+    0.55
+   ],
+   "at": [
+    0,
+    0.415,
+    0
+   ],
+   "mat": "wood:#a0784f",
+   "round": 0.012
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.0,
+    0.03,
+    0.45
+   ],
+   "at": [
+    0,
+    0.13,
+    0
+   ],
+   "mat": "wood:#7a5a3a",
+   "round": 0.008
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.05,
+    0.4,
+    0.05
+   ],
+   "at": [
+    0.5,
+    0.2,
+    0.22
+   ],
+   "mat": "wood:#7a5a3a",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.05,
+    0.4,
+    0.05
+   ],
+   "at": [
+    0.5,
+    0.2,
+    -0.22
+   ],
+   "mat": "wood:#7a5a3a",
+   "mirror": "x"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.04,
+   "r2": 0.036,
+   "h": 0.095,
+   "at": [
+    0.25,
+    0.488,
+    0.06
+   ],
+   "mat": "ceramic:#2a9d8f"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.24,
+    0.05,
+    0.17
+   ],
+   "at": [
+    -0.26,
+    0.465,
+    -0.03
+   ],
+   "rot": [
+    0,
+    14,
+    0
+   ],
+   "mat": "paint:#c0392b"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.22,
+    0.04,
+    0.16
+   ],
+   "at": [
+    -0.25,
+    0.51,
+    -0.04
+   ],
+   "rot": [
+    0,
+    -6,
+    0
+   ],
+   "mat": "paint:#f0ad4e"
+  }
+ ]
+}
+==== 769 project/library/objects/counter.json
+{
+  "id": "counter",
+  "doc": "minimarket checkout counter 1.3 x 0.9 m, customer side faces +z, cashier stands behind at -z",
+  "anchors": {
+    "top": [0, 0.95, 0],
+    "front": [0, 0, 0.8],
+    "behind": [0, 0, -0.6]
+  },
+  "parts": [
+    { "shape": "box", "size": [1.3, 0.9, 0.6], "at": [0, 0.45, 0], "mat": "paint:#dfe3e6", "round": 0.02 },
+    { "shape": "box", "size": [1.4, 0.05, 0.68], "at": [0, 0.925, 0], "mat": "wood:#9a7a54", "round": 0.01 },
+    { "shape": "box", "size": [1.3, 0.14, 0.02], "at": [0, 0.12, 0.3], "mat": "paint:#2f6f8a" },
+    { "shape": "box", "size": [1.3, 0.04, 0.02], "at": [0, 0.66, 0.3], "mat": "paint:#2f6f8a" },
+    { "shape": "box", "size": [0.26, 0.16, 0.2], "at": [0.42, 1.04, 0], "mat": "plastic:#4a4f55", "round": 0.02 }
+  ]
+}
+
+==== 1330 project/library/objects/desk-monitor-kerja.json
+{
+ "id": "desk-monitor-kerja",
+ "doc": "24-inch monitor showing a report document (glows while state on = 1), screen facing +z",
+ "anchors": {
+  "screen": [
+   0,
+   0.33,
+   0
+  ],
+  "top": [
+   0,
+   0.5,
+   -0.03
+  ]
+ },
+ "states": {
+  "on": 1
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.24,
+    0.015,
+    0.18
+   ],
+   "at": [
+    0,
+    0.0075,
+    -0.02
+   ],
+   "mat": "plastic:#202226",
+   "round": 0.005
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.05,
+    0.26,
+    0.03
+   ],
+   "at": [
+    0,
+    0.14,
+    -0.07
+   ],
+   "mat": "plastic:#202226"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.56,
+    0.35,
+    0.05
+   ],
+   "at": [
+    0,
+    0.33,
+    -0.035
+   ],
+   "mat": "plastic:#16181b",
+   "round": 0.008
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.53,
+    0.3,
+    0.002
+   ],
+   "at": [
+    0,
+    0.335,
+    -0.008
+   ],
+   "mat": "plastic:#0b0c0e"
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.5,
+    0.05
+   ],
+   "at": [
+    0,
+    0.455,
+    -0.0055
+   ],
+   "text": "LAPORAN.docx",
+   "ink": "#e8eef8",
+   "bg": "#2b4a78",
+   "glowState": "on"
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.5,
+    0.25
+   ],
+   "at": [
+    0,
+    0.305,
+    -0.0055
+   ],
+   "text": "━━━━━━━━━━━━",
+   "ink": "#8d9db4",
+   "bg": "#5d6f88",
+   "glowState": "on"
+  }
+ ]
+}
+==== 999 project/library/objects/desk-monitor.json
+{
+ "id": "desk-monitor",
+ "doc": "24-inch desktop computer monitor on a stand, screen facing +z, switched off",
+ "anchors": {
+  "screen": [
+   0,
+   0.33,
+   0
+  ],
+  "top": [
+   0,
+   0.5,
+   -0.03
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.24,
+    0.015,
+    0.18
+   ],
+   "at": [
+    0,
+    0.0075,
+    -0.02
+   ],
+   "mat": "plastic:#202226",
+   "round": 0.005
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.05,
+    0.26,
+    0.03
+   ],
+   "at": [
+    0,
+    0.14,
+    -0.07
+   ],
+   "mat": "plastic:#202226"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.56,
+    0.35,
+    0.05
+   ],
+   "at": [
+    0,
+    0.33,
+    -0.035
+   ],
+   "mat": "plastic:#16181b",
+   "round": 0.008
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.53,
+    0.3,
+    0.002
+   ],
+   "at": [
+    0,
+    0.335,
+    -0.008
+   ],
+   "mat": "plastic:#0b0c0e"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.53,
+    0.3,
+    0.003
+   ],
+   "at": [
+    0,
+    0.335,
+    -0.0055
+   ],
+   "mat": "glass"
+  }
+ ]
+}
+==== 1089 project/library/objects/dining-table.json
+{
+ "id": "dining-table",
+ "doc": "wooden dining table 1.4 × 0.8 m with a fruit plate; chairs go around it",
+ "anchors": {
+  "top": [
+   0,
+   0.76,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.9
+  ],
+  "plate": [
+   0,
+   0.77,
+   0
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.4,
+    0.05,
+    0.8
+   ],
+   "at": [
+    0,
+    0.74,
+    0
+   ],
+   "mat": "wood:#9a6b43",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.06,
+    0.72,
+    0.06
+   ],
+   "at": [
+    0.63,
+    0.36,
+    0.33
+   ],
+   "mat": "wood:#6e4a2c",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.06,
+    0.72,
+    0.06
+   ],
+   "at": [
+    0.63,
+    0.36,
+    -0.33
+   ],
+   "mat": "wood:#6e4a2c",
+   "mirror": "x"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.16,
+   "r2": 0.12,
+   "h": 0.03,
+   "at": [
+    0,
+    0.78,
+    0
+   ],
+   "mat": "ceramic:#e8e2d6"
+  },
+  {
+   "shape": "pile",
+   "size": [
+    0.22,
+    0.08,
+    0.22
+   ],
+   "count": 7,
+   "r": 0.04,
+   "colors": [
+    "#e63946",
+    "#f4a261",
+    "#e9c46a"
+   ],
+   "at": [
+    0,
+    0.83,
+    0
+   ]
+  }
+ ]
+}
+==== 1056 project/library/objects/filing-cabinet.json
+{
+ "id": "filing-cabinet",
+ "doc": "grey steel four-drawer filing cabinet 0.47 × 1.32 × 0.62 m, drawers toward +z",
+ "anchors": {
+  "top": [
+   0,
+   1.32,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.85
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.47,
+    1.32,
+    0.62
+   ],
+   "at": [
+    0,
+    0.66,
+    0
+   ],
+   "mat": "metal:#7d8287",
+   "round": 0.008
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.43,
+    0.005,
+    0.006
+   ],
+   "at": [
+    0,
+    1,
+    0.311
+   ],
+   "mat": "metal:#4a4e52",
+   "repeat": {
+    "n": 3,
+    "step": [
+     0,
+     -0.32,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.16,
+    0.02,
+    0.025
+   ],
+   "at": [
+    0,
+    1.15,
+    0.32
+   ],
+   "mat": "chrome",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0,
+     -0.32,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.08,
+    0.035,
+    0.004
+   ],
+   "at": [
+    0,
+    1.2,
+    0.312
+   ],
+   "mat": "paper:#d6d0c2",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0,
+     -0.32,
+     0
+    ]
+   }
+  }
+ ]
+}
+==== 907 project/library/objects/flagpole.json
+{
+ "id": "flagpole",
+ "doc": "school flagpole 7 m with the red-and-white flag, on a small concrete base",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   1.6
+  ],
+  "flag": [
+   0.45,
+   6.4,
+   0
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.2,
+    0.3,
+    1.2
+   ],
+   "at": [
+    0,
+    0.15,
+    0
+   ],
+   "mat": "concrete:#b9b4aa",
+   "round": 0.02
+  },
+  {
+   "shape": "cyl",
+   "r": 0.045,
+   "r2": 0.06,
+   "h": 7.0,
+   "at": [
+    0,
+    3.8,
+    0
+   ],
+   "mat": "paint:#e8e6e0"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.08,
+   "at": [
+    0,
+    7.35,
+    0
+   ],
+   "mat": "metal:#c9a45a"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.2,
+    0.4,
+    0.01
+   ],
+   "at": [
+    0.62,
+    6.75,
+    0
+   ],
+   "mat": "cloth:#c0392b"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.2,
+    0.4,
+    0.01
+   ],
+   "at": [
+    0.62,
+    6.35,
+    0
+   ],
+   "mat": "cloth:#e8e4dc"
+  }
+ ]
+}
+==== 992 project/library/objects/fridge.json
+{
+ "id": "fridge",
+ "doc": "two-door fridge 0.7 × 1.7 m, front faces +z",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.7
+  ],
+  "door": [
+   0.28,
+   1.1,
+   0.36
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.7,
+    1.7,
+    0.68
+   ],
+   "at": [
+    0,
+    0.85,
+    0
+   ],
+   "mat": "plastic:#c4c9cd",
+   "round": 0.04
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.68,
+    0.012,
+    0.01
+   ],
+   "at": [
+    0,
+    1.2,
+    0.342
+   ],
+   "mat": "plastic:#9aa0a6"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.27,
+    1.28,
+    0.37
+   ],
+   "to": [
+    0.27,
+    1.55,
+    0.37
+   ],
+   "r": 0.012,
+   "mat": "chrome"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.27,
+    0.7,
+    0.37
+   ],
+   "to": [
+    0.27,
+    1.1,
+    0.37
+   ],
+   "r": 0.012,
+   "mat": "chrome"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.12,
+    0.16,
+    0.01
+   ],
+   "at": [
+    -0.15,
+    1.45,
+    0.346
+   ],
+   "rot": [
+    0,
+    0,
+    6
+   ],
+   "mat": "paper:#e9c46a"
+  }
+ ]
+}
+==== 2083 project/library/objects/kitchen-counter.json
+{
+ "id": "kitchen-counter",
+ "doc": "kitchen counter 2.4 m along a wall: cabinets, a sink and a two-burner gas stove on top, a kettle; front faces +z",
+ "anchors": {
+  "top": [
+   0,
+   0.9,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.75
+  ],
+  "sink": [
+   -0.55,
+   0.9,
+   0.05
+  ],
+  "stove": [
+   0.55,
+   0.9,
+   0.05
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    2.4,
+    0.86,
+    0.6
+   ],
+   "at": [
+    0,
+    0.43,
+    0
+   ],
+   "mat": "paint:#e8e1d3",
+   "round": 0.015
+  },
+  {
+   "shape": "box",
+   "size": [
+    2.46,
+    0.04,
+    0.64
+   ],
+   "at": [
+    0,
+    0.88,
+    0.01
+   ],
+   "mat": "stone:#5f6b73",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.56,
+    0.7,
+    0.01
+   ],
+   "at": [
+    -0.9,
+    0.42,
+    0.302
+   ],
+   "mat": "paint:#d6cdbd",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0.6,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.5,
+    0.06,
+    0.38
+   ],
+   "at": [
+    -0.55,
+    0.875,
+    0.03
+   ],
+   "mat": "chrome"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    -0.55,
+    0.9,
+    -0.22
+   ],
+   "to": [
+    -0.55,
+    1.12,
+    -0.1
+   ],
+   "r": 0.012,
+   "mat": "chrome"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.62,
+    0.06,
+    0.4
+   ],
+   "at": [
+    0.55,
+    0.93,
+    0.02
+   ],
+   "mat": "metal:#2b2d33",
+   "round": 0.01
+  },
+  {
+   "shape": "torus",
+   "R": 0.08,
+   "r": 0.012,
+   "at": [
+    0.4,
+    0.965,
+    0.02
+   ],
+   "rot": [
+    90,
+    0,
+    0
+   ],
+   "mat": "metal:#555a60",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0.3,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "lathe",
+   "profile": [
+    [
+     0.0,
+     0
+    ],
+    [
+     0.09,
+     0
+    ],
+    [
+     0.1,
+     0.06
+    ],
+    [
+     0.09,
+     0.16
+    ],
+    [
+     0.04,
+     0.2
+    ],
+    [
+     0.0,
+     0.2
+    ]
+   ],
+   "at": [
+    0.4,
+    0.965,
+    0.02
+   ],
+   "mat": "metal:#c0392b"
+  },
+  {
+   "shape": "box",
+   "size": [
+    2.4,
+    0.6,
+    0.32
+   ],
+   "at": [
+    0,
+    1.85,
+    -0.14
+   ],
+   "mat": "paint:#e8e1d3",
+   "round": 0.015
+  }
+ ]
+}
+==== 1642 project/library/objects/laptop.json
+{
+ "id": "laptop",
+ "doc": "silver laptop, keyboard toward +z; states: open (lid up, screen glows while on) / closed (lid shut)",
+ "anchors": {
+  "top": [
+   0,
+   0.03,
+   0
+  ],
+  "lid": [
+   0,
+   0.2043,
+   -0.1435
+  ],
+  "keys": [
+   0,
+   0.025,
+   0.03
+  ],
+  "screen": [
+   0,
+   0.1243,
+   -0.1335
+  ]
+ },
+ "states": {
+  "open": 1,
+  "closed": 0,
+  "on": 1
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.34,
+    0.018,
+    0.23
+   ],
+   "at": [
+    0,
+    0.009,
+    0
+   ],
+   "mat": "aluminium",
+   "round": 0.004
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.3,
+    0.002,
+    0.11
+   ],
+   "at": [
+    0,
+    0.0185,
+    -0.03
+   ],
+   "mat": "plastic:#1d1f23"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.1,
+    0.002,
+    0.06
+   ],
+   "at": [
+    0,
+    0.0185,
+    0.075
+   ],
+   "mat": "plastic:#2c2f34"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.34,
+    0.008,
+    0.23
+   ],
+   "at": [
+    0,
+    0.1243,
+    -0.1435
+   ],
+   "rot": [
+    -105,
+    0,
+    0
+   ],
+   "mat": "aluminium",
+   "when": "open",
+   "round": 0.003
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.31,
+    0.19
+   ],
+   "at": [
+    0,
+    0.1254,
+    -0.1391
+   ],
+   "rot": [
+    -15,
+    0,
+    0
+   ],
+   "text": "LAPORAN — FINAL",
+   "ink": "#e6edf8",
+   "bg": "#36527c",
+   "glowState": "on",
+   "when": "open"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.34,
+    0.008,
+    0.23
+   ],
+   "at": [
+    0,
+    0.022,
+    0
+   ],
+   "mat": "aluminium",
+   "when": "closed",
+   "round": 0.003
+  },
+  {
+   "shape": "sphere",
+   "r": 0.003,
+   "at": [
+    0.15,
+    0.0185,
+    0.105
+   ],
+   "mat": "emissive:#7fe0ff"
+  }
+ ]
+}
+==== 997 project/library/objects/locker-row.json
+{
+ "id": "locker-row",
+ "doc": "a row of four grey school lockers 1.6 × 1.8 m, front faces +z",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.6
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.6,
+    1.8,
+    0.45
+   ],
+   "at": [
+    0,
+    0.9,
+    0
+   ],
+   "mat": "metal:#8a939c",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.37,
+    1.72,
+    0.01
+   ],
+   "at": [
+    -0.6,
+    0.9,
+    0.226
+   ],
+   "mat": "metal:#9aa3ac",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0.4,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.2,
+    0.012,
+    0.004
+   ],
+   "at": [
+    -0.6,
+    1.55,
+    0.232
+   ],
+   "mat": "metal:#5f6870",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0.4,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.02,
+    0.08,
+    0.02
+   ],
+   "at": [
+    -0.47,
+    1.0,
+    0.235
+   ],
+   "mat": "chrome",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0.4,
+     0,
+     0
+    ]
+   }
+  }
+ ]
+}
+==== 834 project/library/objects/meeting-table.json
+{
+ "id": "meeting-table",
+ "doc": "long meeting-room table 2.4 × 1.1 m, top 0.75 m, two pedestal legs",
+ "anchors": {
+  "top": [
+   0,
+   0.75,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   1.1
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    2.4,
+    0.04,
+    1.1
+   ],
+   "at": [
+    0,
+    0.73,
+    0
+   ],
+   "mat": "wood:#4e3b2c",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.12,
+    0.7,
+    0.6
+   ],
+   "at": [
+    0.75,
+    0.36,
+    0
+   ],
+   "mat": "metal:#3a3d42",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.5,
+    0.03,
+    0.8
+   ],
+   "at": [
+    0.75,
+    0.015,
+    0
+   ],
+   "mat": "metal:#3a3d42",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.3,
+    0.01,
+    0.12
+   ],
+   "at": [
+    0,
+    0.755,
+    0
+   ],
+   "mat": "plastic:#202226"
+  }
+ ]
+}
+==== 1316 project/library/objects/notice-board.json
+{
+ "id": "notice-board",
+ "doc": "cork notice board (mading) 1.4 × 0.9 m with pinned papers, on a wall",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.8
+  ],
+  "poster": [
+   0.2,
+   1.55,
+   0.03
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.44,
+    0.94,
+    0.04
+   ],
+   "at": [
+    0,
+    1.5,
+    0
+   ],
+   "mat": "wood:#6a4a2e",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.36,
+    0.86,
+    0.02
+   ],
+   "at": [
+    0,
+    1.5,
+    0.015
+   ],
+   "mat": {
+    "color": "#b98a5a",
+    "roughness": 0.95,
+    "texture": "noise"
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.3,
+    0.4,
+    0.004
+   ],
+   "at": [
+    -0.45,
+    1.55,
+    0.03
+   ],
+   "rot": [
+    0,
+    0,
+    -4
+   ],
+   "mat": "paper:#ddd6c6"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.34,
+    0.26,
+    0.004
+   ],
+   "at": [
+    0.05,
+    1.68,
+    0.03
+   ],
+   "rot": [
+    0,
+    0,
+    3
+   ],
+   "mat": "paper:#e9c46a"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.28,
+    0.36,
+    0.004
+   ],
+   "at": [
+    0.45,
+    1.42,
+    0.03
+   ],
+   "rot": [
+    0,
+    0,
+    -2
+   ],
+   "mat": "paper:#a8dadc"
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.5,
+    0.12
+   ],
+   "text": "MADING",
+   "ink": "#1d3557",
+   "bg": "#f1faee",
+   "at": [
+    0,
+    1.88,
+    0.034
+   ]
+  }
+ ]
+}
+==== 1818 project/library/objects/office-chair.json
+{
+ "id": "office-chair",
+ "doc": "black swivel office chair on a five-star base with castors; sits facing +z, backrest at −z",
+ "anchors": {
+  "seat": [
+   0,
+   0.5,
+   0.03
+  ],
+  "front": [
+   0,
+   0,
+   0.6
+  ]
+ },
+ "parts": [
+  {
+   "shape": "rod",
+   "from": [
+    0,
+    0.07,
+    0
+   ],
+   "to": [
+    0,
+    0.07,
+    0.3
+   ],
+   "r": 0.02,
+   "mat": "plastic:#26282c",
+   "repeat": {
+    "n": 5,
+    "stepRot": [
+     0,
+     72,
+     0
+    ],
+    "around": true
+   }
+  },
+  {
+   "shape": "sphere",
+   "r": 0.03,
+   "at": [
+    0,
+    0.03,
+    0.3
+   ],
+   "mat": "rubber",
+   "repeat": {
+    "n": 5,
+    "stepRot": [
+     0,
+     72,
+     0
+    ],
+    "around": true
+   }
+  },
+  {
+   "shape": "cyl",
+   "r": 0.03,
+   "h": 0.36,
+   "at": [
+    0,
+    0.25,
+    0
+   ],
+   "mat": "chrome"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.045,
+   "h": 0.1,
+   "at": [
+    0,
+    0.12,
+    0
+   ],
+   "mat": "plastic:#26282c"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.5,
+    0.08,
+    0.48
+   ],
+   "at": [
+    0,
+    0.47,
+    0.02
+   ],
+   "mat": "cloth:#2b2f36",
+   "round": 0.03
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.06,
+    0.32,
+    0.04
+   ],
+   "at": [
+    0,
+    0.6,
+    -0.24
+   ],
+   "mat": "plastic:#26282c"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.46,
+    0.52,
+    0.07
+   ],
+   "at": [
+    0,
+    0.88,
+    -0.27
+   ],
+   "rot": [
+    -8,
+    0,
+    0
+   ],
+   "mat": "cloth:#2b2f36",
+   "round": 0.03
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.23,
+    0.5,
+    -0.12
+   ],
+   "to": [
+    0.25,
+    0.68,
+    -0.06
+   ],
+   "r": 0.014,
+   "mat": "plastic:#26282c",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.06,
+    0.03,
+    0.26
+   ],
+   "at": [
+    0.25,
+    0.69,
+    0.02
+   ],
+   "mat": "plastic:#26282c",
+   "mirror": "x",
+   "round": 0.01
+  }
+ ]
+}
+==== 2597 project/library/objects/office-desk.json
+{
+ "id": "office-desk",
+ "doc": "office workstation desk 1.4 × 0.7 m, top 0.75 m, metal side panels, fabric privacy screen at the back (−z); the user sits on the +z side",
+ "anchors": {
+  "top": [
+   0,
+   0.75,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.95
+  ],
+  "monitor": [
+   0,
+   0.75,
+   -0.2
+  ],
+  "laptop": [
+   0.3,
+   0.75,
+   0.17
+  ],
+  "papers": [
+   -0.4,
+   0.752,
+   0.12
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.4,
+    0.03,
+    0.7
+   ],
+   "at": [
+    0,
+    0.735,
+    0
+   ],
+   "mat": "wood:#b9a68a",
+   "round": 0.006
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.03,
+    0.72,
+    0.62
+   ],
+   "at": [
+    0.66,
+    0.36,
+    0
+   ],
+   "mat": "metal:#5c6066",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.3,
+    0.36,
+    0.02
+   ],
+   "at": [
+    0,
+    0.5,
+    -0.31
+   ],
+   "mat": "metal:#5c6066"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.4,
+    0.4,
+    0.03
+   ],
+   "at": [
+    0,
+    0.95,
+    -0.335
+   ],
+   "mat": "cloth:#5d6b73",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.42,
+    0.02,
+    0.04
+   ],
+   "at": [
+    0,
+    1.16,
+    -0.335
+   ],
+   "mat": "aluminium"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.4,
+    0.55,
+    0.5
+   ],
+   "at": [
+    0.42,
+    0.3,
+    -0.02
+   ],
+   "mat": "metal:#6a6f75",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.38,
+    0.003,
+    0.005
+   ],
+   "at": [
+    0.42,
+    0.42,
+    0.231
+   ],
+   "mat": "metal:#3a3d41",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0,
+     -0.18,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.12,
+    0.015,
+    0.015
+   ],
+   "at": [
+    0.42,
+    0.47,
+    0.235
+   ],
+   "mat": "chrome",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0,
+     -0.18,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.22,
+    0.03,
+    0.3
+   ],
+   "at": [
+    -0.42,
+    0.765,
+    0.1
+   ],
+   "rot": [
+    0,
+    8,
+    0
+   ],
+   "mat": "paper:#d6d0c2"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.04,
+   "r2": 0.035,
+   "h": 0.1,
+   "at": [
+    -0.6,
+    0.8,
+    -0.14
+   ],
+   "mat": "ceramic:#7c3b32"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.035,
+   "h": 0.11,
+   "at": [
+    0.6,
+    0.805,
+    -0.2
+   ],
+   "mat": "plastic:#2b2e33"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.6,
+    0.8,
+    -0.2
+   ],
+   "to": [
+    0.58,
+    0.93,
+    -0.19
+   ],
+   "r": 0.004,
+   "mat": "plastic:#2a59a8"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.61,
+    0.8,
+    -0.21
+   ],
+   "to": [
+    0.63,
+    0.92,
+    -0.22
+   ],
+   "r": 0.004,
+   "mat": "plastic:#a83a2a"
+  }
+ ]
+}
+==== 4175 project/library/objects/office-printer.json
+{
+ "id": "office-printer",
+ "doc": "floor-standing multifunction office printer/copier 0.6 × 1.07 m, paper drawers below, scanner lid on top, output slot and tray at the front (+z); paper emerging in steps k1..k6; panel + LED glow while 'aktif'",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.98
+  ],
+  "tray": [
+   0,
+   0.742,
+   0.44
+  ],
+  "panel": [
+   0.16,
+   1.08,
+   0.24
+  ],
+  "top": [
+   0,
+   1.07,
+   0
+  ]
+ },
+ "states": {
+  "aktif": 0,
+  "k1": 0,
+  "k2": 0,
+  "k3": 0,
+  "k4": 0,
+  "k5": 0,
+  "k6": 0
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.6,
+    0.44,
+    0.58
+   ],
+   "at": [
+    0,
+    0.24,
+    0
+   ],
+   "mat": "plastic:#c8c9c3",
+   "round": 0.012
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.62,
+    0.03,
+    0.6
+   ],
+   "at": [
+    0,
+    0.015,
+    0
+   ],
+   "mat": "plastic:#3a3c40"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.56,
+    0.004,
+    0.006
+   ],
+   "at": [
+    0,
+    0.32,
+    0.291
+   ],
+   "mat": "plastic:#55575b",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0,
+     -0.14,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.22,
+    0.02,
+    0.02
+   ],
+   "at": [
+    0,
+    0.39,
+    0.295
+   ],
+   "mat": "plastic:#55575b",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0,
+     -0.14,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.6,
+    0.48,
+    0.58
+   ],
+   "at": [
+    0,
+    0.7,
+    0
+   ],
+   "mat": "plastic:#d3d4ce",
+   "round": 0.012
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.26,
+    0.012,
+    0.006
+   ],
+   "at": [
+    0,
+    0.742,
+    0.291
+   ],
+   "mat": "plastic:#141517"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.27,
+    0.008,
+    0.3
+   ],
+   "at": [
+    0,
+    0.736,
+    0.44
+   ],
+   "mat": "plastic:#a9aba6",
+   "round": 0.003
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.012,
+    0.03,
+    0.3
+   ],
+   "at": [
+    0.14,
+    0.75,
+    0.44
+   ],
+   "mat": "plastic:#a9aba6",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.6,
+    0.13,
+    0.58
+   ],
+   "at": [
+    0,
+    1.005,
+    0
+   ],
+   "mat": "plastic:#c3c4be",
+   "round": 0.012
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.62,
+    0.012,
+    0.6
+   ],
+   "at": [
+    0,
+    1.076,
+    0
+   ],
+   "mat": "plastic:#4a4c50",
+   "round": 0.004
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.26,
+    0.03,
+    0.14
+   ],
+   "at": [
+    0.16,
+    1.06,
+    0.26
+   ],
+   "rot": [
+    22,
+    0,
+    0
+   ],
+   "mat": "plastic:#3b3d41",
+   "round": 0.006
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.16,
+    0.08
+   ],
+   "at": [
+    0.16,
+    1.0752,
+    0.2662
+   ],
+   "rot": [
+    -68,
+    0,
+    0
+   ],
+   "text": "MENCETAK",
+   "ink": "#c8ffe8",
+   "bg": "#10302a",
+   "glowState": "aktif"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.008,
+   "at": [
+    0.265,
+    1.074,
+    0.29
+   ],
+   "mat": "emissive:#ff9a3a"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.009,
+   "at": [
+    -0.24,
+    1.03,
+    0.292
+   ],
+   "mat": "emissive:#2dff8a",
+   "glowState": "aktif"
+  },
+  {
+   "shape": "text",
+   "size": [
+    0.16,
+    0.035
+   ],
+   "at": [
+    -0.17,
+    0.88,
+    0.291
+   ],
+   "text": "OFFICEJET",
+   "ink": "#3c3e42",
+   "bg": "#d3d4ce"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.191
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k1"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.2405
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k2"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.29
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k3"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.3395
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k4"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.389
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k5"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.21,
+    0.003,
+    0.297
+   ],
+   "at": [
+    0,
+    0.744,
+    0.4385
+   ],
+   "mat": "paper:#d9d4c8",
+   "when": "k6"
+  }
+ ]
+}
+==== 861 project/library/objects/park-bench.json
+{
+  "id": "park-bench",
+  "doc": "park bench 1.6 m, wooden slats on dark iron sides; sits facing +z",
+  "anchors": { "seat": [0, 0.45, 0.04], "front": [0, 0, 0.75] },
+  "parts": [
+    { "shape": "box", "size": [1.6, 0.03, 0.1], "at": [0, 0.44, 0.17], "mat": "wood:#9a6a3c", "repeat": { "n": 4, "step": [0, 0, -0.11] } },
+    { "shape": "box", "size": [1.6, 0.09, 0.025], "at": [0, 0.6, -0.2], "rot": [-12, 0, 0], "mat": "wood:#9a6a3c", "repeat": { "n": 3, "step": [0, 0.12, -0.025] } },
+    { "shape": "box", "size": [0.05, 0.44, 0.05], "at": [0.72, 0.22, 0.18], "mat": "metal:#2a2c2e", "mirror": "x" },
+    { "shape": "box", "size": [0.05, 0.86, 0.05], "at": [0.72, 0.43, -0.2], "rot": [-8, 0, 0], "mat": "metal:#2a2c2e", "mirror": "x" },
+    { "shape": "box", "size": [0.05, 0.04, 0.46], "at": [0.72, 0.62, 0.0], "mat": "metal:#2a2c2e", "mirror": "x" }
+  ]
+}
+
+==== 1175 project/library/objects/potted-plant.json
+{
+ "id": "potted-plant",
+ "doc": "office potted plant: dark ceramic pot with a leafy plant, ~1.2 m tall",
+ "parts": [
+  {
+   "shape": "lathe",
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.16,
+     0
+    ],
+    [
+     0.2,
+     0.36
+    ],
+    [
+     0.21,
+     0.38
+    ],
+    [
+     0,
+     0.38
+    ]
+   ],
+   "mat": "ceramic:#2e3236"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.19,
+   "h": 0.02,
+   "at": [
+    0,
+    0.36,
+    0
+   ],
+   "mat": "dirt:#3a2c20"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0,
+    0.36,
+    0
+   ],
+   "to": [
+    0.03,
+    0.8,
+    0.02
+   ],
+   "r": 0.015,
+   "mat": "bark"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.2,
+   "at": [
+    0.05,
+    0.85,
+    0.02
+   ],
+   "scale": [
+    1,
+    1.2,
+    1
+   ],
+   "mat": "leaf:#3c5a34"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.16,
+   "at": [
+    -0.12,
+    0.72,
+    0.08
+   ],
+   "scale": [
+    1.1,
+    1,
+    1
+   ],
+   "mat": "leaf:#476a3c"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.15,
+   "at": [
+    0.14,
+    1.05,
+    -0.06
+   ],
+   "mat": "leaf:#36522f"
+  },
+  {
+   "shape": "sphere",
+   "r": 0.13,
+   "at": [
+    -0.06,
+    1.12,
+    0.07
+   ],
+   "mat": "leaf:#41613a"
+  }
+ ]
+}
+==== 883 project/library/objects/qris.json
+{
+  "id": "qris",
+  "doc": "small QRIS payment standee for a checkout counter: a white sign card with a QR code on a short stand; screen panel glows",
+  "anchors": { "front": [0, 0, 0.2] },
+  "states": { "screen": 1 },
+  "parts": [
+    { "shape": "box", "size": [0.14, 0.02, 0.1], "at": [0, 0.01, 0], "mat": "plastic:#2f3337" },
+    { "shape": "rod", "from": [0, 0.02, 0], "to": [0, 0.2, 0], "r": 0.012, "mat": "metal:#9a9da0" },
+    { "shape": "box", "size": [0.18, 0.22, 0.012], "at": [0, 0.31, 0], "mat": "paper:#e6e2d6" },
+    { "shape": "text", "size": [0.14, 0.04], "text": "QRIS", "ink": "#2f3337", "bg": "#e6e2d6", "at": [0, 0.4, 0.008] },
+    { "shape": "box", "size": [0.12, 0.12, 0.004], "at": [0, 0.29, 0.009], "mat": "paint:#2f3337" },
+    { "shape": "box", "size": [0.085, 0.085, 0.006], "at": [0, 0.29, 0.011], "mat": "emissive:#bfe8ff", "glowState": "screen" }
+  ]
+}
+
+==== 1634 project/library/objects/reading-table.json
+{
+  "id": "reading-table",
+  "doc": "wooden reading table 1.6 \u00d7 0.8 m, 0.76 m high",
+  "anchors": {
+    "top": [
+      0,
+      0.765,
+      0
+    ],
+    "front": [
+      0,
+      0,
+      0.9
+    ],
+    "papers": [
+      0.15,
+      0.77,
+      0.27
+    ]
+  },
+  "parts": [
+    {
+      "shape": "box",
+      "size": [
+        1.6,
+        0.05,
+        0.8
+      ],
+      "at": [
+        0,
+        0.74,
+        0
+      ],
+      "mat": "wood:#8a6440",
+      "round": 0.01
+    },
+    {
+      "shape": "box",
+      "size": [
+        0.06,
+        0.72,
+        0.06
+      ],
+      "at": [
+        0.72,
+        0.36,
+        0.33
+      ],
+      "mat": "wood:#6a4a2e",
+      "mirror": "x"
+    },
+    {
+      "shape": "box",
+      "size": [
+        0.06,
+        0.72,
+        0.06
+      ],
+      "at": [
+        0.72,
+        0.36,
+        -0.33
+      ],
+      "mat": "wood:#6a4a2e",
+      "mirror": "x"
+    },
+    {
+      "shape": "box",
+      "size": [
+        1.4,
+        0.08,
+        0.03
+      ],
+      "at": [
+        0,
+        0.66,
+        0.36
+      ],
+      "mat": "wood:#6a4a2e",
+      "mirror": "z"
+    },
+    {
+      "shape": "box",
+      "size": [
+        0.22,
+        0.008,
+        0.3
+      ],
+      "at": [
+        0.15,
+        0.769,
+        0.24
+      ],
+      "rot": [
+        0,
+        12,
+        0
+      ],
+      "mat": "paper:#ddd6c6"
+    },
+    {
+      "shape": "box",
+      "size": [
+        0.17,
+        0.05,
+        0.24
+      ],
+      "at": [
+        -0.45,
+        0.79,
+        -0.1
+      ],
+      "rot": [
+        0,
+        -20,
+        0
+      ],
+      "mat": "paint:#2f4f6a"
+    }
+  ]
+}
+==== 932 project/library/objects/school-chair.json
+{
+ "id": "school-chair",
+ "doc": "school chair with a blue plastic seat and back on a steel frame, sits facing +z",
+ "anchors": {
+  "seat": [
+   0,
+   0.45,
+   0.02
+  ],
+  "front": [
+   0,
+   0,
+   0.55
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.4,
+    0.03,
+    0.38
+   ],
+   "at": [
+    0,
+    0.44,
+    0
+   ],
+   "mat": "plastic:#3e7cb1",
+   "round": 0.01
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.4,
+    0.26,
+    0.03
+   ],
+   "at": [
+    0,
+    0.72,
+    -0.19
+   ],
+   "rot": [
+    -6,
+    0,
+    0
+   ],
+   "mat": "plastic:#3e7cb1",
+   "round": 0.01
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.18,
+    0,
+    0.17
+   ],
+   "to": [
+    0.18,
+    0.43,
+    0.17
+   ],
+   "r": 0.012,
+   "mat": "steel",
+   "mirror": "x"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.18,
+    0,
+    -0.17
+   ],
+   "to": [
+    0.18,
+    0.86,
+    -0.2
+   ],
+   "r": 0.012,
+   "mat": "steel",
+   "mirror": "x"
+  }
+ ]
+}
+==== 1170 project/library/objects/school-desk.json
+{
+ "id": "school-desk",
+ "doc": "school desk with a shelf under the top, 0.65 × 0.45 m, 0.72 m high; the pupil sits at +z facing −z… place it with yaw so its +z side faces the pupil",
+ "anchors": {
+  "top": [
+   0,
+   0.73,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.55
+  ],
+  "book": [
+   0,
+   0.735,
+   0.08
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.65,
+    0.035,
+    0.45
+   ],
+   "at": [
+    0,
+    0.715,
+    0
+   ],
+   "mat": "wood:#c89a6a",
+   "round": 0.008
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.6,
+    0.012,
+    0.38
+   ],
+   "at": [
+    0,
+    0.6,
+    -0.02
+   ],
+   "mat": "metal:#3a3d44"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.29,
+    0,
+    0.19
+   ],
+   "to": [
+    0.29,
+    0.7,
+    0.19
+   ],
+   "r": 0.015,
+   "mat": "steel",
+   "mirror": "x"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0.29,
+    0,
+    -0.19
+   ],
+   "to": [
+    0.29,
+    0.7,
+    -0.19
+   ],
+   "r": 0.015,
+   "mat": "steel",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.22,
+    0.02,
+    0.3
+   ],
+   "at": [
+    0.05,
+    0.743,
+    0.06
+   ],
+   "rot": [
+    0,
+    -8,
+    0
+   ],
+   "mat": "paper:#ddd6c6"
+  }
+ ]
+}
+==== 792 project/library/objects/shoe-rack.json
+{
+ "id": "shoe-rack",
+ "doc": "small shoe rack by a front door with two pairs of sandals",
+ "anchors": {
+  "top": [
+   0,
+   0.42,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   0.5
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.8,
+    0.03,
+    0.3
+   ],
+   "at": [
+    0,
+    0.4,
+    0
+   ],
+   "mat": "wood:#8a6243",
+   "repeat": {
+    "n": 2,
+    "step": [
+     0,
+     -0.2,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.03,
+    0.42,
+    0.3
+   ],
+   "at": [
+    0.385,
+    0.21,
+    0
+   ],
+   "mat": "wood:#6a4a2e",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.1,
+    0.025,
+    0.25
+   ],
+   "at": [
+    -0.2,
+    0.43,
+    0
+   ],
+   "mat": "rubber",
+   "repeat": {
+    "n": 4,
+    "step": [
+     0.13,
+     0,
+     0
+    ]
+   }
+  }
+ ]
+}
+==== 1448 project/library/objects/sofa.json
+{
+ "id": "sofa",
+ "doc": "three-seat fabric sofa 2.0 m wide, sits facing +z (backrest at −z)",
+ "anchors": {
+  "seat": [
+   -0.45,
+   0.46,
+   0.08
+  ],
+  "seat2": [
+   0.45,
+   0.46,
+   0.08
+  ],
+  "front": [
+   0,
+   0,
+   0.85
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    2.0,
+    0.26,
+    0.86
+   ],
+   "at": [
+    0,
+    0.24,
+    0
+   ],
+   "mat": "fabric:#5b7fa6",
+   "round": 0.06
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.84,
+    0.12,
+    0.62
+   ],
+   "at": [
+    0,
+    0.42,
+    0.09
+   ],
+   "mat": "fabric:#6a8fb6",
+   "round": 0.05
+  },
+  {
+   "shape": "box",
+   "size": [
+    2.0,
+    0.52,
+    0.2
+   ],
+   "at": [
+    0,
+    0.6,
+    -0.33
+   ],
+   "mat": "fabric:#5b7fa6",
+   "round": 0.08
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.17,
+    0.46,
+    0.86
+   ],
+   "at": [
+    0.915,
+    0.37,
+    0
+   ],
+   "mat": "fabric:#5b7fa6",
+   "round": 0.07,
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.42,
+    0.36,
+    0.13
+   ],
+   "at": [
+    0.62,
+    0.62,
+    -0.16
+   ],
+   "rot": [
+    -14,
+    -8,
+    3
+   ],
+   "mat": "fabric:#e9c46a",
+   "round": 0.06
+  },
+  {
+   "shape": "cyl",
+   "r": 0.025,
+   "r2": 0.02,
+   "h": 0.08,
+   "at": [
+    0.92,
+    0.04,
+    0.36
+   ],
+   "mat": "darkwood",
+   "mirror": "x"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.025,
+   "r2": 0.02,
+   "h": 0.08,
+   "at": [
+    0.92,
+    0.04,
+    -0.36
+   ],
+   "mat": "darkwood",
+   "mirror": "x"
+  }
+ ]
+}
+==== 1229 project/library/objects/standing-fan.json
+{
+ "id": "standing-fan",
+ "doc": "standing electric fan (kipas angin) 1.3 m tall, faces +z",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.6
+  ]
+ },
+ "parts": [
+  {
+   "shape": "cyl",
+   "r": 0.2,
+   "r2": 0.22,
+   "h": 0.04,
+   "at": [
+    0,
+    0.02,
+    0
+   ],
+   "mat": "plastic:#cdc8be"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    0,
+    0.04,
+    0
+   ],
+   "to": [
+    0,
+    1.05,
+    0
+   ],
+   "r": 0.02,
+   "mat": "plastic:#cdc8be"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.14,
+    0.14,
+    0.18
+   ],
+   "at": [
+    0,
+    1.12,
+    -0.05
+   ],
+   "mat": "plastic:#cdc8be",
+   "round": 0.04
+  },
+  {
+   "shape": "torus",
+   "R": 0.22,
+   "r": 0.012,
+   "at": [
+    0,
+    1.12,
+    0.08
+   ],
+   "mat": "plastic:#cdc8be"
+  },
+  {
+   "shape": "rod",
+   "from": [
+    -0.22,
+    1.12,
+    0.08
+   ],
+   "to": [
+    0.22,
+    1.12,
+    0.08
+   ],
+   "r": 0.004,
+   "mat": "plastic:#cdc8be",
+   "repeat": {
+    "n": 4,
+    "stepRot": [
+     0,
+     0,
+     45
+    ],
+    "around": false
+   }
+  },
+  {
+   "shape": "sphere",
+   "r": 0.17,
+   "scale": [
+    1,
+    1,
+    0.12
+   ],
+   "at": [
+    0,
+    1.12,
+    0.06
+   ],
+   "mat": {
+    "color": "#8ecae6",
+    "opacity": 0.55,
+    "roughness": 0.3
+   }
+  }
+ ]
+}
+==== 1221 project/library/objects/store-shelf.json
+{
+  "id": "store-shelf",
+  "doc": "minimarket gondola shelf 1.0 x 1.7 m, four shelves of colourful packaged goods facing +z; back against a wall",
+  "anchors": { "front": [0, 0, 0.6] },
+  "parts": [
+    { "shape": "box", "size": [0.03, 1.7, 0.42], "at": [0.485, 0.85, 0], "mat": "metal:#c9ccce", "mirror": "x" },
+    { "shape": "box", "size": [1.0, 1.7, 0.02], "at": [0, 0.85, -0.2], "mat": "paint:#eef1f2" },
+    { "shape": "box", "size": [0.96, 0.03, 0.4], "at": [0, 0.06, 0], "mat": "metal:#d4d7d9", "repeat": { "n": 5, "step": [0, 0.4, 0] } },
+    { "shape": "pile", "size": [0.9, 0.16, 0.28], "at": [0, 0.17, 0.02], "count": 16, "r": 0.055, "colors": ["#d8402f", "#2f6f8a", "#e0a324", "#3d8a4a"], "seed": 1 },
+    { "shape": "pile", "size": [0.9, 0.16, 0.28], "at": [0, 0.57, 0.02], "count": 16, "r": 0.055, "colors": ["#e0a324", "#8a3f7a", "#2f8a7a", "#d8402f"], "seed": 2 },
+    { "shape": "pile", "size": [0.9, 0.16, 0.28], "at": [0, 0.97, 0.02], "count": 16, "r": 0.055, "colors": ["#3d8a4a", "#d8402f", "#2f6f8a", "#e0a324"], "seed": 3 },
+    { "shape": "pile", "size": [0.9, 0.16, 0.28], "at": [0, 1.37, 0.02], "count": 16, "r": 0.055, "colors": ["#2f6f8a", "#e0a324", "#8a3f7a", "#3d8a4a"], "seed": 4 }
+  ]
+}
+
+==== 1300 project/library/objects/tv-cabinet.json
+{
+ "id": "tv-cabinet",
+ "doc": "low TV cabinet 1.6 m with a flat TV on top (screen glows with state 'on'); front faces +z",
+ "anchors": {
+  "top": [
+   0,
+   0.5,
+   0
+  ],
+  "front": [
+   0,
+   0,
+   1.4
+  ],
+  "screen": [
+   0,
+   0.95,
+   0.03
+  ]
+ },
+ "states": {
+  "on": 0
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.6,
+    0.48,
+    0.42
+   ],
+   "at": [
+    0,
+    0.26,
+    0
+   ],
+   "mat": "wood:#8a6243",
+   "round": 0.02
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.76,
+    0.38,
+    0.01
+   ],
+   "at": [
+    0.39,
+    0.26,
+    0.212
+   ],
+   "mat": "wood:#a57a55",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.24,
+    0.72,
+    0.05
+   ],
+   "at": [
+    0,
+    0.94,
+    0.0
+   ],
+   "mat": "plastic:#1a1c20",
+   "round": 0.012
+  },
+  {
+   "shape": "plane",
+   "size": [
+    1.18,
+    0.66
+   ],
+   "at": [
+    0,
+    0.94,
+    0.027
+   ],
+   "mat": {
+    "color": "#0d1520",
+    "emissive": "#5a8fd8",
+    "roughness": 0.2
+   },
+   "glowState": "on"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.3,
+    0.02,
+    0.18
+   ],
+   "at": [
+    0,
+    0.51,
+    0.0
+   ],
+   "mat": "plastic:#1a1c20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.05,
+    0.12,
+    0.05
+   ],
+   "at": [
+    0,
+    0.56,
+    0.0
+   ],
+   "mat": "plastic:#1a1c20"
+  }
+ ]
+}
+==== 3891 project/library/objects/wall-clock.json
+{
+ "id": "wall-clock",
+ "doc": "round office wall clock Ø 0.34 m, white face, black hands (states m13 / m14 = 2:13 / 2:14); hangs on a wall, face toward +z",
+ "anchors": {
+  "face": [
+   0,
+   0,
+   0.02
+  ],
+  "front": [
+   0,
+   -2.2,
+   0.9
+  ]
+ },
+ "states": {
+  "m13": 1,
+  "m14": 0
+ },
+ "parts": [
+  {
+   "shape": "torus",
+   "R": 0.162,
+   "r": 0.014,
+   "at": [
+    0,
+    0,
+    0.012
+   ],
+   "mat": "plastic:#2a2c30"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.158,
+   "h": 0.022,
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "rot": [
+    90,
+    0,
+    0
+   ],
+   "mat": "plastic:#2a2c30"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.152,
+   "h": 0.004,
+   "at": [
+    0,
+    0,
+    0.0115
+   ],
+   "rot": [
+    90,
+    0,
+    0
+   ],
+   "mat": "ceramic:#d8d4ca"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.012,
+    0.03,
+    0.003
+   ],
+   "at": [
+    0,
+    0.128,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    0.064,
+    0.1109,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -30
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    0.1109,
+    0.064,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -60
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.012,
+    0.03,
+    0.003
+   ],
+   "at": [
+    0.128,
+    0,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -90
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    0.1109,
+    -0.064,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -120
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    0.064,
+    -0.1109,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -150
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.012,
+    0.03,
+    0.003
+   ],
+   "at": [
+    0,
+    -0.128,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -180
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    -0.064,
+    -0.1109,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -210
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    -0.1109,
+    -0.064,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -240
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.012,
+    0.03,
+    0.003
+   ],
+   "at": [
+    -0.128,
+    0,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -270
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    -0.1109,
+    0.064,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -300
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.006,
+    0.018,
+    0.003
+   ],
+   "at": [
+    -0.064,
+    0.1109,
+    0.0145
+   ],
+   "rot": [
+    0,
+    0,
+    -330
+   ],
+   "mat": "paint:#1c1d20"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.011,
+    0.085,
+    0.003
+   ],
+   "at": [
+    0.0281,
+    0.0119,
+    0.016
+   ],
+   "rot": [
+    0,
+    0,
+    -67
+   ],
+   "mat": "paint:#141518"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.007,
+    0.125,
+    0.003
+   ],
+   "at": [
+    0.0494,
+    0.0105,
+    0.019
+   ],
+   "rot": [
+    0,
+    0,
+    -78
+   ],
+   "mat": "paint:#141518",
+   "when": "m13"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.007,
+    0.125,
+    0.003
+   ],
+   "at": [
+    0.0502,
+    0.0053,
+    0.019
+   ],
+   "rot": [
+    0,
+    0,
+    -84
+   ],
+   "mat": "paint:#141518",
+   "when": "m14"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.008,
+   "h": 0.006,
+   "at": [
+    0,
+    0,
+    0.022
+   ],
+   "rot": [
+    90,
+    0,
+    0
+   ],
+   "mat": "chrome"
+  }
+ ]
+}
+==== 986 project/library/objects/wall-photo.json
+{
+ "id": "wall-photo",
+ "doc": "framed family photo 0.5 × 0.4 m on a wall",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.8
+  ],
+  "photo": [
+   0,
+   1.7,
+   0.02
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    0.5,
+    0.4,
+    0.03
+   ],
+   "at": [
+    0,
+    1.7,
+    0
+   ],
+   "mat": "wood:#3b2a20",
+   "round": 0.005
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.44,
+    0.34,
+    0.004
+   ],
+   "at": [
+    0,
+    1.7,
+    0.017
+   ],
+   "mat": {
+    "color": "#c9b79c",
+    "roughness": 0.7
+   }
+  },
+  {
+   "shape": "sphere",
+   "r": 0.05,
+   "scale": [
+    1,
+    1.15,
+    0.2
+   ],
+   "at": [
+    -0.1,
+    1.72,
+    0.02
+   ],
+   "mat": {
+    "color": "#6d4c41",
+    "roughness": 0.7
+   },
+   "repeat": {
+    "n": 3,
+    "step": [
+     0.1,
+     -0.01,
+     0
+    ]
+   }
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.36,
+    0.08,
+    0.004
+   ],
+   "at": [
+    0,
+    1.6,
+    0.02
+   ],
+   "mat": {
+    "color": "#8d6e63",
+    "roughness": 0.7
+   }
+  }
+ ]
+}
+==== 906 project/library/objects/wardrobe.json
+{
+ "id": "wardrobe",
+ "doc": "tall two-door wooden wardrobe (lemari) 1.0 × 2.0 m, front faces +z",
+ "anchors": {
+  "front": [
+   0,
+   0,
+   0.7
+  ],
+  "door": [
+   0.25,
+   1.1,
+   0.31
+  ]
+ },
+ "states": {
+  "open": 0
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.0,
+    2.0,
+    0.56
+   ],
+   "at": [
+    0,
+    1.0,
+    0
+   ],
+   "mat": "wood:#7a5236",
+   "round": 0.02
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.47,
+    1.84,
+    0.02
+   ],
+   "at": [
+    0.245,
+    1.0,
+    0.285
+   ],
+   "mat": "wood:#8f6644",
+   "mirror": "x"
+  },
+  {
+   "shape": "cyl",
+   "r": 0.015,
+   "h": 0.1,
+   "at": [
+    0.05,
+    1.05,
+    0.305
+   ],
+   "rot": [
+    90,
+    0,
+    0
+   ],
+   "mat": "metal:#c9a45a",
+   "mirror": "x"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.04,
+    0.06,
+    0.6
+   ],
+   "at": [
+    0,
+    2.02,
+    0
+   ],
+   "mat": "wood:#6a4a2e",
+   "round": 0.01
+  }
+ ]
+}
+==== 1080 project/library/objects/whiteboard.json
+{
+ "id": "whiteboard",
+ "doc": "wall whiteboard 1.6 × 1.0 m with an aluminium frame and marker tray, faces +z (origin = board centre)",
+ "anchors": {
+  "front": [
+   0,
+   -1.4,
+   1
+  ]
+ },
+ "parts": [
+  {
+   "shape": "box",
+   "size": [
+    1.64,
+    1.04,
+    0.025
+   ],
+   "at": [
+    0,
+    0,
+    0.0125
+   ],
+   "mat": "aluminium"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.6,
+    1,
+    0.01
+   ],
+   "at": [
+    0,
+    0,
+    0.026
+   ],
+   "mat": "plastic:#d4d6d2"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.7,
+    0.012,
+    0.002
+   ],
+   "at": [
+    -0.3,
+    0.25,
+    0.032
+   ],
+   "mat": "paint:#2c4f8a"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.5,
+    0.012,
+    0.002
+   ],
+   "at": [
+    -0.4,
+    0.15,
+    0.032
+   ],
+   "mat": "paint:#2c4f8a"
+  },
+  {
+   "shape": "box",
+   "size": [
+    0.6,
+    0.012,
+    0.002
+   ],
+   "at": [
+    0.3,
+    -0.05,
+    0.032
+   ],
+   "mat": "paint:#8a2c2c"
+  },
+  {
+   "shape": "box",
+   "size": [
+    1.2,
+    0.03,
+    0.06
+   ],
+   "at": [
+    0,
+    -0.53,
+    0.04
+   ],
+   "mat": "aluminium"
+  }
+ ]
+}
+==== 663 project/library/objects/wooden-chair.json
+{
+  "id": "wooden-chair",
+  "doc": "simple wooden chair, sits facing +z (backrest at −z)",
+  "anchors": { "seat": [0, 0.46, 0.03], "front": [0, 0, 0.6] },
+  "parts": [
+    { "shape": "box", "size": [0.44, 0.04, 0.42], "at": [0, 0.45, 0], "mat": "wood:#8a6440", "round": 0.01 },
+    { "shape": "box", "size": [0.04, 0.45, 0.04], "at": [0.19, 0.225, 0.18], "mat": "wood:#6a4a2e", "mirror": "x" },
+    { "shape": "box", "size": [0.04, 0.92, 0.04], "at": [0.19, 0.46, -0.19], "mat": "wood:#6a4a2e", "mirror": "x" },
+    { "shape": "box", "size": [0.4, 0.07, 0.025], "at": [0, 0.82, -0.19], "mat": "wood:#8a6440", "repeat": { "n": 2, "step": [0, -0.16, 0] } }
+  ]
+}

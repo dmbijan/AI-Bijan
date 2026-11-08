@@ -1,0 +1,13 @@
+{
+  "name": "Toko Kopi Senja",
+  "_about": "A creator's saved identity. Claude writes it once from what the user says (colours, fonts, name, CTA), the user keeps the file and sends it with every new video. Only fonts bundled with the skill can be used.",
+  "colors": {"accent": "#E2572B", "accent2": "#1F4E46"},
+  "styles": {
+    "mograph-mix": {"colors": {"bg": "#F3EDE3", "ink": "#1D1A16"}},
+    "impact": {"colors": {"accent": "#FFC93C"}}
+  },
+  "fonts": {},
+  "copy": ["Toko Kopi Senja", "Pesan lewat link di bio", "Diskon 20%"],
+  "glossary": {"senja": "Senja"},
+  "defaults": {"style": "mograph-mix", "look": "flat", "sound_effects": "subtle", "visual_overlays": "moderate"}
+}
