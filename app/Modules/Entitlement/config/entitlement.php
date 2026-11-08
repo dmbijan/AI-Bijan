@@ -91,6 +91,8 @@ return [
                 'work_management', 'scheduling', 'shared_inbox', 'screen_recorder',
                 // VideoStudio — skill video (mograph / motion 3D / editor)
                 'video_studio',
+                // Integrasi laman web (Luxana, Post Bridge, SEO Writing, WasapBot)
+                'omni_order', 'social_bridge', 'content_forge', 'whatsapp_suite',
             ],
             'limits' => [
                 ['limit_key' => 'seats', 'name' => 'Pengguna', 'limit_value' => 25, 'unit' => 'pengguna', 'period' => 'total'],
