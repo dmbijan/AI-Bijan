@@ -512,6 +512,52 @@ class SharedInboxController extends Controller
     }
 
     /**
+     * Jana balasan AI untuk mesej pelanggan (AI Gateway / OpenGenAI).
+     */
+    public function generateAiReply(Request $request, int $id): JsonResponse
+    {
+        $conversation = InboxConversation::findOrFail($id);
+
+        $v = Validator::make($request->all(), [
+            'message' => ['required', 'string', 'max:4000'],
+            'send' => ['nullable', 'boolean'],
+        ]);
+
+        if ($v->fails()) {
+            return $this->ralatValidasi($v);
+        }
+
+        $hasil = $this->inbox->janaBalasanAI($conversation, $v->validated()['message']);
+
+        if (! $hasil['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $hasil['error'],
+            ], 422);
+        }
+
+        // Hantar terus jika diminta.
+        if ($v->boolean('send')) {
+            $this->inbox->addMessage($conversation, [
+                'content' => $hasil['text'],
+                'type' => InboxMessage::TYPE_OUTGOING,
+                'sender_type' => 'agent',
+                'is_ai_generated' => true,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Balasan AI dijana.',
+            'data' => [
+                'reply' => $hasil['text'],
+                'source' => $hasil['sumber'],
+                'sent' => $v->boolean('send'),
+            ],
+        ]);
+    }
+
+    /**
      * @param  \Illuminate\Contracts\Validation\Validator  $v
      */
     protected function ralatValidasi($v): JsonResponse

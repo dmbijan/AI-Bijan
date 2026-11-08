@@ -4,6 +4,7 @@ namespace App\Modules\ContentForge\Services;
 
 use App\Modules\ContentForge\Models\ContentDocument;
 use App\Modules\ContentForge\Models\ContentSite;
+use App\Modules\ContentStudio\Services\ContentStudioService;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -86,6 +87,16 @@ class ContentForgeService
     public function janaRangka(string $tajuk, array $kataKunci, string $jenis = 'article'): array
     {
         $utama = $kataKunci[0] ?? $tajuk;
+
+        // ⚠️ Rangka boleh dijana AI melalui ContentStudio (yang menggunakan
+        // AI Gateway) — lebih berkualiti daripada templat statik.
+        if (config('content_forge.ai_outline', true)) {
+            $rangkaAi = $this->janaRangkaAi($tajuk, $kataKunci, $jenis);
+
+            if ($rangkaAi !== []) {
+                return $rangkaAi;
+            }
+        }
 
         $asas = [
             ['level' => 2, 'heading' => 'Pengenalan '.$utama, 'notes' => 'Tarik pembaca, nyatakan masalah'],
@@ -264,6 +275,58 @@ class ContentForgeService
             $laman->update(['status' => ContentSite::STATUS_ERROR, 'last_error' => $e->getMessage()]);
 
             return ['success' => false, 'url' => null, 'mesej' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Jana rangka AI melalui ContentStudio (AI Gateway).
+     *
+     * @param  array<int, string>  $kataKunci
+     * @return array<int, array<string, mixed>>
+     */
+    protected function janaRangkaAi(string $tajuk, array $kataKunci, string $jenis): array
+    {
+        try {
+            $prompt = "Sediakan rangka artikel (outline) untuk tajuk: {$tajuk}.\n"
+                .'Kata kunci utama: '.implode(', ', $kataKunci)."\n"
+                ."Jenis: {$jenis}.\n"
+                .'Beri 6-8 seksyen H2 dengan nota ringkas setiap satu. '
+                ."Format: satu seksyen satu baris, bermula dengan 'H2: ' dan diakhiri ' - ' (nota).";
+
+            $keputusan = app(ContentStudioService::class)
+                ->janaKandungan((int) $this->tenantId(), [
+                    'title' => $tajuk,
+                    'platform' => 'article',
+                    'content_type' => 'outline',
+                    'brief' => $prompt,
+                ]);
+
+            $badan = (string) ($keputusan->body ?? '');
+            $rangka = [];
+
+            foreach (preg_split('/\R/u', $badan) ?: [] as $baris) {
+                $baris = trim($baris);
+
+                if ($baris === '' || ! preg_match('/^(?:H2|2[\.\)]|-\s)/iu', $baris)) {
+                    continue;
+                }
+
+                $baris = preg_replace('/^(?:H2|2[\.\)]|-\s)\s*/iu', '', $baris) ?? $baris;
+
+                [$heading, $nota] = array_pad(explode(' - ', $baris, 2), 2, '');
+
+                $rangka[] = [
+                    'level' => 2,
+                    'heading' => trim($heading),
+                    'notes' => trim($nota),
+                ];
+            }
+
+            return $rangka;
+        } catch (\Throwable $e) {
+            Log::info('ContentForge: rangka AI gagal', ['error' => $e->getMessage()]);
+
+            return [];
         }
     }
 

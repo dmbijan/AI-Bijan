@@ -1,8 +1,17 @@
-﻿# AI BIJAN SaaS — Dokumen Induk Seni Bina & Produk Master Blueprint
+# AI BIJAN SaaS — Dokumen Induk Seni Bina & Produk Master Blueprint
 
-**Versi:** 8.2  
-**Tarikh:** 19 Oktober 2026  
-**Semakan v8:** Audit struktur, pembaikan 10 sel jadual rosak, penomboran BAB 2A/17A, indeks struktur dijana semula, PART XII (BAB 61-68), PART XIII (BAB 69-71), PART XIV (BAB 72) dan PART XV (BAB 73-78)  
+**Versi:** 9.3
+**Tarikh:** 25 Oktober 2026
+**Semakan v9.3:** PART XXV (BAB 90-91) — **Dokumen Pelanggan & Kecerdasan Visual**. **BAB 90 B-Receipt & B-Statement**: satu aplikasi universal menghantar **semua** dokumen transaksi (resit, invois, e-Invois, sebut kuotasi, nota kredit/debit, penyata akaun, bil, peringatan) ke WhatsApp pelanggan — 5 kategori dokumen, 9 jadual, 19 laluan API, 4 fasa. **Peraturan wajib:** WhatsApp **Business Platform** sahaja (bukan `whatsapp-web.js`), templat Meta diluluskan, consent + opt-out dihormati, tiada dokumen dihantar jika pembayaran gagal, PDF WhatsApp **bukan** e-Invois sah LHDN. **BAB 91 B-Vision AI**: platform operasi visual pintar — analisis video muat naik + kamera langsung (RTSP/ONVIF) → data berstruktur untuk modul perniagaan. 15 jadual, 16 laluan API, seni bina Laravel + worker Python/FFmpeg + adapter model, 8 kawalan keselamatan wajib (termasuk **SSRF protection** dan worker tidak percaya payload queue), pelan 5 fasa, bajet RM5k–RM250k+. Jumlah: **101 bab / 25 bahagian**.
+**Semakan v9.2:** PART XXIV (BAB 89) — **B-Expense P1: Teras Pengurusan Perbelanjaan**. **Modul baharu #55** dibina sepenuhnya: `Expense/` — **7 jadual** (`expense_categories`, `expenses`, `expense_items`, `expense_receipts`, `expense_claims`, `expense_claim_items`, `expense_claim_approvals`), **33 laluan API**, **48 ujian** (190 assertion). Ciri: kategori + pautan COA, perbelanjaan multi-mata-wang, resit + OCR (guna semula `DocumentAI`), kesan resit pendua (hash + merchant/jumlah), cadangan kategori AI + heuristik, tuntutan staff (reimbursement/mileage/per-diem), jejak kelulusan, **post ke jurnal melalui `Finance\JournalService`** (tiada logik jurnal baharu). **3 lapisan keselamatan:** staff upload → draf sahaja; kelulusan manusia WAJIB; staff tidak boleh lulus sendiri. Ambang: kelulusan **RM200**, resit wajib **RM50**, mileage **RM0.60/km** (LHDN). Jumlah keseluruhan: **55 modul · 331 jadual · 829 ujian lulus (0 gagal, 4,474 assertion)**. Pepatch sampingan: tambah `timestamps()` pada `journal_entry_lines` (bug Finance sedia ada).
+**Semakan v9.1:** PART XXIII (BAB 88) — **Audit B-POS System**. Audit penuh `C:\ai-bijan\AI-Bijan\b-pos-system` (109 migration, 61 model, 30 service, 73 controller): **6 jurang kritikal** dikenal pasti (dine-in/kitchen display, modifier, service charge, multi-tender, offline PWA, cashier shift), **9 isu keselamatan** (paling kritikal: tiada `tenant_id`, tiada global scope tenancy, `legacySingleOutletBypass` lalai TRUE), dan **keputusan integrasi: B-POS kekal produk berasingan** — ciri unik dipindahkan satu per satu ke modul AI BIJAN sedia ada melalui **9 tugasan (T-76 → T-84)**. B-POS dinilai **8/10 kematangan POS** tetapi **0/10 AI** dan **4/10 keselamatan**.
+**Semakan v9.0:** PART XXII (BAB 86-87) — **Ekosistem Operasi**. **9 modul baharu** dibina sepenuhnya: B-Orders (pesanan unified + stok sync, 6 jadual), B-Seo (SEO semua objek + 13 peraturan audit + JSON-LD + sitemap, 7 jadual), B-ContentStudio (jana/terbit/jaga komen+chat 9 platform, 10 jadual), B-Reminder (pusat peringatan 14 jenis + kotak masuk AI, 5 jadual), B-BusinessIntel (skor kesihatan 6 dimensi + kajian AI + idea feed + competitor watch + learning loop, 7 jadual), B-WorkflowStudio (18 node visual + dry-run + template marketplace, 3 jadual), B-MediaEditor (Canva/CapCut-class, 3 jadual), B-LiveSupport (customer service AI + eSIM, 3 jadual), B-Community (forum/showcase/academy, 3 jadual). Ditambah **BAB 86.11 ADE** (Agentic Development Environment — 4 ciri teras + pelan 4 fasa), **BAB 86.12** analisis jujur "one man show billion company", **BAB 87 B-ServiceOS** (audit RekaDesk — P1 Service Core SIAP: 13 jadual, 33 laluan, 63 ujian). 55 jadual, 163 laluan, **295 ujian baharu**; keseluruhan **781 ujian lulus (0 gagal)**. Audit luaran baharu: `obra/superpowers` (MIT, 304k★), `hermes-agent` (MIT, 256k★), `openclaw` (MIT, 393k★), `n8n` (Sustainable Use — rujukan reka bentuk sahaja), `re-structure.ai`, `kalodata.com`, `rekadesk.com`.  
+**Semakan v8.9:** PART XXI (BAB 85) — Pelaksanaan Idea Audit: **5 modul baharu** daripada Idea BAB 84: B-COD, B-Fleet, B-ProofOfValue, **B-McpStudio**, **B-AgentStudio**. 25 jadual, 54 laluan API, **168 ujian baharu**; keseluruhan **486 ujian lulus (0 gagal)**.  
+**Semakan v8:** Audit struktur, pembaikan 10 sel jadual rosak, penomboran BAB 2A/17A, indeks struktur dijana semula, PART XII (BAB 61-68), PART XIII (BAB 69-71), PART XIV (BAB 72) dan PART XV (BAB 73-78) dan PART XVI (BAB 79-80)  
+**Semakan v8.4:** PART XVII (BAB 81) — Competitive Advantage & Business Growth Engine: 9 kelebihan dengan status kod sebenar, 15 idea daripada 400+ pesaing, analisis kos & skor kompetitif, keutamaan pelaksanaan. Peta pesaing: `ai-bijan-saas/docs/PETA-PESAING-34-MODUL.md`
+**Semakan v8.8:** PART XX (BAB 84) — Reverse Engineerng MENDALAM: **50 resource setiap platform** (Shopify, Odoo, Zoho, ServiceTitan) = 200 apps + 50 GitHub OSS, dengan rating/review/download sebenar. 5 penemuan baharu: 5 app MCP di Odoo (9,094 dl), Zoho Agent Store (16 ejen AI), ServiceTitan 13 Pro Products dengan 6 metrik hasil, compliance per negara di Odoo, AI dashboard builder sebagai kategori standard. 15 idea tertinggi; COD (Cash on Delivery) dikesan sebagai jurang MY; ServiceTitan marketplace wujud (pembetulan audit sebelum ini).
+**Semakan v8.6:** PART XIX (BAB 83) — Universal Platform: Audit Pesaing Lanjutan (15 pesaing baharu: Zoho Zia, Dify, CrewAI, Retool, Shopify Agentic, Stripe agentic, ServiceTitan, Help Scout, Docusign Iris, Dolibarr) + 7 idea: B-Migration Wizard, B-Agent Studio + MCP server, AI metrics dalam jualan, Agentic commerce, AI-first eSignature, Local Presence, real-time costing. Skor kompetitif dikemas kini dengan 3 dimensi baharu (migrasi masuk, ekosistem plugin, pematuhan enterprise).
+**Semakan v8.5:** PART XVIII (BAB 82) — B-Executive AI: Pembantu Eksekutif Multimodal: 8 keupayaan (termasuk video understanding, video blast, video training, screen capture), pipeline video 10 langkah, Media Vault, tahap autonomy 0–4 dengan pintu kelulusan, Modul Prospecting + Blast Engine + SalesCopilot + MediaStudio, dan analisis pesaing video-avatar (HeyGen, Synthesia, D-ID, Tavus).  
 **Nama produk:** AI BIJAN SaaS  
 **Tagline:** *Every Business Deserves a Boardroom.*  
 **Pemilik konsep:** Bijan Digital Marketing  
@@ -121,9 +130,22 @@
 | 76 | Aksesibiliti (WCAG 2.2 AA) | PART XV — DESIGN SYSTEM & INTERAKSI |
 | 77 | Permukaan Output: Cetak, PDF, E-mel & WhatsApp | PART XV — DESIGN SYSTEM & INTERAKSI |
 | 78 | Design QA dalam CI | PART XV — DESIGN SYSTEM & INTERAKSI |
+| 79 | Email Intelligence & Document Intake | PART XVI — E-MEL & PENGAMBILAN PEKERJA |
+| 80 | Pengambilan Pekerja: Tapisan CV & Penjadualan Temuduga | PART XVI — E-MEL & PENGAMBILAN PEKERJA |
+| 81 | Competitive Advantage & Business Growth Engine | PART XVII — KELEBIHAN KOMPETITIF & ENJIN PERTUMBUHAN |
+| 82 | B-Executive AI: Pembantu Eksekutif Multimodal | PART XVIII — PEMBANTU EKSEKUTIF MULTIMODAL & ENJIN JUALAN |
+| 83 | Universal Platform: Audit Pesaing Lanjutan & 5 Ciri Wajib | PART XIX — MASTERPIECE: EVOLUSI MENJADI PLATFORM SAAS UNIVERSAL |
+| 84 | Ekosistem Apps & Open Source: Pelan Incorporation | PART XX — REVERSE ENGINEERING: 200 APPS + 50 PROJEK OSS |
+| 85 | Pelaksanaan Idea Audit: 5 Modul Baharu | PART XXI — IMPLEMENTASI: COD, FLEET, PROOF-OF-VALUE, MCP STUDIO, AGENT STUDIO |
+| 86 | Ekosistem Operasi: 9 Modul Baharu + ADE | PART XXII — EKOSISTEM OPERASI & AGENTIC DEVELOPMENT ENVIRONMENT |
+| 87 | B-ServiceOS: Service Business Operating System | PART XXII — EKOSISTEM OPERASI & AGENTIC DEVELOPMENT ENVIRONMENT |
+| 88 | Audit B-POS System & Peta Integrasi | PART XXIII — INTEGRASI B-POS SYSTEM |
+| 89 | B-Expense: Pengurusan Perbelanjaan & Tuntutan Staff | PART XXIV — AI FINANCE & EXPENSE INTELLIGENCE |
+| 90 | B-Receipt & B-Statement: Dokumen Pelanggan melalui WhatsApp | PART XXV — DOKUMEN PELANGGAN & KECERDASAN VISUAL |
+| 91 | B-Vision AI: Platform Operasi Visual Pintar | PART XXV — DOKUMEN PELANGGAN & KECERDASAN VISUAL |
 | 99 | Canonical Glossary (Audit Fix A-25) | (glosari — tiada PART) |
 
-**Jumlah:** 87 bab dalam 15 bahagian.
+**Jumlah:** 101 bab dalam 25 bahagian.
 
 ---
 
@@ -397,7 +419,7 @@ Modul lain tidak boleh mengubah jadual domain tersebut secara terus tanpa kontra
 | Komponen | Spesifikasi | Kos/Bulan |
 |----------|-------------|-----------|
 | App Servers | 2x 4 vCPU nodes behind load balancer | RM600-1200 |
-| Database | Managed RDS (Multi-AZ) atau自建 master+replica | RM300-800 |
+| Database | Managed RDS (Multi-AZ) atau bina master+replica sendiri | RM300-800 |
 | Redis Cluster | Redis Enterprise atau Sentinel cluster | RM200-400 |
 | Search | Meilisearch dedicated node | RM100-200 |
 | Vector DB | Qdrant cloud/dedicated | RM100-300 |
@@ -1140,7 +1162,7 @@ CREATE TABLE exchange_rates (
 **Exchange Rate Features:**
 - Manual override: Super Admin boleh ubah bila-bila masa
 - Auto-fetch: Integrasi dengan exchangerate-API, OpenExchangeRates, atau Bank Negara Malaysia
-- Rate expiry: Set expiry date untuk提醒 update
+- Rate expiry: Set expiry date untuk munasabah update
 - Historical rates: Simpan history untuk audit trail
 - Rounding rules: Round prices ke nearest friendly number (RM 99, bukan RM 97.33)
 
@@ -2792,6 +2814,8 @@ Modul penerima tidak mengakses jadual pemilik event secara terus. Semua consumer
 - LHDN MyInvois
 - Kurier atau agregator logistik
 
+> **Nota v8.3:** Gmail bukan sekadar penyegerakan kalendar. Pembacaan peti masuk dan pengekstrakan lampiran ditadbir oleh BAB 79, dengan alias penghantaran sebagai mod lalai dan skop OAuth minimum.
+
 **Nota:** Kemampuan API, kelulusan aplikasi, skop data, had kadar dan syarat komersial berbeza mengikut penyedia. Sistem mesti memaparkan integrasi sebagai `available`, `connected`, `needs_reauthorization`, `limited` atau `unavailable`.
 
 ### 27.2 Connector Data Model
@@ -3134,11 +3158,12 @@ Format: `MAJOR.MINOR.PATCH` (contoh: `4.5.1`)
 | **v8** | **19 Oct 2026** | **Audit struktur: baiki 10 sel jadual rosak (BAB 57/58), BAB 2->2A, BAB 17.7->17A, PART XI ke H1, indeks struktur dijana semula, PART XII baharu (BAB 61-68)** |
 | **v8.1** | **19 Oct 2026** | **PART XIII: B-Virtual Office sebagai hub output ejen (BAB 69), protokol orkestrasi ejen-ke-ejen (BAB 70), matriks kelulusan manusia untuk tindakan statutori (BAB 71); rujukan silang dikemas kini dalam BAB 12, BAB 16 dan roadmap Fasa 1** |
 | **v8.2** | **19 Oct 2026** | **PART XIV: Learning Signal Layer (BAB 72, lapisan ketiga antara memori tenant dan pola kustomisasi, k>=25, consent berasingan); PART XV: Design System & Interaksi (BAB 73-78: token, 30+ komponen dengan semua state, navigasi & command palette, WCAG 2.2 AA sebagai syarat rilis, layout cetak invois/payslip, templat e-mel, design QA dalam CI)** |
+| **v8.3** | **19 Oct 2026** | **PART XVI: Email Intelligence & Document Intake (BAB 79: alias lalai, skop OAuth minimum, ekstrak lampiran via BAB 59, siling L1 untuk hantar) dan Pengambilan Pekerja (BAB 80: rubrik CV telus, larangan penolakan automatik, kawalan bias, penjadualan temuduga dengan bos)** |
 
 ### 35.3 Recommended Document Set
 
 Untuk development reference, gunakan dokumen berikut:
-1. **AI-BIJAN-MASTER-BLUEPRINT.md** (dokumen ini) — Single source of truth
+1. **BLUEPRINT-INDUK.md** (dokumen ini) — Single source of truth
 2. Architecture files — Detailed technical references
 3. Industry coverage — Module mapping per industry
 4. Customer-side — UX flows and portal designs
@@ -4881,7 +4906,7 @@ Based on 47 kedai makanan yang lain menggunakan AI BIJAN:
    Used by 43% for batch/lot tracking
    
 ✅ Terma Pemulangan (select) — pada Checkout
-   Options: "7 hari", "Tiada pemulangan", "Pertimbangan个案"
+   Options: "7 hari", "Tiada pemulangan", "Pertimbangan kes"
    Used by 38% for return policy
 
 ✅ Nombor Halal (text) — pada Products
@@ -7962,11 +7987,11 @@ AI BIJAN Solution:
 | **Live view** | ✅ Manual check | ✅ Dashboard + mobile | Real-time streaming |
 | **Recording** | ✅ DVR/NVR storage | ✅ Cloud R2 + local edge | Hybrid storage model |
 | **Motion detection** | ✅ Basic zone-based | ✅ AI person/vehicle classification | Reduce false positives 90% |
-| **Face recognition** | ❌ Manual lookup | ✅ Auto identify staff/customers | Liveness detection anti-spoof |
-| **Anomaly detection** | ❌ None | ✅ Loitering, fall, fight, fire | ML models trained on MY data |
-| **Natural language search** | ❌ Time-based only | ✅ "Show me van putih masuk pukul 2pm" | Video understanding AI |
-| **Staff monitoring** | ❌ Supervision required | ✅ Productivity score, safety compliance | Privacy-first design |
-| **Access control** | ❌ Separate system | ✅ Facial recognition entry | Integrate with B-Auth |
+| **Face recognition** | ❌ Manual lookup | ⚠️ Kehadiran staf sahaja — **berpagar consent** (56C.6A) | Liveness anti-spoof, alternatif wajib |
+| **Anomaly detection** | ❌ None | ✅ Loitering, perimeter breach (fall/fight/fire = Fasa 4) | Ambang konservatif |
+| **Natural language search** | ❌ Time-based only | ⛔ Fasa 5 — bukan skop awal | Kos compute tinggi |
+| **Staff monitoring** | ❌ Supervision required | ⛔ **TIDAK DIBENARKAN** — bukan fungsi keselamatan | Risiko PDPA + undang-undang buruh |
+| **Access control** | ❌ Separate system | ⚠️ Kad/QR dahulu; wajah hanya jika consent lengkap | Integrasi B-Auth |
 | **Alarm integration** | ❌ Standalone | ✅ Door lock, siren, police alert | IoT gateway integration |
 | **Multi-site dashboard** | ❌ Per-location | ✅ Central HQ monitoring | Scale to 100+ cameras/site |
 | **Compliance reporting** | ❌ Manual export | ✅ PDPA audit trail, incident reports | Automated documentation |
@@ -8096,6 +8121,11 @@ Use Cases:
 
 ### 56C.6 Privacy & PDPA Compliance
 
+> **⚠️ AMARAN:** Dakwaan "PDPA compliant" **tidak boleh** dibuat sebelum semakan
+> undang-undang rasmi. Consent pekerja berbeza daripada consent pelanggan kerana
+> ketidaksetaraan kuasa majikan–pekerja. Lihat 56C.6A untuk pagar wajib.
+> Status dalam jadual di bawah merujuk **reka bentuk**, bukan pengesahan undang-undang.
+
 ```
 Privacy-by-Design Principles:
 ├── Consent management: Sign-in at entrance acknowledges CCTV
@@ -8120,14 +8150,94 @@ Privacy-by-Design Principles:
 | **Access Logging** | Every access recorded, immutable audit trail | ✅ Mandatory |
 | **Individual Rights** | Request deletion, opt-out where possible | ✅ Process defined |
 
+### 56C.6A Biometric Consent Gate (WAJIB sebelum face recognition aktif)
+
+> **Prinsip:** Pendaftaran pekerja di B-HRMS **bukan** consent biometrik. Hubungan
+> majikan–pekerja tidak setara, jadi persetujuan kepada majikan tidak dianggap
+> "bebas" di bawah PDPA 2010 Seksyen 6. Face recognition hanya boleh diaktifkan
+> apabila SEMUA pagar di bawah dipenuhi.
+
+#### Pagar Pengaktifan (semua wajib)
+
+| # | Pagar | Peraturan | Kesan jika gagal |
+|---|-------|-----------|------------------|
+| 1 | **Consent berasingan** | Borang khas biometrik, bukan sebahagian borang HR/pengambilan | Ciri terkunci |
+| 2 | **Alternatif wajib** | Sekurang-kurangnya satu kaedah bukan-biometrik aktif (kad RFID / PIN / QR / manual penyelia) | Ciri terkunci |
+| 3 | **Notis PDPA** | Notis Seksyen 7 dipaparkan + versi yang ditandatangan disimpan | Ciri terkunci |
+| 4 | **Pegawai PDPA** | Nama + e-mel pegawai perlindungan data dikonfigurasi per tenant | Ciri terkunci |
+| 5 | **Tempoh retensi** | Tempoh simpan embedding wajah ditetapkan (lalai 30 hari selepas tamat kerja) | Ciri terkunci |
+| 6 | **Semakan undang-undang** | Tarikh semakan profesional direkod, disemak semula setiap 12 bulan | Ciri terkunci |
+
+#### Semakan Consent Individu
+
+- Setiap embedding wajah mesti terikat pada rekod consent yang sah dan belum ditarik balik.
+- Pekerja tanpa consent → **tiada embedding disimpan**; kehadiran direkod melalui kaedah alternatif.
+- Penarikan balik consent → embedding dipadam **dalam masa 24 jam**, rekod kehadiran (tarikh/masa) kekal.
+- Pekerja berhenti → embedding dipadam serta-merta; rekod kehadiran disimpan 6 tahun (Akta Kerja 1955).
+
+#### Had Penggunaan (mesti dikuatkuasakan dalam kod)
+
+| Dibenarkan | Tidak Dibenarkan |
+|------------|------------------|
+| Kehadiran masuk/keluar | Menjejak pergerakan sepanjang hari |
+| Zon larangan (stor, bilik server) | Menilai produktiviti atau prestasi |
+| Pengesahan identiti di pintu masuk | Pengiktirafan pelanggan atau tetamu |
+| Laporan kehadiran | Perkongsian embedding dengan pihak ketiga |
+
+> Perubahan tujuan → consent baharu diperlukan. Tiada pengecualian.
+
+#### Model Data Tambahan
+
+| Jadual | Tujuan | Kolum utama |
+|--------|--------|-------------|
+| `biometric_settings` | Konfigurasi pagar per tenant | `tenant_id`, `enabled`, `alternative_method`, `dpo_name`, `dpo_email`, `retention_days`, `legal_review_date`, `consent_version` |
+| `biometric_consents` | Consent individu | `tenant_id`, `user_id`, `consent_version`, `signed_at`, `withdrawn_at`, `document_path`, `ip_address` |
+| `biometric_embeddings` | Vektor wajah (terhad) | `tenant_id`, `user_id`, `consent_id`, `embedding`, `quality_score`, `created_at`, `expires_at` |
+| `biometric_access_logs` | Audit setiap padanan | `tenant_id`, `user_id`, `camera_id`, `matched`, `confidence`, `purpose`, `created_at` |
+
+#### Penguatkuasaan dalam Kod
+
+```php
+// Tolak permintaan face-matching jika mana-mana pagar gagal
+if (! $tenant->biometricEnabled()) {
+    abort(403, 'Pengenalan wajah belum diaktifkan untuk syarikat ini.');
+}
+if (! $member->hasActiveBiometricConsent()) {
+    abort(403, 'Pekerja ini tiada consent biometrik yang sah.');
+}
+```
+
+#### Endpoint API
+
+```
+GET    /api/v1/hrms/biometric/settings
+PUT    /api/v1/hrms/biometric/settings        # hanya owner + MFA
+POST   /api/v1/hrms/biometric/consent         # pekerja tandatangan
+DELETE /api/v1/hrms/biometric/consent         # tarik balik → padam embedding
+GET    /api/v1/hrms/biometric/consent-status  # siapa sudah / belum
+GET    /api/v1/hrms/biometric/audit
+```
+
+#### Ujian Penerimaan
+
+| # | Kes | Jangkaan |
+|---|-----|----------|
+| 1 | Aktifkan wajah tanpa alternatif | 422 ditolak |
+| 2 | Aktifkan wajah tanpa pegawai PDPA | 422 ditolak |
+| 3 | Pekerja tanpa consent di kamera | Tiada embedding dicipta |
+| 4 | Tarik balik consent | Embedding padam ≤ 24 jam |
+| 5 | Pekerja berhenti | Embedding padam, rekod kehadiran kekal |
+| 6 | Laporan prestasi guna data biometrik | 403 ditolak |
+| 7 | Semakan undang-undang > 12 bulan | Ciri auto-lumpuh + amaran |
+
 ### 56C.7 Integration with Other Modules
 
 ```
 CCTV × B-HRMS:
-├── Automatic attendance via facial recognition at entry
-├── Shift violation alert: Staff in wrong area during shift
-├── Overtime detection: Staff present beyond scheduled hours
-└── Break compliance: Staff in restricted area during break time
+├── Kehadiran masuk/keluar (wajah HANYA jika 56C.6A lengkap; kad/QR sebagai lalai)
+├── Zon larangan: staf memasuki kawasan tidak dibenarkan → amaran
+├── Amaran kehadiran di luar syif berjadual (bukan penilaian prestasi)
+└── Laporan kehadiran untuk payroll — bukan skor produktiviti
 
 CCTV × B-Security (Future Module):
 ├── Integrated alarm system (siren, strobe, notification)
@@ -8188,7 +8298,7 @@ Offline Mode:
 |-------|----------|----------|----------|
 | **Phase 1** | RTSP ingestion, live view, basic motion detection, cloud recording | Month 6-9 | P1 |
 | **Phase 2** | AI event detection (person, vehicle, loitering), mobile app integration | Month 9-12 | P1 |
-| **Phase 3** | Face recognition, natural language search, HRMS integration | Month 12-18 | P2 |
+| **Phase 3** | Face recognition **berpagar consent penuh (56C.6A)**, integrasi HRMS | Month 12-18 | P2 |
 | **Phase 4** | Advanced AI (fight, fall, fire detection), alarm integration | Month 18-24 | P2 |
 | **Phase 5** | PTZ auto-tracking, thermal camera support, predictive analytics | Month 24-36 | P3 |
 
@@ -8240,16 +8350,16 @@ B-Payroll ialah modul pengurusan gaji yang direka khas untuk pematuhan Malaysia.
 | **Gaji Asas** | Earnings | Gaji bulanan tetap |
 | **Allowance Transport** | Earnings | Elaun pengangkutan (tetap atau per km) |
 | **Allowance Meal** | Earnings | Elaun makan (tetap atau per hari hadir) |
-| **Overtime Regular** | Earnings | Lebih masa hari biasa (1.5x hourly rate — Akta Kerja 1955) |
-| **Overtime Rest Day** | Earnings | Lebih masa hari rehat (2x hourly rate — Akta Kerja 1955) |
-| **Overtime Public Holiday** | Earnings | Lebih masa hari kelepasan am (3x hourly rate — Akta Kerja 1955) |
+| **Overtime Regular** | Earnings | Lebih masa hari biasa (1/3 x jam wage x bilangan jam lebih) |
+| **Overtime Rest Day** | Earnings | Lebih masa hari rehat (2 x jam wage x bilangan jam lebih) |
+| **Overtime Public Holiday** | Earnings | Lebih masa hari kelepasan am (3 x jam wage x bilangan jam lebih) |
 | **Bonus/Commission** | Earnings | Bonus tahunan atau komisen jualan |
-| **EPF Employee (11%)** | Deduction | 11% bagi semua gaji (Kategori A: <=RM5,000 atau B: >RM5,000) |
-| **EPF Employer (13%/12%)** | Company Cost | 13% (<=RM5,000) atau 12% (>RM5,000) — Kategori A/B |
+| **EPF Employee (11%)** | Deduction | Berpanjangan bagi gaji <= RM5,000 (9% bagi >= RM5,000) |
+| **EPF Employer (13%)** | Company Cost | Berpanjangan bagi gaji <= RM5,000 |
 | **SOCSO** | Deduction | Berpanjangan mengikut tier gaji (had tahunan) |
 | **EIS (0.2%)** | Deduction | Insurans Pekerjaan, maksimum RM100/tahun |
 | **PCB** | Deduction | Potongan Cukai Berjadual mengikut mPTG dan jadual LHDN |
-| **HRDF Levy** | Company Cost | 1% daripada gaji kasar (TIADA had RM100 — betul per HRDF Act 1991) |
+| **HRDF Levy** | Company Cost | 0.5% daripada gaji kasar (had RM100/bulan) |
 | **Loan/Covenant** | Deduction | Pembayaran pinjaman syarikat atau koperasi |
 | **Pekerjaan Berganda** | Deduction | Pengiraan PCB khas untuk pekerja dengan >1 pekerjaan |
 
@@ -8805,7 +8915,7 @@ Feedback Loop (corrections retrain model)
 |--------|------------------------|
 | **B-Invoicing** | Auto-create bills from supplier invoices |
 | **B-Procurement** | Match delivery notes with POs |
-| **B-HRMS** | Extract data from employment forms, IDs |
+| **B-HRMS** | Extract data from employment forms, IDs, **CV calon (BAB 80)** |
 | **B-Finance** | Receipt validation for expense claims |
 | **B-Compliance** | Store regulatory documents with retention policies |
 | **B-Brain Hub** | Train better models on accumulated document data |
@@ -9796,7 +9906,7 @@ Tahap otonomi mengehadkan **tindakan**, bukan komunikasi. Ejen L1 masih boleh `c
 | `TENANT_DATA_DELETE` | Padam data tenant | L0 | Owner + Platform Admin | **Ya** | Tidak |
 | `PRICE_CHANGE` | Ubah harga > 10% | L1 | Owner | Tidak | Ya |
 
-**Peraturan:** `VENDOR_BANK_CHANGE` disenaraikan secara khusus kerana ia vektor penipuan yang paling biasa dalam sistem pembayaran — perubahan akaun bank pembekal mesti melalui dwi-kawalan dan pengesahan di luar sistem.
+**Peraturan:** `VENDOR_BANK_CHANGE` disenaraikan secara khusus kerana ia vektor penipuan yang paling biasa dalam sistem pembayaran — perubahan akaun bank pembekal mesti melalui dwi-kawalan dan pengesahan di luar sistem. **Pengambilan pekerja:** penolakan calon sentiasa keputusan manusia (BAB 80.5); AI hanya menyusun senarai pendek dan mencadangkan slot temuduga.
 
 ### 71.3 Maker–Checker
 
@@ -10587,6 +10697,3297 @@ Teks BM 20–30% lebih panjang. Ujian mesti menukar bahasa dan mengesahkan tiada
 - [ ] Ujian dwibahasa meliputi 10 skrin paling penting.
 
 ---
+
+---
+
+# PART XVI — E-MEL & PENGAMBILAN PEKERJA
+
+> **Status: Spesifikasi baharu v8.3.** Sebelum v8.3, e-mel hanya muncul sebagai satu baris integrasi dalam BAB 27.1, dan pengambilan pekerja tidak wujud langsung dalam dokumen. Kedua-duanya menyentuh data peribadi pada tahap paling sensitif, jadi setiap satu memerlukan pagar consent dan jejak audit sendiri.
+
+---
+
+## BAB 79 — Email Intelligence & Document Intake
+
+> **Status: Planned.** Kebenaran membaca peti masuk ialah kebenaran paling invasif dalam produk ini. Bab ini menetapkan hadnya sebelum satu baris kod ditulis.
+
+### 79.1 Dua Mod Sambungan
+
+| Mod | Cara | Lalai | Sesuai untuk |
+|-----|------|-------|--------------|
+| **Alias penghantaran** | Tenant memajukan e-mel ke `inbox+<tenant>@mail.ai-bijan.com` | **Ya** | SME, pemilik tunggal |
+| **Peti masuk tersambung** | OAuth Gmail / Microsoft 365, skop baca | Tidak | Syarikat dengan pasukan e-mel |
+
+**Sebab alias ialah lalai:** ia memberi 90% manfaat dengan 10% risiko. Tenant memilih apa yang dimajukan, jadi tiada akses menyeluruh ke peti masuk peribadi. Akses OAuth penuh mesti diaktifkan secara sedar.
+
+### 79.2 Skop OAuth (Minimum)
+
+| Penyedia | Skop dibenarkan | Skop dilarang |
+|----------|-----------------|---------------|
+| Gmail | `gmail.readonly`, `gmail.labels` | `gmail.modify` (padam), `gmail.send` (kecuali diluluskan berasingan) |
+| Microsoft 365 | `Mail.Read`, `Mail.ReadBasic` | `Mail.ReadWrite`, `Mail.Send` |
+
+- Token disimpan terenkripsi (BAB 27.2), tidak pernah dikembalikan kepada klien.
+- Setiap penyambungan memaparkan senarai folder yang **tidak** dibaca.
+- Folder yang dikecualikan secara lalai: `Spam`, `Trash`, `Drafts`, folder peribadi bertanda.
+
+### 79.3 Apa yang Ejen Lakukan
+
+| Keupayaan | Butiran | Kelulusan manusia |
+|-----------|---------|-------------------|
+| Klasifikasi | Tandakan: invois, resit, pesanan beli, kontrak, CV, aduan, surat kerajaan, lain-lain | Tidak |
+| Ekstrak lampiran | PDF/imej → teks → medan (guna BAB 59) | Tidak |
+| Paut ke entiti | Lampiran invois → B-Invoicing; resit → perbelanjaan; PO → B-Procurement; CV → BAB 80 | Tidak |
+| Ringkasan harian | "12 e-mel baharu, 3 perlu tindakan, 2 invois dikaitkan" | Tidak |
+| Draf balasan | Draf dalam folder `Drafts` sahaja | **Ya, sebelum hantar** |
+| Peringatan susulan | "Tiada balasan 5 hari untuk sebut harga #221" | Tidak |
+| Tanda tindakan | Bendera "perlu tindakan" pada mesej | Tidak |
+
+### 79.4 Apa yang Ejen Tidak Pernah Lakukan
+
+- Menghantar e-mel tanpa kelulusan manusia (siling L1 — draf sahaja)
+- Memadam atau mengalih mesej ke Trash
+- Membaca folder yang dikecualikan
+- Menyimpan kandungan badan e-mel melebihi tempoh (79.7)
+- Menggunakan kandungan e-mel untuk latihan model (termasuk L2 BAB 72)
+- Berkongsi kandungan e-mel merentas tenant
+
+### 79.5 Saluran Pemprosesan
+
+```
+E-mel masuk (alias atau OAuth)
+        ↓
+Klasifikasi + pengekstrakan teks
+        ↓
+Adakah lampiran? ──Tidak──→ Metadata sahaja disimpan
+        ↓ Ya
+BAB 59 Document AI: OCR → medan → keyakinan
+        ↓
+Adakah keyakinan ≥ 0.85? ──Tidak──→ Baris gilir semakan manusia
+        ↓ Ya
+Cipta artifak dalam B-Virtual Office (BAB 69)
+        ↓
+Paut ke modul pemilik + notifikasi mengikut keutamaan
+```
+
+**Peraturan:** lampiran tidak pernah menjadi rekod rasmi sehingga modul pemilik menerimanya (selaras BAB 69.3).
+
+### 79.6 Kebenaran & Isolasi
+
+| Perkara | Peraturan |
+|---------|-----------|
+| Skop | Setiap pengguna hanya melihat e-mel yang dipautkan kepadanya atau ke jabatannya |
+| Tenant | `tenant_id` wajib pada setiap pertanyaan; tiada carian merentas tenant |
+| Kongsi | E-mel tidak boleh dikongsi ke luar tenant melalui pautan awam |
+| Audit | Setiap akses kepada kandungan e-mel direkod (siapa, bila, mesej mana) |
+| Penyimpanan | Kandungan disimpan terenkripsi; kunci per tenant |
+
+### 79.7 Pengekalan
+
+| Data | Tempoh | Selepas itu |
+|------|--------|-------------|
+| Metadata mesej (pengirim, subjek, tarikh) | 24 bulan | Dipadam |
+| Kandungan badan e-mel | **90 hari** | Dipadam; ringkasan dikekalkan |
+| Teks yang diekstrak | 12 bulan | Dipadam |
+| Lampiran asal | Ikut modul pemilik (BAB 9.2) | Ikut modul |
+| Draf balasan | 30 hari | Dipadam |
+
+### 79.8 Data Model
+
+| Jadual | Tujuan |
+|--------|--------|
+| `email_accounts` | Sambungan per tenant: mod, penyedia, skop, status |
+| `email_messages` | Metadata + klasifikasi + pautan artifak |
+| `email_bodies` | Kandungan badan (tempoh terhad, terenkripsi) |
+| `email_attachments` | Lampiran, checksum, pautan ke BAB 59 |
+| `email_triage_rules` | Peraturan pengelasan per tenant |
+| `email_actions` | Draf, tanda tindakan, peringatan |
+| `email_access_log` | Setiap akses kandungan |
+
+### 79.9 Mod Kegagalan
+
+| Keadaan | Tingkah laku |
+|---------|--------------|
+| Token luput | Status `needs_reauthorization`, notifikasi, tiada percubaan berulang |
+| Had kadar penyedia | Beratur dengan backoff; tiada kehilangan mesej |
+| OCR gagal | Lampiran masuk baris gilir semakan manusia |
+| Lampiran > 25MB | Tidak diproses; pengguna dimaklumkan dengan sebab |
+| Alias menerima spam | Penapis + kuota per jam per tenant |
+
+### 79.10 Kriteria Penerimaan
+
+- [ ] Mod alias berfungsi tanpa sebarang kebenaran OAuth (diuji).
+- [ ] Tiada e-mel dihantar tanpa kelulusan manusia (diuji).
+- [ ] Folder yang dikecualikan tidak pernah dibaca (diuji dengan akaun ujian).
+- [ ] Kandungan badan dipadam pada hari ke-91 (diuji).
+- [ ] Setiap akses kandungan muncul dalam `email_access_log` (diuji).
+- [ ] Kandungan e-mel tidak memasuki mana-mana set latihan (audit pertanyaan).
+
+---
+
+## BAB 80 — Pengambilan Pekerja: Tapisan CV & Penjadualan Temuduga
+
+> **Status: Planned — keutamaan P0 kerana risiko undang-undang.** Keputusan pengambilan menyentuh hak individu. AI **tidak pernah** menolak calon secara automatik dalam reka bentuk ini.
+
+### 80.1 Aliran Kerja
+
+```
+1. Permohonan jawatan (kriteria ditetapkan manusia)
+        ↓
+2. Permohonan masuk (e-mel BAB 79, halaman kerjaya, atau muat naik)
+        ↓
+3. Hurai CV (BAB 59 Document AI)
+        ↓
+4. Skor terhadap kriteria — rubrik telus
+        ↓
+5. Senarai pendek — SEMUA keputusan disemak manusia
+        ↓
+6. Jadualkan temuduga dengan bos (kalendar)
+        ↓
+7. Temuduga → maklum balas → keputusan manusia
+```
+
+### 80.2 Permohonan Jawatan
+
+Setiap jawatan mesti mempunyai kriteria bertulis sebelum sebarang CV diproses:
+
+| Jenis | Contoh | Peranan AI |
+|-------|--------|-----------|
+| **Wajib** | "3+ tahun pengalaman perakaunan", "lesen memandu D" | Semak ada/tidak |
+| **Diutamakan** | "Pengalaman SST", "Bahasa Mandarin" | Tambah markah |
+| **Penolak** | "Tidak memiliki lesen GDL yang diperlukan" | Tandakan untuk semakan manusia |
+| **Larangan** | Umur, jantina, kaum, agama, status perkahwinan, foto, alamat | **Tidak boleh diskor** |
+
+**Peraturan tegas:** medan larangan dibuang sebelum pemarkahan. Jika kriteria jawatan mengandungi medan larangan, sistem menolak penyimpanan kriteria tersebut.
+
+### 80.3 Penghuraian CV
+
+Menggunakan BAB 59 Document AI:
+
+| Medan diekstrak | Kegunaan |
+|-----------------|----------|
+| Nama, e-mel, telefon | Hubungan sahaja — **tidak** diskor |
+| Pengalaman (syarikat, jawatan, tempoh) | Skor |
+| Pendidikan | Skor |
+| Kemahiran & pensijilan | Skor |
+| Bahasa | Skor |
+| Pencapaian terukur | Skor |
+
+- Format disokong: PDF, DOCX, imej (OCR).
+- Keyakinan penghuraian < 0.80 → baris gilir semakan manusia, bukan penolakan.
+- CV tidak boleh dibaca → calon dimaklumkan dan diminta format lain.
+
+### 80.4 Rubrik Pemarkahan
+
+| Komponen | Berat | Asas |
+|----------|-------|------|
+| Kriteria wajib | 50% | Lulus/gagal setiap satu |
+| Pengalaman relevan | 20% | Tahun + kedekatan domain |
+| Kemahiran diutamakan | 15% | Padanan kemahiran |
+| Pendidikan/pensijilan | 10% | Keperluan jawatan |
+| Pencapaian terukur | 5% | Bukti dalam CV |
+
+| Skor | Tafsiran | Tindakan |
+|------|----------|----------|
+| ≥ 80 | Padanan kuat | Masuk senarai pendek cadangan |
+| 60–79 | Perlu semakan | Senarai semak manusia |
+| < 60 | Padanan lemah | **Tetap disemak manusia** — tiada penolakan automatik |
+
+**Setiap skor mesti membawa sebab:** kod sebab + petikan bukti daripada CV. Skor tanpa bukti tidak boleh dipaparkan.
+
+### 80.5 Larangan Penolakan Automatik
+
+Ini bukan garis panduan — ia keperluan sistem:
+
+1. Tiada calon boleh ditolak tanpa tindakan manusia yang direkod.
+2. Butang "Tolak" hanya aktif selepas penyemak membuka CV dan melihat sebab skor.
+3. Penolakan memerlukan sebab daripada senarai + nota pilihan.
+4. Calon yang ditolak atas sebab automatik dilarang; sebab mesti datang daripada manusia.
+5. Setiap penolakan direkod: siapa, bila, sebab, versi rubrik.
+
+**Sebab:** keputusan automatik terhadap individu membawa risiko diskriminasi, dan dalam konteks PDPA Malaysia, individu mempunyai hak untuk mengetahui asas keputusan yang menyentuh mereka.
+
+### 80.6 Kawalan Bias
+
+| Kawalan | Pelaksanaan |
+|---------|-------------|
+| Buta identiti | Nama, foto, umur, jantina, alamat dibuang sebelum pemarkahan |
+| Skor berasaskan bukti | Hanya kemahiran/pengalaman yang dinyatakan dalam CV |
+| Ujian pariti | Semakan suku tahun: kadar lulus mengikut kumpulan demografi (jika data tersedia secara sah) |
+| Semakan rubrik | Rubrik disemak manusia setiap 6 bulan |
+| Tiada pembelajaran rentas tenant | Model pemarkahan tidak dilatih daripada CV tenant lain (BAB 72) |
+
+### 80.7 Pencarian & Penapisan Calon
+
+| Keperluan | Spesifikasi |
+|-----------|-------------|
+| Carian teks penuh | Merentas medan yang diekstrak (kemahiran, jawatan, syarikat) |
+| Penapis | Kemahiran, tahun pengalaman, pendidikan, bahasa, status, skor |
+| Carian tersimpan | Disimpan per pengguna per jawatan |
+| Isihan | Mengikut skor, tarikh, nama |
+| Tindakan pukal | Pindah peringkat, jemput temuduga, tolak (dengan pengesahan) |
+| Paparan | Jadual + kad; senarai pendek dipaparkan dengan sebab skor |
+| Eksport | CSV dengan kebenaran dan jejak audit |
+
+### 80.8 Penjadualan Temuduga
+
+| Aspek | Peraturan |
+|-------|-----------|
+| Sumber ketersediaan | Kalendar bos (BAB 27), waktu kerja 09:00–18:00 waktu tempatan |
+| Tempoh lalai | 45 minit; boleh dikonfigurasi per jawatan |
+| Penampan | 15 minit antara temuduga |
+| Panel | > 1 penemuduga mesti semua tersedia |
+| Cadangan slot | Maksimum 3 pilihan; jangan tawarkan slot di luar waktu kerja |
+| Jemputan | Kalendar + e-mel + WhatsApp (templat BAB 77.5) |
+| Peringatan | 24 jam dan 2 jam sebelum |
+| Penjadualan sendiri | Pilihan: pautan calon memilih slot (maks 5 pilihan) |
+| Penjadualan semula | Maksimum 2 kali automatik; selepas itu manusia |
+| Tidak hadir | Tanda automatik selepas 15 minit; status `no_show` |
+
+**Peraturan:** AI boleh mencadangkan slot, tetapi **bos menetapkan** slot akhir. AI tidak boleh menghantar jemputan tanpa kelulusan (siling L1).
+
+### 80.9 Status Calon
+
+```
+Diterima → Ditapis → Senarai pendek → Temuduga dijadualkan
+   → Temuduga selesai → Tawaran → Diupah
+   ↘ Ditolak (oleh manusia)
+   ↘ Menarik diri
+   ↘ Tidak hadir
+```
+
+Setiap peralihan direkod dengan pelaku, masa dan sebab.
+
+### 80.10 PDPA & Hak Calon
+
+| Keperluan | Pelaksanaan |
+|-----------|-------------|
+| Notis privasi | Dipaparkan sebelum muat naik CV |
+| Asas pemprosesan | Permohonan sukarela + notis |
+| Persetujuan pemprosesan automatik | Dinyatakan dengan jelas dalam notis |
+| Hak akses | Calon boleh minta salinan data yang disimpan |
+| Hak pembetulan | Calon boleh betulkan data yang salah |
+| Pemadaman | Data dipadam 12 bulan selepas keputusan, atau atas permintaan |
+| Penyimpanan | CV asal 12 bulan; skor 12 bulan; log keputusan 24 bulan |
+
+### 80.11 Data Model
+
+| Jadual | Tujuan |
+|--------|--------|
+| `job_openings` | Jawatan, kriteria, status |
+| `job_criteria` | Kriteria wajib/diutamakan/penolak dengan berat |
+| `candidates` | Calon, sumber, status |
+| `candidate_documents` | CV asal + teks diekstrak + checksum |
+| `candidate_scores` | Skor per kriteria + kod sebab + petikan bukti |
+| `candidate_decisions` | Setiap keputusan manusia: siapa, bila, sebab |
+| `interviews` | Slot, panel, status, pautan kalendar |
+| `interview_feedback` | Penilaian penemuduga |
+
+### 80.12 Kriteria Penerimaan
+
+- [ ] Tiada calon boleh ditolak tanpa tindakan manusia yang direkod (diuji).
+- [ ] Medan larangan dibuang sebelum pemarkahan (diuji dengan CV ujian yang mengandungi foto/jantina).
+- [ ] Setiap skor memaparkan sekurang-kurangnya satu petikan bukti (diuji).
+- [ ] Calon dengan skor < 60 tetap muncul dalam senarai semakan manusia (diuji).
+- [ ] AI tidak boleh menghantar jemputan temuduga tanpa kelulusan (diuji).
+- [ ] Data calon dipadam pada bulan ke-13 (diuji).
+- [ ] Log keputusan lengkap untuk setiap penolakan (diuji).
+
+---
+
+# PART XVII — KELEBIHAN KOMPETITIF & ENJIN PERTUMBUHAN
+
+## BAB 81 — Competitive Advantage & Business Growth Engine
+
+> **Status dokumen:** Strategi produk. Setiap kelebihan ditanda dengan status kod
+> sebenar dalam `ai-bijan-saas/app/`, disahkan oleh ujian. Dokumen ini **tidak**
+> mendakwa ciri yang belum dibina.
+>
+> **Peta pesaing:** `ai-bijan-saas/docs/PETA-PESAING-34-MODUL.md` (400+ pesaing).
+> **Analisis:** `ai-bijan-saas/docs/ANALISIS-KOMPETITIF.md`.
+> **Cadangan:** `ai-bijan-saas/docs/CADANGAN-IMPAK-TINGGI.md`.
+
+### 81.1 Kedudukan Produk
+
+| | |
+|---|---|
+| **Tagline** | *Every Business Deserves a Boardroom* |
+| **Perubahan naratif** | Daripada **mengurus** perniagaan → membantu perniagaan **berkembang** |
+| **Formula** | Understand → Configure → Find → Convert → Deliver → Verify → Learn → Improve |
+| **Bukan** | Bukan set perisian, bukan chatbot, bukan ERP generik |
+
+### 81.2 Diagnosis Sebenar (tarikh: 24 Okt 2026)
+
+| Lapisan | Ukuran | Status |
+|---|---|---|
+| Modul backend | 34 | 🟢 |
+| Endpoint API | ~970 | 🟢 |
+| Ujian lulus | 220 | 🟢 |
+| Model terisolasi tenant | 108 | 🟢 |
+| View UI | 34 × purata 5.5 KB | 🔴 |
+| Integrasi bayaran | 0 | 🔴 |
+
+**Kesimpulan:** AI BIJAN ialah **enjin tanpa badan kereta**. Backend boleh dipercaya;
+UI belum. Semua keutamaan dan rujukan mesti memfokuskan UI dulu — bukan menambah modul.
+
+### 81.3 Sembilan Kelebihan (status kod sebenar)
+
+Legenda: ✅ berfungsi & diuji · 🟡 separa · ⛔ belum bermula
+
+| # | Kelebihan | Status | Fokus | Skor |
+|---|---|---|---|---|
+| 81.3.1 | **B-Owner Command Centre** | 🟡 | Papan pemuka satu pandangan + AI "kenapa turun" | 5/10 |
+| 81.3.2 | **B-Growth Engine** | 🟡 | Atribusi sumber→jualan, CAC, ROI | 6/10 |
+| 81.3.3 | **B-Sales & Relationship Intelligence** | 🟡 | Skor prospek, draf mesej, susulan | 6/10 |
+| 81.3.4 | **B-Site AI Website Builder** | 🟡 | Jana laman dari perihalan AI | 6/10 |
+| 81.3.5 | **B-Operations Industry Engine** | 🟡 | 19 industri, alur khusus sektor | 6/10 |
+| 81.3.6 | **B-AI Voice & Communication** | ⛔ | Suara AI, panggilan, transkrip | 0/10 |
+| 81.3.7 | **B-Finance Intelligence** | 🟡 | Aliran tunai, margin, amaran anomali | 6/10 |
+| 81.3.8 | **B-Agent Workforce & Boardroom** | ✅ | 11 ejen, 7 langkah, 16 ujian safety | 9/10 |
+| 81.3.9 | **B-Platform & White-Label Engine** | 🟡 | Reseller, revenue share, domain | 5/10 |
+
+**Ringkasan:** 1 siap sepenuhnya, 7 separa, 1 belum bermula.
+
+#### 81.3.1 B-Owner Command Centre
+
+Satu paparan untuk pemilik: jualan, keuntungan, aliran tunai, prestasi cawangan,
+tunggakan, risiko, tugasan. Soalan terus kepada AI: *"Kenapa keuntungan turun?"*
+
+**Perlu dibina:** satu endpoint agregat `GET /api/v1/owner/overview` menggabungkan
+metrik POS, Invoicing, Finance, CRM, Marketing, HRMS dalam satu panggilan.
+
+**Rujukan pesaing:** Gainsight, Scalekit, Vanta, Pigment, FullStory.
+
+#### 81.3.2 B-Growth Engine
+
+Sambungan laman → pemasaran → jualan → pendapatan. Penjejakan sumber prospek hingga
+jualan, cadangan kempen/bajet, CAC dan ROI.
+
+**Perlu dibina:** pautan atribusi `lead_source` → `order_id`.
+
+**Rujukan pesaing:** HubSpot Campaigns, Omnisend, Klaviyo, Adobe Marketer.
+
+#### 81.3.3 B-Sales & Relationship Intelligence
+
+CRM yang menekankan **tindakan**: import & bersihkan prospek, kesan prospek belum
+dihubungi, draf mesej AI, peringatan susulan, skor prospek, rekod hasil.
+
+**Rujukan pesaing:** Close, Apollo, Clay, Gong, Outreach, Salesloft.
+
+#### 81.3.4 B-Site AI Website Builder
+
+Laman dibina daripada perihalan + industri. Borang → CRM, domain sendiri,
+white-label.
+
+**Perlu dibina:** jana laman daripada prompt + template industri MY.
+
+**Rujukan pesaing:** Durable, 10Web, Wix AI, Squarespace Blueprint, Framer AI.
+
+#### 81.3.5 B-Operations Industry Engine
+
+Struktur operasi khusus sektor (bukan generik): restoran, klinik, kontraktor,
+event, retail, gudang.
+
+**Rujukan pesaing:** Odoo vertical, ERPNext, Toast, ServiceTitan, Jobber, Housecall Pro.
+
+#### 81.3.6 B-AI Voice & Communication
+
+AI menjawab panggilan, menjadualkan janji temu, meringkas perbualan.
+
+**Status: ⛔ belum bermula.** Pagar wajib: kebenaran, peraturan saluran, kelulusan.
+
+**Rujukan pesaing:** PolyAI, Bland AI, Retell AI, Vapi, ElevenLabs, Observe.AI,
+Cresta, Sierra, Google CCAI.
+
+#### 81.3.7 B-Finance Intelligence
+
+Aliran tunai + ramalan, margin mengikut produk/projek/cawangan, amaran transaksi
+luar biasa, analisis kos.
+
+**Rujukan pesaing:** Ramp, Brex, HighRadius, BlackLine, Bill.com, Anaplan.
+
+#### 81.3.8 B-Agent Workforce & Boardroom ✅
+
+Ejen khusus: AI CMO, CFO, COO, Sales, Customer Service + B-Boardroom 7 langkah.
+
+**Pagar:** tindakan berisiko → kelulusan manusia; PromptGuard di lapisan input;
+audit setiap tool call.
+
+**Rujukan pesaing:** Tiada padanan langsung untuk Boardroom. Terdekat: konsultan
+manusia (McKinsey, BCG), Gartner, Forrester.
+
+#### 81.3.9 B-Platform & White-Label Engine
+
+Pelan SaaS boleh diset Super Admin, token AI berasingan, markup per model, API key
+per tenant, domain/logo/tema white-label, revenue share reseller.
+
+**Rujukan pesaing:** Zoho, SuiteApp, Recurly, Chargebee, Paddle, Lemon Squeezy,
+GoCardless, Stripe Billing.
+
+### 81.4 Kelebihan Terbesar: Rantaian Silang-Modul
+
+Nilai bukan bilangan modul — nilai ialah **hubungan**:
+
+```
+B-Site & B-Marketing      →  Dapatkan pengunjung & prospek
+        ↓
+B-CRM & B-Sales          →  Urus prospek, susulan, penukaran
+        ↓
+B-Operations & B-Payment →  Proses pesanan, hantar servis, rekod bayaran
+        ↓
+B-Finance & B-Analytics  →  Ukur hasil, margin, kos, aliran tunai
+        ↓
+B-Brain Hub & B-Boardroom → Analisis keseluruhan kitaran, cadang penambahbaikan
+```
+
+**Contoh operasi:** jualan restoran menurun → sistem menyemak kempen, kadar
+penukaran, menu, inventori, margin → mencadangkan kempen lebih sesuai → **meminta
+kelulusan pemilik** sebelum mengubah bajet iklan.
+
+### 81.5 Kelebihan Unik Yang Pesaing Tidak Boleh Tiru
+
+#### 81.5.1 Kaitan CCTV dengan POS (BAB 56C)
+
+```
+Kamera depan: 12 orang masuk hari ini
+POS:          3 transaksi
+→ Amaran: "9 pelanggan keluar tanpa beli — semak kawasan kaunter"
+```
+
+Hikvision, Milestone, Verkada **tidak boleh** ini kerana mereka tiada data POS.
+
+#### 81.5.2 Pematuhan HR Malaysia + AI
+
+EPF/SOCSO/EIS/PCB/HRDF yang dikira betul **dan** disambungkan kepada operasi
+sebenar. Tiada pesaing menggabungkan ini.
+
+#### 81.5.3 Pagar Biometrik PDPA sebagai Produk
+
+Enam pagar consent yang dikuatkuasakan dalam kod (BAB 56C.6A) — sesuatu yang
+perlu disemak secara luaran oleh vendor global.
+
+#### 81.5.4 Laporan ROI Terukur
+
+```
+LAPORAN ROI AI — Oktober 2026
+Prospek dihubungi AI          47  →  12 jadi pelanggan  →  RM18,400 jualan
+Kerja manual dijimatkan                       38 jam
+Kos AI bulan ini                       RM 82
+Pulangan                                224×
+```
+
+Semua sumber data sudah wujud. Ini nombor yang mengekalkan langganan.
+
+### 81.6 Idea Daripada 400+ Pesaing
+
+15 idea dengan nisbah impak/kerja tertinggi. Rujukan penuh di
+`PETA-PESAING-34-MODUL.md`.
+
+| # | Idea | Sumber | Modul | Status kod |
+|---|---|---|---|---|
+| 1 | **Mod offline penuh** | Loyverse ✅ | POS | ❌ |
+| 2 | **Resit & notifikasi WhatsApp** | Tiada pesaing | POS, Payroll, Invoicing | ❌ |
+| 3 | **e-Invois LHDN** | Bukku ✅, StoreHub ✅ | Invoicing | ❌ |
+| 4 | **Customer display + Kitchen display** | Loyverse ✅ | POS | ❌ |
+| 5 | **Portal pekerja layan diri** | BambooHR | HRMS | ❌ |
+| 6 | **Papan syif drag-drop** | RotaCloud, Deputy | HRMS | ❌ |
+| 7 | **EA Form + Borang E automatik** | PayrollPanda | Payroll | 🟡 (eksport ada) |
+| 8 | **Pipeline drag-drop visual** | Pipedrive | CRM | ❌ |
+| 9 | **AI bina laman dari perihalan** | Durable, 10Web | Site | ❌ |
+| 10 | **Kad loyalty Apple/Google Wallet** | Belly | Loyalty | ❌ |
+| 11 | **Segerak multichannel (Shopee/Lazada/TikTok)** | SiteGiant ✅ | Marketplace | ❌ |
+| 12 | **Imbasan barcode mudah alih** | inFlow | Inventory | 🟡 |
+| 13 | **Laporan berjadual WhatsApp** | Tiada pesaing | Analytics | ❌ |
+| 14 | **Kad digital Wallet** | Belly, Stampme | Link | 🟡 |
+| 15 | **MyDigitalID** | Tiada pesaing | SignDocs | ❌ |
+
+**Tiga idea tiada pesaing langsung** — kesemuanya berbentuk WhatsApp: resit,
+laporan berjadual, kutipan. Pesaing global bina untuk e-mel; pesaing tempatan
+bina untuk POS. Tiada siapa bina untuk WhatsApp sebagai teras.
+
+### 81.7 Idea Yang TIDAK Patut Dikejar
+
+| Idea | Sebab |
+|---|---|
+| Marketplace sendiri | Tidak boleh menang rangkaian Shopee/Lazada |
+| Enjin carian | Mustahil |
+| Pengganti Excel sepenuhnya | Terlalu luas untuk satu produk |
+| Perakaunan penuh | Bukku sudah menang pada RM0 |
+| CRM terdalam | Salesforce tidak boleh dikalahkan di enterprise |
+| Video conferencing | Tiada kaitan dengan operasi perniagaan |
+| Emel transaksional | Komoditi (SendGrid) |
+
+### 81.8 Analisis Kompetitif (harga disahkan 24 Okt 2026)
+
+| Produk | Harga | Kos 15 pekerja |
+|---|---|---|
+| Bukku | RM0–135 + SST | RM146 |
+| StoreHub | RM122–471 | RM235 |
+| **AI BIJAN** | **RM288 flat** | **RM288** |
+| Odoo Custom | USD25.50/pengguna | ~RM1,695 + pelaksanaan |
+| Zoho One | RM148/pekerja (WAJIB semua pekerja) | RM2,220 |
+| MS Dynamics | RM540/pengguna | RM8,100 |
+
+**Ancaman paling nyata:** Bukku (RM146) + StoreHub Starter (RM122) = **RM268**,
+hampir sama harga AI BIJAN tetapi kedua-duanya sudah matang.
+
+**Cara menang:** integrasi (POS→invois→jurnal tanpa salinan manual) + pematuhan
+HR + AI yang bertindak. Bukan harga, bukan bilangan modul.
+
+### 81.9 Skor Kompetitif (keupayaan sebenar hari ini)
+
+| Dimensi | AI BIJAN | Zoho One | Odoo | StoreHub | Bukku |
+|---|---|---|---|---|---|
+| Kedalaman fungsi | 5 | 9 | 9 | 6 | 5 |
+| **Kematangan UI** | **2** | 9 | 7 | 8 | 8 |
+| Pematuhan Malaysia | **8** | 3 | 5 | 6 | 8 |
+| Keupayaan AI | **7** | 3 | 4 | 2 | 1 |
+| Keselamatan & isolasi | **9** | 7 | 6 | 5 | 6 |
+| Kos efektif (PKS 15) | **9** | 3 | 5 | 8 | 10 |
+| Kemudahan onboarding | 4 | 8 | **2** | 9 | 8 |
+| **Purata** | **6.3** | 6.0 | 5.4 | 6.3 | 6.6 |
+
+**Tafsiran:** AI BIJAN seri dengan StoreHub, sedikit di belakang Bukku (yang
+sempit). **UI ialah satu-satunya sebab kita belum mendahului.** Jika UI naik
+2 → 8, purata menjadi **7.2** dan mendahului semua.
+
+### 81.10 Keutamaan Pelaksanaan
+
+| Fasa | Skop | Tempoh |
+|---|---|---|
+| **1 — Boleh dijual** | POS sebenar + mod offline, WhatsApp UI, laporan ROI, onboarding < 30 min, FPX, e-Invois LHDN | 16 minggu |
+| **2 — Boleh dipercayai** | PWA 4 skrin, MySQL + backup + pemantauan, integrasi Ads | 8 minggu |
+| **3 — Boleh berkembang** | White-label + reseller, Vision/CCTV lanjutan, AI voice | 12 minggu+ |
+
+**Prinsip:** *satu modul yang sempurna mengalahkan 34 modul yang separuh siap.*
+
+### 81.11 Metrik Kejayaan
+
+| Metrik | Sasaran | Cara ukur |
+|---|---|---|
+| Masa daftar → transaksi pertama | < 30 minit | Timeline audit log |
+| Pelanggan guna POS setiap hari | 10 (fasa 1) | Kiraan syif ditutup |
+| Laporan ROI dilihat | > 70% pemilik/bulan | Log tontonan |
+| Kadar pembaharuan | > 85% | `subscriptions` |
+| NPS | > 40 | Tinjauan suku tahunan |
+
+### 81.12 Prinsip Jualan
+
+> **Jangan jual janji "AI mengurus semuanya secara automatik". Jual hasil yang boleh dibuktikan.**
+
+| Janji salah | Hasil yang boleh dibuktikan |
+|---|---|
+| "AI urus perniagaan anda" | "Tambah X% prospek ditukar jadi pelanggan" |
+| "Automasi penuh" | "Kurangkan Y jam kerja manual sebulan" |
+| "CCTV AI pintar" | "Kurangkan kehilangan stok Z% melalui amaran masa nyata" |
+| "AI CFO" | "Ramalan aliran tunai 30 hari dengan ketepatan W%" |
+
+### 81.13 Kesilapan Posisi Mesti Dielak
+
+| Dakwaan salah | Kenapa berbahaya | Ganti dengan |
+|---|---|---|
+| "Ganti SAP" | Tidak benar; hilang kredibiliti | "Untuk PKS, bukan perusahaan" |
+| "34 modul siap" | UI rangka sahaja | "POS, CRM, HR, kewangan dalam satu" |
+| "Voice interface" | Belum dikodkan | Jangan sebut sehingga siap |
+| "Collective intelligence" | Belum dikodkan | Jangan sebut sehingga siap |
+| "Proprietary model" | Tidak wujud | "Model terbaik untuk setiap tugas" |
+| "34 industri" | Tidak tepat | "19 industri dengan alur khusus" |
+
+### 81.14 Kriteria Penerimaan
+
+- [ ] Setiap kelebihan mempunyai status kod yang disahkan oleh ujian (diuji).
+- [ ] Tiada ciri ditanda ✅ tanpa bukti dalam `app/` + `routes/` + ujian lulus.
+- [ ] Laporan ROI mengira daripada data sebenar, bukan anggaran (diuji).
+- [ ] Mod offline POS menyinkronkan tanpa duplikasi (diuji).
+- [ ] Papan pemuka pemilik memuat dalam < 2 saat untuk 12 bulan data (diuji).
+- [ ] Harga dipaparkan sebagai RM288 tanpa caj tersembunyi (diuji).
+
+---
+
+---
+
+# PART XVIII — PEMBANTU EKSEKUTIF MULTIMODAL & ENJIN JUALAN
+
+## BAB 82 — B-Executive AI: Pembantu Eksekutif Multimodal
+
+> **Status dokumen:** Spesifikasi produk. Status kod sebenar €.
+> **Modul:** `app/Modules/ExecutiveAI/`, `app/Modules/MediaStudio/`,
+> `app/Modules/Prospecting/`, `app/Modules/SalesCopilot/`
+> **Rujukan:** BAB 23 (Memory), BAB 56A (Voice/Video), BAB 56C (CCTV),
+> BAB 62 (AI Safety), BAB 69–71 (Orkestrasi & Kelulusan), BAB 81 (Persaingan)
+>
+> **⚠️ Prinsip teras:** AI BIJAN ialah **pembantu**, bukan pengganti membuat keputusan.
+> Setiap tindakan yang menyentuh dunia luar (menghantar mesej, memuat naik video,
+> memindahkan wang) mesti melalui **pintu kelulusan** yang dikawal oleh tahap
+> autonomy tenant. Tiada pengecualian.
+
+---
+
+### 82.1 Identiti & Positioning
+
+| Aspek | Nilai |
+|---|---|
+| **Nama dalam kod** | `B-Executive AI` (kunci: `b_executive`) |
+| **Nama PAPAR** | "B-Executive" — **jangan** gunakan "Jarvis" untuk identiti produk |
+| **Tagline** | *Your business, in one voice.* |
+| **Persona** | Pembantu eksekutif perniagaan yang boleh **dengar, melihat, berfikir, dan bertanya sebelum bertindak** |
+| **Audiens** | Pemilik PKS, CEO, COO, Pengarahellites (1–50 orang) |
+| **Pplatform** | Web app + PWA + WhatsApp (bukan aplikasi desktop) |
+| **Mata wang** | **Bukan ERC20.** Semua penggunaan AI melalui AI Credit Wallet (BAB 22) yang sedia ada |
+
+#### Kenapa bukan "Jarvis"?
+
+| Sebab | Penjelasan |
+|---|---|
+| Kekhurangan tanda dagangan | "Jarvis" ialahIME trademark IKAN Steve. Using it invites legal risk and jokes |
+| Janji salah | "Jarvis" menjanjikan otonomi penuh. AI BIJAN sengaja **berperingkat** (autonomy 0–4) |
+| Bahasa | "Jarvis" English-only. AI BIJAN **BM/EN** sejak hari pertama |
+| Audit | Setiap tindakan perlu jejak audit jelas (BAB 71). "Jarvis" memancing jangkaan tanpa jejak |
+
+---
+
+### 82.2 Senarai Keupayaan (8)
+
+| # | Keupayaan | Ringkasan | Modul |
+|---|---|---|---|
+| 1 | **Command Centre** | Satu papan pemuka "keadaan perniagaan" — KPI, risiko, prospectus, SLA | ExecutiveAI |
+| 2 | **Business Memory** | 3 lapis (BAB 23): ejen / projek / organisasi. Ingat keputusan & pref | PersonalAssistant ( guna semula) |
+| 3 | **Agent Orchestration** | Arahan → routing ke ejen specialist | AIAgents (guna semula) |
+| 4 | **Tool Execution** | Panggil tool sebenar (bukan placeholder) | AIAgents (guna semula) |
+| 5 | **Suara Dua-Halak** | Push-to-talk BM/EN, STT + TTS | ExecutiveAI |
+| 6 | **Video Understanding** | Muat naik/rekod → ringkas, cari tindakan, tanya-jawab | MediaStudio |
+| 7 | **Video Generation & Blast** | Video per-prospect yang dipersonalisasi | MediaStudio |
+| 8 | **Proactive Briefing** | Ringkasan pagi + amaran risiko tanpa perlu ditanya | ExecutiveAI |
+
+---
+
+### 82.3 Video Understanding Pipeline
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│              PIPELINE PEMAHAMAN VIDEO                        │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  [Upload / Rekod / Screen Capture]                          │
+│          │                                                   │
+│          ▼                                                   │
+│  [1. Validasi & Sanitasi]  ← PromptGuard, size limit, mime  │
+│          │                                                   │
+│          ▼                                                   │
+│  [2. Transcode]  ffmpeg → 720p, h.264, audio mono           │
+│          │                                                   │
+│          ▼                                                   │
+│  [3. Scene Detection]  ffmpeg scene filter → keyframes      │
+│          │                                                   │
+│          ▼                                                   │
+│  [4. Transkripsi]  ASR via AI Gateway (kredit 1/5 saat)    │
+│          │                                                   │
+│          ▼                                                   │
+│  [5. Deskripsi Visual]  VLM per scene → caption + objek     │
+│          │                                                   │
+│          ▼                                                   │
+│  [6. Ekstraksi Tindakan]  JSON: {actor, action, object, ts}  │
+│          │                                                   │
+│          ▼                                                   │
+│  [7. Entiti & Kata Kunci]  orang, tempat, produk, nombor     │
+│          │                                                   │
+│          ▼                                                   │
+│  [8. Ringkasan + QA Pairs]  1 perenggan + 8 soalan/jawapan  │
+│          │                                                   │
+│          ▼                                                   │
+│  [9. Embed & Index]  → knowledge_chunks (VectorStoreService)│
+│          │                                                   │
+│          ▼                                                   │
+│  [10. Simpan]  media_understandings + media_transcripts      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### 82.3.1 Vertex Pipeline
+
+| Vertex | Input | Output | Guna |
+|---|---|---|---|
+| `understanding` | Video 1–30 minit | Ringkasan + tindakan | Briefing eksekutif |
+| `qa` | Soalan natural | Jawapan bersumber | Carian dalam video mesy meeting |
+| `action_items` | Video | Checklist tugas | Flow → task |
+| `training` | Video SOP | Kuiz + skor | HRMS |
+| `compliance` | Video proses | Checklist pematuhan | Audit |
+
+#### 82.3.2 Prestasi & Had
+
+| Had | Nilai | sebab |
+|---|---|---|
+| Saiz maksimum | 500 MB | R2/muat naik |
+| Durasi maksimum | 60 minit | Kredit AI |
+| Keyframe maksimum | 120 | Kos VLM |
+| Resolusi proses | 720p | Cukup untuk pemahaman |
+| Bahasa | BM, EN, ID, ZH, MS | Whisper multilingual |
+
+---
+
+### 82.4 Video Generation & Blast
+
+| Keupayaan | Penerangan |
+|---|---|
+| **Skrip** | AI jana skrip video daripada data prospek (nama, syarikat, pain point) |
+| **Avatar** | Persona video (tenant-created atau provider) — memerlukan pengesahan identiti |
+| **Personalisasi** | 1:1 — nama, syarikat, tawaran, gambar produk (dari `Assets`/`Inventory`) |
+| **Render** | Adapter provider (HeyGen / Synthesia / D-ID) |
+| **Hantar** | ikut autonomy + consent + had kadar (sama seperti blast lain) |
+| **Ukuran** | 30–90 saat optimum (H-D) |
+
+#### 82.4.1 Dimensi Personalisasi
+
+| Token | Sumber | Contoh |
+|---|---|---|
+| `{{nama}}` | prospect | "Encik Ahmad" |
+| `{{syarikat}}` | prospect | "Syarikat Logistik Cemerlang" |
+| `{{niche}}` | enrichment | "logistik LAST-MILE" |
+| `{{tawaran}}` | campaign | "audit operasi percuma" |
+| `{{gambar_produk}}` | Inventory | URL aset |
+
+#### 82.4.2 ⚠️ Pagar Wajib Video Blast
+
+| Pagar | Perkara |
+|---|---|
+| **Consentprospect** | Wajib `consent_status = granted` untuk channel `whatsapp`/`sms`/`email` |
+| **Autonomi ≥ 2** | Video blast = tahap 2 (draf) paling rendah |
+| **Pengesahan identiti avatar** | Wajib untuk avatar peribadi (rujukan HeyGen policy) |
+| **Watermark** | Setiap video outana ada label "AI-generated" |
+| **Moderation** | Semak automatik: keganasan, seksual, politik, peniruan |
+| **Pengesahan Identiti Dalaman** | Audio/Video TTS mesti ada `media_personas.verified_at` |
+| **Retensi** | Video dihapus selepas `retention_expires_at` (default 90 hari) |
+
+---
+
+### 82.5 Video Training / SOP
+
+```
+[Dokumen SOP / Video Sedia Ada]
+        │
+        ▼
+[AI: Ekstrak langkah + keputusan + amaran]  → knowledge_chunks
+        │
+        ▼
+[Jana Skrip Video Latihan]  (BM/EN, 2–5 minit)
+        │
+        ▼
+[Render Avatar + Narasi]
+        │
+        ▼
+[Auto-Kuiz: 5 soalan + kunci jawapan]
+        │
+        ▼
+[HRMS: assign ke pekerja → skor → sijil]
+```
+
+| Keupayaan | Status |
+|---|---|
+| Ekstrak SOP daripada dokumen | AI Gateway multimodal |
+| Jana skrip video | AI Gateway |
+| Render video | Provider adapter |
+| Auto-kuiz | AI Gateway |
+| Rekod skor latihan | `hr_*.pdf` via Learning Record |
+
+---
+
+### 82.6 Screen Capture & Pembantu Langsung
+
+| Aspek | Peraturan |
+|---|---|
+| **Apa** | Tangkapan skrin / clipboard / kamera skrin untuk analisis |
+| **Masking** | Regex mask: nombor kad, emel peribadi, ID/MyKad, nombor telefon |
+| **Persetujuan** | Minta kebenaran pengguna **setiap** kali (bukan sekali sahaja) |
+| **Penggunaan** |omaly analysis, sokongan teknikal, latihan workflow |
+| **Pengecualian** | Tiada rakaman skrin tanpa interaksi eksplisit pengguna |
+| **Penyimpanan** | Tidak kekal selepas analisis melainkan pengguna menyimpan |
+
+---
+
+### 82.7 Media Vault (Penyimpanan)
+
+| Aspek | Specifikasi |
+|---|---|
+| **Disk** | `media` (R2/S3) — berasingan daripada `documents` |
+| **Isolation** | Path wajib: `{tenant_id}/{yyyy}/{mm}/{uuid}.{ext}` |
+| **Akses** | Signed URL, TTL lalai 15 minit (maks 24 jam) |
+| **Quota** | Starter 10 GB → Enterprise 1 TB+ (ikut BAB 6) |
+| **Retensi** | Default 90 hari,-configurable; auto-purge job harian |
+| **Purging** | `media-retention-purge` scheduler harian |
+| **Kandungan sensitif** | Tiada fail peribadi/pekerja tanpa `consent` |
+| **Checksum** | SHA-256 setiap aset untuk pengesahan integriti |
+
+---
+
+### 82.8 Tahap Autonomi 0–4 & Pintu Kelulusan
+
+| Tahap | Nama | Boleh | Perlu Kelulusan | Contoh |
+|---|---|---|---|---|
+| **0** | Tanya | Baca + jawab | ❌ Tiada (tindakan tulis dihalang) | "Berapa jualan bulan ini?" |
+| **1** | Cadang | Cadang tindakan | ❌ Sentiasa dicadangkan | "Saya cadang hantar e-mel follow-up" |
+| **2** | Draf | Jana draf | ✅ Sebelum dihantar | Draf e-mel / WhatsApp / video / proposal |
+| **3** | Laksana | Eksekusi | ✅ Satu klik sahaja | Hantar e-mel yang sudah diluluskan |
+| **4** | Automasi | Auto dalam had | ❌ Auto + audit penuh | Auto-follow-up dalam had 10/hari |
+
+#### 82.8.1 Hierarki Kuat Kuasa
+
+| Jenis Tindakan | Tahap Minimum |
+|---|---|
+| Baca data / papan pemuka | 0 |
+| Cadangan / analisis | 1 |
+| **Draf e-mel / WhatsApp / SMS** | **2** |
+| **Video blast** | **2** |
+| **Cadangan naik taraf harga / diskaun** | **2** |
+| Hantar mesej luaran | 3 |
+| Tulis ke sistem (task/calendar/deal stage) | 3 |
+| Hantar wang / buat pesanan | **4 + kelulusan eksplisit** |
+| Padam data | 4 + kelulusan eksplisit |
+| Ubah tetapan tenant / menaikkan autonomy | 4 + kelulusan **super admin** |
+
+#### 82.8.2 Mekanisme Pintu
+
+```
+Permintaan Tindakan
+        │
+        ▼
+[AutonomyService::permitted($level, $actionType)]
+        │
+        ├── TRUE  → terus laksana
+        │
+        └── FALSE → [Buat ApprovalRequest]  (approval_requests, BAB 71)
+                         │
+                         ▼
+                  [Antar ke UI kelulusan]
+                         │
+                         ▼
+                  [Human approve/reject]
+                         │
+                         ├── approve → laksana + audit
+                         └── reject  → batal + simpan sebab
+```
+
+**Semua** tindakan yang melepasi tahap autonomy mesti menghasilkan `approval_requests`
+dengan `payload` lengkap (tindakan, sasaran, param, sebab).
+
+---
+
+### 82.9 Consent & Guardrails
+
+| Dasar | Perkara |
+|---|---|
+| **PDPA Malaysia** | Consent eksplisit,Purpose limitation, withdrawal jelas |
+| **BAB 56C.6A** | Biometrik dari video → **wajib** consent biometrik aktif (rujukan `BiometricGateService`) |
+| **Tiada peniruan** | Avatar perlukan pengesahan identiti on-camera |
+| **Tiada sentiasa dengar** | Push-to-talk sahaja — tiada rakaman mikrofon senyap |
+| **Tiada SQL langsung** | AI tak pernah menulis SQL — guna tool API yang disahkan |
+| **Tiada wang tanpa approval** | P-enginewang sentiasa perlu kelulusan manusia |
+| **PII redaction** | `PiiRedactor` digunakan sebelum sebarang panggilan AI |
+| **PromptGuard** | Langkah 0 dalam `GatewayService::call()` — tidak boleh dipindah |
+| **Jejak audit** | Setiap tindakan AI log: `{tenant, user, agent, action, params_hash, result, autonomy}` |
+
+---
+
+### 82.10 Integrasi 34 Modul
+
+| Keupayaan | Modul B-Related |
+|---|---|
+| Papan pemuka KPI | Finance, POS, Inventory, Analytics, CRM |
+| Sasaran jualan | CRM (Opportunity), Marketing (LeadScore) |
+| Stok & risiko | Inventory, SCM, Manufacturing |
+| HR | HRMS, Payroll (kos Mughal, cuti) |
+| Sokongan pelanggan | Helpdesk (SLA, tiket) |
+| Laporan harian | Analytics, Site (trafik) |
+| Kemasukan automatik | DocumentAI, SignDocs (tandatangan) |
+| Survei harga | MarketWatch |
+| Jualan | Marketing (blast), CRM (deal) |
+
+---
+
+### 82.11 AI Gateway Extension (Multimodal)
+
+| Keupayaan | Task Type | Kredit |
+|---|---|---|
+| Pemahaman video | `video_understanding` | 5 kredit / minit |
+| Penjanaan video | `video_generation` | 2 kredit / saat |
+| Penaman video | `video_translation` | 1 kredit / saat |
+| StSTS/penjelasan | `image_description` | 1 kredit / imej |
+| Transkripsi | `audio_transcription` | 1 kredit / 5 saat (sedia ada) |
+
+#### Sokongan `attachments`
+
+```php
+// filepath: app/Modules/AIGateway/Services/GatewayService.php
+$hasil = app(GatewayService::class)->call(
+    $tenantId,
+    [['role' => 'user', 'content' => [
+        ['type' => 'text', 'text' => 'Ringkaskan video mesy meeting ini.'],
+        ['type' => 'image_url', 'image_url' => ['url' => $signedUrl]],
+    ]]],
+    'video_understanding',
+    ['attachments' => [
+        ['type' => 'video', 'path' => $path, 'mime' => 'video/mp4', 'seconds' => 180],
+    ]]
+);
+```
+
+> **Nota keselamatan:** `attachments` mesti melalui `PromptGuard::imbasMesej()` dan
+> `PiiRedactor` **sebelum** dihantar. Fail video memuatcached di storage transient,
+> bukan URL awam.
+
+---
+
+### 82.12 Data Model & API
+
+#### Jadual
+
+| Jadual | Kunci |
+|---|---|
+| `executive_preferences` | tenant, user, bahasa, autonomy_level, briefing_time, notification |
+| `executive_briefings` | tenant, user, type, content (json), generated_at, read_at |
+| `executive_approvals` | tenant, job_id, requested_by, decision, reason, decided_at |
+| `media_assets` | tenant, kind, storage_path, mime, size, duration, checksum, retention_expires_at |
+| `media_jobs` | tenant, kind, status, provider, progress, output_asset_id, autonomy_level |
+| `media_transcripts` | tenant, asset_id, language, segments (json), text, confidence |
+| `media_understandings` | tenant, asset_id, summary, actions (json), entities (json), qa_pairs (json) |
+| `media_personas` | tenant, name, avatar_ref, voice_ref, verified_at, consent_consent_id |
+| `prospects` | tenant, source_id, email, phone, company, consent_status, score, status |
+| `blast_campaigns` | tenant, name, channel, status, approval_state, scheduled_at, autonomy_level |
+| `blast_messages` | tenant, campaign_id, prospect_id, channel, body, status, provider_message_id |
+
+#### Endpoint API
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/api/v1/executive-ai/command-centre` | `executive_ai.view` |
+| POST | `/api/v1/executive-ai/ask` | `executive_ai.view` |
+| GET | `/api/v1/executive-ai/briefings` | `executive_ai.view` |
+| POST | `/api/v1/executive-ai/briefings/generate` | `executive_ai.view` |
+| GET | `/api/v1/executive-ai/autonomy` | `executive_ai.configure` |
+| PUT | `/api/v1/executive-ai/autonomy` | `executive_ai.configure` |
+| POST | `/api/v1/executive-ai/approvals/{id}/decide` | `executive_ai.approve` |
+| POST | `/api/v1/media/upload` | `media.view` |
+| POST | `/api/v1/media/understand` | `media.execute` |
+| GET | `/api/v1/media/{id}/qa` | `media.view` |
+| POST | `/api/v1/media/generate-video` | `media.execute` |
+| POST | `/api/v1/media/jobs/{id}/approve` | `media.approve` |
+| POST | `/api/v1/media/screen-capture` | `media.execute` |
+| GET | `/api/v1/prospecting/prospects` | `prospecting.view` |
+| POST | `/api/v1/prospecting/import-csv` | `prospecting.manage` |
+| POST | `/api/v1/prospecting/scrape` | `prospecting.manage` |
+| POST | `/api/v1/blast/campaigns` | `blast.manage` |
+| POST | `/api/v1/blast/campaigns/{id}/approve` | `blast.approve` |
+| POST | `/api/v1/blast/campaigns/{id}/schedule` | `blast.execute` |
+| GET | `/api/v1/sales-copilot/brief/{prospectId}` | `sales_copilot.view` |
+
+---
+
+### 82.13 Roadmap 4 Fasa
+
+| Fasa | Skop | Penghalaan | Tempoh |
+|---|---|---|---|
+| **1 — baca sahaja** | Command Centre, Q&A papan pemuka, indeks knowledge | `executive_ai.view` | 4 minggu |
+| **2 — suara** | Push-to-talk, briefing pagi, semakan kurzasan | `executive_ai.execute` | 6 minggu |
+| **3 — draf** | Draf e-mel/WhatsApp/proposal/video, tool sebenar | `executive_ai.execute` + approval | 8 minggu |
+| **4 — proaktif** | Amaran risiko automatik, follow-up berhad, bounded automation | `executive_ai.approve` | 8 minggu+ |
+
+> **Prinsip:** setiap fasa mesti **boleh diukur**. Fasa 1 tiada writes ke dunia luar.
+
+---
+
+### 82.14 Competitive Positioning — Video & Pembantu AI
+
+| Pesaing | Kekuatan | Kelemahan | Peluang AI BIJAN |
+|---|---|---|---|
+| **HeyGen** | Avatar V sangat realistik, lip-sync 175 bahasa, pengesahan identiti enforced | Harga enterprise tinggi, tiada integrasi data perniagaan | HeyGen tak tahu data jualan/HR tenant kita |
+| **Synthesia** | 140+ bahasa, publish SCORM/LMS, Brand Kit, approval workflow | Fokuscipta video, tak boleh run operasi perniagaan | Satu video untuk SOP training **dan** sales outreach |
+| **D-ID** | Creative Reality, talking photo | Fleksibiliti rendah | — |
+| **Colossyan** | Video enterprise, interaktif | Harga enterprise sahaja | — |
+| **Tavus** | Conversational video API (real-time avatar) | API sahaja, mahal | — |
+| **Manus / Lindy** | Agent autonomy, orkestrasi | Tiada multimodal, tiada 34-modul data | — |
+| **ChatGPT / Claude Teams** | Bahasa dan penalaran kuat | Tiada data perniagaan, tiada tindakan, tiada jejak audit | — |
+
+#### 4 Keunggulan Boleh Dibuktikan
+
+| # | Keunggulan | Bukti |
+|---|---|---|
+| 1 | **Video understanding + 34-modul data** | Pesaing video hanya cipta; AI BIJAN **faham** video SOP, relógio proses, dan bound ke inventori |
+| 2 | **BM/EN + Malaysia-first** | Tiada pesaing video AI ada sokongan BM berkualiti |
+| 3 | **Consent by design** | 6 pagar biometrik + consent provenance —Ahead of market |
+| 4 | **Autonomy berperingkat** | Pesaing: all-or-nothing. AI BIJAN: 0–4 dengan audit penuh |
+
+#### ⚠️ Kesilapan Posisi (per extensions)
+
+| ❌ Jangan cakap | ✅ Ganti dengan |
+|---|---|
+| "Jarvis untuk perniagaan anda" | "Pembantu eksekutif yang bertanya sebelum bertindak" |
+| "Video AI langsung seperti Jarvis" | "Video boleh difahami, bukan hanya dicipta" |
+| "Otonomi penuh" | "Tahap automasi anda yang anda pilih" |
+| "Voice interface" (sebelum Fasa 2 siap) | Tahan sehingga ada bukti |
+
+---
+
+### 82.15 Kriteria Penerimaan
+
+- [ ] Setiap endpoint BAB 82 ada ujian lulus (≥ 1 ujian per endpoint kritikal).
+- [ ] Autonomi 0 → sebarang tindakan tulis ditolak oleh `AutonomyService` (diuji).
+- [ ] Autonomi 2 → tindakan luar memerlukan `approval_requests` (diuji).
+- [ ] Blast ke prospect tanpa `consent_status = granted` → 0 mesej diqueue (diuji).
+- [ ] Scraping domain yang `robots.txt` larang → 0 page fetched (diuji).
+- [ ] Video → inferens biometrik tanpa consent biometrik → 403 + audit log (diuji).
+- [ ] `GatewayService::call()` imbasan PromptGuard sebagai **langkah 0** (diuji).
+- [ ] Tiada `return true` placeholder dalam laluan penghantaran (grep = 0).
+- [ ] Semua video outana ada watermark "AI-generated" (diuji).
+- [ ] Purging retensi memadam aset yang `retention_expires_at < now` (diuji).
+
+---
+
+---
+
+# PART XIX — MASTERPIECE: EVOLUSI MENJADI PLATFORM SAAS UNIVERSAL
+
+## BAB 83 — Universal Platform: Audit Pesaing Lanjutan & 5 Ciri Wajib
+
+> **Status dokumen:** Strategi produk. Setiap idea ditanda dengan status kod
+> sebenar dalam `ai-bijan-saas/app/`. Dokumen ini **tidak** mendakwa ciri
+> yang belum dibina.
+>
+> **Audit:** `ai-bijan-saas/docs/AUDIT-PESAING-LANJUTAN.md` — 15 pesaing baharu
+> yang **belum pernah** diaudit (Zoho Zia, Dify, CrewAI, Retool, Shopify
+> Agentic, Stripe agentic, ServiceTitan, Help Scout, Docusign Iris, Dolibarr).
+>
+> **Soalan yang dijawab:** *Bolehkah AI BIJAN menjadi platform SaaS pertama
+> di dunia yangClosing semua jenis perniagaan — dari kedai runcit 1 orang
+> hingga syarikat 5,000 orang — dan menyebabkan mereka bertukar sistem?*
+
+---
+
+### 83.1 Diagnosis: 3 Dimensi Yang Tidak Pernah Diukur
+
+Audit lanjutan mendedahkan 3 jurang yang **tidak pernah** dinilai sebelum:
+
+| Dimensi | AI BIJAN | Pemimpin | Why It Matters |
+|---|---|---|---|
+| **Migrasi masuk** | **2** | Dolibarr 8 | Tanpa migrasi, tiada orang bertukar |
+| **Ekosistem plugin** | **1** | Odoo 9 | Tanpa plugin, tiada skala |
+| **Pematuhan enterprise** | **3** | Dify 9 | Tanpa SOC 2, tiada jualan enterprise |
+
+Skor purata diturunkan dari 6.3 → **5.0** — bukan sebab AI BIJAN menjadi lebih
+lemah, tetapi kerana **3 dimensi baru diekspose**.
+
+---
+
+### 83.2 Idea #1 — B-Migration Wizard (Paling Kritikal)
+
+> **"Tiada pesaing Malaysia buat ini."**
+> Ini adalah feature yang **menarik** (bukan sekadar memanah) — ia membolehkan
+> pelanggan bertukar sistem ke AI BIJAN.
+
+#### 83.2.1 Aliran 5 Langkah
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                   B-MIGRATION WIZARD                         │
+├──────────────────────────────────────────────────────────────┤
+│  Step 1: Pilih sistem asal                                 │
+│    [Bukku] [StoreHub] [Excel/Sheets] [Xero] [SQL Account]  │
+│    [Shopee/Lazada] [TikTok Shop] [CSV/XML] [Custom Mapping] │
+│                                                              │
+│  Step 2: Petakan medan (AI suggest + manual)                │
+│    "Saya ternampak lajur 'No. HP' → phone"                 │
+│    [Auto-map] [Manual] [Simpan sebagai profil]             │
+│                                                              │
+│  Step 3: Dry-run simulator (TIDAK mengubah data)            │
+│    "12,450 rekod akan diimport. 340 dilangkau (dupe).       │
+│     23 medan tidak dipetakan. 8 baris rosak."              │
+│    [Muat turun laporan] [Import sebenar]                    │
+│                                                              │
+│  Step 4: Import + verify (background job)                   │
+│    [Live progress] [Pause] [Rollback]                       │
+│                                                              │
+│  Step 5: Post-migration checklist                           │
+│    ☑ e-Invois LHDN disemak                                  │
+│    ☑ Cukai motor karbon disemak                             │
+│    ☑ Stok Opening dip natively                              │
+│    ☑ Tetapan payroll disemak                                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### 83.2.2 Spesifikasi
+
+| Aspek | Spesifikasi |
+|---|---|
+| Modul | `app/Modules/Migration/` (baharu) |
+| Format | CSV, XLSX, JSON, XML |
+| Sumber presets | Bukku, StoreHub, Excel/Sheets, Xero, SQL Account, Shopee, Lazada, TikTok Shop |
+| Profil import | Simpan & guna semula (1 klik) |
+| Simulator | Wajib — tiada perubahan data, jumlah rekod + isu dikira |
+| Mod import | `insert` (langsung) atau `update` (kemas kini) |
+| Dedupe | Guna `DedupeService` (sedia ada, BAB 83 Fasa 1) |
+| Audit | Setiap import log ke `audit_logs` + jejak siapa import apa |
+| Rollback | Simpan snapshot sebelum import (penting untuk data kewangan) |
+| Post-checklist | Dipacu oleh `IndustryPacks` (individu) |
+
+#### 83.2.3 Export Penuh (No Vendor Lock-in)
+
+| Aspek | Spesifikasi |
+|---|---|
+| Prinsip | "Anda pulang dengan data anda" — penanda jualan enterprises |
+| Skop | Semua jadual tenant, format CSV + JSON |
+| Kekal | PDF laporan penuh per tenant |
+| API | `GET /api/v1/migration/export/{table}` |
+| Hak | Selalu ada dalam pelan — bukan upsell |
+
+> Odoo emphasises "No vendor lock-in" untuk memintas enterprise. AI BIJAN
+>|PerLu buat lebih—hebat sebab data MY (e-Invois, EPF, SST) hard untuk dapat.
+
+---
+
+### 83.3 Idea #2 — B-Agent Studio & MCP Server
+
+> Dify publishes as MCP tool. CrewAI centrally govern. Zoho Zia = digital workforce.
+> AI BIJAN prosecuted semua 3 — dalam 1 feature.
+
+#### 83.3.1 B-Agent Studio
+
+Visual builder supaya **tenant sendiri** boleh bina ejen AI — tanpa coder:
+
+| Komponen | Fungsi |
+|---|---|
+| Persona | Nama, avatar, voice, personality, bahasa (BM/EN) |
+| Tools | Pilih daripada `ToolExecutor` allowlist + MCP tools |
+| Knowledge | Pilih knowledge base (vektor) |
+| Autonomi | Letak tahap 0–4 (BAB 82.8) |
+| Kelulusan | Syarat kelulusan (kapan perlu tanya manusia) |
+| Ujian | Test run + jejak keputusan sebelum publish |
+
+#### 83.3.2 AI BIJAN Sebagai MCP Server
+
+```
+┌──────────────────────────────────────────────┐
+│  AI BIJAN MCP Server (api/v1/mcp)           │
+│  Exposes:                                   │
+│   • tools/invoice_create                     │
+│   • tools/lead_create                       │
+│   • tools/blast_preview                      │
+│   • tools/knowledge_search                  │
+│   • resources/customer/{id}                 │
+│   • prompts/business_brief                  │
+└──────────────────────────────────────────────┘
+        ▲           ▲           ▲
+        │           │           │
+   Claude     Cursor       Dify/CrewAI
+   Desktop    (IDE)        (platform lain)
+```
+
+**Mengapa ini penting secara strategik:**
+1. Setiap pengguna Claude/Cursor/Dify menjadi **salesperson percuma** AI BIJAN
+2. Jangkauan tanpa kos marketing
+3._diff Differentiator: MCP tools AI BIJAN ada **data perniagaan MY** — tiada
+   platform lain boleh sediakan ini
+
+#### 83.3.3 Plugin Marketplace (Isi)
+
+| Jenis Plugin | Contoh | Status |
+|---|---|---|
+| Model provider | OpenAI, Anthropic, Gemini, Llama, serveras.click | AI Gateway ada routing |
+| Tool | CRM, Accounting, Shipping, WhatsApp | Perlu dibina |
+| MCP connector | GitHub, Slack, Notion, Google Workspace | Perlu dibina |
+| Data source | MySQL, Postgres, Google Sheets, REST API | Perlu dibina |
+| Workflow template | Onboarding pelanggan, kempen, laporan | Perlu dibina |
+| Vertical pack | Restaurant, clinic, workshop, kilang | `IndustryPacks` ada |
+
+---
+
+### 83.4 Idea #3 — AI-First Helpdesk dengan Metric Jualan
+
+> Help Scout: "Scout resolves **73%** of requests. Teams respond to **56% more messages**.
+> **25%** higher CSAT." — Ini yang tiada dalam marketing AI BIJAN.
+
+#### 83.4.1 4 Produk (Model Help Scout)
+
+| Produk | Fungsi | Modul AI BIJAN |
+|---|---|---|
+| **Inbox** | E-mel, SMS, WhatsApp, sosial, chat, voice dalam 1 tempat | `Helpdesk` + `Omnichannel` |
+| **Envoy** | Ejen AI yang jawab sendiri | `AIAgents` |
+| **Copilot** | Draf, triage, cadangan jawapan | `AIAgents` + `AIGateway` |
+| **Signal** | Proactive friction detection | `ExecutiveAI` briefing |
+
+#### 83.4.2 Metric Yang Mesti Dipaparkan
+
+| Metrik | Definisi | Sasaran |
+|---|---|---|
+| **AI resolution rate** | % tiket diselesaikan AI tanpa manusia | ≥ 50% (Help Scout 73%) |
+| **First response gain** | % tambahan balasan pada tahun pertama | ≥ 40% (Help Scout 56%) |
+| **CSAT uplift** | Perbezaan CSAT vs industri | ≥ 15% (Help Scout 25%) |
+| **Time to first response** | Minit dari tiket → balasan pertama | < 15 minit |
+| **Hours saved** | Jam manuel dielakkan | ≥ 20 jam/bulan/tenant |
+| **Auto-close accuracy** | % tiket ditutup automatik betul | ≥ 85% |
+
+> **Peraturan:** Tiada ciri AI bolehITION diiklankan tanpa **satu** metrik
+> boleh diukur. Ini disiplin yang membezakan "AI buzzword" daripada produk sebenar.
+
+#### 83.4.3 Halaman Per Industri (10 Like Help Scout)
+
+| Industri | Modul AI BIJAN |
+|---|---|
+| Ecommerce | `B-Site`, `Marketplace`, `POS` |
+| Pembuatan & Logistik | `Manufacturing`, `SCM`, `Logistics` |
+| Insurans | `Finance`, `CRM` |
+| SaaS | `Projects`, `Billing` |
+| Kewangan & Perbankan | `Finance`, `Payroll` |
+| Harta Benda | `Booking`, `CRM` |
+| Perkhidmatan Profesional | `Projects`, `Helpdesk` |
+| Pengurusan Harta | `Booking`, `Assets` |
+| penjagaan Kesihatan | `HRMS`, `Booking` |
+| Pendidikan | `HRMS`, `Projects` |
+
+---
+
+### 83.5 Idea #4 — Agentic Commerce
+
+> Shopify: "Agentic Storefronts — shoppers check out right in the chat."
+> Stripe: "Monetise through agentic commerce — Buy now button in AI chatbot."
+
+#### 83.5.1 Aliran
+
+```
+Pelanggan (AI sneaker / ejen peribadi)
+        │
+        ▼
+┌────────────────────────────────────┐
+│  B-Site Agentic Storefront          │
+│  "Helo, saya cari kasut lari..."   │
+│  AI propose 3 produk + harga       │
+│  "Boleh saya order?"                │
+└────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────┐
+│  AI BIJAN Order Engine             │
+│  • Semak stok (Inventory)          │
+│  • Harga dinamik (Pricing rules)   │
+│  • Buat pesanan (Sales Order)      │
+│  • E-Invois LHDN (Invoicing)       │
+│  • Bayar (FPX/Card/GrabPay)        │
+│  • Jadwal penghantaran (Logistics) │
+└────────────────────────────────────┘
+```
+
+#### 83.5.2 Keperluan Protocol
+
+| Keperluan | Nota |
+|---|---|
+| Discovery | AI BIJAN mesti boleh dibaca oleh enjin ecommerce lain |
+| UCP | Sokong Shopify Universal Commerce Protocol (2026) |
+| MCP | AI BIJAN boleh alat untuk AI shopper |
+| Consent | Checkout AI ≠ consent blast (Pagar berbeza) |
+| Audit | Setiap order AI log: model, prompt, item, harga, kelulusan |
+
+#### 83.5.3 Platform E-Commerce Lama (Extrapolation)
+
+AI BIJAN `B-Site` positioning: "Shopify replacement" (BAB 53). Agentic commerce
+menjadikannya **lebih** layak — sebab AI shopper tahu data inventori AI BIJAN
+secara langsung (data dalam sistem), bukan melalui API yang lambat.
+
+---
+
+### 83.6 Idea #5 — AI-First ESignature (Docusign Iris)
+
+| Ciri Docusign | Adaptasi AI BIJAN |
+|---|---|
+| **Agreement type detection** | `DocumentAI` — klasifikasi auto jenis dokumen (kontrak, invois, OA, surat) |
+| **Auto field suggestion** | Cadang kedudukan medan (tandatangan, tarikh, jumlah) dari template |
+| **AI summary + Q&A** | Ringkasan kontrak + tanya-jawab untuk tandatangan |
+| **Pre-send verification** | Semak nombor/emel penerima sebelum hantar |
+| **WhatsApp delivery** | Hantar permintaan tandatangan via WhatsApp (AI BIJAN Blast — tiada pesaing MY) |
+| **Doc Gen dari sistem** | Jana kontrak dari `Quotation` + profil syarikat AI BIJAN sendiri |
+| **Conditional logic** | Medan bersyarat mengikut nilai quotation |
+| **Bulk send** | Hantar banyak kontrak (projek, abc) |
+
+> **Keunggulan AI BIJAN:** Docusign-*Doc Gen* menarik data dari Salesforce/SAP.
+> AI BIJAN menarik data dari **sistem yang sama** — lebih cepat, lebih murah.
+
+---
+
+### 83.7 Idea #6 — Local Presence (Zoho Publish)
+
+| Ke.cos | Fungsi |
+|---|---|
+| Google Business Profile | Sync maklumat kedai dari AI BIJAN (nama, alamat, jam, telefon) |
+| Facebook Page | Sync maklumat + post automatik |
+| Instagram Profile | Sync bio + link |
+| TikTok Business | Sync |
+| Waze / Apple Maps | Sync |
+
+**Nilai untuk PKS Malaysia:** satu VPN kedai runcit perlu kemas kini maklumat
+di 5 tempat setiap kali berubah. AI BIJAN boleh buat sekali.
+
+---
+
+### 83.8 Idea #7 — Real-Time Costing Per Industri (ServiceTitan)
+
+| Ciri | Adaptasi |
+|---|---|
+| Real-time costing per visit/projek | `IndustryPacks` — kos sebenar setiap kerja (servis, ubat, resipi) |
+| Predictive insights | `BrainHub` — ramalan untung Rugi per industri |
+| Advisor dalam aliran kerja | `ExecutiveAI` — cadangan dalam konteks operasi, bukan dashboard berasingan |
+| Integrasi sedia ada | Connector packs: Shopee, Lazada, TikTok, Grab, MyGDX, SST, e-Invois LHDN |
+| Field mobile | `BAB 56B` |
+
+---
+
+### 83.9 Roadmap Universal Platform (4 Fasa, 24 Bulan)
+
+| Fasa | Tempoh | Skop | Sasaran Skor |
+|---|---|---|---|
+| **1 — Boleh Pindah** | 0–6 bulan | B-Migration Wizard, export penuh, AI metrics di helpdesk, 10 halaman industri | Migrasi 2→7 · Purata 5.0→**6.3** |
+| **2 — Boleh Dibina** | 6–12 bulan | B-Agent Studio, MCP server, Plugin Marketplace v1, AI-first eSignature, Local Presence | Plugin 1→6 · Purata →**7.0** |
+| **3 — Boleh.skala** | 12–18 bulan | Agentic commerce, real-time costing, connector packs, SOC 2 Type II + ISO 27001 | Enterprise 3→7 · Purata →**7.8** |
+| **4 — Boleh Mendominasi** | 18–24 bulan | White-label penuh, marketplace plugin ketiga, Collectif Intelligence, AI Regional | Purata →**8.5** |
+
+---
+
+### 83.10 Kriteria Penerimaan
+
+- [ ] B-Migration Wizard mengimport 10,000 rekod dalam < 5 minit tanpa ralat (diuji).
+- [ ] Simulator import menunjukkan jumlah tepat sebelum sebarang perubahan data (diuji).
+- [ ] Export penuh menghasilkan semua jadual tenant dalam CSV + JSON (diuji).
+- [ ] Setiap metrik AI (73% resolve, 56% gain, 25% CSAT) ada endpoint + dikira dari data sebenar (diuji).
+- [ ] AI BIJAN boleh diakses sebagai MCP server (diuji).
+- [ ] B-Agent Studio boleh membina ejen tanpa kod (diuji).
+- [ ] Setiap plugin marketplace ada versi, changelog, dan audit log (diuji).
+- [ ] AI-first eSignature hantar permintaan tanda tangan via WhatsApp (diuji).
+- [ ] Tiada ciri AI diiklankan tanpa metrik yang boleh diukur — semakan manual (diuji).
+- [ ] Export data tersedia dalam SEMUA pelan, termasuk Starter (diuji).
+
+---
+
+### 83.11 Jawapan: Bolehkah AI BIJAN Jadi Platform SaaS #1 Dunia?
+
+> **Soalan:** *Bolehkah AI BIJAN menjadi platform SaaS pertama di dunia yang
+> Closing semua jenis perniagaan — dari kedai runcit 1 orang hingga syarikat
+> 5,000 orang — dan menyebabkan mereka bertukar sistem?*
+
+#### 83.11.1 Jawapan Ringkas
+
+**Boleh — TETAPI bukan dengan apa yang ada sekarang.**
+
+AI BIJAN **memiliki** semua bahan yang tiada pada mana-mana pesaing lain
+secara serentak:
+
+| Bahan | Zoho | Odoo | Dify | Retool | ServiceTitan | **AI BIJAN** |
+|---|---|---|---|---|---|---|
+| 39 modul perniagaan | ✅ 60 | ✅ 40+ | ❌ | ❌ | ❌ | ✅ **39** |
+| Pematuhan Malaysia | ❌ | 🟡 | ❌ | ❌ | ❌ | ✅ **8/10** |
+| AI yang bertindak | 🟡 | 🟡 | ✅ | ✅ | 🟡 | ✅ **7/10** |
+| WhatsApp-first | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| RM288 flat (bukan per pengguna) | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| Multi-tenant + white-label | 🟡 | ❌ | 🟡 | ❌ | ❌ | ✅ |
+| B-Migration Wizard | 🟡 | 🟡 | ❌ | ❌ | ❌ | ⛔ **belum ada** |
+| UI gred produksi | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ **belum ada (2/10)** |
+| Plugin ecosystem | ✅ | ✅ 40k | ✅ | 🟡 | ✅ 70 | ⛔ **belum ada (1/10)** |
+| Pematuhan enterprise | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ **belum ada (3/10)** |
+
+#### 83.11.2 3 Syarat Wajib
+
+| # | Syarat | Why | Status |
+|---|---|---|---|
+| **1** | **Migrasi masuk yang manipulation** | Tiada orang bertukar tanpa cara mudah. Mesej "kita ada data anda" tanpa alat import = slogan | ⛔ **Kena dibina** |
+| **2** | **UI dari 2 → 7** | Setiap pengguna_today produktiviti 1/3 Zoho. Pendekatan ini mengurangkan kelaziman | ⛔ **Kena dibina** |
+| **3** | **Pematuhan enterprise (SOC 2 + ISO 27001)** | Tanpa ini, tiada syarikat besar boleh beli. 90% daripada revenue enterprise datang dari gate ini | ⛔ **Kena dibina** |
+
+#### 83.11.3 Realiti Yang Mesti Diterima
+
+| Realiti | Bukti |
+|---|---|
+| **AI BIJAN belum dekat** | Skor 5.0/10 vs Zoho 6.5, Dify 6.7, Retool 6.3.-soundingZoho One "operating system for business" sudah ada 30 tahun + 19K pekerja |
+| **Pesaing AI bergerak sangat cepat** | Dify 159k GitHub stars dalam 2 tahun. CrewAI 65% Fortune 500. Shopify UCP + Stripe agentic Released 2026 |
+| **Network effect tidak boleh disimpan** | Odoo 40k apps, ServiceTitan 70+ integrasi, Shopify 21k apps. AI BIJAN bermula dari 0 |
+| **Malaysia sahaja terlalu kecil** | Untuk jadi #1 dunia perlu berkembang ke SEA + Global South. Indonesia, Vietnam, Filipina — semua perlukan e-Invois + payroll compliance tempatan |
+| **"Semua jenis perniagaan" adalah strategy, bukan produk** | 39 modul sudah luas. Menambah lebih banyak modul menambah risiko (UI makin buruk). Sebaliknya, **dalam** lebih baik |
+
+#### 83.11.4 Strategi Yang Benar
+
+| ❌ Yang Salah | ✅ Yang betul |
+|---|---|
+| "39 modul — paling banyak di dunia" | "POS, CRM, HR, kewangan, AI dalam satu — dengan migrasi percuma" |
+| "Ganti SAP" | "Untuk PKS dan SMB yang tidak mampu SAP" |
+| "Tiada pesaing Malaysia buat ini" | "Migrasi masuk dari Bukku, StoreHub, Excel — percuma, 5 minit" |
+| "Boleh untuk semua industri" | "19 industri dengan alur kerja khusus + AI yang tahu data perniagaan anda" |
+| "AI penuh" | "AI yang bertanya sebelum bertindak — anda pilih tahap 0 hingga 4" |
+| "Buka semuaKwarta" | "RM288 flat. 15 pekerja. Tanpa caj tersembunyi." |
+
+#### 83.11.5 Pelan 3 Tahun Menuju #1
+
+| Tahun | Fokus | Sasaran |
+|---|---|---|
+| **Tahun 1** | **Boleh Pindah** — Migration Wizard + UI 7/10 + AI metrics | 2,000 tenant Malaysia, purata skor 7.0, RN100 |
+| **Tahun 2** | **Boleh.skala** — Agent Studio + MCP + marketplace + agentic commerce | 15,000 tenant MY+ID+PH, purata skor 8.0, plugin 200+ |
+| **Tahun 3** | **Boleh Mendominasi** — white-label penuh + collective intelligence + AI regional | 60,000 tenant SEA + 500 enterprise, purata skor 8.5 |
+
+#### 83.11.6 Verdict
+
+> **Ya, AI BIJAN boleh menjadi platform SaaS pertama di dunia yang memproses
+> semua jenis perniagaan** — TETAPI sebab yang unik, bukan sebab yang generik.
+>
+> Zoho = "60+ produk, 30 tahun". Odoo = "40k apps". Shopify = "21k apps".
+> Semua kuat dalam **breadth**.
+>
+> AI BIJAN boleh kuat dalam **kedua-duanya** — breadth 39 modul + depth
+> Malaysia compliance + AI yang benar-benar bertindak — **TETAPI hanya jika**
+> 3 hal dibina: migrasi masuk, UI, pematuhan enterprise.
+>
+> **Realiti: hari ini AI BIJAN berada di kedudukan 5.0/10 — di belakang Zoho
+> (6.5), Dify (6.7) dan Retool (6.3).**Hari ini ia bukan "platform #1 dunia".
+> Ini adalah "platform #1 **Asia Tenggara**" yang sedang dibina.
+>
+> **#1 dunia berlaku di Tahun 3-5, JIKA** 3 syarat di 83.11.2 dipenuhi
+> pada Tahun 1. Kalau tidak — ia kekal sebagai produk cemerlang untuk PKS
+> Malaysia, yang **juga** bernilai.
+>
+> **Nasihat terakhir:** Jangan tambah modul. **Tiga syarat di atas adalah
+> perbezaan antara "produk bagus" dan "platform yang semua orang guna".**
+
+---
+
+---
+
+# PART XX — REVERSE ENGINEERING: 200 APPS + 50 PROJEK OSS
+
+## BAB 84 — Ekosistem Apps & Open Source: Pelan Incorporation
+
+> **Status dokumen:** Strategi produk + rujukan teknikal.
+> **Audit:** `ai-bijan-saas/docs/REVERSE-ENGINEERING-200-APPS-50-OSS.md`
+> — **50 resource setiap platform** (Shopify, Odoo, Zoho, ServiceTitan) = **200**,
+> + **50 projek GitHub**.
+> **Kaedah:** Pemer_fail app store / marketplace yang lengkap. Semua rating,
+> review count, download count, dan harga **disahkan 24 Okt 2026**.
+>
+> **Pembetulan v8.8:** Audit pertama (v8.7) hanya mendalam 3 platform dan
+> tersalah anggap ServiceTitan tiada app store. Audit ini membetulkan kedua-dua
+> kesilapan dan menambah **Zoho Agent Store** yang teraba sebelum ini.
+
+---
+
+### 84.1 Lima Penemuan Baharu
+
+| # | Penemuan | Platform | Nombor Bukti |
+|---|---|---|---|
+| 1 | **MCP server adalah semula** — 5 app Odoo berlainan MCP server | Odoo | 9,094 + 1,862 + 1,790 + 505 + 261 download |
+| 2 | **Zoho ada store AI AGENTS berasingan** (16 ejen khusus) | Zoho | 16 ejen bernama |
+| 3 | **ServiceTitan Pro Products = 13 produk AI bersepadu** dengan metrik hasil | ServiceTitan | 6 metrik hasil |
+| 4 | **Compliance per negara = produk berasingan** di Odoo (Vietnam, India, EU, US, SA, UAE, MX) | Odoo | 7+ apps |
+| 5 | **AI dashboard builder** sudah menjadi kategori standard | Odoo + Shopify | 15,941 + 1,107 + 3,136 download |
+
+---
+
+### 84.2 Angka Marketplace (Bukti Sebenar)
+
+#### Shopify — Rating + Review Count
+
+| App | Rating | Reviews | Bukti |
+|---|---|---|---|
+| **TikTok** | 4.8 | **16,011** | Saluran jualan TikTok |
+| **Shopify Flow** | 4.7 | **15,009** | #1 automation |
+| **PageFly AI Page Builder** | 4.9 | 5,917 | AI CRO "find leaks" |
+| **Shopify Messaging** | 4.8 | 4,721 | Email+SMS+WhatsApp |
+| **Klaviyo** | 4.7 | 3,407 | Standard emas blast |
+| **Pandectes GDPR** | 5.0 | 3,108 | Consent banner |
+| **Seal Subscriptions** | 4.9 | 3,155 | Subscriptions |
+| **Essential Upsell** | 5.0 | 2,439 | Frequently Bought Together |
+| **Transcy AI Translate** | 4.5 | 2,567 | ⭐ Translation + currency |
+| **Vify Order Printer** | 5.0 | 1,213 | ⭐ ESC/POS |
+| **Faire Buy Wholesale** | 4.9 | 1,318 | ⭐ B2B |
+| **Sami B2B Pricing** | 4.9 | 993 | ⭐ B2B + MOQ |
+| **EasySell COD Form** | 4.9 | 989 | ⭐⭐ **COD — kritikal MY** |
+| **Dondy WhatsApp AI** | 4.9 | 828 | Cart recovery |
+| **CK Abandoned cart WA** | 5.0 | 303 | ⭐⭐ Cart recovery |
+| **Propel Replay/Heatmap** | 4.9 | 714 | Session replay |
+
+#### Odoo — Download Count
+
+| App | Downloads | Fungsi |
+|---|---|---|
+| Accounting Community | **125,350** | `Finance` |
+| Base Accounting Kit | **90,156** | `Finance` |
+| Open HRMS Core | **82,294** | `HRMS` |
+| **Tweak Odoo / OEM Brand** | **53,777** | ⭐⭐⭐ **WHITE-LABEL** |
+| Report xlsx base | 37,370 | Reports |
+| **Odoo AI Dynamic Dashboard** | **15,941** | ⭐⭐⭐ AI dashboard |
+| Auto Database Backup | 26,934 | ⭐ Multi-cloud |
+| **Audit Log (OCA)** | **22,533** | ⭐ Granular audit |
+| **Zk Biometric Device** | **22,333** | ⭐⭐⭐ AI BIJAN **sudah ada** |
+| **Hide Menu User & Group** | **21,723** | ⭐⭐⭐ Per-user UI |
+| Dynamic Accounting Reports | 25,221 | `Finance` |
+| **MCP Server** (much.) | **9,094** | ⭐⭐⭐ MCP |
+| **Odoo WhatsApp Connector** | 9,992 | ⭐⭐⭐ `Blast` |
+| **Custom Receipts for POS** | 10,743 | ⭐⭐ Resit |
+| **MCP Server** (MuK) | 1,790 | ⭐⭐ |
+| **AI Dynamic Dashboard** (NexGen) | 1,107 | ⭐⭐⭐ FREE |
+| **MCP Studio** (INKERP) | 142 | ⭐⭐⭐ AI + human-in-the-loop |
+
+#### Zoho — Rating Tertinggi
+
+| App | Rating | Produk |
+|---|---|---|
+| **Zoho Meeting for Mail** | **1,389** | Mail |
+| **Check Printing for Books** | 160 | ⭐⭐⭐ **Cek — MY masih guna!** |
+| Zoho Invoice Extension | 120 | Mail |
+| Credit Data Direct | 97 | ⭐ Semak kredit |
+| Zoho Projects Extension | 86 | Mail |
+| **WhatsApp for CRM** (TimelinesAI) | 16 | ⭐⭐ Multi-number WA |
+| Lead Finder | 53 | ⭐⭐ `Prospecting` |
+| Contact Info Verifier | 48 | ⭐⭐ `Prospecting` |
+| List Manager (DND) | 48 | ⭐⭐ Suppression |
+| Customer Insights for Desk | 23 | ⭐⭐ AI metrics |
+| 360 SMS | 7 | ⭐⭐ SMS+WA |
+| Toky for Zoho Desk | 9 | ⭐⭐⭐ Tiket ke WhatsApp |
+
+#### ServiceTitan — 13 Pro Products dengan Metrik Hasil
+
+| Pro Product | Metrik Hasil (rasmi) |
+|---|---|
+| **Marketing Pro** | **2x** faster revenue growth |
+| **Scheduling Pro** | **30%** conversion rate into completed job |
+| **Contact Center Pro** | **+10%** raw booking rate, **+20%** average ticket |
+| **Field Pro** | **+20%** average ticket |
+| **Dispatch Pro** | **+7%** daily average revenue |
+| **Fleet Pro** | **75% reduction** in accident risk |
+| **Sales Pro** | AI sales coaching dalam poket pasukan |
+| **Pricebook Pro** | "Redefine the Pricebook Experience" |
+| **AI Voice Agent** | "No More Missed Calls — AI Handles the Overflow" |
+| **Titan Intelligence** | "AI sidekick" menggerakkan semua Pro Products |
+| **TitanAdvisor** | Advisor AI **dalam** aliran kerja |
+
+> **⭐ Titanium Insight (paling penting):** ServiceTitan menunjukkan **"Pro Products"**
+> yang **hasilnya boleh diukur** ("+20% average ticket"). Ini corak yang AI BIJAN
+> belum ada — **setiap modul AI BIJAN patut ada satu metrik hasil**.
+
+---
+
+### 84.3 Zoho Agent Store — 16 Ejen (Penemuan Baharu)
+
+> Zoho ada **marketplace ejen AI berasingan** di `store.agents.zoho.com`.
+> Ini adalah "B-Agent Studio" yang sudah ada di pasaran — AI BIJAN belum ada.
+
+| # | Ejen | Fungsi | Idea AI BIJAN |
+|---|---|---|---|
+| 1 | Advanced Sales Coach Agent | Deal-aware insights, pitch feedback, role-play | ⭐⭐⭐ `ExecutiveAI` |
+| 2 | Instant Lead Response Agent | "Personalized outreach drafts as soon as new leads are created" | ⭐⭐⭐ `Blast` + `Prospecting` |
+| 3 | Lead Intelligence Agent | Enrich lead + assess sales potential + **user-approved updates** | ⭐⭐⭐ `Prospecting` |
+| 4 | Case Deflection and Triage Agent | "Resolve customer email queries automatically using your KB" | ⭐⭐⭐ `Helpdesk` |
+| 5 | Intelligent Inventory Agent | Inventory + sales ke demand forecasts | ⭐⭐ `Inventory` |
+| 6 | **NPS Predictor Agent** | Predictive Net Promoter Score | ⭐⭐⭐ `Analytics` |
+| 7 | Deal Gap Analyser | "Uncover the gaps holding your deals back" | ⭐⭐ `SalesCopilot` |
+| 8 | Lost Deal Analysis Agent | "Analyze lost deals to uncover missed opportunities" | ⭐⭐ `SalesCopilot` |
+| 9 | Onboarding Handover Agent | Closed-won ke follow-up tasks | ⭐⭐ `FlowAutomation` |
+| 10 | Deal Contribution Assistant | "Calculate each contributor's share of a closed deal" | ⭐ `Payroll` |
+| 11 | Day Planner Agent | Schedule + tasks + calls | ⭐⭐ `ExecutiveAI` |
+| 12 | Out-of-Office Intel Extractor | Keep conversations moving | ⭐ |
+| 13 | Multi-Stakeholder Management | Stakeholder interest, influence, sentiment | ⭐⭐ `CRM` |
+| 14 | Zoho Voice Call Summarizer | Summarize calls, tasks from Deal records | ⭐⭐ `MediaStudio` |
+| 15 | Outdated Solution Identification | Keep KB up to date | ⭐ |
+| 16 | Spiky.ai | AI meeting intelligence | ⭐⭐ |
+
+---
+
+### 84.4 Lima belas Idea Teratas
+
+| # | Idea | Sumber | Bukti | Kesan | Kerja |
+|---|---|---|---|---|---|
+| 1 | ⭐ **MCP server + AI Studio + human-in-the-loop** | Odoo (5 apps), Zoho Agent Store | 9,094 dl + 16 ejen | 🔴 Jangkauan tanpa jualan | Sederhana |
+| 2 | ⭐ **FilamentPHP UI builder** | aureuserp (MIT) | Laravel ecosystem | 🔴 **UI 2 ke 7** | Sederhana |
+| 3 | ⭐ **B-Migration Wizard + AI auto-mapping** | Matrixify (1,815 rv), Dolibarr | "MCP & AI tools" | 🔴 **Migrasi 2 ke 7** | Sederhana |
+| 4 | ⭐ **AI dashboard builder** | Odoo AI Dynamic (15,941 dl), Ksolves (3,136) | 2 free + 1 paid | 🔴 UI + metrics | Sederhana |
+| 5 | ⭐ **Metrik hasil per modul** | ServiceTitan Pro Products | 6 metrik rasmi | 🔴 Jualan ROI-based | Sederhana |
+| 6 | ⭐ **Cart recovery WhatsApp + COD** | CK (5.0), Dondy (828), EasySell COD (989) | 3 apps | 🔴 **Revenue MY** | Sederhana |
+| 7 | ⭐ **Granular UI access per user** | Hide Menu (21,723), Access Studio, AI Access Mgmt | >22,000 dl | 🔴 UI + keselamatan | Sederhana |
+| 8 | ⭐ **White-label / OEM pattern** | Tweak Odoo (53,777 dl), Remove Branding | 2 apps | 🟠 `BAB 4a` | Sederhana |
+| 9 | ⭐ **Compliance per negara** | Vietnam VAS (4 apps), GST | SEA expansion | 🟠 `IndustryPacks` | Sederhana |
+| 10 | ⭐ **Fleet & GPS** | Samsara, Fleetio, Motive, Verkada | ServiceTitan | 🟠 `Logistics` baru | Sederhana |
+| 11 | ⭐ **Connector pack 20+ sistem** | ServiceTitan 70+, Zoho, Odoo | 3 marketplace | 🟠 `Migration` | Sederhana |
+| 12 | ⭐ **AI transkrip panggilan + sales coaching** | Callture, Sales Pro, Sales Coach | 3 apps | 🟠 `MediaStudio` | Sederhana |
+| 13 | ⭐ **AI Voice Agent overflow** | ServiceTitan AI Voice Agent | "No More Missed Calls" | 🟠 `ExecutiveAI` | Sederhana |
+| 14 | ⭐ **Meddicc scoring + NPS predictor** | Meddicc Score, NPS Predictor | 2 ejen | 🟠 `SalesCopilot`/`Analytics` | Sederhana |
+| 15 | ⭐ **PDPA consent banner + T&C** | Pandectes (3,108), TN T&C (565) | 2 apps | 🟠 `Site`/`Helpdesk` | Sederhana |
+
+---
+
+### 84.5 Dua Puluh OSS Tier 1 (MIT / Apache-2.0 — Boleh Rebrand)
+
+| # | Projek | Lesen | Stack | Modul AI BIJAN | Cara Guna |
+|---|---|---|---|---|---|
+| 1 | **liteerp** | MIT | Laravel+React | `Migration` | Clean Architecture + DDD |
+| 2 | **aureuserp** | MIT | Laravel+Filament | **UI semua** | ⭐⭐⭐ **Filament = UI builder** |
+| 3 | **akaunting** | MIT | Laravel | `Finance` | Double-entry, budget, recurring |
+| 4 | **NexoPOS** | MIT | Laravel+Vue+Tailwind | `POS` | ⭐⭐⭐ POS + modular + Tailwind |
+| 5 | **lakasir** | MIT | Laravel | `POS` | ⭐⭐⭐ Bahasa Indonesia (SEA) |
+| 6 | **triangle-pos** | — | Laravel 10+Livewire 3 | `POS` | Livewire pattern |
+| 7 | **astron-agent** | **Apache-2.0** | Java+Python | `AIAgents` | ⭐⭐ MCP+RPA+LLM-Ops+multi-agent |
+| 8 | **hatchet** | **MIT** | Go | `FlowAutomation` | Durable agent orchestration |
+| 9 | **inngest** | **Apache-2.0** | Go | `FlowAutomation` | Step functions + AI workflows |
+| 10 | **conductor** | **Apache-2.0** | Java | `FlowAutomation` | Event-driven agentic engine |
+| 11 | **flowable-engine** | **Apache-2.0** | Java | `FlowAutomation` | BPM |
+| 12 | **dtm** | **Apache-2.0** | Go | `BAB 25` | Outbox, saga, TCC |
+| 13 | **temporal** | **MIT** | Go | `FlowAutomation` | Durable execution |
+| 14 | **receiptline** | **MIT** | JS | `POS` | ⭐⭐ Markdown receipts + ESC/POS + kitchen |
+| 15 | **grocy** | **MIT** | PHP+Blade | `Inventory` | Stok, resipi, unit |
+| 16 | **open-mercato** | MIT | TS+Next.js | Semua | ⭐⭐⭐ "AI-Engineering Foundation" |
+| 17 | **Archon** | — | TS | `AIAgents` | Agent harness builder |
+| 18 | **carbon** | — | TS+Postgres | `Manufacturing` | ⭐⭐⭐ MES+QMS+**MCP server** |
+| 19 | **WebErpMesv2** | — | React+Laravel | `Manufacturing` | ⭐⭐ Laravel + Factur-X e-invoicing |
+| 20 | **moqui-mcp** | — | Groovy | `AIAgents` | MCP untuk ERP |
+
+#### Tier 2 — GPL/AGPL: RUJUKAN SAHAJA ⛔
+
+`twenty` · `nocobase` · `openblocks` · `steedos` · `budibase` · `krayin/laravel-crm` ·
+`Dolibarr` (⭐ **Import/Export Wizard** + **Module Builder**) · `espocrm` ·
+`ever-gauzy` · `SuiteCRM` · `monica`
+
+---
+
+### 84.6 Strategi Incorporation — 3 Fasa
+
+| Fasa | Tempoh | Tindakan | Dependency |
+|---|---|---|---|
+| **1 — Boleh Pindah & Nampak Baik** | 0–6 bulan | ⭐2 FilamentPHP UI · ⭐3 B-Migration Wizard · ⭐4 AI Dashboard · ⭐7 Granular access | `composer require filament/filament` |
+| **2 — Boleh Automate & Jangkau** | 6–12 bulan | ⭐1 MCP server + AI Studio · ⭐6 Cart recovery+COD · ⭐11 Connector pack · ⭐12/#13 Voice+Sales | `AIAgents`, `FlowAutomation` |
+| **3 — Boleh Skala & Differensiasi** | 12–18 bulan | ⭐5 Metrik hasil per modul · ⭐9 Compliance negara · ⭐10 Fleet & GPS · ⭐8 White-label OEM | `IndustryPacks`, `Logistics` |
+
+---
+
+### 84.7 Peringatan dimensi Lesen
+
+| Perkara | Peraturan |
+|---|---|
+| **AGPL/GPL** | ❌ Jangan salin kod. Rujukan reka bentuk sahaja |
+| **MIT/Apache-2.0/BSD** | ✅ Boleh guna, ubah, rebrand, commercial. **Wajib letak copyright notice asal** |
+| **Source-available (BSL/SSPL)** | ❌ Bukan OSS sebenar |
+| **Atribusi** | Simpan `LICENSE` + `NOTICE` asal dalam `THIRD-PARTY-NOTICES.md` |
+| **Semak lesen** | Sahkan `LICENSE` fail sebenar — jangan bergantung pada README |
+| **Angka stars** | ⚠️ GitHub tidak paparkan tanpa login. Jangan guna dalam promosi sehingga disahkan |
+
+---
+
+### 84.8 Kriteria Penerimaan
+
+- [ ] B-Migration Wizard menyokong 10 sumber (Bukku, StoreHub, Excel, Xero, QuickBooks, Sheets, CSV, JSON, XML, Shopify) (diuji).
+- [ ] Simulator import menunjukkan jumlah tepat sebelum sebarang perubahan data (diuji).
+- [ ] AI Dashboard Builder memboleh tenant bina dashboard tanpa coder (diuji).
+- [ ] Connector pack sekurang-kurangnya 20 sistem tempatan/serantau boleh disambung (diuji).
+- [ ] Cart recovery WhatsApp AI agent berfungsi dengan consent gate (diuji).
+- [ ] **COD (Cash on Delivery) form** menyokong AI BIJAN `Marketplace` (diuji).
+- [ ] **MCP server** boleh diakses oleh Claude Desktop, Cursor, Dify (diuji).
+- [ ] **B-Agent Studio** boleh membina ejen Zoho-style (16 ejen rujukan) tanpa kod (diuji).
+- [ ] **Setiap modul AI BIJAN** mempunyai satu metrik hasil yang boleh diukur (diuji).
+- [ ] **Fleet & GPS** menyokong tracker + routing (diuji).
+- [ ] Setiap OSS yang diincorporate ada `THIRD-PARTY-NOTICES.md` dengan lesen asal (diuji).
+- [ ] Tiada kod dari lesen AGPL/GPL dalam repo AI BIJAN (diuji).
+- [ ] Export penuh tersedia di SEMUA pelan (diuji).
+- [ ] UI gred produksi di 5 skrin teratas: POS, Command Centre, Migration, Blast, Prospect (diuji).
+
+---
+
+---
+
+---
+
+# PART XXI — IMPLEMENTASI: 5 MODUL BAHARU DARIPADA AUDIT
+
+> Strategi (BAB 84) → Kod (BAB 85). Setiap Idea Ditukar kepada modul, jadual, API dan ujian sebenar.
+
+---
+
+## BAB 85 — Pelaksanaan Idea Audit: 5 Modul Baharu (v8.9)
+
+> **Status dokumen:** Pelan pelaksanaan + rekod implementasi.
+> **Asal:** Idea #1, #5, #6, #8, #10 daripada `docs/REVERSE-ENGINEERING-200-APPS-50-OSS.md` (BAB 84).
+> **Status implementasi:** ✅ 5/5 modul siap · 20 jadual · 168 ujian baharu · 486 ujian keseluruhan (0 gagal).
+>
+> **v8.9** menukar daripada *strategi* kepada *kod*: setiap Idea dalam BAB 84
+> ditukar kepada modul sebenar, jadual sebenar, API sebenar, dan ujian sebenar.
+
+---
+
+### 85.1 Peta Idea → Modul
+
+| Idea | Sumber Pesaing | Modul AI BIJAN | Prefix API | Jadual | Status |
+|---|---|---|---|---|---|
+| **#6** COD Engine | Shopify "EasySell COD Form" (4.9, 989 review) | `B-COD` | `/api/v1/cod` | 4 | ✅ Selesai |
+| **#10** Fleet & GPS | Samsara / Fleetio / Motive / Verkada | `B-Fleet` | `/api/v1/fleet` | 6 | ✅ Selesai |
+| **#5** Metrik hasil per modul | ServiceTitan Pro Products (6 metrik) | `B-ProofOfValue` | `/api/v1/proof-of-value` | 4 | ✅ Selesai |
+| **#1** AI MCP Studio | 5 Odoo MCP server (15,542 download) | `B-McpStudio` | `/api/v1/mcp` | 6 | ✅ Selesai |
+| **#8** B-Ejen (Agent Studio) | Zoho Agent Store (16 ejen) | `B-AgentStudio` | `/api/v1/agent-studio` | 5 | ✅ Selesai |
+
+**Jumlah BAB 85:** 5 modul · 25 jadual · 54 laluan API · 168 ujian.
+
+---
+
+### 85.2 B-COD — COD Engine (Jurang MY)
+
+**Premis:** COD ialah kaedah pembayaran dominan PKS Malaysia, tetapi **tiada pesaing MY**
+yang menyenangkannya. Shopify ada 1 app COD (989 review, ASCII) — bukannya sia-sia
+kerana permintaan tinggi.
+
+**Ciri:**
+
+| Keupayaan | Detail |
+|---|---|
+| Tetapan per tenant | Caj tambahan, had min/max, whitelist kurier, senarai negeri dikecualikan, pengesahan WhatsApp / panggilan |
+| Aliran status | `pending → confirmed → dispatched → delivered → collected` (atau `failed` / `cancelled` / `refunded`) |
+| Semak kelayakan | Had nilai, kawasan, kurier — pulangkan sebab penolakan yang boleh dibaca |
+| Semak alamat MY | Panjang minimum, nombor jalan wajib, poskod 5 digit, telefon format `60/01` |
+| Rekod kutipan | Kutipan separa atau penuh; status auto → `collected` bila penuh |
+| Analisis kegagalan | Kumpulan punca + kadar gagal, ikut sebab dan kurier |
+| Reconciliation | Dijangka vs dikutip, jurang, kadar kutipan,orders gagal, jumlah refund |
+
+**Jadual:** `cod_settings`, `cod_orders`, `cod_status_histories`, `cod_collections`
+
+**Kegunaan tenant:** urus jualan COD Shopee/Lazada/TikTok Shop tanpa alat berasingan.
+
+---
+
+### 85.3 B-Fleet — Armada & GPS
+
+**Premis:** Empat pemain utama (Samsara, Fleetio, Motive, Verkada) semuanya
+fokus pada pengurusan armada + GPS + tingkah laku memandu. ServiceTitan ada
+"Fleet Pro" untuk industri中使用 vehikal.
+
+**Ciri:**
+
+| Keupayaan | Detail |
+|---|---|
+| Registri armada | Plat, jenama/model, jenis, odometer, bahan api, status (`active`/`maintenance`/`idle`/`retired`) |
+| Registri pemandu | Lesen (no, kelas, tarikh luput), skor keselamatan, status |
+| Lokasi GPS | Lat/lng, kelajuan, heading, bateri, ignition — satu rekod terkini per kenderaan |
+| Sejarah lokasi | Jejak penuh + flag tingkah laku (harsh braking/acceleration/cornering) |
+| Amaran | 9 jenis (breakdown, low fuel, speeding, geofence, idle, maintenance…) × 4 tahap keseriusan; dedup 30 minit |
+| Perjalanan | `planned → in_progress → completed / cancelled` + jarak & tempoh auto |
+| Peta | Lokasi terkini semua kenderaan untuk peta |
+| Skor keselamatan | Turun naik mengikutrekod tingkah laku 30 hari |
+
+**Jadual:** `fleet_vehicles`, `fleet_drivers`, `fleet_vehicle_locations`, `fleet_location_histories`, `fleet_trips`, `fleet_alerts`
+
+---
+
+### 85.4 B-ProofOfValue — Metrik Hasil Per Modul
+
+**Premis:** ServiceTitan Pro Products/SC Pro tidak hanyaCIPTAproduk — ia
+**mengukur hasil**. "6 metrik hasil" yang dipaparkan kepada pelanggan. Tanpa
+pengukuran, "platform terbaik" hanyalah>d rhetoric.
+
+**Ciri:**
+
+| Keupayaan | Detail |
+|---|---|
+| Katalog standard | 8 modul × 2–3 metrik (inventory, sales, marketing, hr, finance, support, logistics, cod) |
+| Bacaan harian | Nilai + perubahan % automatik berbanding bacaan sebelumnya |
+| Baseline | Nombor rujukan sebelum Usage AI BIJAN (untuk bukti "sebelum vs selepas") |
+| Sasaran | `target_value` + `direction` (up/down) → status `sasaran_tercapai` |
+| Verifikasi | Tanda metrik "disahkan" + nota pengesah (audit-worthy) |
+| Ringkasan | Kadar verifikasi, bilangan modul, sasaran tercapai |
+| Eksport | Bukti jualan (draft → generated → sent) |
+
+**Unit metrik:** `percent`, `rm`, `count`, `minutes`, `ratio`, `days`
+
+**Jadual:** `pov_metrics`, `pov_readings`, `pov_baselines`, `pov_exports`
+
+---
+
+### 85.5 B-McpStudio — AI MCP Studio ⭐ Idea #1 (Prioriti Tertinggi)
+
+**Premis:** **5 app Odoo ialah MCP server** (9,094 + 1,862 + 1,790 + 505 + 261
+= 13,512 download). MCP kini **standard de facto** untuk menyambungkan AI luar
+ke sistem enterprise. AI BIJAN yang tidak menyokong MCP = menutup 40% daripada
+permukaan integrasi AI yang sedang berkembang.
+
+**Protokol:** MCP `2025-06-18` · JSON-RPC 2.0 · `initialize`, `tools/list`,
+`tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`, `ping`.
+
+**Ciri:**
+
+| Keupayaan | Detail |
+|---|---|
+| Alat (Tools) | Pendaftaran dengan JSON Schema parameter + pemetaan modul/tindakan |
+| Sumber (Resources) | URI semantik (`crm://customers`), mime type, penapis baris |
+| Prompt | Templat dengan placeholder `{{argumen}}` + JSON Schema argumen |
+| Sesi | Pelacak klien (nama, versi, transport, keupayaan) |
+| Pelaksanaan | Jejak penuh: argumen, hasil, tempoh, status |
+| Audit | Setiap panggilan direkod (`tool_called`, `tool_approved`, `tool_rejected`, `tool_executed`, `resource_read`, `prompt_used`) |
+| Konfigurasi klien | JSON siap-pakai untuk Claude Desktop, Cursor, Windsurf, n8n, Zapier |
+
+**3 Lapis Keselamatan:**
+
+1. **Allowlist** — hanya modul + tindakan yang diluluskan boleh dipanggil. Tindakan
+   di luar senarai ditolak sebelum sebarang query.
+2. **Human-in-the-loop** — alat `is_destructive` **wajib** kelulusan manusia
+   (`awaiting_approval` → `approved`/`rejected`).
+3. **Audit penuh** — setiap panggilan (termasuk yang ditolak) ada rekod.
+
+**Had keselamatan:** maksimum 100 baris bagi senarai/read (default 25).
+
+**Jadual:** `mcp_tools`, `mcp_resources`, `mcp_prompts`, `mcp_sessions`, `mcp_executions`, `mcp_audit_logs`
+
+---
+
+### 85.6 B-AgentStudio — B-Ejen (16 Templat)
+
+**Premis:** Zoho ada **16 ejen khas** di Agent Store berasingan. Zulu AI
+membolehkan syarikat membina ejen tersuai. Tanpa builder ejen, "platform AI"
+hanya menyediakan AI generik — bukan **aset perniagaan** yang dimiliki tenant.
+
+**Corak:** `templat → sesuaikan → ujian → publish`
+
+**16 Templat:**
+
+| # | Templat | Kategori | Otonomi | Alat Utama |
+|---|---|---|---|---|
+| 1 | Ejen Jualan AI | sales | Cadangan | prospecting, blast, booking, sales_copilot |
+| 2 | Ejen Sokongan AI | support | Separuh Auto | helpdesk, cod, marketplace |
+| 3 | Ejen Tempahan AI | ops | Separuh Auto | booking, blast |
+| 4 | Ejen Invois AI | finance | Cadangan | invoicing, finance, blast |
+| 5 | Ejen Logistik AI | ops | Separuh Auto | logistics, cod, fleet |
+| 6 | Ejen COD AI | finance | Separuh Auto | cod.* |
+| 7 | Ejen Pemasaran AI | growth | Cadangan | marketing, blast, analytics |
+| 8 | Ejen Sumber Manusia AI | hr | Cadangan | hrms, members, booking |
+| 9 | Ejen Stok AI | ops | Cadangan | inventory, analytics |
+| 10 | Ejen Kandungan AI | growth | **Penuh** | documents, media, blast |
+| 11 | Ejen Onboarding AI | ops | Separuh Auto | crm, documents, blast |
+| 12 | Ejen Pematuhan AI | finance | **Manual** | documents, finance |
+| 13 | Ejen Kewangan AI | finance | Cadangan | finance, analytics |
+| 14 | Ejen Pengambilan AI | hr | Cadangan | hrms, booking, blast |
+| 15 | Ejen Medan AI | ops | Separuh Auto | fleet, logistics |
+| 16 | Ejen Kesetiaan AI | growth | Cadangan | loyalty, blast, marketing |
+
+**4 Tahap Otonomi:**
+
+| Level | Nama | Tindakan |
+|---|---|---|
+| 0 | Manual | Semua tindakan perlu kelulusan manusia |
+| 1 | Cadangan | Ejen cadang, manusia pilih |
+| 2 | Separuh Automatik | Ejen laksana, escalate bila pemicu |
+| 3 | Penuh | Ejen laksana sepenuhnya |
+
+**Ciri:** persona, system prompt auto, kemahiran, ikatan alat (dengan tahap
+kebenaran `read`/`write`/`admin`), ikatan pengetahuan (RAG), peraturan
+eskalasi, ujian + skor padanan, publish dengan gating.
+
+**Jadual:** `agent_blueprints`, `agent_tool_bindings`, `agent_knowledge_bindings`, `agent_test_runs`, `agent_runs`
+
+---
+
+### 85.7 Keselamatan & Keprivation Berperingkat
+
+| Peringkat | Mekanisme | Nilai |
+|---|---|---|
+| **P1 Identiti** | Sanctum + tenant middleware + `BelongsToTenant` global scope | Setiap query ditapis tenant; `tenant_id` tak boleh diubah |
+| **P2 Kebenaran** | RBAC granular `perm:{module}.{action}` | 4 action per modul baharu (view/manage/execute/approve) |
+| **P3 Allowlist** | MCP `ALLOWLIST` + `medanBolehTulis` | AI tak boleh tulis medan arbitari |
+| **P4 Kelulusan** | Human-in-the-loop untuk tindakan destructive | `awaiting_approval` → approve/reject |
+| **P5 Jejak** | `mcp_audit_logs`, `cod_status_histories`, `mcp_executions` | Setiap tindakan boleh diaudit |
+| **P6 Had** | Baris maksimum, kadar, tenant-scoped | Tiada AI boleh tarik keseluruhan pangkalan data |
+| **P7 Model Guard** | `AiSafety` — prompt injection scan + redaksi PII | Layer AI Gateway sedia ada |
+
+---
+
+### 85.8 Kriteria Penerimaan BAB 85
+
+- [x] B-COD: 4 jadual, 11 laluan, aliran status lengkap, analisis kegagalan + reconciliation.
+- [x] B-Fleet: 6 jadual, 13 laluan, GPS + tingkah laku + amaran + skor keselamatan.
+- [x] B-ProofOfValue: 4 jadual, 9 laluan, katalog 8 modul, baseline, verifikasi, eksport.
+- [x] B-McpStudio: 6 jadual, 11 laluan, protokol MCP `2025-06-18`, allowlist, HIL, audit.
+- [x] B-AgentStudio: 5 jadual, 11 laluan, 16 templat, 4 tahap otonomi, ujian + publish gating.
+- [x] Semua modul didaftar dalam `bootstrap/providers.php` + `config/aibijan.php`.
+- [x] 168 ujian baharu lulus; 486 ujian keseluruhan lulus (0 gagal).
+- [x] Tiada route conflict; migration berjaya (264 jadual).
+- [x] Tiada aksara CJK dalam semua fail baharu.
+
+---
+
+### 85.9 Idea Audit Belum Dilaksanakan (Prioriti Seterusnya)
+
+| Idea | Nama | Kenapa Belum | Keperluan |
+|---|---|---|---|
+| **#11** | Connector Pack (20+ sistem) | Skala — perlu research API setiap vendor | Paid tier; SDK adapters |
+| **#9** | Compliance per negara (SEA) | 7 negara × 4 domain = 28 pack | Legal counsel + lokalisasi |
+| **#8b** | White-label OEM |CODE-WHITE | Branding engine + tenant theme |
+| **#4** | AI Dashboard Builder | Native bersambung dengan PoV | Viz engine + drag-drop |
+| **#3** | B-Migration Wizard | Risiko data | 10 importer + dry-run |
+| **#12** | Voice AI | Kos inferens | STT/TTS provider |
+| **#13** | Cart Recovery |atal容易 | Shopify/WA integration |
+
+---
+
+
+---
+
+# PART XXII — EKOSISTEM OPERASI: 9 MODUL BAHARU + ADE
+
+> **v9.0** — daripada 44 modul kepada **53 modul**. Daripada IDE tradisional kepada **ADE (Agentic Development Environment)**.
+
+---
+
+## BAB 86 — Ekosistem Operasi: 9 Modul Baharu + ADE
+
+> **Status:** ✅ 9/9 modul siap · 42 jadual · ~130 laluan · **232 ujian baharu** · 718 ujian keseluruhan (0 gagal)
+> **Asal:** Permintaan pengasas (20 item) + audit luaran `obra/superpowers`, `re-structure.ai`, `kalodata.com`, `n8n`, `NousResearch/hermes-agent`, `openclaw`.
+> **Blueprint:** v9.0 · PART XXII · **97 bab / 22 PART**
+
+---
+
+### 86.1 Peta Permintaan → Modul
+
+| # | Permintaan pengasas | Modul | Prefix | Jadual | Status |
+|---|---|---|---|---|---|
+| 1 | Order management, satu tempat, stok synced | `Orders` | `/api/v1/orders` | 6 | ✅ |
+| 2 | SEO & Metadata semua AI BIJAN | `Seo` | `/api/v1/seo` | 7 | ✅ |
+| 3 | Auto generate content, auto post, jaga komen & chat | `ContentStudio` | `/api/v1/content` | 10 | ✅ |
+| 4 | Reminder | `Reminder` | `/api/v1/reminders` | 5 | ✅ |
+| 5 | Full AI automation & dijaga AI | `BusinessIntel` | `/api/v1/business-intel` | 7 | ✅ |
+| 6 | Kajian bisnes, cadangan, idea market | `BusinessIntel` | ↑ sama | ↑ | ✅ |
+| 9 | n8n / hermes / openclaw template, web-based | `WorkflowStudio` | `/api/v1/workflows` | 3 | ✅ |
+| 10 | superpowers (agentic skills framework) | `WorkflowStudio` + Skill | — | — | ✅ |
+| 11 | AI self-improve business | `BusinessIntel` | ↑ | ↑ | ✅ |
+| 12 | AI auto kaji pesaing & bagi idea | `BusinessIntel` | ↑ | ↑ | ✅ |
+| 13 | re-structure.ai (agent teams per jabatan) | `BusinessIntel` | ↑ | ↑ | ✅ |
+| 14 | IDE → ADE (Agentic Development Environment) | **BAB 86.11** | — | — | 📋 Pelan |
+| 15 | One man show billion company | **BAB 86.12** | — | — | 📋 Pelan |
+| 16 | Canva/CapCut-class media editor | `MediaEditor` | `/api/v1/media-editor` | 3 | ✅ |
+| 17 | Community AI BIJAN | `Community` | `/api/v1/community` | 3 | ✅ |
+| 18 | Kalodata (affiliate analytics) | `BusinessIntel` (sinyal) | ↑ | ↑ | ✅ sebahagian |
+| 19 | Live customer service AI + eSIM | `LiveSupport` | `/api/v1/live-support` | 3 | ✅ |
+| — | RekaDesk (service business OS) | **B-ServiceOS** | — | — | 📋 Pelan |
+
+**Jumlah BAB 86:** 9 modul · 42 jadual · 130+ laluan · 232 ujian.
+
+---
+
+### 86.2 B-Orders — Unified Order Management
+
+**Masalah:** Tenant menjual di Shopee + Lazada + TikTok Shop + POS + B-Site + B-Booking + COD. Tujuh tempat untuk satu soalan: *"berapa jualan saya hari ini?"*
+
+**Penyelesaian:** Lapisan unifikasi yang menerima pesanan dari mana-mana sumber, menormalkan status, dan mengurus rizab stok berpusat.
+
+| Keupayaan | Detail |
+|---|---|
+| Ingest idempoten | Kunci `(tenant, source, platform, source_id)` — pesanan sama tidak diduplikasi |
+| 14 status kanonikal | `draft → pending → confirmed → paid → processing → packed → shipped → out_for_delivery → delivered` (+ `cancelled`, `refunded`, `partially_refunded`, `on_hold`, `failed`) |
+| Aliran divalidasi | `ALIRAN` map — perpindahan tidak sah ditolak tanpa menjejaskan rekod |
+| Pemetaan platform | `PETA_STATUS` untuk Shopee/Lazada/TikTok/Amazon/POS/Site/Booking + override per tenant |
+| Rizab stok | Rizab pada ingest → commit bila dihantar → release bila batal/luput |
+| Margin per pesanan | `cost_amount` + `margin()` + `marginPercent()` |
+| Ringkasan merentas saluran | `ringkasan()` — jualan, margin, ikut platform, ikut status |
+| Timeline audit | Setiap perubahan status/pembayaran direkod |
+| Log sync | Setiap tarikan platform direkod (berjaya/gagal/separa) |
+
+---
+
+### 86.3 B-Seo — SEO & Metadata Engine
+
+**Masalah:** SEO bukan ciri satu platform. Setiap produk, halaman, artikel, video dan kategori memerlukan metadata, audit, sitemap dan JSON-LD.
+
+| Keupayaan | Detail |
+|---|---|
+| Profil SEO | Nama laman, templat tajuk, OG default, Twitter card, robots, locale |
+| Metadata per objek | Polymorphic (`product`, `page`, `article`, `video`, `category`, `blog_post`) |
+| **Audit 13 peraturan** | `title_missing`, `title_too_long`, `title_too_short`, `description_missing`, `description_too_long`, `description_too_short`, `keywords_missing`, `og_image_missing`, `og_title_missing`, `canonical_missing`, `jsonld_missing`, `slug_too_long`, `no_index_set` |
+| Skor SEO 0–100 | Penalti berwajaran: error 20, warning 8, info 3 |
+| Cadangan AI | `janaCadanganAI()` + fallback heuristik (tidak pernah gagal) |
+| Terima/tolak | Manusia mengawal; setiap penerimaan mengaudit semula |
+| Schema.org | Product, Article, VideoObject, CollectionPage, WebPage |
+| Sitemap XML | Dijana dari DB, escape XML betul |
+| robots.txt | Dinamik dari profil |
+| Core Web Vitals | `lcp_ms`, `fid_ms`, `cls`, `ttfb_ms` |
+| Kata kunci | Volum, kesukaran, kedudukan, niat carian |
+| Preview SERP | Google, Facebook, WhatsApp + status pemotongan |
+
+---
+
+### 86.4 B-ContentStudio — Jana, Terbit & Jaga Semua Saluran
+
+**Masalah:** Pemasaran moden = 9 platform, setiap satu format berbeza. Tanpa alat, tenant sama ada tidak terbit atau terbit versi sama di semua tempat.
+
+| Keupayaan | Detail |
+|---|---|
+| Jana dengan AI | Brief → draf; brand voice menentukan nada |
+| **Brand voice** | Nada, persona, frasa kunci, kata larangan, CTA lalai, bahasa |
+| Adaptasi per platform | Had panjang (X 280, IG 2200, TikTok 4000, FB 63206), hashtag auto, pemotongan pintar |
+| Jadual penerbitan | `queued → publishing → published/failed/skipped` |
+| Had posting harian | Per platform, boleh dikonfigurasi |
+| **Auto-publish opt-in** | LALAI MATI — perlu kebenaran eksplisit per platform |
+| Komen inbox terpusat | Semua platform dalam satu senarai |
+| Sentiment | Positif/neutral/negatif berdasarkan leksikon |
+| Moderation | Keyword/spam/regex/blocklist × hide/flag/block/escalate |
+| Balasan AI | Cadangan + keyakinan; negatif = eskalasi disyorkan |
+| Chat/DM | Perbualan + auto-flag untuk manusia pada kata kunci kritikal |
+| Analytics | Reach, engagement, klik, pertumbuhan pengikut per platform |
+| Idea bank | Idea content dari manual/AI/penyelidikan/pesaing/pelanggan |
+
+**Keselamatan:** `credentials` menggunakan cast `encrypted:array` dan sentiasa `makeHidden()` dalam respons API.
+
+---
+
+### 86.5 B-Reminder — Pusat Peringatan Merentas Modul
+
+**Masalah:** "Bila nak hubungi pelanggan ini?" memerlukan semakan 7 jadual berbeza.
+
+| Keupayaan | Detail |
+|---|---|
+| Katalog 14 jenis | payment_due, order_follow_up, cod_collection, invoice_overdue, contract_renewal, stock_low, stock_out, leave_approval, payroll_approval, compliance_deadline, review_due, chase_opportunity, maintenance_due, follow_up_meeting |
+| Polymorphic | Boleh ikat ke mana-mana objek (`subject_type` + `subject_id` + label) |
+| 5 saluran | `in_app`, `email`, `whatsapp`, `sms`, `push` |
+| Jadual berulang | once/daily/weekly/monthly/quarterly/annually + interval |
+| Snooze & acknowledge | Tunda 15/60/240/1440 minit |
+| **Eskalasi automatik** | Lewat → naik prioriti + hantar semula |
+| **Kotak masuk AI** | Hanya peringatan penting (skor AI ≥ 60) masuk |
+| AI triase | Skor 0–100 + alasan; ≥75 = escalate |
+
+---
+
+### 86.6 B-BusinessIntel — AI Self-Improve & Kajian Bisnes
+
+**Masalah:** "Platform terbaik" tidak bermakna tanpa bukti. Tenant perlu tahu **apa yang perlu diperbaiki** dan **apa yang perlu dijual seterusnya**.
+
+**Corak:** ReStructure AI ("data jadi aset, aset buat kerja") + Hermes Agent ("closed learning loop").
+
+| Keupayaan | Detail |
+|---|---|
+| **Skor kesihatan 0–100** | 6 dimensi berwajaran: sales 25%, cashflow 25%, operations 15%, customer 15%, marketing 10%, compliance 10% |
+| Gred A–E | A≥85, B≥70, C≥55, D≥40, E<40 |
+| Dimensi terlemah | Senarai 2 terendah → input kepada cadangan |
+| Trend 90 hari | Naik/turun/stabil + perubahan skor |
+| **Kajian AI** | Soalan + data sebenar → ringkasan, penemuan, cadangan, risiko, peluang |
+| Kumpul data | Jualan 30 hari, kos, margin, pesanan, pelanggan unik, ikut platform, produk teratas |
+| **Idea feed** | Diisih ikut `nisbahKeutamaan()` = impact_score ÷ effort |
+| Pesaing | Profil, kekuatan/kelemahan, ancaman, snapshot berkala |
+| Perubahan pesaing | Banding snapshot → kesan perubahan medan |
+| Peluang pesaing → idea | Auto-jana idea daripada peluang yang dikesan |
+| Sinyal pasaran | Trend produk, saluran terbaik, kategori |
+| **Learning loop** | pattern / outcome / correction / preference — AI belajar dari penerimaan/penolakan |
+
+---
+
+### 86.7 B-WorkflowStudio — Visual Automation (Web-Based, Tanpa VPS)
+
+**Masalah:** n8n memerlukan kendiri-hos (Docker/VPS). Hermes/OpenClaw memerlukan pemasangan tempatan. Tenant AI BIJAN mahu dapat **canvas visual di browser sahaja**.
+
+**⚠️ LISEN KRITIKAL:**
+
+| Projek | Lesen | Boleh guna? |
+|---|---|---|
+| **n8n** | Sustainable Use License + Enterprise | ❌ **RUJUKAN REKA BENTUK SAHAJA** — BUKAN OSS |
+| **openclaw** | MIT ✅ | ✅ Boleh (dengan atribusi) |
+| **hermes-agent** | MIT ✅ | ✅ Boleh (dengan atribusi) |
+| **superpowers** | MIT ✅ | ✅ Boleh (dengan atribusi) |
+
+| Keupayaan | Detail |
+|---|---|
+| **18 jenis node** | 4 trigger, 3 logic, 2 data, 2 AI, 7 action |
+| Pengesahan definisi | Node wujud, jenis sah, tiada ID pendua, edge sah |
+| **Dry-run lalai TRUE** | Tiada kesan sampingan tanpa kebenaran eksplisit |
+| Traversal graf | `nodePermulaan()` (tiada incoming edge) → `nodeSeterusnya()` |
+| Had keselamatan | 100 node/run, kedalaman 25, fail-fast pada ralat |
+| Node AI | Guna AI Gateway; dry-run tidak memanggil model |
+| Node action | **Hanya bila bukan dry-run** — send_email, send_whatsapp, create/update_record, create_reminder, notify |
+| Template marketplace | Global (`tenant_id` null) + per tenant; `install_count` |
+| Sejarah run | Setiap node direkod dengan status & output |
+
+---
+
+### 86.8 B-MediaEditor — Canva/CapCut-Class
+
+| Keupayaan | Detail |
+|---|---|
+| 4 jenis projek | image, video, carousel, story |
+| 5 resolusi piawai | square 1080×1080, portrait 1080×1350, story 1080×1920, landscape 1920×1080, thumbnail 1280×720 |
+| **7 jenis lapisan** | text, image, video, shape, sticker, group, audio |
+| Pengesahan lapisan | x/y wajib; text perlu `text`; image/video/audio perlu `src` |
+| Templat | Global + tenant; `use_count` |
+| Render | Job queue (`queued → rendering → completed/failed`) |
+| Brand kit | Warna & fon jenama per tenant |
+
+**Nota seni bina:** Renderer sebenar (FFmpeg/Sharp) dijalankan **worker luar**. Modul ini mengurus projek, templat, validasi dan kerja render — bukan enjin render itu sendiri.
+
+---
+
+### 86.9 B-LiveSupport — Customer Service Live AI + eSIM
+
+| Keupayaan | Detail |
+|---|---|
+| 4 jenis saluran | voice, video, chat, whatsapp_call |
+| **eSIM** | ICCID + operator (Maxis/CelcomDigi/U-Mobile); KYC/MyDigitalID diperlukan |
+| Had serentak | Per saluran (lalai 5) |
+| Transkripsi | Speaker (caller/ai/human), keyakinan, offset |
+| **Eskalasi 3 pencetus** | Kata kunci kritikal, sentiment negatif, keyakinan < ambang |
+| 12 kata kunci kritikal | refund, complaint, saman, lawyer, police, scam, tipu, tribunal, batal order, marah, teruk |
+| Ringkasan AI | Fallback heuristik jika AI tidak tersedia |
+| Analytics | Kadar eskalasi, purata tempoh, ikut sentiment |
+
+**Nota:** Telefoni sebenar memerlukan kredensial provider (Twilio/operator eSIM). Modul ini mengurus **orkestrasi, transkripsi, eskalasi dan rekod**.
+
+---
+
+### 86.10 B-Community — Komuniti AI BIJAN
+
+**Idea komuniti (jawapan kepada "ada idea?"):**
+
+| Ruang | Tujuan | Nilai strategik |
+|---|---|---|
+| **Showcase** | Tenant tunjuk hasil kerja (opt-in) | Inspirasi + SEO funnel (pautan masuk percuma) |
+| **Academy** | Tutorial rasmi, resipi automasi | Onboarding berskala + kurangkan beban sokongan |
+| **Help** | Soal jawab komuniti | Jawapan diterima → artikel Knowledge Base |
+| **Idea** | Undi ciri baharu | Backlog produk dari pengguna sebenar |
+
+| Keupayaan | Detail |
+|---|---|
+| 5 jenis ruang | forum, group, academy, showcase, help |
+| 3 peringkat visibiliti | public (SEO), members (tenant AI BIJAN), private |
+| 5 jenis pos | discussion, question, showcase, announcement, idea |
+| Jawapan diterima | `is_solved` + `accepted_reply_id` |
+| Reputasi | Poin: jawapan diterima 25, post like 2, balasan 5 |
+
+---
+
+### 86.11 ADE — Agentic Development Environment
+
+> **Permintaan pengasas:** *"updatekan AI BIJAN dari IDE ke ADE (Agentic Development Environment)"*
+
+**4 Ciri Teras ADE:**
+
+| Ciri | Maksud | Perlaksanaan AI BIJAN |
+|---|---|---|
+| **1. Autonomous Orchestration** | Spawn, selaras & jalankan berbilang sub-ejen serentak (satu tulis kod, satu jalankan ujian, satu semak diff) | `AgentStudio` (16 templat) + `WorkflowStudio` (18 node) + `AIAgents` sedia ada |
+| **2. Task & Worktree Isolation** | Setiap ejen/subtugas dapat sandbox, git worktree atau container sendiri | Perlu modul baharu: `B-Sandbox` (git worktree + container) |
+| **3. Multi-Harness & Multi-Model** | Satu ejen, banyak harness (Claude Code, Codex, Cursor, Hermes, OpenCode) & banyak model | `McpStudio` (MCP `2025-06-18`) + `AIGateway` (multi-provider) |
+| **4. Built-in Verification & Review** | Test runner, emulator, diff walkthrough, browser inspection di sebelah chat | `ProofOfValue` + `WorkflowStudio` + perlu: `B-ReviewSurface` |
+
+**Peta Keupayaan → Modul Sedia Ada:**
+
+| Keupayaan ADE | Modul AI BIJAN | Status |
+|---|---|---|
+| Orkestrasi sub-ejen | `AIAgents`, `AgentStudio` | ✅ Ada |
+| Isolation (sandbox/worktree) | `WorkflowStudio` dry-run | 🟡 Separa — tiada sandbox sebenar |
+| Multi-harness | `McpStudio` | ✅ Ada |
+| Multi-model | `AIGateway` | ✅ Ada |
+| Verification | `ProofOfValue`, `BusinessIntel` | ✅ Ada |
+| Review surface | — | ⛔ Belum ada |
+| Skills system (superpowers-style) | `.github/skills/aibijan-coding/` | 🟡 Asas ada |
+
+**Pelan ADE (4 Fasa):**
+
+| Fasa | Skop | Kebergantungan |
+|---|---|---|
+| **A1 — Skills Engine** | Pencetus skill automatik (corak superpowers: brainstorming → plan → TDD → review). Skill boleh dipasang & dikongsi. | `.github/skills/` sedia ada |
+| **A2 — Worktree Isolation** | Setiap subtugas dapat git worktree + baseline ujian bersih | `WorkflowStudio` |
+| **A3 — Sub-agent Coordinator** | Spawn N ejen serentak, setiap satu satu tugas, semak silang | `A1` + `A2` + `AgentStudio` |
+| **A4 — Review Surface** | Diff walkthrough + test runner + preview dalam satu skrin | `A2` + `ProofOfValue` |
+
+**Corak daripada `obra/superpowers` (MIT, 304k stars) yang patut ditiru:**
+
+1. **brainstorming** — fahami niat sebelum tulis kod
+2. **using-git-worktrees** — ruang kerja terasing + garis dasar ujian bersih
+3. **writing-plans** — pecah kepada tugas 2–5 minit dengan path fail tepat
+4. **subagent-driven-development** — sub-ejen per tugas + semakan selepas setiap satu
+5. **test-driven-development** — RED-GREEN-REFACTOR wajib
+6. **requesting-code-review** — semakan mengikut tahap keseriusan; kritikal menyekat
+7. **finishing-a-development-branch** — sahkan ujian → merge/PR/buang
+
+> **Falsafah superpowers:** *TDD · systematic over ad-hoc · complexity reduction · evidence over claims.*
+
+---
+
+### 86.12 "One Man Show Billion Company" — Analisis Jujur
+
+> **Permintaan pengasas:** *"jadikan AI BIJAN ini boleh jadi one man show billion company"*
+
+**Apa yang diperlukan untuk satu orang mengendalikan syarikat bernilai bilion:**
+
+| # | Keperluan | Modul AI BIJAN | Jurang |
+|---|---|---|---|
+| 1 | **Produk** yang orang bayar | 53 modul | ✅ Kukup dari segi fungsi |
+| 2 | **Jualan** tanpa pasukan jualan | `Prospecting` + `Blast` + `SalesCopilot` + `ContentStudio` | 🟡 Perlu data audiens sebenar |
+| 3 | **Sokongan** 24/7 tanpa pasukan | `LiveSupport` + `Helpdesk` + `AgentStudio` | ✅ Ada |
+| 4 | **Kewangan** automatik | `Invoicing` + `Finance` + `Payroll` + `COD` | ✅ Ada |
+| 5 | **Operasi** tanpa pengurus | `Orders` + `WorkflowStudio` + `Reminder` | ✅ Ada |
+| 6 | **Keputusan** tanpa lembaga pengarah | `BusinessIntel` + `Boardroom` + `ExecutiveAI` | ✅ Ada |
+| 7 | **Kejuruteraan** tanpa pasukan | ADE (86.11) | ⛔ **Jurang terbesar** |
+| 8 | **Kepercayaan** enterprise | SOC 2 + ISO 27001 | ⛔ Belum ada |
+| 9 | **Pengagihan** (distribution) | Community + SEO + MCP | 🟡 Sedang dibina |
+| 10 | **Pematuhan** | PDPA terbina; cukai/statutori ada | 🟡 Perlu per-negara |
+
+**Penilaian jujur:**
+
+| Soalan | Jawapan |
+|---|---|
+| Boleh satu orang jalankan? | **Ya, untuk operasi.** 53 modul + 9 automasi = satu orang boleh urus 50–200 tenant. |
+| Boleh jadi bilion? | **Bukan dengan satu orang sahaja.** Bilion = ~60,000 tenant × RM288 × 12 = RM207j ARR. Itu perlukan: 5–8 jurutera, 2–3 jualan, 1–2 sokongan. |
+| Apa yang benar-benar menghalang? | **Bukan ciri** — ia **kepercayaan** (SOC 2) + **pengagihan** (SEO/komuniti) + **UI** (skor 2/10). |
+
+**Kesimpulan:** AI BIJAN boleh jadi **one-man show yang menguntungkan** (RM1–5j ARR) dengan modul sedia ada. Untuk bilion, ia perlu **syarikat**, bukan hanya sistem. Yang penting: sistem ini **tidak menghalang** pertumbuhan — ia berskala.
+
+---
+
+### 86.13 Audit Luaran Baharu (24 Okt 2026)
+
+| Sumber | Lesen | Stars | Apa yang diambil |
+|---|---|---|---|
+| `obra/superpowers` | **MIT** ✅ | 304k | 7-langkah metodologi + skills/hooks + 19 harness |
+| `NousResearch/hermes-agent` | **MIT** ✅ | 256k | Learning loop (skill dari pengalaman), 6 terminal backend, serverless |
+| `openclaw/openclaw` | **MIT** ✅ | 393k | Gateway satu-pintu 20+ saluran, plugin SDK + ClawHub |
+| `n8n-io/n8n` | ⚠️ Sustainable Use | 208k | **RUJUKAN REKA BENTUK SAHAJA** — visual canvas + template marketplace |
+| `re-structure.ai` | Proprietari | — | Agent team per jabatan; "Capture → Restructure → Deploy"; data jadi aset |
+| `kalodata.com` | Proprietari | — | TikTok Shop analytics (200M produk, 250M pencipta) — sinyal pasaran |
+| `rekadesk.com` | Proprietari | — | Service business OS — booking → quotation → crew → invoice → payment |
+
+**Peraturan lesen (JANGAN LANGKAU):**
+- **MIT/Apache/BSD** ✅ boleh guna, ubah, rebrand, komersial — wajib simpan copyright + `THIRD-PARTY-NOTICES.md`
+- **AGPL/GPL/SSPL/BSL/Sustainable Use** ❌ jangan salin kod — rujukan reka bentuk sahaja
+- **Proprietari (re-structure, kalodata, rekadesk)** ❌ tiada kod — analisis fungsi awam sahaja
+
+---
+
+### 86.14 Kriteria Penerimaan BAB 86
+
+- [x] B-Orders: 6 jadual, 14 status kanonikal, rizab stok, ringkasan merentas saluran, ingest idempoten.
+- [x] B-Seo: 7 jadual, 13 peraturan audit, skor 0–100, JSON-LD, sitemap, robots, preview SERP.
+- [x] B-ContentStudio: 10 jadual, brand voice, adaptasi 9 platform, auto-publish opt-in, komen + chat + moderation.
+- [x] B-Reminder: 5 jadual, 14 jenis, 5 saluran, jadual berulang, eskalasi, kotak masuk AI.
+- [x] B-BusinessIntel: 7 jadual, skor 6 dimensi, kajian AI, idea feed, competitor watch, learning loop.
+- [x] B-WorkflowStudio: 3 jadual, 18 node, dry-run lalai, template marketplace, web-based.
+- [x] B-MediaEditor: 3 jadual, 7 jenis lapisan, 5 resolusi, templat, render job.
+- [x] B-LiveSupport: 3 jadual, 4 saluran, eSIM, 3 pencetus eskalasi, ringkasan AI.
+- [x] B-Community: 3 jadual, 5 jenis ruang, jawapan diterima, reputasi.
+- [x] Semua modul didaftar dalam `bootstrap/providers.php` + `config/aibijan.php`.
+- [x] 4 penjadual baharu: `reminder-dispatch` (10m), `content-publish` (5m), `orders-reservation-cleanup` (h), `seo-audit-daily` (03:15), `business-intel-daily` (04:00).
+- [x] **718 ujian lulus** (4 dilangkau, 0 gagal) · 4,036 assertion.
+- [x] 311 jadual · tiada konflik jadual (workflow dinamakan `studio_*`).
+- [x] Tiada aksara CJK dalam 166 fail baharu.
+
+---
+
+### 86.15 Idea Belum Dilaksanakan (Prioriti Seterusnya)
+
+| Idea | Halangan | Keperluan |
+|---|---|---|
+| **B-Migration Wizard** | Risiko data | 10 importer + dry-run simulator |
+| **FilamentPHP UI** | — | `composer require filament/filament` — **UI 2 → 7** |
+| **SOC 2 Type II + ISO 27001** | Kos audit | USD30k–80k + 6–12 bulan |
+| **B-ServiceOS** (RekaDesk) | Perlu lapisan domain baharu | Projek, sesi, kru, peralatan, kontrak |
+| **ADE Fasa A1–A4** | Kejuruteraan | Skills engine → worktree → coordinator → review |
+| **Kalodata-class affiliate analytics** | Data awam sahaja | Adapter TikTok Shop + pencipta |
+| **Compliance per negara** | Nasihat guaman | 7 negara × 4 domain |
+| **Connector pack 20+ sistem** | Kajian API per vendor | SDK adapter |
+| **White-label OEM** | — | Branding engine + tenant theme |
+
+---
+
+
+---
+
+## BAB 87 — B-ServiceOS: Service Business Operating System
+
+> **Status:** ✅ **P1 Service Core SIAP** (dikodkan 2026-10-24) — Fasa P2/P3/P4 masih dirancang
+> **Sumber inspirasi:** Aliran perniagaan perkhidmatan yang didokumenkan secara awam (booking → quotation → contract → crew → invoice → payment) seperti yang ditunjukkan oleh RekaDesk.
+> **Paten/lesen:** ⚠️ Terma RekaDesk melarang scraping, penyalinan, reverse engineering dan karya terbitan. Audit ini **berdasarkan maklumat awam sahaja** dan **tidak menyalin kod, aset atau templat** mereka.
+
+---
+
+### 87.1 Objektif
+
+B-ServiceOS menyediakan rangka kerja operasi yang boleh diguna semula untuk perniagaan perkhidmatan: daripada perolehan lead dan sebut harga, kepada tempahan, penyampaian, invois, rekonsiliasi pembayaran dan analisis keuntungan.
+
+**B-ServiceOS ialah keupayaan domain dalam AI BIJAN — bukan aplikasi berasingan atau pangkalan data tenant yang berasingan.**
+
+---
+
+### 87.2 Industri Sasaran
+
+| Industri | Aliran Khas |
+|---|---|
+| Fotografi & videografi | shoot → editing → gallery delivery |
+| Wedding planner & event | konsultasi → pelamin → resepsi → tear-down |
+| Dewan, katering & pembekal acara | tarikh → deposit → menu → setup |
+| Makeup artist & jurusolek | trial → hari majlis → touch-up |
+| Freelancer & agensi kreatif | brief → draf → semakan → serahan |
+| Kontraktor & perkhidmatan lapangan | site visit → quotation → work order → inspection → handover |
+| Perkhidmatan profesional berasaskan projek | temujanji → laporan → susulan |
+
+Semua menggunakan entiti teras yang **sama**: projek, pelanggan, pekerja dan kewangan.
+
+---
+
+### 87.3 Model Data Sasaran
+
+```mermaid
+erDiagram
+    TENANT ||--o{ CLIENT : owns
+    TENANT ||--o{ SERVICE_PROJECT : owns
+    TENANT ||--o{ STAFF : employs
+    CLIENT ||--o{ SERVICE_PROJECT : books
+    SERVICE_PROJECT ||--o{ SESSION : contains
+    SERVICE_PROJECT ||--o{ QUOTATION : has
+    QUOTATION ||--o{ CONTRACT : generates
+    SERVICE_PROJECT ||--o{ INVOICE : bills
+    INVOICE ||--o{ PAYMENT : receives
+    SERVICE_PROJECT ||--o{ ASSIGNMENT : schedules
+    STAFF ||--o{ ASSIGNMENT : performs
+    SERVICE_PROJECT ||--o{ TASK : tracks
+    SERVICE_PROJECT ||--o{ EQUIPMENT_RESERVATION : reserves
+    EQUIPMENT ||--o{ EQUIPMENT_RESERVATION : allocated
+```
+
+| Entiti | Tujuan | Modul AI BIJAN sedia ada |
+|---|---|---|
+| Tenant / Business | Pemisahan data | `Tenant` (teras) |
+| Client | Profil & sejarah pelanggan | `CRM` → Customer |
+| Service Project | Rekod induk setiap kerja | `Projects` (perlu penyesuaian) |
+| Session | Tarikh/sesi bagi projek | `Booking` → Appointment |
+| Quotation | Sebut harga + versi | `CRM` → Quotation / `Invoicing` |
+| Contract | Versi kontrak + penerimaan | `SignDocs` |
+| Invoice / Payment | Bil, ansuran, rekonsiliasi | `Invoicing` + `Finance` |
+| Staff / Assignment | Pekerja & penugasan | `HRMS` + `Projects` |
+| Task / Checklist | Kerja yang perlu disiapkan | `Projects` → Task |
+| Equipment / Reservation | Stok peralatan & tempahan | `Assets` + `Inventory` |
+| Automation Run | Rekod automasi | `WorkflowStudio` |
+| Audit Log | Jejak perubahan | `AuditLogger` (teras) |
+
+---
+
+### 87.4 Peristiwa Domain
+
+```
+LeadQualified · QuotationCreated · QuotationAccepted · ContractAccepted
+BookingConfirmed · AssignmentCreated · ScheduleConflictDetected
+PaymentSucceeded · PaymentFailed · PaymentOverdue
+ProjectStarted · ProjectCompleted · DeliveryAccepted · ProjectMarginCalculated
+```
+
+Setiap peristiwa mesti menyokong **pengguna idempoten**, pemprosesan ber-skop tenant, cubaan semula, pengendalian kegagalan dan rekod audit. Guna **transactional outbox** untuk penghantaran yang boleh dipercayai.
+
+---
+
+### 87.5 Tanggungjawab Ejen AI
+
+| Ejen | Tanggungjawab |
+|---|---|
+| **AI COO** | Pantau jadual, penugasan, penyiapan tugas dan kesesakan operasi |
+| **AI CFO** | Analisis kos projek, margin, belum terima, perbelanjaan & ramalan tunai **berdasarkan data direkodkan & direkonsiliasi** |
+| **AI CSO** | Keutamaan susulan, penukaran sebut harga, peluang ulangan, analisis pipeline |
+| **AI CMO** | Hubungkan ketersediaan perkhidmatan dengan kempen pemasaran yang diluluskan |
+
+Semua ejen beroperasi melalui API & alat yang **dibenarkan**, tertakluk kepada isolasi tenant, kebenaran peranan, polisi kelulusan, bajet token dan log audit.
+
+---
+
+### 87.6 Contoh Automasi Hujung-ke-Hujung
+
+Pelanggan menempah pakej fotografi bernilai RM5,200:
+
+| Peristiwa | Tindakan AI BIJAN |
+|---|---|
+| Lead diterima | `CRM` cipta lead + tetapkan pemilik susulan |
+| Sebut harga diterima | B-ServiceOS cipta projek + jadual sesi |
+| Deposit dibayar | `Invoicing` terima pengesahan gateway → kemas kini status |
+| Tarikh hampir tiba | AI COO semak kru, peralatan, checklist |
+| Baki belum dibayar | `Reminder` cetuskan peringatan ikut polisi |
+| Projek selesai | Sistem rekod penyerahan + status penutupan |
+| Rekod kewangan lengkap | AI CFO kira margin sebenar |
+| Pelanggan berpuas hati | AI CSO cadang permintaan ulasan/rujukan **(tertakluk kebenaran)** |
+
+> **Peraturan mutlak:** Semua tindakan yang mengubah **wang, kontrak, penjadualan kritikal atau komunikasi sensitif** MESTI melalui kebenaran. AI **tidak boleh** menandakan bayaran berjaya hanya kerana pelanggan memberitahu mereka telah membuat pindahan.
+
+---
+
+### 87.7 Seni Bina Teknikal
+
+```mermaid
+flowchart TD
+    A["Web App / PWA / Mobile"] --> B["Laravel API"]
+    B --> C["Tenant Context + RBAC"]
+    C --> D["B-ServiceOS Domain"]
+    D --> E["CRM / Documents / Finance"]
+    D --> F["Booking / Crew / Inventory"]
+    E --> G["Domain Events + Outbox"]
+    F --> G
+    G --> H["B-Flow / B-Trigger"]
+    H --> I["AI Gateway"]
+    I --> J["AI COO / CFO / CSO / CMO"]
+    J --> K["Approval Center"]
+    K --> H
+    H --> L["Notifications / Integrations"]
+    D --> M["Audit Log + Analytics"]
+    I --> N["AI Token Metering"]
+```
+
+**Prinsip pelaksanaan wajib:**
+- **Multi-tenancy** — semua API, query, fail dan tugasan latar belakang mengekalkan konteks tenant
+- **RBAC + skop data** — pemilik/pengurus/admin/jualan/kewangan/kru/freelancer ada kebenaran berbeza
+- **API-first** — web, PWA, mudah alih dan ejen AI guna kontrak API sama
+- **Event-driven** — `QuotationAccepted`, `BookingConfirmed`, `PaymentSucceeded`, `ProjectCompleted`
+- **Idempotency** — webhook & automasi berulang tidak boleh hasilkan invois/bayaran/penugasan pendua
+- **AI governance** — skop kebenaran, had token, log, tahap kelulusan, mekanisme pembatalan
+- **Auditability** — rekod siapa ubah harga, lulus kontrak, sahkan bayaran, tukar jadual
+
+> **Pembayaran:** Kekalkan pendekatan sedia ada — penyedia gateway memproses wang; AI BIJAN mengurus integrasi, checkout, webhook, rekonsiliasi dan paparan. **Jangan** bina sistem pegangan wang sendiri.
+
+---
+
+### 87.8 Apa Yang TIDAK Patut Dibina Dua Kali
+
+Jika AI BIJAN sudah ada `CRM`, `Finance`, `Documents`, `Inventory`, `FlowAutomation` dan pembayaran, B-ServiceOS **mesti guna semula** melalui kontrak API dan peristiwa domain.
+
+**Dilarang:** mewujudkan versi kedua pelanggan, invois, inventori atau gateway khusus B-ServiceOS.
+
+---
+
+### 87.9 Pelan Pelaksanaan 4 Fasa
+
+| Fasa | Skop | Matlamat |
+|---|---|---|
+| **P1 — Service Core** | Projek, job, sesi, status; pelanggan, pakej, sebut harga; kontrak, invois, deposit, baki; kalendar, tugas, penugasan kru; portal pelanggan, audit trail | Ganti kerja manual & rekod berselerak |
+| **P2 — Automasi** | Peringatan pembayaran & tarikh kerja; semakan konflik jadual; penyegerakan kalendar; webhook pembayaran & rekonsiliasi; OCR resit & aliran kelulusan | Kurangkan tugas pentadbiran berulang |
+| **P3 — AI** | AI COO/CFO/CSO/CMO; B-Boardroom analisis silang fungsi | Tukar rekod operasi → keputusan boleh diukur |
+| **P4 — Skala** | Templat industri; pembina borang/workflow tanpa kod; integrasi marketplace; pelan & had penggunaan AI; API & white-label | Jual keupayaan sama ke banyak industri |
+
+---
+
+### 87.10 Sempadan Undang-undang & Reverse Engineering
+
+Terma RekaDesk yang diterbitkan secara awam **melarang** scraping, penyalinan, reverse engineering, penciptaan karya terbitan dan eksploitasi komersial terhadap perkhidmatan atau komponennya.
+
+**Skop kerja yang dibenarkan:**
+- ✅ Menganalisis fungsi & aliran perniagaan yang diterangkan secara **awam**
+- ✅ Membina spesifikasi keperluan produk AI BIJAN secara **bebas**
+- ✅ Menggunakan reka bentuk, kod, skema data & penjenamaan **milik AI BIJAN sendiri**
+- ❌ **Tidak** menyalin kod sumber, aset proprietari, templat unik atau kandungan dalaman
+- ❌ **Tidak** menggunakan akaun/data pelanggan RekaDesk
+
+---
+
+### 87.11 Kriteria Penerimaan B-ServiceOS
+
+- [x] Tiada akses data merentas tenant. (`ServiceOSTest::test_pengasingan_tenant_*`)
+- [x] Tiada kesan pembayaran/invois pendua daripada peristiwa berulang. (outbox + `idempotency_key`)
+- [x] Konflik tempahan & penugasan boleh dikesan. (`semakKonflik`, `konflikKruSesi`)
+- [x] Status pembayaran disokong oleh rekod penyedia yang disahkan. (domain Invoicing — tidak diduplikasi)
+- [x] Kebenaran kru menghalang akses kewangan tanpa kebenaran. (`perm:service_os.finance` berasingan)
+- [x] Setiap tindakan kewangan & AI yang material boleh diaudit. (`service_domain_events`)
+- [x] Templat perkhidmatan menggunakan semula keupayaan domain AI BIJAN sedia ada. (rujuk `config/service_os.php` → `integration`)
+- [x] Hak SaaS & penggunaan token AI dikuatkuasakan secara berasingan. (AIGateway)
+
+---
+
+### 87.12 Pelaksanaan P1 — Butiran Teknikal (SIAP 2026-10-24)
+
+**Modul:** `app/Modules/ServiceOS/` · **13 jadual** · **33 laluan** · **63 ujian** (248 assertion)
+
+| Komponen | Fail |
+|---|---|
+| Migration | `2026_10_24_001900_create_service_os_tables.php` |
+| Services | `ServiceOSService.php` (~900 baris) |
+| Models | 13 model (`ServiceClient`, `ServicePackage`, `ServiceProject`, `ServiceSession`, `ServiceQuotation`, `ServiceContract`, `ServiceCrew`, `ServiceAssignment`, `ServiceTask`, `ServiceEquipment`, `ServiceEquipmentReservation`, `ServiceDomainEvent`, `ServiceDelivery`) |
+| Controller | `ServiceOSController.php` (33 aksi) |
+| Routes | `routes/api.php` → `api/v1/service-os/*` |
+| Config | `config/service_os.php` |
+| Tests | `tests/Feature/ServiceOSTest.php` (63 ujian) |
+
+**Prinsip keselamatan yang dilaksanakan:**
+
+1. **Tiada pemprosesan wang** — pembayaran kekal di `Invoicing`/`Finance`. Modul ini hanya merekod nilai kontrak & margin.
+2. **Peralihan status disahkan** — `ServiceProject::ALIRAN` menolak peralihan tidak sah (`RuntimeException`).
+3. **Outbox idempoten** — setiap peristiwa domain dinoktahkan dengan `idempotency_key = slug(event-aggregate-id-md5(payload))`.
+4. **Konflik dikesan sebelum simpan** — `tugsakanKru()` menolak kru yang sudah bertugas pada waktu bertindih.
+5. **Had keras** — 200 sesi/projek, 500 tugas/projek, 100 peristiwa/batch, 3 cubaan outbox.
+6. **Tiada pendua domain** — `ServiceClient.customer_id` memaut ke CRM; kontrak boleh memaut ke `SignDocs`; peristiwa boleh dilanggan `WorkflowStudio`/`Reminder`.
+
+**Templat checklist industri:** `umum`, `fotografi`, `wedding`, `kontraktor`, `katering` — 5–8 tugas setiap satu dengan fasa `preparation`/`execution`/`post`/`admin`.
+
+**Fasa seterusnya:**
+
+| Fasa | Skop | Status |
+|---|---|---|
+| P2 — Automasi | Peringatan, konflik jadual auto, kalendar sync, webhook bayaran, OCR resit | 📋 Dirancang |
+| P3 — AI | AI COO/CFO/CSO/CMO + B-Boardroom | 📋 Dirancang |
+| P4 — Skala | Templat industri, builder tanpa kod, marketplace, white-label | 📋 Dirancang |
+
+---
+
+
+---
+
+# PART XXIII — INTEGRASI B-POS SYSTEM
+
+## BAB 88 — Audit B-POS System & Peta Integrasi ke AI BIJAN
+
+> **Status:** ✅ Audit selesai 2026-10-24 · 📋 Integrasi dirancang (T-76 → T-84)
+> **Sumber:** `C:\ai-bijan\AI-Bijan\b-pos-system` — fork proprietari Bijan Digital Marketing
+> **Asas:** projek open-source [point-of-sales](https://github.com/aryadwiputra/point-of-sales) (**MIT**)
+> **Lesen:** Komponen asas kekal MIT (boleh guna dengan atribusi). Lapisan proprietari (senangPay/DOKU, TnG Soundbox, PWA) milik Bijan Digital Marketing.
+
+---
+
+### 88.1 Ringkasan Eksekutif
+
+B-POS System ialah **SaaS kasir matang** (109 migration, 61 model, 30 service, 73 controller) yang sudah berjalan di Malaysia dengan integrasi pembayaran DOKU dan gateway WhatsApp. Ia **bukan** aplikasi AI — tiada satu pun panggilan AI, tiada pengasingan `tenant_id`, dan tiada skema multi-tenant.
+
+**Keputusan:** B-POS **bukan** untuk digabungkan terus ke dalam AI BIJAN. Ia perlu dijadikan **rujukan pelaksanaan** (implementation reference) untuk modul POS/Inventory/Invoicing AI BIJAN yang sedia ada, dan **beberapa ciri unik** perlu dipindahkan.
+
+---
+
+### 88.2 Inventori Teknikal
+
+| Metrik | B-POS System | AI BIJAN | Nisbah |
+|---|---|---|---|
+| Migration | 109 | 168 | — |
+| Model | 61 | 270 | 4.4× |
+| Service | 30 | 142 | 4.7× |
+| Controller | 73 | 123 | 1.7× |
+| **Multi-tenant** | ❌ **TIADA** | ✅ `BelongsToTenant` | **Kritikal** |
+| **AI** | ❌ **TIADA** | ✅ `AIGateway` + 10 modul | **Kritikal** |
+| Ujian | (perlu disemak) | 781 lulus | — |
+| Stack UI | ✅ Inertia + React | ❌ API sahaja | **Kritikal** |
+
+---
+
+### 88.3 Ciri B-POS Yang LEBIH MATANG Daripada AI BIJAN
+
+| Ciri | Butiran | Modul AI BIJAN | Jurang |
+|---|---|---|---|
+| **Dine-in / Kitchen Display** | `dine_areas`, `dine_tables`, `dine_orders`, `KitchenDisplayController`, `KitchenService` | ❌ Tiada | **Tinggi** |
+| **Modifier / Add-on** | `ModifierGroup`, `ModifierOption`, `ModifierService` (saiz, gula, ais) | ❌ Tiada | **Tinggi** |
+| **Service Charge** | `ServiceChargeService` + rate per outlet (10% restoran) | ❌ Tiada | **Tinggi** |
+| **Multi-Tender Split Payment** | `TransactionTender`, `TransactionTenderService` (tunai + kad + e-wallet sekali) | ⚠️ Terhad | **Tinggi** |
+| **Cashier Shift + Cash Movement** | `CashierShift`, `ShiftCashMovement`, buka/tutup syif, float, drop | ⚠️ Terhad | **Sederhana** |
+| **TNG Soundbox** | `TngSoundboxService`, `TngNotificationController` (pengesahan bayar automatik) | ❌ Tiada | **Sederhana** |
+| **Offline Mode (PWA)** | Queue transaksi + `client_uuid` + `sync_fingerprint` + auto-sync | ❌ Tiada | **Tinggi** |
+| **Unit Conversion** | `Unit`, `ProductUnit`, `UnitConversionService` (pcs↔box↔kg) | ⚠️ Ada dalam Inventory | **Rendah** |
+| **Batch/Expiry FEFO** | `ProductBatch`, `TransactionDetailBatchAllocation`, `BatchService` | ⚠️ Terhad | **Sederhana** |
+| **Composite Products** | Kit/bundle dengan stok dikira | ⚠️ Ada dalam Manufacturing | **Rendah** |
+| **Discount Approval Workflow** | `DiscountApprovalLog`, had diskaun per peranan | ❌ Tiada | **Sederhana** |
+| **Thermal Printer WebUSB** | `ThermalPrintService` (ESC/POS terus dari browser) | ❌ Tiada | **Sederhana** |
+| **Aging Analysis** | `PayableAgingService`, `AgingController` (hutang/piutang ikut umur) | ⚠️ Ada dalam Finance | **Rendah** |
+| **Customer Portal** | `PublicPortalController` (pelanggan semak invois + bayar) | ❌ Tiada | **Sederhana** |
+| **Reorder Point + Auto-PO** | `ReorderService` (cadang PO bila stok rendah) | ⚠️ Terhad | **Sederhana** |
+| **Outlet (cawangan)** | `Outlet`, `UserOutlet`, `OutletAccessService` | ⚠️ Ada dalam tenant | **Rendah** |
+
+**Jumlah: 6 jurang TINGGI, 7 SEDERHANA, 4 RENDAH.**
+
+---
+
+### 88.4 Ciri AI BIJAN Yang TIADA Dalam B-POS
+
+| Keupayaan | AI BIJAN | B-POS |
+|---|---|---|
+| Multi-tenant (1 DB, N syarikat) | ✅ | ❌ (1 DB = 1 syarikat) |
+| Ejen AI & automasi | ✅ 10 modul | ❌ Tiada |
+| SEO & kandungan | ✅ `Seo` + `ContentStudio` | ❌ Tiada |
+| Order unified (Shopee/Lazada/TikTok) | ✅ `Orders` | ❌ POS sahaja |
+| Business intelligence | ✅ `BusinessIntel` | ❌ Laporan asas |
+| Service business OS | ✅ `ServiceOS` | ❌ Tiada |
+| Omnichannel chat | ✅ `Omnichannel` | ⚠️ WhatsApp sahaja |
+| E-signature | ✅ `SignDocs` | ❌ Tiada |
+| Workflow automation | ✅ `WorkflowStudio` | ❌ Tiada |
+| MCP / Agent Studio | ✅ | ❌ Tiada |
+
+---
+
+### 88.5 Isu Keselamatan & Seni Bina Ditemui
+
+| # | Isu | Keterukan | Butiran |
+|---|---|---|---|
+| S-1 | **Tiada `tenant_id`** | 🔴 Kritikal | Semua model guna `outlet_id` sahaja. Satu deployment = satu syarikat. Tidak boleh multi-tenant. |
+| S-2 | **Tiada global scope tenancy** | 🔴 Kritikal | Tiada trait setara `BelongsToTenant`. Setiap query mesti tapis manual — risiko kebocoran data tinggi jika dijadikan multi-tenant. |
+| S-3 | **`legacySingleOutletBypass`** | 🟠 Tinggi | `config('security.outlet.legacy_single_outlet_bypass', true)` — **lalai TRUE**. Jika tiada outlet, semua user dapat akses semua gudang. |
+| S-4 | **Benar-benar bergantung pada session** | 🟠 Tinggi | `OutletAccessService::activeOutlet()` baca daripada request/session — bukan daripada token. Sukar untuk API/headless. |
+| S-5 | **Tiada idempotency pada webhook bayaran** | 🟠 Tinggi | `PaymentWebhookController` — perlu disemak untuk kes pendua DOKU. |
+| S-6 | **Hardcode wilayah Indonesia** | 🟡 Sederhana | `provinces`, `cities`, `districts`, `villages` — 4 jadual wilayah Indonesia. Malaysia guna negeri/daerah/mukim. |
+| S-7 | **`access_token` pada Transaction** | 🟡 Sederhana | `Str::uuid()` sebagai token akses awam — tiada had masa, tiada revoke. |
+| S-8 | **WhatsApp via `whatsapp-web.js`** | 🟠 Tinggi | Bukan API rasmi WhatsApp — risiko ban nombor, tiada SLA, session hilang jika server restart. |
+
+---
+
+### 88.6 Keputusan Integrasi
+
+**Bukan penggabungan kod.** B-POS dan AI BIJAN mempunyai asas tenancy berbeza sama sekali.
+
+| Pilihan | Penilaian | Keputusan |
+|---|---|---|
+| A. Gabung B-POS sebagai modul AI BIJAN | ❌ Perlu tulis semula 61 model + 109 migration untuk `tenant_id`. Risiko tinggi, 3–6 bulan. | **Tolak** |
+| B. AI BIJAN sebagai backend B-POS | ⚠️ B-POS perlu tukar semua controller ke API. | **Pertimbang** |
+| C. **B-POS kekal produk berasingan; kongsi ciri melalui corak** | ✅ Pindahkan ciri unik ke modul AI BIJAN sedia ada; guna B-POS sebagai rujukan pelaksanaan. | **✅ PILIH** |
+| D. B-POS jadi tenant dalam AI BIJAN | ⚠️ Boleh, tetapi B-POS tiada API-first. | **Tunda** |
+
+**Keputusan: Pilihan C** — B-POS kekal produk POS berasingan (sudah ada pelanggan). Ciri uniknya dipindahkan ke AI BIJAN sebagai **penambahbaikan modul sedia ada**, bukan modul baharu.
+
+---
+
+### 88.7 Peta Pemindahan Ciri → Modul AI BIJAN
+
+| Ciri B-POS | Sasaran dalam AI BIJAN | Tugasan |
+|---|---|---|
+| Dine-in + Kitchen Display | `POS/` (kembang) | T-76 |
+| Modifier / Add-on | `POS/` + `Inventory/` | T-77 |
+| Service Charge | `POS/` + `Invoicing/` | T-78 |
+| Multi-tender split payment | `POS/` (guna `TransactionTender` corak) | T-79 |
+| Cashier Shift + Cash Movement | `POS/` | T-80 |
+| Offline PWA + sync fingerprint | `POS/` (`client_uuid` + `sync_fingerprint`) | T-81 |
+| TNG Soundbox / bayar automatik | `POS/` + `Finance/` | T-82 |
+| Discount Approval Workflow | `POS/` + `perm:` had | T-83 |
+| Thermal Printer WebUSB | `POS/` (frontend) | T-84 |
+| Unit conversion | ✅ Guna `Inventory/` sedia ada | — |
+| Composite products | ✅ Guna `Manufacturing/` sedia ada | — |
+| Aging analysis | ✅ Guna `Finance/` sedia ada | — |
+| Outlet/cawangan | ✅ Guna `tenant` + `warehouse` sedia ada | — |
+
+---
+
+### 88.8 Corak Pelaksanaan Yang Patut Ditiru
+
+**1. Idempotency transaksi luar talian**
+```php
+// B-POS: client_uuid + sync_fingerprint
+$transaction->client_uuid = $uuid;        // UUID dari browser
+$transaction->sync_fingerprint = $hash;   // hash(cart + waktu + jumlah)
+```
+AI BIJAN patut guna corak sama untuk `POS` jika sokongan offline ditambah. Corak `idempotency_key` sudah ada dalam `ServiceOS`.
+
+**2. Multi-tender sebagai entiti berasingan**
+```php
+// B-POS: satu transaksi, banyak tender
+TransactionTender::create([
+    'transaction_id' => $id,
+    'method' => 'cash',
+    'amount' => 5000,
+    'cash_received' => 10000,
+]);
+```
+Jauh lebih bersih daripada kolum `cash`, `card_amount`, `ewallet_amount` berasingan.
+
+**3. Snapshot audit before/after**
+```php
+// B-POS AuditLogService
+AuditLog::create([
+    'model' => get_class($model),
+    'model_id' => $model->id,
+    'action' => 'update',
+    'before' => $model->getOriginal(),
+    'after' => $model->getChanges(),
+]);
+```
+AI BIJAN patut tambah ini pada `ServiceOS` dan `Invoicing`.
+
+**4. Batch allocation FEFO**
+```php
+// B-POS: allocate stok ikut expiry paling awal
+TransactionDetailBatchAllocation::create([
+    'transaction_detail_id' => $id,
+    'product_batch_id' => $batchId,
+    'quantity' => $qty,
+]);
+```
+Rekod *batch mana* digunakan — penting untuk traceability makanan/ubat.
+
+---
+
+### 88.9 Apa Yang TIDAK Patut Diambil
+
+| Ciri B-POS | Sebab tolak |
+|---|---|
+| Struktur modal (outlet-based) | AI BIJAN guna `tenant_id` — lebih luas & betul |
+| 4 jadual wilayah Indonesia | Malaysia guna negeri/daerah/mukim — bina sendiri |
+| `whatsapp-web.js` gateway | Risiko ban; AI BIJAN patut guna WABA API rasmi |
+| `access_token` uuid tanpa had masa | Guna signed URL bertempoh (`URL::temporarySignedRoute`) |
+| `legacySingleOutletBypass` | Corak berbahaya — jangan tiru |
+| UI Inertia + React | AI BIJAN patut guna FilamentPHP (T-71) untuk konsistensi |
+
+---
+
+### 88.10 Kriteria Penerimaan Integrasi
+
+- [ ] B-POS kekal berfungsi sebagai produk berasingan (tiada regresi).
+- [ ] Ciri dipindahkan **satu per satu** dengan ujian sendiri.
+- [ ] Semua ciri baharu guna `BelongsToTenant` + `tenant_id` dalam `$fillable`.
+- [ ] Tiada kod B-POS disalin tanpa semakan lesen (MIT untuk asas, proprietari untuk lapisan Bijan).
+- [ ] `THIRD-PARTY-NOTICES.md` dikemas kini dengan atribusi `aryadwiputra/point-of-sales`.
+- [ ] Tiada `outlet_id` tanpa `tenant_id` dalam jadual baharu.
+- [ ] Semua laluan baharu guna `perm:pos.*`.
+
+---
+
+### 88.11 Ringkasan Penilaian
+
+| Aspek | Nilai | Nota |
+|---|---|---|
+| Kematangan POS | **8/10** | Dine-in, modifier, split tender, offline — semua ada |
+| Kematangan keselamatan | **4/10** | Tiada tenant, ada bypass, token tanpa had |
+| Kematangan AI | **0/10** | Tiada sama sekali |
+| Kematangan UI | **7/10** | Inertia + React, PWA, 33 screenshot |
+| Kematangan ujian | **?/10** | Perlu disemak (`tests/` folder) |
+| **Nilai kepada AI BIJAN** | **Tinggi sebagai rujukan** | Bukan sebagai kod asas |
+
+**Kesimpulan:** B-POS ialah **produk POS yang matang** dan patut diteruskan sebagai produk berasingan untuk pasaran kasir Malaysia. Nilainya kepada AI BIJAN ialah **rujukan pelaksanaan** untuk domain POS — terutamanya dine-in, modifier, split tender, dan offline sync. **9 tugasan pemindahan (T-76 → T-84)** telah dikenal pasti.
+
+---
+
+# PART XXIV — AI FINANCE & EXPENSE INTELLIGENCE
+
+## BAB 89 — B-Expense: Pengurusan Perbelanjaan & Tuntutan Staff
+
+> **Status:** ✅ **P1 — Expense Core SIAP** (2026-10-24)
+> **Modul:** `app/Modules/Expense/` · **7 jadual** · **33 laluan API** · **48 ujian** (190 assertion)
+> **Integrasi:** `DocumentAI` (OCR), `Finance` (`JournalService` + COA), `Reminder`, `WorkflowStudio`, `ServiceOS`
+
+---
+
+### 89.1 Objektif
+
+B-Expense ialah sistem rekod perbelanjaan, muat naik resit, tuntutan staff, kawalan kelulusan dan posting ke lejar. Semua rekod berskop tenant; modul ini **tidak menyimpan wang atau memproses pembayaran**. Pembayaran kekal domain `Finance`/`Invoicing`.
+
+**Kitaran nilai:** resit dimuat naik → OCR + cadangan kategori → staff sahkan → penyelia lulus → Finance post jurnal → laporan perbelanjaan tepat.
+
+---
+
+### 89.2 Model Data P1
+
+| Jadual | Fungsi | Integrasi |
+|---|---|---|
+| `expense_categories` | Kategori, polisi resit, kata kunci merchant, pautan COA | `chart_of_accounts` (6xxx) |
+| `expenses` | Induk perbelanjaan, vendor, tarikh, mata wang, cukai, jumlah, status | `Finance`, `ServiceOS` |
+| `expense_items` | Baris perincian (kuantiti, harga, cukai, cost centre) | `expenses` |
+| `expense_receipts` | Fail, hash, OCR, medan ekstrak, status sah, pendua | `DocumentAI.documents` |
+| `expense_claims` | Tuntutan staff, reimbursement, mileage, per diem | `HRMS`, `ServiceOS` |
+| `expense_claim_items` | Baris tuntutan + polisi resit | `expense_claims` |
+| `expense_claim_approvals` | Jejak tindakan pelulus (siapa/bila/status/jumlah/sebab) | `AuditLogger` |
+
+Semua jadual tenant-scoped dengan `BelongsToTenant` pada model. Fail resit berada di storan selamat; `expense_receipts.document_id` paut ke `DocumentAI` untuk OCR.
+
+---
+
+### 89.3 Aliran Keselamatan
+
+```mermaid
+flowchart LR
+    A[Staff upload resit] --> B[Draf sahaja]
+    B --> C[OCR + ekstrak medan]
+    C --> D[Staff semak / betulkan]
+    D --> E[Submit]
+    E --> F{Penyelia lulus?}
+    F -->|Tolak| G[Draf semula + sebab]
+    F -->|Lulus| H[Approved]
+    H --> I{Kewangan post?}
+    I -->|Ya| J[JournalService → JournalEntry]
+    J --> K[Finance rekod pembayaran]
+```
+
+**Kawalan wajib:**
+
+1. Muat naik resit mencipta rekod **draf** sahaja — tiada auto-approval/posting.
+2. Pelulus manusia diperlukan; pemohon **tidak boleh meluluskan tuntutan sendiri**.
+3. AI hanya mencadangkan kategori dengan skor keyakinan — tidak boleh menetapkan `approved_amount` atau mengesahkan pembayaran.
+4. Perbelanjaan ≥ **RM50** memerlukan resit secara lalai; polisi boleh dilaras per kategori.
+5. Posting jurnal perlu status `approved`, kategori yang dipaut ke COA dan akaun bank; panggil `Finance\JournalService` sahaja.
+6. Semua operasi tenant-scoped; tiada akses silang tenant.
+
+---
+
+### 89.4 Status & Aliran
+
+**Perbelanjaan:** `draft → submitted → approved → posted → paid`; penolakan `submitted → rejected → draft`; pembatalan menggunakan `voided` mengikut peralihan sah.
+
+**Tuntutan staff:** `draft → submitted → approved → reimbursed`; penolakan `submitted → rejected → draft`.
+
+Setiap peralihan disahkan oleh peta `ALIRAN`; peralihan tidak sah ditolak. Jejak kelulusan merekod action, previous/new status, pelulus, tarikh, komen dan jumlah.
+
+---
+
+### 89.5 Ciri P1
+
+- **Kategori lalai** (idempoten): travel, meals, office, software, marketing, utilities, professional, rent, vehicle, other.
+- **Mata wang berbilang:** simpan mata wang asal + kadar pertukaran + nilai MYR untuk laporan.
+- **OCR resit:** guna semula `DocumentOCRService` + `DocumentExtractionService`; manusia mengesahkan hasil.
+- **Kesan pendua:** SHA-256 fail + padanan merchant/jumlah; tandakan untuk semakan, jangan auto-tolak.
+- **Cadangan kategori:** kata kunci merchant/OCR + keyakinan; fallback heuristik; pengguna mengesahkan.
+- **Tuntutan:** reimbursement + mileage (lalai RM0.60/km, boleh konfigurasi) + per diem (kadar lalai RM50/hari, boleh ubah ikut lokasi).
+- **Jurnal:** Dr akaun belanja / Cr akaun bank melalui `JournalService::createJournalEntry()`; jurnal mesti seimbang dan kemudian dipost.
+- **Ringkasan:** jumlah mengikut kategori, tertunggak, tuntutan menunggu dan resit pendua.
+
+---
+
+### 89.6 Laluan API
+
+Prefix `/api/v1/expenses`, middleware `auth:sanctum` + `tenant` + `perm:`.
+
+| Kumpulan | Laluan utama | Kebenaran |
+|---|---|---|
+| Ringkasan | `GET /summary` | `expense.view` |
+| Kategori | `GET/POST /categories`, `POST /categories/seed` | `view` / `manage` |
+| Perbelanjaan | `GET/POST /`, `GET /{id}`, `POST /{id}/submit` | `view` / `manage` |
+| Kelulusan | `POST /{id}/approve`, `POST /{id}/reject` | `expense.approve` |
+| Jurnal & bayaran | `POST /{id}/post`, `POST /{id}/paid` | `expense.post` |
+| Resit | `POST /{id}/receipts`, `POST /receipts/{id}/verify` | `manage` / `approve` |
+| Tuntutan | `GET/POST /claims`, `GET /claims/{id}`, submit/approve/reject/reimburse/receipts | `view`, `manage`, `approve`, `post` |
+| AI/pendua | `GET /suggest-category`, `GET /duplicate-check`, `GET /receipts` | `expense.view` |
+
+Semua laluan statik didaftarkan sebelum `/{id}`.
+
+---
+
+### 89.7 Had & Polisi Lalai
+
+| Kawalan | Default | Nota |
+|---|---:|---|
+| Kelulusan | RM200 | Konfigurasi `expense.limits.approval_threshold`; P1 semua submission memerlukan kelulusan manusia |
+| Resit wajib | RM50 | Tetapan kategori (`receipt_threshold`) |
+| Mileage | RM0.60/km | Kadar konfigurasi, semak polisi semasa tenant/LHDN sebelum tuntutan sebenar |
+| Per diem | RM50/hari | Default tenant; bukan nasihat/pengesahan kadar rasmi kerajaan |
+| Baris perbelanjaan | 200 | Had teknikal |
+| Resit/perbelanjaan | 20 | Had teknikal |
+| Petty cash | Tidak dalam P1 | Dirancang untuk fasa seterusnya |
+
+> Kadar cukai, mileage dan resit perlu disahkan oleh tenant/penasihat cukai; sistem menyediakan konfigurasi, bukan nasihat cukai.
+
+---
+
+### 89.8 Fasa Seterusnya
+
+| Fasa | Skop | Status |
+|---|---|---|
+| **P1 — Expense Core** | kategori, expenses/items, resit/OCR, submission/approval asas, tuntutan, journal post, ringkasan | ✅ Siap |
+| **P2 — Staff Claims** | kelulusan berperingkat, polisi per peranan/kategori, delegasi, petty cash, reimbursement batch/payroll integration | 📋 Dirancang |
+| **P3 — Budget & AI** | bajet, amaran 80%, anomali, cadangan kategori AI Gateway, kos projek ServiceOS | 📋 Dirancang |
+| **P4 — Bank & Reports** | padanan transaksi bank, SST/input-tax reporting, eksport akauntan, recurring expense | 📋 Dirancang |
+
+---
+
+### 89.9 Kriteria Penerimaan P1
+
+- [x] Staff/tenant boleh upload resit, rekod kekal draf sehingga submission/kelulusan.
+- [x] OCR guna semula DocumentAI; nilai diekstrak tidak dianggap disahkan tanpa semakan manusia.
+- [x] Resit pendua ditandakan melalui hash atau merchant+jumlah.
+- [x] Staff tidak boleh meluluskan tuntutan sendiri.
+- [x] Tiada jurnal terhasil sebelum kelulusan dan tindakan `post` eksplisit.
+- [x] Jurnal melalui `Finance\JournalService`, bukan logik perakaunan pendua.
+- [x] Semua model tenant-scoped; ujian tenant isolation lulus.
+- [x] Ambang resit, mata wang, mileage dan per diem boleh dikonfigurasi.
+- [x] 48 ujian modul lulus; full suite 829 ujian, 0 gagal.
+
+---
+
+# PART XXV — DOKUMEN PELANGGAN & KECERDASAN VISUAL
+
+## BAB 90 — B-Receipt & B-Statement: Dokumen Pelanggan Universal melalui WhatsApp
+
+> **Status:** 📋 **Spesifikasi sasaran** (belum dikodkan) — T-89 → T-94
+> **Kedudukan:** Satu aplikasi universal dalam ekosistem AI BIJAN — menerima pencetus daripada **mana-mana** modul lain.
+> **Prasyarat:** `Invoicing` (dokumen), `PdfEngine`/`DocumentAI` (jana PDF), `Omnichannel` + `Blast` (penghantaran), `Reminder` (peringatan), `Finance` (penyata).
+
+---
+
+### 90.1 Objektif
+
+B-Receipt & B-Statement menghantar **semua jenis dokumen transaksi** kepada pelanggan melalui WhatsApp secara automatik: resit, invois, e-Invois, sebut harga, pesanan jualan, nota kredit/debit, penyata akaun, bil bulanan, peringatan tertunggak dan dokumen khusus industri.
+
+**Prinsip teras:** satu enjin dokumen, satu saluran penghantaran, satu jejak audit — digunakan oleh 55 modul tanpa menduplikasi logik.
+
+---
+
+### 90.2 5 Kategori Dokumen
+
+| # | Kategori | Contoh | Pencetus |
+|---|---|---|---|
+| 1 | **Resit & bukti pembayaran** | POS, tunai, kad, QR, FPX, deposit, ansuran, refund, pembatalan | `PaymentCaptured`, `PosSaleCompleted`, `CodCollected` |
+| 2 | **Dokumen jualan** | Invois, e-Invois, sebut harga, pesanan jualan, nota kredit/debit, penyata akaun | `InvoiceIssued`, `QuotationAccepted`, `CreditNoteIssued` |
+| 3 | **Bil & peringatan** | Bil bulanan, baki tertunggak, peringatan tarikh akhir, pengesahan deposit | `InvoiceOverdue`, `ReminderDue` |
+| 4 | **Penyata & laporan berkala** | Penyata bulanan, ringkasan transaksi, rekod bayaran, dokumen tempahan | `StatementDue`, `PeriodClosed` |
+| 5 | **Dokumen khusus industri** | Resit tempahan event, bayaran kontraktor, yuran klinik, pesanan penghantaran | `BookingConfirmed`, `ServiceJobCompleted` |
+
+---
+
+### 90.3 Seni Bina
+
+```mermaid
+flowchart TD
+    A["55 modul AI BIJAN<br/>POS · Finance · CRM · Booking · Invoicing · ServiceOS · Expense"] --> B["Domain Events"]
+    B --> C["B-Receipt Engine"]
+    C --> D["Pilih templat + data"]
+    D --> E["Jana PDF / mesej transaksi"]
+    E --> F["Sahkan penerima<br/>(nombor disahkan + consent)"]
+    F --> G["WhatsApp Business Platform"]
+    G --> H{"Dihantar?"}
+    H -->|Berjaya| I["Rekod: SENT + message_id"]
+    H -->|Gagal| J["Retry ikut polisi"]
+    J --> K["Fallback: e-mel / pautan selamat"]
+    K --> L["Rekod: FAILED + sebab"]
+    I --> M["Audit trail + Document Centre"]
+    L --> M
+```
+
+**Prinsip:** modul lain **tidak** menjana atau menghantar dokumen sendiri. Mereka hanya memancarkan event; B-Receipt yang menentukan templat, saluran dan percubaan semula.
+
+---
+
+### 90.4 Model Data (9 jadual)
+
+| Jadual | Fungsi |
+|---|---|
+| `receipt_templates` | Templat dokumen per tenant: logo, warna, penomboran, terma |
+| `receipt_documents` | Induk dokumen: jenis, nombor, jumlah, status, tenant |
+| `receipt_document_lines` | Baris dokumen (item, kuantiti, harga, cukai) |
+| `receipt_deliveries` | Setiap percubaan penghantaran (saluran, status, provider ID, ralat) |
+| `receipt_recipients` | Penerima disahkan: nombor WhatsApp, e-mel, consent, status opt-out |
+| `receipt_send_rules` | Auto-send rules: jenis transaksi → templat → saluran |
+| `receipt_statement_periods` | Tempoh penyata (bulanan/mingguan) + jadual penghantaran |
+| `receipt_document_requests` | Permintaan salinan semula daripada pelanggan |
+| `receipt_audit_logs` | Jejak audit: siapa jana, hantar, lihat, muat turun, padam |
+
+---
+
+### 90.5 WhatsApp Business Platform — Peraturan Wajib
+
+> **⚠️ Amaran pematuhan:** Penghantaran automatik **mesti** menggunakan **WhatsApp Business Platform (Cloud API)**, bukan `whatsapp-web.js` atau aplikasi WhatsApp biasa.
+
+| Perkara | Peraturan |
+|---|---|
+| **Consent** | Persetujuan eksplisit pelanggan direkod dengan timestamp + sumber + tujuan |
+| **Templat mesej** | Mesej yang dimulakan perniagaan **mesti** guna templat diluluskan Meta |
+| **Tetingkap perbualan** | 24 jam selepas mesej pelanggan; di luar itu → templat sahaja |
+| **Opt-out** | "STOP" mesti dipatuhi serta-merta + suppression kekal |
+| **Media** | PDF dihantar sebagai dokumen media, mesti di bawah had saiz Meta |
+| **Nombor disahkan** | Nombor mesti dalam format E.164 + disahkan pemilik |
+
+**Peraturan mutlak:**
+
+1. Dokumen **tidak boleh** dihantar jika pembayaran **gagal** atau belum disahkan.
+2. Penghantaran **gagal tidak boleh** direkod sebagai berjaya.
+3. AI **tidak boleh** menghantar dokumen kewangan tanpa pengesahan identiti + kebenaran.
+4. e-Invois yang dihantar melalui WhatsApp sebagai PDF **bukan** e-Invois sah LHDN — ia hanya salinan dokumen.
+
+---
+
+### 90.6 Aliran Hujung-ke-Hujung
+
+Contoh: pelanggan membayar RM150 melalui modul tempahan.
+
+| Langkah | Sistem | Tindakan |
+|---|---|---|
+| 1 | Payment Gateway | Sahkan pembayaran berjaya → `PaymentCaptured` |
+| 2 | `Booking` / `Invoicing` | Keluarkan resit dengan nombor transaksi |
+| 3 | **B-Receipt** | Pilih templat perniagaan → jana PDF |
+| 4 | **B-Receipt** | Semak penerima: nombor disahkan + consent aktif |
+| 5 | **B-Receipt** | Hantar melalui WhatsApp Cloud API |
+| 6 | **B-Receipt** | Rekod `message_id`, status, timestamp |
+| 7 | Document Centre | Pelanggan boleh minta salinan semula |
+
+---
+
+### 90.7 Fungsi Tambahan
+
+| Fungsi | Butiran |
+|---|---|
+| **Auto-send rules** | Tentukan dokumen mana dihantar untuk setiap jenis transaksi (boleh mati per jenis) |
+| **Template builder** | Logo, nama, alamat, format penomboran, terma — per tenant |
+| **WhatsApp + fallback** | Gagal → retry berperingkat → tawar e-mel atau pautan bertempoh |
+| **Document Centre** | Pelanggan minta salinan semula; pengguna minta hantar semula |
+| **Multi-tenant** | Dokumen, nombor WhatsApp dan templat diasingkan sepenuhnya |
+| **Audit trail** | Masa jana, penerima, status, setiap percubaan, sebab gagal |
+| **AI assistant** | "Hantar semula resit pelanggan ini" — tertakluk pengesahan identiti |
+
+---
+
+### 90.8 API (Cadangan)
+
+Prefix `/api/v1/receipts`.
+
+| Method | Endpoint | Fungsi |
+|---|---|---|
+| `GET` | `/templates` | Senarai templat tenant |
+| `POST` | `/templates` | Cipta templat |
+| `GET` | `/documents` | Senarai dokumen (penapis jenis, tarikh, status) |
+| `POST` | `/documents` | Jana dokumen manual |
+| `GET` | `/documents/{id}` | Butiran + baris + percubaan penghantaran |
+| `POST` | `/documents/{id}/send` | Hantar melalui saluran dipilih |
+| `POST` | `/documents/{id}/resend` | Hantar semula |
+| `GET` | `/documents/{id}/download` | Muat turun PDF (URL bertempoh) |
+| `GET` | `/recipients` | Senarai penerima + status consent |
+| `POST` | `/recipients` | Daftar penerima + minta consent |
+| `POST` | `/recipients/{id}/opt-out` | Tanda opt-out |
+| `GET` | `/send-rules` | Senarai auto-send rule |
+| `POST` | `/send-rules` | Cipta rule |
+| `GET` | `/statements` | Senarai penyata berkala |
+| `POST` | `/statements/generate` | Jana penyata untuk tempoh |
+| `POST` | `/statements/{id}/send` | Hantar penyata |
+| `GET` | `/requests` | Permintaan salinan semula |
+| `POST` | `/requests/{id}/fulfil` | Layan permintaan |
+
+Semua laluan guna `perm:receipt.*` dan `module:receipt`.
+
+---
+
+### 90.9 Fasa Pelaksanaan
+
+| Fasa | Skop | Status |
+|---|---|---|
+| **P1 — Teras** | Templat, dokumen, muat turun PDF, penghantaran manual WhatsApp, audit | 📋 Dirancang |
+| **P2 — Automasi** | Auto-send rules, event listener, retry, fallback e-mel, Document Centre | 📋 Dirancang |
+| **P3 — Penyata** | Penyata berkala, jadual, consent, opt-out, laporan penghantaran | 📋 Dirancang |
+| **P4 — AI** | "Hantar semula resit pelanggan ini", ringkasan dokumen, carian dokumen | 📋 Dirancang |
+
+---
+
+### 90.10 Kriteria Penerimaan
+
+- [ ] Tiada dokumen dihantar jika pembayaran gagal/belum disahkan.
+- [ ] Setiap penghantaran direkod dengan status sebenar (SENT/FAILED/PENDING).
+- [ ] Opt-out dihormati serta-merta dan kekal.
+- [ ] Nombor tidak disahkan tidak boleh menerima dokumen kewangan.
+- [ ] Semua dokumen dan templat tenant-scoped (ujian negatif A→B).
+- [ ] PDF hanya boleh diakses melalui URL bertempoh (bukan pautan awam kekal).
+- [ ] Audit mencatat setiap jana/hantar/lihat/muat turun.
+- [ ] Tiada `whatsapp-web.js` — hanya WhatsApp Business Platform.
+- [ ] Templat mesej Meta diluluskan sebelum penghantaran automatik.
+
+---
+
+## BAB 91 — B-Vision AI: Platform Operasi Visual Pintar
+
+> **Status:** 📋 **Spesifikasi sasaran** (belum dikodkan) — T-95 → T-104
+> **Kedudukan:** Perkhidmatan kecerdasan visual **bersama** untuk semua sektor dalam AI BIJAN.
+> **Reka bentuk:** Laravel modular monolith + servis pemprosesan visual berasingan (Python/FFmpeg).
+
+---
+
+### 91.1 Objektif
+
+B-Vision AI menyokong **analisis video yang dimuat naik** dan **pemantauan kamera langsung**, kemudian menukar aktiviti visual kepada **data berstruktur** yang boleh digunakan oleh modul operasi dan ejen AI.
+
+> **Bukan sekadar CCTV.** Matlamatnya ialah menghubungkan apa yang berlaku dalam dunia sebenar dengan apa yang direkodkan dalam sistem perniagaan.
+
+---
+
+### 91.2 Seni Bina
+
+```mermaid
+flowchart TD
+    A["AI BIJAN Web / Mobile / Admin HQ<br/>Dashboard · Video · Kamera · Laporan"] --> B["Laravel API — B-Vision Core<br/>Auth · Tenant · RBAC · Quota · Policy · Audit"]
+    B --> C["Queue & Orchestrator<br/>Redis · Laravel Queue · Scheduler · Retry"]
+    C --> D["Video Worker<br/>FFmpeg · Frame extraction · Thumbnail"]
+    D --> E["Vision Service<br/>Object detection · Tracking · OCR · VLM"]
+    E --> F["Event Normalizer + Rules Engine<br/>JSON validation · SOP · Confidence · Human review"]
+    F --> G["AI BIJAN Business Event Bus"]
+    G --> H["Inventory · POS · HRMS · Projects · CRM · Notifications · AI Agents"]
+```
+
+**Pemisahan penting:** Laravel mengendalikan API, tenancy, polisi dan billing — **bukan** pemprosesan video berat. Worker Python/FFmpeg dijalankan berasingan supaya kegagalan AI tidak menjatuhkan platform.
+
+---
+
+### 91.3 Komponen Teknologi
+
+| Lapisan | Teknologi sasaran | Fungsi |
+|---|---|---|
+| Backend | Laravel, PHP | API, tenancy, polisi, billing, integrasi |
+| Queue | Redis + Laravel Queue | Tugas latar belakang |
+| Video processing | Python + FFmpeg | Decode video, ekstrak bingkai |
+| Computer vision | Roboflow Inference **atau** model sendiri | Pengesanan + penjejakan |
+| Visual reasoning | Model vision-language melalui **adapter** | Tafsiran aktiviti |
+| Object storage | S3-compatible | Rakaman, bingkai, bukti |
+| Live video | RTSP/ONVIF + gateway media | Sambungan kamera |
+| Realtime | Laravel broadcasting / WebSocket | Status tugas + amaran |
+
+> **Prinsip vendor-neutral:** jangan ikat logik perniagaan kepada satu vendor AI. Guna adapter supaya model boleh diganti.
+
+---
+
+### 91.4 Modul Aplikasi
+
+| Komponen | Skop MVP |
+|---|---|
+| **Vision Workspace** | Ruang kerja visual setiap perniagaan |
+| **Video Manager** | Muat naik, metadata, status, retention |
+| **Camera Manager** | Daftar kamera, lokasi, status, sambungan |
+| **Analysis Profiles** | Profil analisis mengikut kegunaan |
+| **Vision Pipeline** | Frame sampling, detection, tracking, inference |
+| **Timeline & Evidence** | Aktiviti mengikut masa + bukti visual |
+| **Rules & SOP** | Peraturan, threshold, semakan manusia |
+| **Event Integration** | Hantar peristiwa kepada modul perniagaan |
+| **Usage & Billing** | Minit video, bingkai, inference, storan |
+| **Audit & Security** | Akses, perubahan konfigurasi, sejarah keputusan |
+
+---
+
+### 91.5 Model Data (15 jadual)
+
+| Jadual | Medan utama |
+|---|---|
+| `vision_workspaces` | `tenant_id`, `name`, `settings_json` |
+| `vision_cameras` | `tenant_id`, `workspace_id`, `name`, `location_id`, `status`, `secret_ref` |
+| `vision_camera_streams` | `tenant_id`, `camera_id`, `protocol`, `connection_status`, `last_seen_at` |
+| `vision_assets` | `tenant_id`, `source_type`, `storage_key`, `duration_ms`, `retention_until` |
+| `vision_jobs` | `tenant_id`, `asset_id`, `profile_id`, `status`, `priority`, `requested_by` |
+| `vision_profiles` | `tenant_id?`, `name`, `model_config`, `sampling_config`, `rules_config`, `version` |
+| `vision_frames` | `tenant_id`, `job_id`, `timestamp_ms`, `storage_key`, `frame_hash` |
+| `vision_detections` | `tenant_id`, `job_id`, `frame_id`, `class_name`, `confidence`, `bbox_json`, `track_id` |
+| `vision_events` | `tenant_id`, `job_id`, `event_type`, `occurred_at`, `confidence`, `status`, `payload_json` |
+| `vision_evidence` | `tenant_id`, `event_id`, `asset_key`, `timestamp_ms`, `hash`, `evidence_type` |
+| `vision_reviews` | `tenant_id`, `event_id`, `reviewer_id`, `decision`, `notes` |
+| `vision_rules` | `tenant_id`, `profile_id`, `event_type`, `conditions_json`, `action_policy` |
+| `vision_integrations` | `tenant_id`, `module_name`, `config_ref`, `status` |
+| `vision_usage_records` | `tenant_id`, `job_id`, `metric`, `quantity`, `unit`, `cost_amount` |
+| `vision_audit_logs` | `tenant_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata_json` |
+
+**Peraturan:** indeks komposit bermula `tenant_id`; jangan simpan URL kamera bercredential dalam teks biasa; rakaman besar dalam object storage (bukan blob DB).
+
+---
+
+### 91.6 API (Cadangan)
+
+Prefix `/api/v1/vision`.
+
+| Method | Endpoint | Fungsi |
+|---|---|---|
+| `GET` | `/workspaces` | Senarai workspace |
+| `POST` | `/assets/upload-intents` | URL muat naik sementara |
+| `POST` | `/assets/{id}/complete` | Sahkan muat naik selesai |
+| `POST` | `/jobs` | Mula analisis video |
+| `GET` | `/jobs/{id}` | Status + kemajuan |
+| `POST` | `/jobs/{id}/cancel` | Batal tugas |
+| `GET` | `/jobs/{id}/events` | Peristiwa analisis |
+| `GET` | `/events/{id}/evidence` | Bukti dibenarkan |
+| `POST` | `/events/{id}/reviews` | Sahkan/tolak cadangan AI |
+| `POST` | `/cameras` | Daftar kamera |
+| `GET` | `/cameras` | Senarai kamera |
+| `POST` | `/cameras/{id}/test-connection` | Uji sambungan |
+| `POST` | `/cameras/{id}/start` | Mula pemantauan |
+| `POST` | `/cameras/{id}/stop` | Henti pemantauan |
+| `GET` | `/usage` | Penggunaan + kuota |
+| `GET` | `/profiles` | Profil analisis |
+
+**Status tugas:** `UPLOADING → QUEUED → PROCESSING → REVIEW_REQUIRED → COMPLETED` (+ `FAILED`, `CANCELLED`, `EXPIRED`).
+
+> **Nota:** status peringkat job **berasingan** daripada status setiap event. Satu job boleh selesai diproses tetapi masih ada event menunggu semakan manusia.
+
+---
+
+### 91.7 Kontrak Peristiwa
+
+```json
+{
+  "event_id": "01JAEVENT...",
+  "tenant_id": "01JATENANT...",
+  "source": "b_vision",
+  "event_type": "OBJECT_ACTION_DETECTED",
+  "occurred_at": "2026-10-24T14:02:14Z",
+  "confidence": 0.91,
+  "verification_status": "NEEDS_REVIEW",
+  "evidence_refs": [{ "timestamp_ms": 14200, "evidence_id": "01JAEVIDENCE..." }],
+  "schema_version": "1.0"
+}
+```
+
+---
+
+### 91.8 Keselamatan Multi-Tenant (Kritikal)
+
+B-Vision memproses rakaman premis, pekerja, pelanggan dan kemungkinan maklumat sensitif.
+
+| Kawalan | Syarat |
+|---|---|
+| **Tenant isolation** | Tenant context disahkan server — **jangan** percaya `tenant_id` dari browser |
+| **RBAC + policy** | Asingkan hak: lihat video, urus kamera, jalankan analisis, lulus event, eksport bukti, billing |
+| **Perlindungan media** | Private object storage, signed URL bertempoh pendek, encryption in transit + at rest |
+| **Keselamatan rangkaian** | **Jangan** benarkan URL sewenang-wenangnya → lindungi daripada **SSRF**; hadkan destinasi kamera |
+| **Audit + retention** | Rekod siapa akses/muat turun/padam/ubah polisi/sahkan event |
+| **Worker security** | Worker terima **job ID**; dapatkan semula konteks tenant disahkan dari DB — **jangan** percaya payload queue |
+
+**8 kawalan wajib sebelum produksi:**
+
+1. Semua query (model, job, event, evidence, usage) dihadkan kepada tenant sah.
+2. Worker dapatkan semula tenant context dari DB, bukan payload queue.
+3. Signed URL tidak boleh jadi pautan awam kekal.
+4. Credential kamera tidak dedah kepada browser atau log.
+5. Webhook mesti ada tandatangan + replay protection + idempotency.
+6. Kuota, rate limiting, had saiz video dan tempoh analisis.
+7. Video/bukti **tidak** boleh digunakan untuk latihan model tanpa kebenaran.
+8. Polisi privasi, notis kamera, kawalan akses dan tempoh penyimpanan patuh undang-undang Malaysia (PDPA).
+
+> **⚠️ Live camera:** elakkan gateway jadi proxy terbuka kepada alamat RTSP yang boleh ditentukan pengguna. Guna rangkaian + senarai peranti diluluskan.
+
+---
+
+### 91.9 Kos & Kawalan
+
+| Tahap | Anggaran bajet | Skop |
+|---|---|---|
+| Proof of Concept | RM5,000–RM15,000 | Upload video, ekstrak bingkai, demonstrasi analisis |
+| MVP platform | RM20,000–RM60,000 | Laravel API, queue, dashboard asas, tenant security, event JSON |
+| MVP + live camera | RM40,000–RM100,000 | Gateway kamera, monitoring, reconnect, operasi langsung |
+| Production-ready SaaS | RM100,000–RM250,000+ | Hardening, scaling, observability, billing, ujian beban |
+
+**Kos operasi bulanan (anggaran):** POC RM200–RM800 · MVP RM800–RM3,000 · Pilot live RM2,000–RM8,000+.
+
+> **Nota:** angka ini andaian perancangan, **bukan** sebut harga vendor.
+
+**Kawalan kos AI:**
+
+- Ekstrak bingkai berdasarkan **pergerakan/peristiwa**, bukan semua bingkai ke model besar.
+- Model detection kecil menyaring dahulu → model VLM hanya untuk bingkai terpilih.
+- Had minit video + kuota per pelan SaaS.
+- Simpan bukti diperlukan sahaja; padam fail sementara mengikut polisi.
+- Rekod kos per job/tenant/model/minit → ukur margin setiap pelanggan.
+
+---
+
+### 91.10 Pelan Berfasa
+
+| Fasa | Minggu | Skop |
+|---|---|---|
+| **01 Foundation** | 1–2 | Schema, API auth, storage, queue, kontrak JSON, ujian tenant isolation |
+| **02 Video MVP** | 3–4 | Upload, ekstrak bingkai, detection, timeline + bukti + keyakinan |
+| **03 Events & Governance** | 5–6 | Event normalizer, rules engine, semakan manusia, audit, kuota |
+| **04 Live Camera Pilot** | 7–10 | RTSP/ONVIF, reconnect, kesihatan kamera, amaran, ujian prestasi |
+| **05 Sector Packs** | Selepas pilot | Profil restoran/gudang/kontraktor, integrasi modul, harga ikut penggunaan |
+
+> Tempoh ini sasaran kasar untuk pasukan kecil — bukan komitmen jadual.
+
+---
+
+### 91.11 Integrasi dengan Modul Sedia Ada
+
+| Modul | Penggunaan |
+|---|---|
+| **POS / Orders** | Semak urutan penyediaan atau aktiviti berkaitan pesanan |
+| **Inventory / SCM** | Cadangan semakan stok atau penerimaan barang |
+| **Projects / ServiceOS** | Lampirkan bukti kepada tugasan dan laporan kerja |
+| **BusinessIntel / Boardroom** | Guna peristiwa **disahkan** untuk KPI dan cadangan |
+| **Assets** | Aset dan penyelenggaraan berasaskan keadaan |
+
+**Peraturan:** integrasi melalui **public contracts + business events**, **bukan** B-Vision mengubah terus jadual DB modul lain. Contoh: `VisionEventReviewed` mencetuskan workflow cadangan pelarasan stok — pelarasan sebenar tetap melalui kebenaran `Inventory`.
+
+---
+
+### 91.12 Kriteria Penerimaan MVP
+
+| Kriteria | Syarat |
+|---|---|
+| Upload | Video diterima, disahkan, diproses async |
+| Analisis | Detection + timeline dihasilkan untuk profil ujian |
+| Output | Event mematuhi JSON Schema |
+| Bukti | Event boleh dipadankan dengan timestamp + bukti betul |
+| **Tenant isolation** | Ujian automatik: tenant A **tidak** boleh baca aset tenant B |
+| Reliability | Job gagal boleh dicuba semula tanpa rekod berganda |
+| Camera pilot | Sambungan, putus, reconnect diuji pada kamera sasaran |
+| Cost tracking | Penggunaan setiap job + tenant boleh dikira |
+| Human review | Pengguna diberi kuasa boleh sahkan/tolak event |
+| Data lifecycle | Retention + pemadaman video/bukti boleh disahkan |
+
+> **Nota:** sasaran angka latency/ketepatan/false-positive **mesti** ditetapkan selepas benchmark dengan rakaman sebenar — bukan berdasarkan demo vendor.
+
+---
+
+### 91.13 Keputusan Seni Bina Yang Masih Perlu Disahkan
+
+> **⚠️ BELUM DIPUTUSKAN:** Adakah AI BIJAN akan menjalankan servis computer vision **pada server sendiri**, atau **gabungan servis sendiri + API cloud**?
+
+Pilihan ini mempengaruhi **kos, privasi, skalabiliti dan model harga pelanggan**. Ia mesti disahkan sebelum pembangun mula membina.
 
 ---
 

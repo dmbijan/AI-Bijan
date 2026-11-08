@@ -55,10 +55,9 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 
 **Tagline:** *Your AI Business Team, in the Room.*
 
-> **Verified 2026-10-27:** 59 modules · 58 migrations · ~872 API routes · ~1,119 test methods · 65 Filament resources.
-> Modul `Billing` (reseller komisen berulang) kini dikodkan — 9 jadual, 6 laluan API, 32 ujian.
+> **Verified 2026-11-09:** lihat `docs/AUDIT-BASELINE.md` untuk angka rasmi terkini.
 > **Baseline angka:** `docs/AUDIT-BASELINE.md` (satu-satunya sumber kebenaran — jangan salin angka secara manual).
-> Run `php skrip/semak-dokumen.php` to re-verify. Full system doc: `docs/SISTEM-AI-BIJAN.md`.
+> Jana semula: `php skrip/jana-baseline.php --tulis`. Full system doc: `docs/SISTEM-AI-BIJAN.md`.
 > Status platform: **`DEVELOPMENT`** — belum production-ready (lihat `README.md`).
 
 > ⚠️ **Jangan** nyatakan modul, jadual, laluan atau bilangan ujian sebagai fakta
@@ -69,9 +68,10 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 2. **Multi-tenant SaaS** — Single codebase, tenant_id scoped data isolation
 3. **4-tier Admin Hierarchy** — Master → Super → White-label → Customer
 4. **Platform Business** — Brand portfolio, revenue sharing, white-label reseller
-5. **59 Modules** — CRM, POS, Invoicing, Finance, Payroll, HRMS, Inventory, Manufacturing, SCM, Logistics, Orders, Booking, Site, Marketplace, Loyalty, Affiliate, Marketing, Blast, Prospecting, Analytics, BrainHub, plus **AI layer** (AIGateway, AIAgents, Boardroom, AgentStudio, McpStudio, BusinessIntel, ADE) and platform core (Entitlement, Fundamental, IndustryPacks) and **Billing** (reseller komisen berulang)
-6. **AI Token Wallet** — Separate from SaaS subscription
-7. **Industry Blueprint Engine** — Auto-onboarding by business type
+5. **Domain Modules** — CRM, POS, Invoicing, Finance, Payroll, HRMS, Inventory, Manufacturing, SCM, Logistics, Orders, Booking, Site, Marketplace, Loyalty, Affiliate, Marketing, Blast, Prospecting, Analytics, BrainHub, plus **AI layer** (AIGateway, AIAgents, Boardroom, AgentStudio, McpStudio, BusinessIntel, ADE) and platform core (Entitlement, Fundamental, IndustryPacks) and **Billing** (reseller komisen berulang)
+6. **Integrasi 2026** — 15 modul daripada sumber terbuka (OpenGenAI, VoiceStudio, OpenWhispr, OpenSEO, Workspace, WorkManagement, Scheduling, SharedInbox, ScreenRecorder, VideoStudio, POSBpos, OmniOrder, SocialBridge, ContentForge, WhatsAppSuite)
+7. **AI Token Wallet** — Separate from SaaS subscription
+8. **Industry Blueprint Engine** — Auto-onboarding by business type
 
 ## Tech Stack
 | Layer | Technology |
@@ -84,7 +84,7 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 | Storage | Local disk (dev) / S3-compatible (prod) |
 
 ## Development Guidelines
-- Follow [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) for product specifications
+- Follow [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md) for product specifications
 - **Never copy metrics manually** — read `docs/AUDIT-BASELINE.md`. Regenerate with
   `php skrip/jana-baseline.php --tulis`
 - All pricing must be database-driven, never hardcoded
@@ -95,14 +95,17 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 
 ## Module Structure
 ```
-ai-bijan-saas/
-├── app/Models/          # Eloquent models per module
-├── app/Http/            # Controllers, middleware
-├── app/Services/        # Business logic services
-├── app/Jobs/            # Queue jobs
-├── database/migrations/ # Schema migrations
-├── database/seeders/    # Seed data
-├── routes/api.php       # API routes
-├── routes/web.php       # Web routes
-└── tests/               # PHPUnit feature/unit tests
+ai-bijan/                        # akar repo
+├── app/Modules/<Modul>/         # modul domain (provider + config + models + services + controllers + routes + migrations)
+├── app/Models/                  # model platform (Tenant, User, Permission, ...)
+├── app/Filament/Resources/      # 66 resource UI admin
+├── app/Support/Tenancy/         # TenantContext — pusat pengasingan tenant
+├── database/migrations/         # migrasi platform (+ migrasi dalam setiap modul)
+├── database/seeders/            # seed data
+├── routes/api.php               # laluan API utama
+├── routes/web.php               # laluan web
+├── docs/                        # dokumentasi (indeks: docs/README.md)
+├── skrip/                       # skrip penyelenggaraan/diagnostik
+├── .github/skills/              # skill AI (pengekodan + video)
+└── tests/                       # PHPUnit feature/unit tests
 ```

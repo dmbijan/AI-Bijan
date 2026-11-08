@@ -13,9 +13,13 @@ class ContentPublication extends Model
     protected $table = 'content_publications';
 
     public const STATUS_QUEUED = 'queued';
+
     public const STATUS_PUBLISHING = 'publishing';
+
     public const STATUS_PUBLISHED = 'published';
+
     public const STATUS_FAILED = 'failed';
+
     public const STATUS_SKIPPED = 'skipped';
 
     protected $fillable = [

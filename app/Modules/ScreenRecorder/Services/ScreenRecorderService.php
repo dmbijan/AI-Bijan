@@ -2,6 +2,7 @@
 
 namespace App\Modules\ScreenRecorder\Services;
 
+use App\Modules\MediaEditor\Services\MediaEditorService;
 use App\Modules\ScreenRecorder\Models\RecordingComment;
 use App\Modules\ScreenRecorder\Models\ScreenRecording;
 use App\Support\Tenancy\TenantContext;
@@ -195,5 +196,69 @@ class ScreenRecorderService
         }
 
         $recording->delete();
+    }
+
+    /**
+     * Buka rakaman skrin sebagai projek MediaEditor (untuk sunting lanjutan).
+     *
+     * Ini menyambungkan ScreenRecorder kepada modul MediaEditor sedia ada —
+     * rakaman yang siap boleh terus disunting dengan lapisan, teks, render.
+     *
+     * @return array{success: bool, project_id: mixed, mesej: string}
+     */
+    public function bukaDalamMediaEditor(ScreenRecording $recording): array
+    {
+        if (! $recording->recording_path) {
+            return [
+                'success' => false,
+                'project_id' => null,
+                'mesej' => 'Tiada fail rakaman untuk dibuka.',
+            ];
+        }
+
+        try {
+            $sumber = Storage::disk('public')->path($recording->recording_path);
+
+            if (! is_file($sumber)) {
+                return [
+                    'success' => false,
+                    'project_id' => null,
+                    'mesej' => 'Fail rakaman tidak dijumpai dalam storan.',
+                ];
+            }
+
+            $projek = app(MediaEditorService::class)
+                ->ciptaProjek([
+                    'name' => $recording->title ?: 'Rakaman Skrin',
+                    'description' => $recording->description,
+                    'source_type' => 'upload',
+                    'source_path' => $recording->recording_path,
+                ]);
+
+            $projekId = is_object($projek) ? ($projek->id ?? null) : ($projek['id'] ?? null);
+
+            if ($projekId) {
+                $recording->update(['settings' => array_merge($recording->settings ?? [], [
+                    'media_editor_project_id' => $projekId,
+                ])]);
+            }
+
+            return [
+                'success' => true,
+                'project_id' => $projekId,
+                'mesej' => 'Rakaman dibuka dalam MediaEditor.',
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('ScreenRecorder: buka MediaEditor gagal', [
+                'recording_id' => $recording->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'project_id' => null,
+                'mesej' => $e->getMessage(),
+            ];
+        }
     }
 }

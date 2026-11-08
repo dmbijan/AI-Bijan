@@ -25,6 +25,7 @@ Route::post('/spaces/{id}/pages', [WorkspaceController::class, 'storePage'])->mi
 Route::get('/pages/{id}', [WorkspaceController::class, 'showPage'])->middleware('perm:workspace.view');
 Route::put('/pages/{id}', [WorkspaceController::class, 'updatePage'])->middleware('perm:workspace.manage');
 Route::delete('/pages/{id}', [WorkspaceController::class, 'destroyPage'])->middleware('perm:workspace.manage');
+Route::post('/pages/{id}/generate-content', [WorkspaceController::class, 'generateContent'])->middleware('perm:workspace.manage');
 Route::get('/pages/{id}/versions', [WorkspaceController::class, 'versions'])->middleware('perm:workspace.view');
 
 // Blok

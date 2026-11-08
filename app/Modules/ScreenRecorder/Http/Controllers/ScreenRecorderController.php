@@ -196,6 +196,21 @@ class ScreenRecorderController extends Controller
     }
 
     /**
+     * Buka rakaman dalam MediaEditor untuk sunting lanjutan.
+     */
+    public function openInMediaEditor(int $id): JsonResponse
+    {
+        $recording = ScreenRecording::findOrFail($id);
+        $hasil = $this->recorder->bukaDalamMediaEditor($recording);
+
+        return response()->json([
+            'success' => $hasil['success'],
+            'message' => $hasil['mesej'],
+            'data' => ['media_editor_project_id' => $hasil['project_id']],
+        ], $hasil['success'] ? 200 : 422);
+    }
+
+    /**
      * Tambah komen.
      */
     public function storeComment(Request $request, int $id): JsonResponse

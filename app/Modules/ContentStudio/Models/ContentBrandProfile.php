@@ -4,7 +4,6 @@ namespace App\Modules\ContentStudio\Models;
 
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContentBrandProfile extends Model
 {
@@ -62,11 +61,11 @@ class ContentBrandProfile extends Model
         }
 
         if (! empty($this->key_phrases)) {
-            $baris[] = 'Gunakan kata kunci: ' . implode(', ', $this->key_phrases);
+            $baris[] = 'Gunakan kata kunci: '.implode(', ', $this->key_phrases);
         }
 
         if (! empty($this->banned_words)) {
-            $baris[] = 'JANGAN guna perkataan: ' . implode(', ', $this->banned_words);
+            $baris[] = 'JANGAN guna perkataan: '.implode(', ', $this->banned_words);
         }
 
         if ($this->default_cta) {

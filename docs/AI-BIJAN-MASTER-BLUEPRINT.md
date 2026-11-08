@@ -1,7 +1,7 @@
 # AI BIJAN — Master Blueprint (Fail Kanonik)
 
 > **Fail ini ialah alias kanonik** kepada
-> [`AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`](AI-BIJAN-MASTER-BLUEPRINT-v8.3%20(1).md).
+> [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md).
 >
 > Nama fail lama mengekalkan **"(1)"** dan **"v8.3"** yang tidak lagi tepat, tetapi
 > memindahkannya secara fizikal memerlukan operasi fail yang tidak boleh dilakukan
@@ -12,7 +12,7 @@
 |---|---|
 | **Versi** | **9.6** |
 | **Tarikh** | 27 Oktober 2026 |
-| **Fail sebenar** | `docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` |
+| **Fail sebenar** | `docs/BLUEPRINT-INDUK.md` |
 | **Status** | `AUTHORITATIVE` |
 | **Baseline metrik** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) |
 
@@ -25,7 +25,7 @@
 | … | … | *27 PART · 103 bab* |
 
 Untuk kandungan penuh, buka
-[`AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`](AI-BIJAN-MASTER-BLUEPRINT-v8.3%20(1).md).
+[`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md).
 
 ## Archives
 

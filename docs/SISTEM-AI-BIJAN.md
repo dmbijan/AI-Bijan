@@ -1,7 +1,7 @@
 # SISTEM AI BIJAN — Dokumen Sistem Lengkap
 
 > **AI-Native Business Operating System** untuk PKS Malaysia → SEA → Global South
-> **Versi sistem:** v9.6 · **Blueprint induk:** [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) (103 bab / 27 PART)
+> **Versi sistem:** v9.6 · **Blueprint induk:** [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md) (103 bab / 27 PART)
 > **Tarikh:** 27 Oktober 2026 · **Angka:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) (satu-satunya sumber kebenaran)
 
 ---

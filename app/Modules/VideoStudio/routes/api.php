@@ -27,6 +27,7 @@ Route::post('/projects/{id}/progress', [VideoStudioController::class, 'progress'
 Route::get('/projects/{id}/instructions', [VideoStudioController::class, 'instructions'])->middleware('perm:video_studio.view');
 
 // Ringkasan
+Route::post('/projects/{id}/to-media-editor', [VideoStudioController::class, 'sendToMediaEditor'])->middleware('perm:video_studio.execute');
 Route::get('/summary', [VideoStudioController::class, 'ringkasan'])->middleware('perm:video_studio.view');
 
 // Brand kit

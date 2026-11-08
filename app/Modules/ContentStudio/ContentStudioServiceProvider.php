@@ -11,7 +11,7 @@ class ContentStudioServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(
-            dirname(__DIR__) . '/ContentStudio/config/content_studio.php',
+            dirname(__DIR__).'/ContentStudio/config/content_studio.php',
             'content_studio'
         );
 
@@ -20,10 +20,10 @@ class ContentStudioServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (file_exists(__DIR__ . '/routes/api.php')) {
+        if (file_exists(__DIR__.'/routes/api.php')) {
             Route::middleware(['api', 'auth:sanctum', 'tenant'])
                 ->prefix('api/v1/content')
-                ->group(__DIR__ . '/routes/api.php');
+                ->group(__DIR__.'/routes/api.php');
         }
     }
 }

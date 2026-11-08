@@ -4,9 +4,11 @@ namespace App\Modules\OmniOrder\Services;
 
 use App\Modules\OmniOrder\Models\OmniCodPayout;
 use App\Modules\OmniOrder\Models\OmniOrder;
+use App\Modules\Orders\Services\UnifiedOrderService;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * OmniOrderService — pesanan omnichannel & perlindungan hasil.
@@ -289,6 +291,80 @@ class OmniOrderService
             'cadangan' => $cadangan,
             'boleh_hantar_semula' => true,
         ];
+    }
+
+    /**
+     * Teruskan pesanan ke UnifiedOrder (modul Orders).
+     *
+     * Ini menyambungkan OmniOrder ke ORDER CENTER platform — pesanan dari
+     * mana-mana saluran jualan boleh dipusatkan, dirizabkan, dan dijejak
+     * bersama marketplace/POS/service.
+     *
+     * @return array{success: bool, order_id: mixed, mesej: string}
+     */
+    public function hantarKeUnifiedOrder(OmniOrder $pesanan): array
+    {
+        try {
+            $item = collect($pesanan->items ?? [])->map(fn ($i) => [
+                'sku' => $i['sku'] ?? null,
+                'name' => $i['name'] ?? $i['title'] ?? 'Item',
+                'quantity' => (float) ($i['quantity'] ?? 1),
+                'price' => (float) ($i['price'] ?? 0),
+                'total' => (float) ($i['total'] ?? (($i['quantity'] ?? 1) * ($i['price'] ?? 0))),
+            ])->values()->all();
+
+            $order = app(UnifiedOrderService::class)->ingest(
+                (int) $pesanan->tenant_id,
+                [
+                    'source_platform' => $pesanan->channel,
+                    'source' => 'omnichannel',
+                    'external_order_id' => $pesanan->external_order_id,
+                    'order_no' => $pesanan->order_no,
+                    'status' => $pesanan->status,
+                    'party' => [
+                        'name' => $pesanan->customer_name,
+                        'phone' => $pesanan->customer_phone,
+                        'address' => $pesanan->customer_address,
+                        'city' => $pesanan->customer_city,
+                        'state' => $pesanan->customer_state,
+                        'postcode' => $pesanan->customer_postcode,
+                    ],
+                    'totals' => [
+                        'subtotal' => $pesanan->total_sen / 100,
+                        'grand_total' => $pesanan->total_sen / 100,
+                    ],
+                    'payment' => [
+                        'method' => $pesanan->payment_method,
+                        'status' => $pesanan->payment_status,
+                    ],
+                    'items' => $item,
+                    'notes' => 'Dari OmniOrder ('.$pesanan->order_no.')',
+                ]
+            );
+
+            $pesanan->update([
+                'payload' => array_merge($pesanan->payload ?? [], [
+                    'unified_order_id' => $order->id ?? null,
+                ]),
+            ]);
+
+            return [
+                'success' => true,
+                'order_id' => $order->id ?? null,
+                'mesej' => 'Pesanan dihantar ke UnifiedOrder.',
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('OmniOrder: hantar ke UnifiedOrder gagal', [
+                'order_id' => $pesanan->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'order_id' => null,
+                'mesej' => $e->getMessage(),
+            ];
+        }
     }
 
     /**

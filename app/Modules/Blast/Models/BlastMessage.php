@@ -3,6 +3,7 @@
 namespace App\Modules\Blast\Models;
 
 use App\Models\Concerns\BelongsToTenant;
+use App\Modules\Prospecting\Models\Prospect;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -16,13 +17,21 @@ class BlastMessage extends Model
     protected $table = 'blast_messages';
 
     public const STATUS_QUEUED = 'queued';
+
     public const STATUS_SENDING = 'sending';
+
     public const STATUS_SENT = 'sent';
+
     public const STATUS_DELIVERED = 'delivered';
+
     public const STATUS_BOUNCED = 'bounced';
+
     public const STATUS_FAILED = 'failed';
+
     public const STATUS_SUPPRESSED = 'suppressed';
+
     public const STATUS_SKIPPED = 'skipped';
+
     public const STATUS_UNSUBSCRIBED = 'unsubscribed';
 
     protected $fillable = [
@@ -69,7 +78,7 @@ class BlastMessage extends Model
 
     public function prospect(): BelongsTo
     {
-        return $this->belongsTo(\App\Modules\Prospecting\Models\Prospect::class, 'prospect_id');
+        return $this->belongsTo(Prospect::class, 'prospect_id');
     }
 
     public function isBerjaya(): bool

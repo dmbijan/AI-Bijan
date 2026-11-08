@@ -2,6 +2,8 @@
 
 namespace App\Modules\OpenSEO\Services;
 
+use App\Modules\ContentForge\Models\ContentDocument;
+use App\Modules\ContentForge\Services\ContentForgeService;
 use App\Modules\OpenSEO\Models\SeoBacklink;
 use App\Modules\OpenSEO\Models\SeoKeywordResearch;
 use App\Modules\OpenSEO\Models\SeoProject;
@@ -280,6 +282,10 @@ class SeoIntelligenceService
                     }
                 }
 
+                // ⚠️ Audit kandungan dalam halaman disemak oleh ContentForge —
+                // modul itu mempunyai pemeriksa SEO penuh (skor 0-100).
+                $semakanKandungan = $this->auditKandunganHalaman($html);
+
                 if (! preg_match('/<h1[^>]*>/i', $html)) {
                     $isu[] = ['type' => 'missing_h1', 'severity' => 'warning', 'message' => 'Tiada tag H1.'];
                 }
@@ -301,9 +307,11 @@ class SeoIntelligenceService
                 return [
                     'url' => $url,
                     'status' => $respons->status(),
-                    'isu' => $isu,
-                    'jumlah_isu' => count($isu),
-                    'jumlah_error' => count(array_filter($isu, fn ($i) => $i['severity'] === 'error')),
+                    'isu' => array_merge($isu, $semakanKandungan['isu']),
+                    'jumlah_isu' => count($isu) + $semakanKandungan['jumlah_isu'],
+                    'jumlah_error' => count(array_filter($isu, fn ($i) => $i['severity'] === 'error'))
+                        + $semakanKandungan['jumlah_error'],
+                    'skor_kandungan' => $semakanKandungan['skor'],
                 ];
             } catch (Throwable $e) {
                 Log::info('OpenSEO: audit gagal', ['url' => $url, 'error' => $e->getMessage()]);
@@ -319,6 +327,62 @@ class SeoIntelligenceService
         });
 
         return $audit;
+    }
+
+    /**
+     * Semak kandungan halaman dengan pemeriksa SEO ContentForge.
+     *
+     * ContentForge mempunyai `skorSeo()` penuh (7 komponen: panjang, tajuk,
+     * meta, kata kunci, H2, pautan, imej). Kita gunakan ia secara terus
+     * supaya modul ini tidak menduplikasi logik SEO.
+     *
+     * @return array{skor: int, isu: array<int, array<string, mixed>>, jumlah_isu: int, jumlah_error: int}
+     */
+    protected function auditKandunganHalaman(string $html): array
+    {
+        try {
+            $dokumen = new ContentDocument([
+                'body_html' => $html,
+                'title' => $this->ambilTajuk($html),
+                'meta_description' => $this->ambilMeta($html),
+                'keywords' => [],
+                'target_word_count' => 1500,
+            ]);
+
+            $hasil = app(ContentForgeService::class)
+                ->skorSeo($dokumen);
+
+            return [
+                'skor' => $hasil['score'],
+                'isu' => $hasil['issues'],
+                'jumlah_isu' => count($hasil['issues']),
+                'jumlah_error' => count(array_filter($hasil['issues'], fn ($i) => ($i['severity'] ?? '') === 'error')),
+            ];
+        } catch (Throwable $e) {
+            Log::info('OpenSEO: audit kandungan ContentForge gagal', ['error' => $e->getMessage()]);
+
+            return ['skor' => 0, 'isu' => [], 'jumlah_isu' => 0, 'jumlah_error' => 0];
+        }
+    }
+
+    /**
+     * Ambil tajuk halaman.
+     */
+    protected function ambilTajuk(string $html): string
+    {
+        return preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $m)
+            ? trim(strip_tags($m[1]))
+            : '';
+    }
+
+    /**
+     * Ambil meta description.
+     */
+    protected function ambilMeta(string $html): string
+    {
+        return preg_match('/<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']/is', $html, $m)
+            ? trim(strip_tags($m[1]))
+            : '';
     }
 
     /**

@@ -270,7 +270,7 @@ docs/
 ├── customer-side.md
 ├── PELAN-VIRTUAL-OFFICE.md
 ├── cara-pasang.md
-├── AI-BIJAN-MASTER-BLUEPRINT.md
+├── BLUEPRINT-INDUK.md
 ├── [mockup: .html/.tsx/.php/.patch/.png]
 └── archive/                   ← JANGAN GUNA
     ├── features/              (28 fail B-POS)

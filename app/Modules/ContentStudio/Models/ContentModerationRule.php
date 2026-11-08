@@ -12,15 +12,23 @@ class ContentModerationRule extends Model
     protected $table = 'content_moderation_rules';
 
     public const TYPE_KEYWORD = 'keyword';
+
     public const TYPE_TOXICITY = 'toxicity';
+
     public const TYPE_SPAM = 'spam';
+
     public const TYPE_REGEX = 'regex';
+
     public const TYPE_BLOCKLIST = 'blocklist';
 
     public const ACTION_HIDE = 'hide';
+
     public const ACTION_FLAG = 'flag';
+
     public const ACTION_BLOCK = 'block';
+
     public const ACTION_AUTO_REPLY = 'auto_reply';
+
     public const ACTION_ESCALATE = 'escalate';
 
     protected $fillable = [

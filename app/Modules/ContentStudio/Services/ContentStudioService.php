@@ -2,6 +2,7 @@
 
 namespace App\Modules\ContentStudio\Services;
 
+use App\Modules\AIGateway\Services\GatewayService;
 use App\Modules\ContentStudio\Models\ContentBrandProfile;
 use App\Modules\ContentStudio\Models\ContentChat;
 use App\Modules\ContentStudio\Models\ContentChatMessage;
@@ -12,6 +13,7 @@ use App\Modules\ContentStudio\Models\ContentPiece;
 use App\Modules\ContentStudio\Models\ContentPlatform;
 use App\Modules\ContentStudio\Models\ContentPlatformMetric;
 use App\Modules\ContentStudio\Models\ContentPublication;
+use App\Modules\OpenGenAI\Services\GenAiBridge;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -57,28 +59,55 @@ class ContentStudioService
         $aiMeta = [];
 
         try {
-            $gateway = app(\App\Modules\AIGateway\Services\GatewayService::class);
+            $gateway = app(GatewayService::class);
 
-            $hasil = $gateway->call(
-                $tenantId,
-                [
-                    ['role' => 'system', 'content' => $profil?->systemPrompt() ?? 'Anda penulis kandungan profesional.'],
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-                'content_generation',
-                [
-                    'max_output_tokens' => 1200,
-                    'source_module' => 'content_studio',
-                    'temperature' => (float) ($brief['temperature'] ?? 0.8),
-                ]
-            );
+            // ⚠️ Tenant yang menyambungkan provider AI sendiri (OpenGenAI)
+            // boleh menjana terus melalui provider tersebut — tanpa melalui
+            // AI Gateway platform. Butcher: `prefer_own_provider` dalam brief.
+            $bodySendiri = null;
 
-            $body = (string) ($hasil['content'] ?? '');
-            $aiMeta = [
-                'model' => $hasil['model'] ?? null,
-                'credits' => $hasil['usage']['credits_charged'] ?? 0,
-                'simulated' => $hasil['simulated'] ?? false,
-            ];
+            if (! empty($brief['prefer_own_provider'])) {
+                $jambatan = app(GenAiBridge::class);
+
+                $hasilSendiri = $jambatan->pakaiSendiri(
+                    $prompt,
+                    'content_generation',
+                    ['source_module' => 'content_studio']
+                );
+
+                if ($hasilSendiri['success'] && $hasilSendiri['text']) {
+                    $bodySendiri = (string) $hasilSendiri['text'];
+                    $aiMeta = [
+                        'sumber' => 'provider-sendiri',
+                        'job_id' => $hasilSendiri['job_id'],
+                    ];
+                }
+            }
+
+            if ($bodySendiri !== null) {
+                $body = $bodySendiri;
+            } else {
+                $hasil = $gateway->call(
+                    $tenantId,
+                    [
+                        ['role' => 'system', 'content' => $profil?->systemPrompt() ?? 'Anda penulis kandungan profesional.'],
+                        ['role' => 'user', 'content' => $prompt],
+                    ],
+                    'content_generation',
+                    [
+                        'max_output_tokens' => 1200,
+                        'source_module' => 'content_studio',
+                        'temperature' => (float) ($brief['temperature'] ?? 0.8),
+                    ]
+                );
+
+                $body = (string) ($hasil['content'] ?? '');
+                $aiMeta = [
+                    'model' => $hasil['model'] ?? null,
+                    'credits' => $hasil['usage']['credits_charged'] ?? 0,
+                    'simulated' => $hasil['simulated'] ?? false,
+                ];
+            }
         } catch (\Throwable $e) {
             Log::warning('ContentStudio: jana AI gagal', [
                 'tenant_id' => $tenantId,
@@ -98,7 +127,7 @@ class ContentStudioService
         // Hashtag dari brief
         if (! empty($brief['hashtags'])) {
             $hashtags = array_map(
-                fn ($h) => str_starts_with((string) $h, '#') ? $h : '#' . $h,
+                fn ($h) => str_starts_with((string) $h, '#') ? $h : '#'.$h,
                 (array) $brief['hashtags']
             );
         } else {
@@ -161,7 +190,7 @@ class ContentStudioService
         }
 
         if (! empty($brief['keywords'])) {
-            $bahagian[] = 'Kata kunci: ' . implode(', ', (array) $brief['keywords']);
+            $bahagian[] = 'Kata kunci: '.implode(', ', (array) $brief['keywords']);
         }
 
         if (! empty($brief['tone'])) {
@@ -187,9 +216,9 @@ class ContentStudioService
         $cta = $brief['cta'] ?? 'Hubungi kami hari ini.';
 
         return "{$topik}\n\n"
-            . "Kami menyediakan penyelesaian terbaik untuk-RVEN needs anda. "
-            . "Kualiti terjamin, harga bercompetitive, penghantaran pantas.\n\n"
-            . $cta;
+            .'Kami menyediakan penyelesaian terbaik untuk-RVEN needs anda. '
+            ."Kualiti terjamin, harga bercompetitive, penghantaran pantas.\n\n"
+            .$cta;
     }
 
     /**
@@ -224,20 +253,20 @@ class ContentStudioService
 
         $dipotong = false;
         if (mb_strlen($body) > $had) {
-            $body = mb_substr($body, 0, $had - 3) . '...';
+            $body = mb_substr($body, 0, $had - 3).'...';
             $dipotong = true;
         }
 
         // Tambah hashtags untuk platform yang menyokong
         if (in_array($platform, [ContentPlatform::INSTAGRAM, ContentPlatform::TIKTOK], true)
             && ! empty($piece->hashtags)) {
-            $body .= "\n\n" . implode(' ', $piece->hashtags);
+            $body .= "\n\n".implode(' ', $piece->hashtags);
         }
 
         // X: potong dengan halus
         if ($platform === ContentPlatform::X && mb_strlen($body) > 280) {
             $badan = trim(mb_substr($body, 0, 240));
-            $body = mb_substr($badan, 0, (int) mb_strrpos($badan, ' ')) . '…';
+            $body = mb_substr($badan, 0, (int) mb_strrpos($badan, ' ')).'…';
             $dipotong = true;
         }
 
@@ -323,6 +352,7 @@ class ContentStudioService
                     'status' => ContentPublication::STATUS_SKIPPED,
                     'error_message' => 'Platform tidak aktif',
                 ]);
+
                 continue;
             }
 
@@ -339,6 +369,7 @@ class ContentStudioService
                     'status' => ContentPublication::STATUS_SKIPPED,
                     'error_message' => "Had {$platform->max_daily_posts} posting harian tercapai",
                 ]);
+
                 continue;
             }
 
@@ -348,14 +379,15 @@ class ContentStudioService
                     'status' => ContentPublication::STATUS_SKIPPED,
                     'error_message' => 'Auto-publish tidak diaktifkan untuk platform ini',
                 ]);
+
                 continue;
             }
 
             // Simulasi terbitan (adapter sebenar memerlukan OAuth token)
             $pub->update([
                 'status' => ContentPublication::STATUS_PUBLISHED,
-                'platform_post_id' => 'sim_' . uniqid(),
-                'platform_url' => 'https://' . $platform->platform . '/sim/' . uniqid(),
+                'platform_post_id' => 'sim_'.uniqid(),
+                'platform_url' => 'https://'.$platform->platform.'/sim/'.uniqid(),
                 'published_at' => now(),
                 'attempts' => $pub->attempts + 1,
             ]);
@@ -500,14 +532,14 @@ class ContentStudioService
         $platform = $komen->platform;
 
         $prompt = "Anda mewakili {$platform?->display_name} membalas komen pelanggan.\n"
-            . "Nama pelanggan: {$komen->author_name}\n"
-            . "Komen: {$komen->body}\n"
-            . "Sentiment: {$komen->sentiment}\n\n"
-            . 'Tulis balasan ringkas, mesra, profesional (maks 2 kalimat). '
-            . 'Jika komen negatif atau minta bayaran balik, cadangkan supaya manusia/vendor chamada.';
+            ."Nama pelanggan: {$komen->author_name}\n"
+            ."Komen: {$komen->body}\n"
+            ."Sentiment: {$komen->sentiment}\n\n"
+            .'Tulis balasan ringkas, mesra, profesional (maks 2 kalimat). '
+            .'Jika komen negatif atau minta bayaran balik, cadangkan supaya manusia/vendor chamada.';
 
         try {
-            $gateway = app(\App\Modules\AIGateway\Services\GatewayService::class);
+            $gateway = app(GatewayService::class);
 
             $hasil = $gateway->call(
                 $tenantId,

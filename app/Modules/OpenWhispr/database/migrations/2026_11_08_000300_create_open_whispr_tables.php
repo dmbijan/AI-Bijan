@@ -29,6 +29,7 @@ return new class extends Migration
             $table->unsignedBigInteger('target_id')->nullable();
             $table->text('error_message')->nullable();
             $table->unsignedInteger('processing_ms')->default(0);
+            $table->json('settings')->nullable();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();

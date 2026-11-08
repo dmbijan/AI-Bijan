@@ -3,6 +3,7 @@
 namespace App\Modules\Blast\Models;
 
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -16,18 +17,29 @@ class BlastCampaign extends Model
     protected $table = 'blast_campaigns';
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_REVIEW = 'review';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_SCHEDULED = 'scheduled';
+
     public const STATUS_RUNNING = 'running';
+
     public const STATUS_PAUSED = 'paused';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const CHANNEL_EMAIL = 'email';
+
     public const CHANNEL_SMS = 'sms';
+
     public const CHANNEL_WHATSAPP = 'whatsapp';
+
     public const CHANNEL_VIDEO = 'video';
+
     public const CHANNEL_MULTI = 'multi';
 
     protected $fillable = [
@@ -67,12 +79,12 @@ class BlastCampaign extends Model
 
     public function approver()
     {
-        return $this->belongsTo(\App\Models\User::class, 'approved_by');
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function creator()
     {
-        return $this->belongsTo(\App\Models\User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     /**

@@ -26,6 +26,7 @@ Route::post('/inboxes/{id}/conversations', [SharedInboxController::class, 'store
 Route::get('/conversations/{id}', [SharedInboxController::class, 'showConversation'])->middleware('perm:shared_inbox.view');
 Route::put('/conversations/{id}', [SharedInboxController::class, 'updateConversation'])->middleware('perm:shared_inbox.manage');
 Route::post('/conversations/{id}/messages', [SharedInboxController::class, 'sendMessage'])->middleware('perm:shared_inbox.execute');
+Route::post('/conversations/{id}/ai-reply', [SharedInboxController::class, 'generateAiReply'])->middleware('perm:shared_inbox.execute');
 Route::post('/conversations/{id}/assign', [SharedInboxController::class, 'assign'])->middleware('perm:shared_inbox.manage');
 
 // Ulasan sedia ada

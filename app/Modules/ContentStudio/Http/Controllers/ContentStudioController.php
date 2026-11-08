@@ -219,7 +219,7 @@ class ContentStudioController extends Controller
         return response()->json([
             'success' => true,
             'data' => $publications,
-            'message' => count($publications) . ' penerbitan dijadualkan',
+            'message' => count($publications).' penerbitan dijadualkan',
         ], 201);
     }
 

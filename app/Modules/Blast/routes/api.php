@@ -1,7 +1,7 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Modules\Blast\Http\Controllers\BlastController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------

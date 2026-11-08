@@ -2,11 +2,13 @@
 
 namespace App\Modules\SharedInbox\Services;
 
+use App\Modules\OpenGenAI\Services\GenAiBridge;
 use App\Modules\SharedInbox\Models\InboxConversation;
 use App\Modules\SharedInbox\Models\InboxMacro;
 use App\Modules\SharedInbox\Models\InboxMessage;
 use App\Modules\SharedInbox\Models\SharedInbox;
 use App\Support\Tenancy\TenantContext;
+use Illuminate\Support\Facades\Log;
 
 /**
  * SharedInboxService — peti masuk bersama ala Chatwoot.
@@ -318,6 +320,76 @@ class SharedInboxService
             'response_breached' => $responseLampau->count(),
             'resolution_breached' => $resolutionLampau->count(),
         ];
+    }
+
+    /**
+     * Jana balasan AI untuk mesej pelanggan.
+     *
+     * Ini menyambungkan SharedInbox kepada enjin AI platform — balasan
+     * automatik menggunakan AIGateway (model rasmi) atau provider tenant
+     * sendiri (OpenGenAI), mengikut konfigurasi.
+     *
+     * @return array{success: bool, text: ?string, error: ?string, sumber: ?string}
+     */
+    public function janaBalasanAI(InboxConversation $conversation, string $mesej): array
+    {
+        if (! config('shared_inbox.ai.enabled', true)) {
+            return ['success' => false, 'text' => null, 'error' => 'Balasan AI dimatikan.', 'sumber' => null];
+        }
+
+        try {
+            $prompt = $this->binaPrompt($conversation, $mesej);
+
+            // Tanya AI Gateway dahulu (terkawal & dikira kos), jatuh balik
+            // kepada provider tenant sendiri jika tersedia.
+            $jambatan = app(GenAiBridge::class);
+
+            $hasil = $jambatan->jana($prompt, 'support_reply', [
+                'user_id' => auth()->id(),
+                'temperature' => 0.6,
+                'max_output_tokens' => 400,
+            ]);
+
+            if (! $hasil['success']) {
+                return [
+                    'success' => false,
+                    'text' => null,
+                    'error' => $hasil['error'] ?? 'Gagal menjana balasan.',
+                    'sumber' => $hasil['sumber'] ?? null,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'text' => $hasil['text'],
+                'error' => null,
+                'sumber' => $hasil['sumber'] ?? 'ai-gateway',
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('SharedInbox: jana balasan AI gagal', [
+                'conversation_id' => $conversation->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'text' => null, 'error' => $e->getMessage(), 'sumber' => null];
+        }
+    }
+
+    /**
+     * Bina prompt untuk balasan sokongan pelanggan.
+     */
+    protected function binaPrompt(InboxConversation $conversation, string $mesej): string
+    {
+        $baris = 'Anda ejen sokongan pelanggan. Balas dengan ringkas, sopan dan menyelesaikan masalah.';
+
+        if ($conversation->contact_name) {
+            $baris .= "\nPelanggan: ".$conversation->contact_name.'.';
+        }
+
+        $baris .= "\nSoalan pelanggan: ".$mesej;
+        $baris .= "\nBalas dalam bahasa yang sama seperti soalan pelanggan.'";
+
+        return $baris;
     }
 
     /**

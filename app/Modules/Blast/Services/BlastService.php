@@ -11,6 +11,7 @@ use App\Modules\Blast\Services\Providers\WhatsAppProvider;
 use App\Modules\Prospecting\Models\Prospect;
 use App\Modules\Prospecting\Services\ConsentService;
 use App\Modules\Prospecting\Services\DedupeService;
+use App\Modules\WhatsAppSuite\Services\WhatsAppService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -32,8 +33,7 @@ class BlastService
         private RateLimiterService $limiter,
         private DeliverabilityService $deliverability,
         private DedupeService $dedupe
-    ) {
-    }
+    ) {}
 
     /**
      * Provider untuk channel tertentu.
@@ -41,9 +41,12 @@ class BlastService
     public function provider(string $channel): ?ChannelProviderInterface
     {
         return match ($channel) {
-            'email' => new EmailProvider(),
-            'whatsapp' => new WhatsAppProvider(),
-            'sms' => new SmsProvider(),
+            'email' => new EmailProvider,
+            'whatsapp' => new WhatsAppProvider,
+            // WhatsAppSuite — peranti whatsapp-web.js milik tenant sendiri.
+            // Diutamakan apabila diaktifkan (tanpa Meta approval, ada anti-ban).
+            'whatsapp_suite' => new WhatsAppSuiteProvider(app(WhatsAppService::class)),
+            'sms' => new SmsProvider,
             default => null,
         };
     }
@@ -108,12 +111,12 @@ class BlastService
             $merge = TemplateService::dataDaripadaProspect($prospect, $campaign);
             $merge['unsubscribe_link'] = $unsubUrl;
 
-            $body = (new TemplateService())
+            $body = (new TemplateService)
                 ->dengan($merge)
                 ->denganUnsub($unsubUrl)
                 ->render($bodyTemplate);
 
-            $subject = (new TemplateService())
+            $subject = (new TemplateService)
                 ->dengan($merge)
                 ->render($campaign->subject ?? '');
 

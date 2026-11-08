@@ -4,7 +4,7 @@
 >
 > **Versi:** 1.0 · **Tarikh:** 26 Oktober 2026
 > **Sasaran:** Laravel **12.70.1** · PHP **8.2.12** · Filament **3.3.53** · PHPUnit **11.5** · SQLite (dev) / MySQL 8 (prod)
-> **Blueprint:** `docs/AI-BIJAN-MASTER-BLUEPRINT.md` → **v9.6**, **103 bab / 27 PART**
+> **Blueprint:** `docs/BLUEPRINT-INDUK.md` → **v9.6**, **103 bab / 27 PART**
 > **Baseline metrik:** `docs/AUDIT-BASELINE.md`
 > **Kaedah:** setiap angka dan perangkap dalam dokumen ini diterbitkan daripada kod sebenar
 > (`app/`, `database/migrations/`, `routes/`, `tests/`, `config/`) — bukan hasrat atau pelan.
@@ -2260,7 +2260,7 @@ Invoke-WebRequest http://127.0.0.1:8145/ready  -SkipHttpErrorCheck
 | [`RESELLER-KOMISEN-BERULANG.md`](RESELLER-KOMISEN-BERULANG.md) | Spesifikasi komisen berulang + analisis margin |
 | [`AUDIT-DOKUMEN.md`](AUDIT-DOKUMEN.md) | Laporan audit dokumentasi |
 | [`TODO.md`](TODO.md) | T-01 → T-102 (siap & belum) |
-| `../AI-BIJAN-MASTER-BLUEPRINT.md` | Blueprint induk v9.6 — **103 bab / 27 PART** |
+| `../BLUEPRINT-INDUK.md` | Blueprint induk v9.6 — **103 bab / 27 PART** |
 | `../.github/skills/aibijan-coding/` | Skill + gotchas + peraturan keselamatan |
 | `docs/archive/README.md` | ⚠️ Arkib — **66 fail bukan rujukan semasa** |
 

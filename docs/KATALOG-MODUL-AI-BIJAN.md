@@ -18,7 +18,7 @@
 > memerlukan PHP + pangkalan data — sahkan dengan `php artisan test` dan
 > `php skrip/semak-dokumen.php`.
 >
-> Blueprint: [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) → **v9.6**, **103 bab / 27 PART**
+> Blueprint: [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md) → **v9.6**, **103 bab / 27 PART**
 > Tarikh audit: 27 Oktober 2026
 >
 > **UI:** Filament 3.3 di `/admin` — **65 resource** (liputan 59 modul),

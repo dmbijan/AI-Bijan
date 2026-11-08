@@ -12,7 +12,9 @@ class ContentIdea extends Model
     protected $table = 'content_ideas';
 
     public const STATUS_NEW = 'new';
+
     public const STATUS_USED = 'used';
+
     public const STATUS_DISMISSED = 'dismissed';
 
     protected $fillable = [

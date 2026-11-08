@@ -2,6 +2,7 @@
 
 namespace App\Modules\SocialBridge\Services;
 
+use App\Modules\ContentStudio\Services\ContentStudioService;
 use App\Modules\SocialBridge\Models\SocialAccount;
 use App\Modules\SocialBridge\Models\SocialPost;
 use App\Modules\SocialBridge\Models\SocialPostTarget;
@@ -117,6 +118,13 @@ class SocialBridgeService
         $gagal = 0;
         $butiran = [];
 
+        // ⚠️ Kandungan auto-jana melalui ContentStudio (Voice/AI Gateway) bila
+        // catatan tidak mempunyai badan — tenant boleh jana sekali, siar
+        // ke semua platform.
+        if (trim((string) $catatan->body) === '' && config('social_bridge.ai.generate_body', true)) {
+            $catatan->update(['body' => $this->janaBadan($catatan)]);
+        }
+
         foreach ($catatan->sasaran()->get() as $sasaran) {
             $akaun = $sasaran->akaun;
 
@@ -190,6 +198,41 @@ class SocialBridgeService
             ->where('scheduled_at', '<=', now())
             ->limit((int) config('social_bridge.limits.batch_size', 100))
             ->get();
+    }
+
+    /**
+     * Jana badan catatan menggunakan ContentStudio (AI Gateway).
+     *
+     * Ini menjadikannya SocialBridge tidak perlu engine AI sendiri —
+     * ia memerahPlatform penulisan yang sudah ada.
+     */
+    protected function janaBadan(SocialPost $catatan): string
+    {
+        try {
+            $brief = [
+                'title' => $catatan->title ?: 'Kandungan sosial',
+                'platform' => 'social',
+                'content_type' => 'post',
+                'tone' => 'friendly',
+            ];
+
+            $keputusan = app(ContentStudioService::class)
+                ->janaKandungan((int) $catatan->tenant_id, $brief);
+
+            $badan = (string) ($keputusan->body ?? '');
+
+            if ($badan !== '') {
+                return $badan;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('SocialBridge: jana badan AI gagal', [
+                'post_id' => $catatan->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Fallback: ringkasan titik platform.
+        return '📌 '.$catatan->title.PHP_EOL.'Kandakan platform anda untuk kandungan lanjutan.';
     }
 
     /**

@@ -44,12 +44,14 @@ class DictationSession extends Model
         'target_id',
         'error_message',
         'processing_ms',
+        'settings',
         'created_by',
         'completed_at',
     ];
 
     protected $casts = [
         'segments' => 'array',
+        'settings' => 'array',
         'audio_size_bytes' => 'integer',
         'duration_seconds' => 'float',
         'confidence' => 'float',

@@ -26,23 +26,21 @@
 
 ## Status Ringkas
 
-| Ukuran | Nilai | Sumber |
-|---|---|---|
-| Modul | **60** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Laluan API (`api/v1`) | **1,419** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Kaedah ujian | **1,150** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Migration | **57 fail** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Resource Filament | **66** (+6 widget) | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Model · Service · Controller | **312 · 179 · 135** | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
-| Jadual DB · Kebenaran | **379 · 212** | `php skrip/jana-baseline.php` |
-| Liputan ujian pengasingan | **60/60 modul** | `php skrip/audit-tenant.php` |
-| Laluan berpagar `perm:` | **1,384 / 1,419** | `php skrip/semak-kebenaran.php` |
-| Suite Feature | **1,345 lulus · 6,749 assertion · 22 skip** | `--testsuite Feature` |
-| Blueprint | **v9.6 — 103 bab / 27 PART** | [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) |
-| DB | SQLite (dev) · MySQL disokong (`skrip/tukar_db.ps1`) | — |
-| AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) | — |
-| Advisori keselamatan | **0** (perlu `composer audit` untuk sahkan) | — |
-| Laravel · PHP | **12.70.1 · 8.2.12** | `php artisan --version` |
+> ⭐ **Semua angka rasmi ada di [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1.**
+> Fail ini sengaja **tidak** mengulang angka modul/jadual/laluan supaya ia
+> tidak boleh lapuk. Jana semula baseline: `php skrip/jana-baseline.php --tulis`.
+
+| Ukuran | Sumber |
+|---|---|
+| Modul · Jadual · Laluan API · Model · Service · Controller | [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md) §1 |
+| Kaedah ujian · Liputan pengasingan tenant | `php skrip/audit-tenant.php` |
+| Laluan berpagar `perm:` | `php skrip/semak-kebenaran.php` |
+| Suite penuh | `php vendor/bin/phpunit` |
+| Blueprint | [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md) |
+| DB | SQLite (dev) · MySQL disokong (`skrip/tukar_db.ps1`) |
+| AI Gateway | **Mod simulasi** (`AI_GATEWAY_LIVE=false`) |
+| Advisori keselamatan | **0** (perlu `composer audit` untuk sahkan) |
+| Laravel · PHP | **12.70.1 · 8.2.12** (`php artisan --version`) |
 
 > **Angka ujian lulus, assertion sebenar, jadual sebenar dan kebenaran sebenar**
 > memerlukan PHP + pangkalan data. Jana dengan `php artisan test` dan
@@ -479,7 +477,7 @@ tool allowlist + permission check pada setiap panggilan, bukan prompt.
   - Data disahkan (✅) vs belum disahkan (⚠️) ditanda jelas
 
 ### ~~Blueprint BAB 81~~ ✅ SELESAI
-- `AI-BIJAN-MASTER-BLUEPRINT.md` naik ke **v8.4** (kemudian v9.6)
+- `BLUEPRINT-INDUK.md` naik ke **v8.4** (kemudian v9.6)
 - PART XVII — KELEBIHAN KOMPETITIF & ENJIN PERTUMBUHAN (BAB 81), 14 seksyen:
   9 kelebihan dengan status kod, rantaian silang-modul, 4 kelebihan unik,
   15 idea pesaing, idea jangan dikejar, analisis kos, skor kompetitif,

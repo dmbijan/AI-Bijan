@@ -25,5 +25,6 @@ Route::get('/recordings/{id}/share', [ScreenRecorderController::class, 'share'])
 Route::post('/recordings/{id}/share/regenerate', [ScreenRecorderController::class, 'regenerateToken'])->middleware('perm:screen_recorder.manage');
 
 // Komen
+Route::post('/recordings/{id}/open-in-media-editor', [ScreenRecorderController::class, 'openInMediaEditor'])->middleware('perm:screen_recorder.manage');
 Route::get('/recordings/{id}/comments', [ScreenRecorderController::class, 'comments'])->middleware('perm:screen_recorder.view');
 Route::post('/recordings/{id}/comments', [ScreenRecorderController::class, 'storeComment'])->middleware('perm:screen_recorder.execute');

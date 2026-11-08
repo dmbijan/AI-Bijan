@@ -4,11 +4,11 @@
  * Usage: php skrip/sisip_bab82.php
  *
  * Catatan 27 Okt 2026: laluan blueprint sebelum ini menunjuk ke akar repositori
- * (`/../../AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`) sedangkan fail itu berada dalam
+ * (`/../../BLUEPRINT-INDUK.md`) sedangkan fail itu berada dalam
  * `docs/`. Scripts ini tidak pernah boleh berjalan. Laluan kini betul.
  */
 
-$blueprint = __DIR__ . '/../docs/AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md';
+$blueprint = __DIR__ . '/../docs/BLUEPRINT-INDUK.md';
 $teks = __DIR__ . '/../docs/bab82_teks.md';
 
 if (!is_file($blueprint)) {

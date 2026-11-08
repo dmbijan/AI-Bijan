@@ -12,23 +12,25 @@ Aplikasi **Laravel 12 tulen** (bukan ERPNext/Frappe), multi-tenant, modular, API
 
 ---
 
-## Fakta Teknikal (DISAHKAN 26 Okt 2026)
+## Fakta Teknikal (DISAHKAN 9 Nov 2026)
 
 | Metrik | Nilai |
 |---|---|
 | PHP | **8.2.12** |
 | Laravel | **12.70.1** |
 | Pangkalan data (dev) | **SQLite** |
-| Modul | **58** |
-| Jadual | **346** |
-| Laluan API (`api/v1`) | **1,518** |
-| Ujian | **962 lulus** (4 dilangkau, 0 gagal) |
-| Assertion | **5,033** |
+| Modul | **75** |
+| Jadual | **440** |
+| Laluan API (`api/v1`) | **1,629** |
+| Ujian | **1,424 lulus** (23 dilangkau, 0 gagal) |
+| Assertion | **6,121** |
 | Resource Filament | **66** |
-| Kebenaran | **212** |
+| Model · Service · Controller | **372 · 197 · 150** |
 | Advisori keselamatan | **0** |
 
-> Untuk versi yang sentiasa tepat: `php skrip/semak-dokumen.php`
+> ⚠️ **Angka ini tidak boleh diedit manual.** Sumber kebenaran:
+> [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md). Jana semula dengan
+> `php skrip/jana-baseline.php --tulis`.
 
 ---
 
@@ -36,25 +38,25 @@ Aplikasi **Laravel 12 tulen** (bukan ERPNext/Frappe), multi-tenant, modular, API
 
 | Lokasi | Isi |
 |---|---|
-| `app/Modules/` | **59 modul** domain (setiap satu provider + config + routes sendiri) |
-| `app/Filament/` | **65 resource** UI admin di `/admin` |
+| `app/Modules/` | **75 modul** domain (setiap satu provider + config + routes sendiri) |
+| `app/Filament/` | **66 resource** UI admin di `/admin` |
 | `app/Support/Tenancy/` | `TenantContext` — pusat pengasingan tenant |
-| `database/migrations/` | **58 fail** → **368 jadual** (kiraan migration) |
+| `database/migrations/` | Migration platform + migration dalam setiap modul |
 | `routes/api.php` | Laluan API utama |
-| `docs/` | **141+ dokumen** — mula dengan `README.md` |
-| `skrip/` | 26 skrip penyelenggaraan/diagnostik |
-| `.github/skills/aibijan-coding/` | Skill pengekodan + gotchas + peraturan keselamatan |
-| `tests/` | **89 fail ujian** Feature (termasuk 39 ujian pengasingan tenant) |
+| `docs/` | **49 dokumen** aktif — mula dengan [`README.md`](README.md) |
+| `docs/archive/` | Blueprint & spesifikasi lama (ARKIB — bukan rujukan) |
+| `skrip/` | **36 skrip** penyelenggaraan/diagnostik |
+| `.github/skills/` | Skill pengekodan AI + skill video (mograph/motion/editor) |
+| `tests/` | **118 fail ujian** (termasuk 75 ujian pengasingan tenant) |
 
 > 📊 **Angka rasmi:** [`AUDIT-BASELINE.md`](AUDIT-BASELINE.md). Jalankan
-> `php skrip/jana-baseline.php` untuk jana semula.
+> `php skrip/jana-baseline.php --tulis` untuk jana semula.
 
 ---
 
 ## Mula Pantas
 
 ```bash
-cd ai-bijan-saas
 composer install && npm install
 cp .env.example .env && php artisan key:generate
 php artisan migrate --seed

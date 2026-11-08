@@ -1,7 +1,7 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Modules\ContentStudio\Http\Controllers\ContentStudioController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------

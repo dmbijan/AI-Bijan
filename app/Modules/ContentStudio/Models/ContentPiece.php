@@ -14,11 +14,17 @@ class ContentPiece extends Model
     protected $table = 'content_pieces';
 
     public const STATUS_IDEA = 'idea';
+
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_IN_REVIEW = 'in_review';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_SCHEDULED = 'scheduled';
+
     public const STATUS_PUBLISHED = 'published';
+
     public const STATUS_ARCHIVED = 'archived';
 
     protected $fillable = [

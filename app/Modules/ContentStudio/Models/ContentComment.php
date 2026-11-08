@@ -13,14 +13,21 @@ class ContentComment extends Model
     protected $table = 'content_comments';
 
     public const STATUS_NEW = 'new';
+
     public const STATUS_FLAGGED = 'flagged';
+
     public const STATUS_REPLIED = 'replied';
+
     public const STATUS_HIDDEN = 'hidden';
+
     public const STATUS_RESOLVED = 'resolved';
 
     public const SENTIMENT_POSITIVE = 'positive';
+
     public const SENTIMENT_NEUTRAL = 'neutral';
+
     public const SENTIMENT_NEGATIVE = 'negative';
+
     public const SENTIMENT_TOXIC = 'toxic';
 
     protected $fillable = [

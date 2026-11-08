@@ -238,4 +238,36 @@ class OpenWhisprController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Jana versi narasi daripada transkripsi (VoiceStudio TTS).
+     */
+    public function generateNarration(Request $request, int $id): JsonResponse
+    {
+        $sesi = DictationSession::findOrFail($id);
+
+        $v = Validator::make($request->all(), [
+            'voice_profile_id' => ['nullable', 'integer', 'exists:voice_profiles,id'],
+        ]);
+
+        if ($v->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Input tidak sah.',
+                'errors' => $v->errors(),
+            ], 422);
+        }
+
+        $hasil = $this->dictation->janaNarasi($sesi, $v->validated()['voice_profile_id'] ?? null);
+
+        return response()->json([
+            'success' => $hasil['success'],
+            'message' => $hasil['mesej'],
+            'data' => [
+                'track_id' => $hasil['track_id'],
+                'audio_url' => $hasil['audio_url'],
+                'session' => $sesi->fresh(),
+            ],
+        ], $hasil['success'] ? 200 : 422);
+    }
 }

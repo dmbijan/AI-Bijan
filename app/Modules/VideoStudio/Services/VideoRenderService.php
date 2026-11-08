@@ -2,6 +2,7 @@
 
 namespace App\Modules\VideoStudio\Services;
 
+use App\Modules\MediaEditor\Services\MediaEditorService;
 use App\Modules\VideoStudio\Models\VideoBrandKit;
 use App\Modules\VideoStudio\Models\VideoProject;
 use App\Support\Tenancy\TenantContext;
@@ -252,6 +253,72 @@ class VideoRenderService
             VideoProject::SKILL_EDITOR => 'aibijan-video-editor',
             default => 'aibijan-mograph',
         };
+    }
+
+    /**
+     * Hantar video siap ke MediaEditor untuk sunting lanjutan.
+     *
+     * Ini menyambungkan VideoStudio (skill render) dengan MediaEditor
+     * (editor video) — MP4 yang dijana skill boleh terus disunting.
+     *
+     * @return array{success: bool, project_id: mixed, mesej: string}
+     */
+    public function hantarKeMediaEditor(VideoProject $projek): array
+    {
+        if (! $projek->output_path) {
+            return [
+                'success' => false,
+                'project_id' => null,
+                'mesej' => 'Tiada output video untuk dihantar.',
+            ];
+        }
+
+        try {
+            $sumber = Storage::disk('public')->path($projek->output_path);
+
+            if (! is_file($sumber)) {
+                return [
+                    'success' => false,
+                    'project_id' => null,
+                    'mesej' => 'Fail video tidak dijumpai dalam storan.',
+                ];
+            }
+
+            $projekMedia = app(MediaEditorService::class)
+                ->ciptaProjek([
+                    'name' => $projek->title ?: $projek->name,
+                    'description' => 'Dari VideoStudio ('.$projek->uuid.')',
+                    'source_type' => 'upload',
+                    'source_path' => $projek->output_path,
+                ]);
+
+            $projekId = is_object($projekMedia) ? ($projekMedia->id ?? null) : ($projekMedia['id'] ?? null);
+
+            if ($projekId) {
+                $projek->update([
+                    'settings' => array_merge($projek->settings ?? [], [
+                        'media_editor_project_id' => $projekId,
+                    ]),
+                ]);
+            }
+
+            return [
+                'success' => true,
+                'project_id' => $projekId,
+                'mesej' => 'Video dihantar ke MediaEditor.',
+            ];
+        } catch (Throwable $e) {
+            Log::warning('VideoStudio: hantar ke MediaEditor gagal', [
+                'project_id' => $projek->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'project_id' => null,
+                'mesej' => $e->getMessage(),
+            ];
+        }
     }
 
     /**

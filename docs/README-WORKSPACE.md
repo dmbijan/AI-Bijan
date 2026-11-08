@@ -174,11 +174,11 @@ npm run dev
 
 ## 🔗 Dokumen Penting
 
-1. **[README.md](./ai-bijan-saas/README.md)** — Panduan sistem utama
-2. **[PASANG.md](./ai-bijan-saas/PASANG.md)** — Panduan pemasangan cPanel
-3. **[Master-Blueprint.md](./ai-bijan-saas/Master-Blueprint.md)** — Blueprint keseluruhan
-4. **[AGENTS.md](./ai-bijan-saas/AGENTS.md)** — AI Agents configuration
-5. **[CLAUDE.md](./ai-bijan-saas/CLAUDE.md)** — Claude AI configuration
+1. **[README.md](../README.md)** — Panduan sistem utama
+2. **[PASANG.md](../docs/PASANG.md)** — Panduan pemasangan cPanel
+3. **[Master-Blueprint.md](../docs/BLUEPRINT-INDUK.md)** — Blueprint keseluruhan
+4. **[AGENTS.md](../docs/AGENTS.md)** — AI Agents configuration
+5. **[CLAUDE.md](../docs/CLAUDE.md)** — Claude AI configuration
 
 ---
 

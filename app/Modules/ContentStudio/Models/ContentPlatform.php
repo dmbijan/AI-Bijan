@@ -13,13 +13,21 @@ class ContentPlatform extends Model
     protected $table = 'content_platforms';
 
     public const FACEBOOK = 'facebook';
+
     public const INSTAGRAM = 'instagram';
+
     public const TIKTOK = 'tiktok';
+
     public const LINKEDIN = 'linkedin';
+
     public const X = 'x';
+
     public const WHATSAPP = 'whatsapp';
+
     public const YOUTUBE = 'youtube';
+
     public const TELEGRAM = 'telegram';
+
     public const GOOGLE_BUSINESS = 'google_business';
 
     protected $fillable = [

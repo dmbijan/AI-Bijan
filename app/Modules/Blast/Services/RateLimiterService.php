@@ -3,6 +3,7 @@
 namespace App\Modules\Blast\Services;
 
 use App\Modules\Blast\Models\BlastDeliverability;
+use App\Modules\Blast\Models\BlastMessage;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -80,7 +81,7 @@ class RateLimiterService
      */
     public function countHariIni(int $tenantId, ?string $channel = null): int
     {
-        $query = \App\Modules\Blast\Models\BlastMessage::query()
+        $query = BlastMessage::query()
             ->where('tenant_id', $tenantId)
             ->whereIn('status', ['sent', 'delivered'])
             ->whereDate('created_at', today());

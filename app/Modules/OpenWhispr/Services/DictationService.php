@@ -4,6 +4,8 @@ namespace App\Modules\OpenWhispr\Services;
 
 use App\Modules\OpenWhispr\Models\DictationSession;
 use App\Modules\OpenWhispr\Models\DictationVocabulary;
+use App\Modules\VoiceStudio\Models\VoiceProfile;
+use App\Modules\VoiceStudio\Services\VoiceEngineService;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
@@ -312,6 +314,87 @@ class DictationService
             ->all();
 
         return implode(', ', $perkataan);
+    }
+
+    /**
+     * Jana versi narasi daripada transkripsi menggunakan profil suara.
+     *
+     * Ini menyambungkan OpenWhispr (STT) dengan VoiceStudio (TTS) —
+     * transkripsi menjadi audio narasi dalam satu aliran kerja.
+     *
+     * @return array{success: bool, track_id: mixed, audio_url: ?string, mesej: string}
+     */
+    public function janaNarasi(DictationSession $sesi, ?string $voiceProfileId = null): array
+    {
+        $teks = trim((string) ($sesi->processed_text ?: $sesi->raw_text));
+
+        if ($teks === '') {
+            return [
+                'success' => false,
+                'track_id' => null,
+                'audio_url' => null,
+                'mesej' => 'Tiada transkripsi untuk dijadikan narasi.',
+            ];
+        }
+
+        try {
+            $profil = $voiceProfileId
+                ? VoiceProfile::find($voiceProfileId)
+                : VoiceProfile::query()
+                    ->where('tenant_id', $sesi->tenant_id)
+                    ->where('status', VoiceProfile::STATUS_ACTIVE)
+                    ->orderByDesc('is_default')
+                    ->first();
+
+            if (! $profil) {
+                return [
+                    'success' => false,
+                    'track_id' => null,
+                    'audio_url' => null,
+                    'mesej' => 'Tiada profil suara aktif. Cipta profil suara dahulu.',
+                ];
+            }
+
+            $hasil = app(VoiceEngineService::class)
+                ->synthesize($teks, $profil, [
+                    'user_id' => $sesi->created_by,
+                ]);
+
+            if (! $hasil['success']) {
+                return [
+                    'success' => false,
+                    'track_id' => $hasil['track']?->id,
+                    'audio_url' => null,
+                    'mesej' => $hasil['error'] ?? 'Sintesis gagal.',
+                ];
+            }
+
+            $sesi->update([
+                'settings' => array_merge($sesi->settings ?? [], [
+                    'narasi_track_id' => $hasil['track']?->id,
+                    'narasi_audio_url' => $hasil['url'],
+                ]),
+            ]);
+
+            return [
+                'success' => true,
+                'track_id' => $hasil['track']?->id,
+                'audio_url' => $hasil['url'],
+                'mesej' => 'Narasi dijana.',
+            ];
+        } catch (Throwable $e) {
+            Log::warning('OpenWhispr: jana narasi gagal', [
+                'session_id' => $sesi->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'track_id' => null,
+                'audio_url' => null,
+                'mesej' => $e->getMessage(),
+            ];
+        }
     }
 
     /**

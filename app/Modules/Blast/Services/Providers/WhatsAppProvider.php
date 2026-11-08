@@ -28,7 +28,7 @@ class WhatsAppProvider implements ChannelProviderInterface
     /**
      * Hantar mesej WhatsApp.
      *
-     * @param array $options template, parameters, phone_number_id, media_url
+     * @param  array  $options  template, parameters, phone_number_id, media_url
      */
     public function hantar(string $recipient, string $body, array $options = []): array
     {

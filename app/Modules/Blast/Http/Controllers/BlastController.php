@@ -3,6 +3,7 @@
 namespace App\Modules\Blast\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Blast\SendBlastMessageJob;
 use App\Modules\Blast\Models\BlastCampaign;
 use App\Modules\Blast\Models\BlastMessage;
 use App\Modules\Blast\Services\BlastService;
@@ -14,7 +15,6 @@ use App\Modules\Prospecting\Models\Prospect;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class BlastController extends Controller
 {
@@ -23,8 +23,7 @@ class BlastController extends Controller
         private OptOutService $optOut,
         private RateLimiterService $limiter,
         private DeliverabilityService $deliverability
-    ) {
-    }
+    ) {}
 
     private function tenantId(): int
     {
@@ -406,7 +405,7 @@ class BlastController extends Controller
             }
         }
 
-        $template = new TemplateService();
+        $template = new TemplateService;
         $template = $template->dengan($data);
 
         return response()->json([
@@ -499,7 +498,7 @@ class BlastController extends Controller
             ->get();
 
         foreach ($messages as $message) {
-            \App\Jobs\Blast\SendBlastMessageJob::dispatch($message->id);
+            SendBlastMessageJob::dispatch($message->id);
         }
 
         return $messages->count();

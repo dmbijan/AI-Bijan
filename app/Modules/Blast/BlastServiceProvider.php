@@ -15,7 +15,7 @@ class BlastServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(
-            dirname(__DIR__) . '/Blast/config/blast.php',
+            dirname(__DIR__).'/Blast/config/blast.php',
             'blast'
         );
 
@@ -28,10 +28,10 @@ class BlastServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (file_exists(__DIR__ . '/routes/api.php')) {
+        if (file_exists(__DIR__.'/routes/api.php')) {
             Route::middleware(['api', 'auth:sanctum', 'tenant'])
                 ->prefix('api/v1/blast')
-                ->group(__DIR__ . '/routes/api.php');
+                ->group(__DIR__.'/routes/api.php');
         }
     }
 }

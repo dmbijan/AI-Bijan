@@ -28,7 +28,7 @@ class EmailProvider implements ChannelProviderInterface
     /**
      * Hantar e-mel.
      *
-     * @param array $options subject, from, from_name, reply_to, unsubscribe_url, html
+     * @param  array  $options  subject, from, from_name, reply_to, unsubscribe_url, html
      */
     public function hantar(string $recipient, string $body, array $options = []): array
     {

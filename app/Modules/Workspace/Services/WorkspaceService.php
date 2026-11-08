@@ -2,6 +2,7 @@
 
 namespace App\Modules\Workspace\Services;
 
+use App\Modules\ContentStudio\Services\ContentStudioService;
 use App\Modules\Workspace\Models\WorkspaceBlock;
 use App\Modules\Workspace\Models\WorkspaceDatabase;
 use App\Modules\Workspace\Models\WorkspaceDatabaseRow;
@@ -9,6 +10,7 @@ use App\Modules\Workspace\Models\WorkspaceDatabaseView;
 use App\Modules\Workspace\Models\WorkspacePage;
 use App\Modules\Workspace\Models\WorkspaceSpace;
 use App\Support\Tenancy\TenantContext;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -122,6 +124,47 @@ class WorkspaceService
             'created_by' => auth()->id(),
             'updated_by' => auth()->id(),
         ]);
+    }
+
+    /**
+     * Jana kandungan halaman AI melalui ContentStudio.
+     *
+     * Ini menyambungkan Workspace kepada enjin penulisan platform — tenant
+     * boleh mulakan dokumen kosong dan biarkan AI mengisi kandungan.
+     *
+     * @param  array<string, mixed>  $brief
+     * @return array{success: bool, body: ?string, mesej: string}
+     */
+    public function janaKandungan(WorkspacePage $page, array $brief = []): array
+    {
+        try {
+            $keputusan = app(ContentStudioService::class)
+                ->janaKandungan((int) $page->tenant_id, array_merge([
+                    'title' => $page->title,
+                    'platform' => 'document',
+                    'content_type' => 'article',
+                ], $brief));
+
+            $badan = (string) ($keputusan->body ?? '');
+
+            if ($badan === '') {
+                return ['success' => false, 'body' => null, 'mesej' => 'AI tidak menghasilkan kandungan.'];
+            }
+
+            $this->addBlock($page, [
+                'type' => WorkspaceBlock::TYPE_PARAGRAPH,
+                'content' => $badan,
+            ]);
+
+            return ['success' => true, 'body' => $badan, 'mesej' => 'Kandungan dijana.'];
+        } catch (\Throwable $e) {
+            Log::warning('Workspace: jana kandungan AI gagal', [
+                'page_id' => $page->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'body' => null, 'mesej' => $e->getMessage()];
+        }
     }
 
     /**

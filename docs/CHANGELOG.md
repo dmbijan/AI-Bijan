@@ -5,7 +5,7 @@ sebelum ini berselerak dalam `TODO.md`, supaya `TODO.md` boleh menjadi senarai
 **kerja belum siap** yang jernih.
 
 > **Nombor versi** di sini ialah *versi blueprint* (bukan versi aplikasi).
-> Rujukan blueprint: [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md).
+> Rujukan blueprint: [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md).
 
 ---
 
@@ -114,7 +114,7 @@ sebelum ini berselerak dalam `TODO.md`, supaya `TODO.md` boleh menjadi senarai
   pada dua tempat, walaupun kod wujud di `app/Modules/Billing/`. kini:
   `IMPLEMENTED / TESTED` (kod) + `BLOCKED` (komersial, ADR-010).
 - **Blueprint** — header dinaik ke **v9.6**; nama kanonik
-  `AI-BIJAN-MASTER-BLUEPRINT.md` dibina; semua rujukan dalam `docs/` dikemas kini.
+  `BLUEPRINT-INDUK.md` dibina; semua rujukan dalam `docs/` dikemas kini.
 - **README utama** — boilerplate Laravel digantikan dengan README sebenar: cara pasang,
   stack, struktur, status `DEVELOPMENT`, dan kotak amaran "belum production-ready".
 - **`TODO.md`** — sejarah dipindahkan ke fail ini; seksyen `P1`/`P2` berulang

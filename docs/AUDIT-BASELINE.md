@@ -17,22 +17,22 @@ controller, resource Filament, widget, laluan, kaedah ujian). Dijana oleh
 ## 1. Baseline disahkan
 
 > **Dijana automatik** oleh `php skrip/jana-baseline.php --tulis`.
-> Tarikh penjanaan: 2026-10-27
+> Tarikh penjanaan: 2026-11-08
 > Jangan tulis angka di sini secara manual — jalankan skrip.
 
 | METRIK | **NILAI** | CARA DIUKUR |
 |---|---|---:|
-| Modul | **60** | direktori di `app/Modules/` |
-| Migration | **85** | fail di `database/migrations/` |
-| Model | **312** | `app/Modules/**/Models/*.php` |
-| Service | **179** | `app/Modules/**/Services/*.php` |
-| Controller (modul) | **135** | `app/Modules/**/Http/Controllers/*.php` |
+| Modul | **75** | direktori di `app/Modules/` |
+| Migration | **58** | fail di `database/migrations/` |
+| Model | **372** | `app/Modules/**/Models/*.php` |
+| Service | **197** | `app/Modules/**/Services/*.php` |
+| Controller (modul) | **150** | `app/Modules/**/Http/Controllers/*.php` |
 | Resource Filament | **66** | direktori di `app/Filament/Resources/` |
 | Widget dashboard | **6** | `app/Filament/Widgets/*.php` |
 | Kaedah ujian | **1,150** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
-| Laluan `api/v1` | **1,419** | router Laravel (`php artisan route:list`) |
-| Jadual DB sebenar | **379** | `sqlite_master` / `SHOW TABLES` |
-| Kebenaran | **212** | jadual `permissions` |
+| Laluan `api/v1` | **1,629** | router Laravel (`php artisan route:list`) |
+| Jadual DB sebenar | **440** | `sqlite_master` / `SHOW TABLES` |
+| Kebenaran | **252** | jadual `permissions` |
 
 ### 1.1 Angka tambahan (kiraan statik manual)
 

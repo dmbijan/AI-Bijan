@@ -77,7 +77,7 @@ Dokumentasi yang diberikan menunjukkan satu katalog **59 modul yang dikodkan**, 
 
 Pakej `docs.zip` mempunyai 113 entri, termasuk dokumen akar dan arkib. Dokumen utama yang digunakan untuk menyusun audit ini:
 
-- `AI-BIJAN-MASTER-BLUEPRINT.md` — blueprint induk (fail sebenar: `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md`, nama warisan). Metadata di dalam fail menyatakan versi blueprint 9.6 pada 27 Oktober 2026.
+- `BLUEPRINT-INDUK.md` — blueprint induk (fail sebenar: `BLUEPRINT-INDUK.md`, nama warisan). Metadata di dalam fail menyatakan versi blueprint 9.6 pada 27 Oktober 2026.
 - `KATALOG-MODUL-AI-BIJAN.md` — inventori 59 modul dan penerangan ringkas.
 - `SISTEM-AI-BIJAN.md` — penerangan sistem.
 - `SISTEM-PEMBANGUNAN-DARI-MULA.md` — panduan pembangunan, prinsip seni bina dan senarai semak.
@@ -147,7 +147,7 @@ Oleh itu, jangan menggunakan laporan ini sebagai pengganti security audit, legal
 
 ### 3.2 Percanggahan yang mesti dibetulkan
 
-**P0 — nama fail dan versi dokumen tidak sepadan.** *(SEPARUH DISELESAI 27 Okt 2026.)* Fail bernama `AI-BIJAN-MASTER-BLUEPRINT-v8.3 (1).md` tetapi header kini menyatakan **v9.6**. Nama kanonik `AI-BIJAN-MASTER-BLUEPRINT.md` telah dibina sebagai alias rujukan dan semua rujukan dalam `docs/` telah dikemas kini. **Baki:** fail fizikal masih mengandungi nama warisan — perlu `git mv` untuk meminda dan memadam.
+**P0 — nama fail dan versi dokumen tidak sepadan.** *(SEPARUH DISELESAI 27 Okt 2026.)* Fail bernama `BLUEPRINT-INDUK.md` tetapi header kini menyatakan **v9.6**. Nama kanonik `BLUEPRINT-INDUK.md` telah dibina sebagai alias rujukan dan semua rujukan dalam `docs/` telah dikemas kini. **Baki:** fail fizikal masih mengandungi nama warisan — perlu `git mv` untuk meminda dan memadam.
 
 **P0 — sejarah TODO bercampur dengan status semasa.** `TODO.md` mempunyai header baseline semasa yang melaporkan 59 modul dan 962 ujian, tetapi seksyen status ringkasnya masih menyebut angka lama seperti 39 modul, ~1,015 endpoint dan 314 ujian. Walaupun dokumen memberi amaran bahawa angka sejarah ialah angka pada masa entri ditulis, bahagian ringkasan yang kelihatan seperti status semasa boleh mengelirukan. Pindahkan semua sejarah ke `CHANGELOG` atau labelkan dengan tarikh yang jelas.
 
@@ -163,7 +163,7 @@ Oleh itu, jangan menggunakan laporan ini sebagai pengganti security audit, legal
 
 | # | Tindakan | Status 27 Okt 2026 |
 |---|---|---|
-| 1 | Tetapkan `AI-BIJAN-MASTER-BLUEPRINT.md` sebagai nama kanonik | ✅ Alias dibina; semua rujukan dikemas kini. **Baki:** `git mv` fail fizikal. |
+| 1 | Tetapkan `BLUEPRINT-INDUK.md` sebagai nama kanonik | ✅ Alias dibina; semua rujukan dikemas kini. **Baki:** `git mv` fail fizikal. |
 | 2 | Tambah `VERSION`, `LAST_AUDITED_AT`, `GIT_COMMIT`, `AUDIT_SCOPE`, `GENERATED_METRICS`, `STATUS` | ✅ `VERSION` + `TARIKH` + `Fail kanonik` + `Baseline metrik` + `STATUS` pada blueprint; **Baki:** `GIT_COMMIT` perlukan `git log` (tiada shell dalam sesi audit). |
 | 3 | Jadikan metrik dihasilkan oleh skrip; jangan salin angka secara manual | ✅ `skrip/jana-baseline.php` + CI gate (`docs/AUDIT-BASELINE.md`). |
 | 4 | Tandakan setiap ciri dengan status `SPECIFIED` → `PRODUCTION-READY` | 📋 Belum —(skip pada modul `Reseller` sahaja; perlukan feature-status registry). |
@@ -875,7 +875,7 @@ Dokumen ini menyatukan dapatan dan maklumat daripada fail berikut dalam `docs.zi
 
 | Fail sumber | Peranan dalam audit |
 |---|---|
-| `AI-BIJAN-MASTER-BLUEPRINT.md` | Blueprint utama, sejarah versi, modul, ADE dan Reseller |
+| `BLUEPRINT-INDUK.md` | Blueprint utama, sejarah versi, modul, ADE dan Reseller |
 | `KATALOG-MODUL-AI-BIJAN.md` | Inventori modul dan ringkasan fungsi |
 | `SISTEM-AI-BIJAN.md` | Gambaran sistem dan seni bina |
 | `SISTEM-PEMBANGUNAN-DARI-MULA.md` | Prinsip pembangunan, security, ujian dan roadmap |
@@ -915,7 +915,7 @@ Bahagian ini mengekalkan katalog modul seperti yang dinyatakan dalam dokumen sum
 > Untuk katalog semasa → [`KATALOG-MODUL-AI-BIJAN.md`](KATALOG-MODUL-AI-BIJAN.md).
 
 > **59 modul** · **346 jadual** · **1,518 laluan API** · **962 ujian lulus** (0 gagal, 4 skip, 5,033 assertion)
-> Blueprint: `AI-BIJAN-MASTER-BLUEPRINT.md` → **v9.6**, **103 bab / 27 PART**
+> Blueprint: `BLUEPRINT-INDUK.md` → **v9.6**, **103 bab / 27 PART**
 > Baseline metrik: `AUDIT-BASELINE.md`
 > Tarikh audit: 26 Oktober 2026 · disemak 27 Oktober 2026 (modul `Billing` ditambah)
 >

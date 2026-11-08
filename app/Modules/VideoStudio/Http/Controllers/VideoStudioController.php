@@ -221,6 +221,21 @@ class VideoStudioController extends Controller
     }
 
     /**
+     * Hantar video ke MediaEditor untuk sunting lanjutan.
+     */
+    public function sendToMediaEditor(int $id): JsonResponse
+    {
+        $projek = VideoProject::findOrFail($id);
+        $hasil = $this->render->hantarKeMediaEditor($projek);
+
+        return response()->json([
+            'success' => $hasil['success'],
+            'message' => $hasil['mesej'],
+            'data' => ['media_editor_project_id' => $hasil['project_id']],
+        ], $hasil['success'] ? 200 : 422);
+    }
+
+    /**
      * Ringkasan penggunaan.
      */
     public function ringkasan(): JsonResponse

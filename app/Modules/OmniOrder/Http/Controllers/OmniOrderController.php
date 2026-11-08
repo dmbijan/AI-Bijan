@@ -173,6 +173,21 @@ class OmniOrderController extends Controller
     }
 
     /**
+     * Hantar pesanan ke UnifiedOrder (modul Orders).
+     */
+    public function sendToUnifiedOrder(int $id): JsonResponse
+    {
+        $pesanan = OmniOrder::findOrFail($id);
+        $hasil = $this->omni->hantarKeUnifiedOrder($pesanan);
+
+        return response()->json([
+            'success' => $hasil['success'],
+            'message' => $hasil['mesej'],
+            'data' => ['unified_order_id' => $hasil['order_id']],
+        ], $hasil['success'] ? 200 : 422);
+    }
+
+    /**
      * Ringkasan papan pemuka.
      */
     public function summary(): JsonResponse

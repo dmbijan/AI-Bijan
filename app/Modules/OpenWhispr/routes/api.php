@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 // Sesi diktasi
 Route::get('/sessions', [OpenWhisprController::class, 'index'])->middleware('perm:open_whispr.view');
 Route::post('/transcribe', [OpenWhisprController::class, 'transcribe'])->middleware('perm:open_whispr.execute');
+Route::post('/sessions/{id}/narration', [OpenWhisprController::class, 'generateNarration'])->middleware('perm:open_whispr.execute');
 Route::get('/sessions/{id}', [OpenWhisprController::class, 'show'])->middleware('perm:open_whispr.view');
 Route::delete('/sessions/{id}', [OpenWhisprController::class, 'destroy'])->middleware('perm:open_whispr.manage');
 

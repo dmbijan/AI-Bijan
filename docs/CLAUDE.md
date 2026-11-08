@@ -84,7 +84,7 @@ AI BIJAN is a multi-tenant SaaS platform for Malaysian businesses (SMEs, retail,
 | Storage | Local disk (dev) / S3-compatible (prod) |
 
 ## Development Guidelines
-- Follow [`AI-BIJAN-MASTER-BLUEPRINT.md`](AI-BIJAN-MASTER-BLUEPRINT.md) for product specifications
+- Follow [`BLUEPRINT-INDUK.md`](BLUEPRINT-INDUK.md) for product specifications
 - **Never copy metrics manually** — read `docs/AUDIT-BASELINE.md`. Regenerate with
   `php skrip/jana-baseline.php --tulis`
 - All pricing must be database-driven, never hardcoded

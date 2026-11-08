@@ -510,6 +510,34 @@ class WorkspaceController extends Controller
     }
 
     /**
+     * Jana kandungan halaman AI melalui ContentStudio.
+     */
+    public function generateContent(Request $request, int $id): JsonResponse
+    {
+        $page = WorkspacePage::findOrFail($id);
+
+        $v = Validator::make($request->all(), [
+            'brief' => ['nullable', 'array'],
+            'content_type' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        if ($v->fails()) {
+            return $this->ralatValidasi($v);
+        }
+
+        $hasil = $this->workspace->janaKandungan($page, $v->validated());
+
+        return response()->json([
+            'success' => $hasil['success'],
+            'message' => $hasil['mesej'],
+            'data' => [
+                'body' => $hasil['body'],
+                'page' => $page->fresh()->load('blocks'),
+            ],
+        ], $hasil['success'] ? 200 : 422);
+    }
+
+    /**
      * @param  \Illuminate\Contracts\Validation\Validator  $v
      */
     protected function ralatValidasi($v): JsonResponse

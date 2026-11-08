@@ -4,8 +4,8 @@ namespace App\Modules\Blast\Services;
 
 use App\Modules\Blast\Models\BlastSuppression;
 use App\Modules\Blast\Models\BlastUnsubscribe;
+use App\Modules\Prospecting\Models\Prospect;
 use App\Modules\Prospecting\Services\DedupeService;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -101,11 +101,11 @@ class OptOutService
 
         // Kemas kini prospect consent
         if ($prospectId) {
-            \App\Modules\Prospecting\Models\Prospect::query()
+            Prospect::query()
                 ->where('tenant_id', $tenantId)
                 ->where('id', $prospectId)
                 ->update([
-                    'consent_status' => \App\Modules\Prospecting\Models\Prospect::CONSENT_DENIED,
+                    'consent_status' => Prospect::CONSENT_DENIED,
                     'consent_at' => null,
                     'consent_evidence' => null,
                 ]);
