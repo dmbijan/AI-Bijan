@@ -1,0 +1,174 @@
+{
+  "_note": "Worked plan for the POSTER style. Hypothetical 30 s podcast clip about Indonesian food (speaker in a cream top): 'Siapa sangka (w:0-1), nasi bakar yang sering kita anggap makanan biasa (w:3-10) bisa bikin juri MasterChef Australia terpukau (w:11-16). Soalnya kuliner Indonesia (w:18-20) itu bukan cuma rasa (w:21-24). Ada rempah (w:25-26), teknik masak (w:27-28), dan cerita di balik setiap hidangan (w:29-34). Kita emang punya kelas dunia (w:36-39).' Word indices are this script's own - never copy them, its words or its compositions into another video.",
+  "concept": {
+    "idea": "A simple dish becomes a world-class poster: every claim turns the room into a red title card around her",
+    "signature": "'KULINER INDONESIA' header with rempah / teknik masak / cerita rows checking off over the blurred frame, after food icons ring her head"
+  },
+  "style": "poster",
+  "settings": {
+    "editing_intensity": "medium",
+    "sound_effects": "medium",
+    "visual_overlays": "moderate"
+  },
+  "emphasize": [
+    4,
+    15,
+    20,
+    26,
+    38
+  ],
+  "overlays": [
+    {
+      "type": "Cutout",
+      "start": "w:0",
+      "end": "w:3",
+      "bg": "poster",
+      "color": "accent",
+      "color2": "deep",
+      "outline": 0
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "start": "w:0",
+      "end": "w:3",
+      "y": 285,
+      "lines": [
+        {
+          "text": "siapa",
+          "at": "w:0",
+          "size": 200,
+          "tone": "paper"
+        },
+        {
+          "text": "sangka?",
+          "at": "w:1",
+          "size": 230,
+          "tone": "accent2",
+          "echo": 3
+        }
+      ]
+    },
+    {
+      "type": "SideCards",
+      "start": "w:7",
+      "end": "w:11",
+      "items": [
+        {
+          "frame": 4.2,
+          "label": "nasi bakar",
+          "side": "left",
+          "at": "w:7"
+        }
+      ]
+    },
+    {
+      "type": "Cutout",
+      "start": "w:12",
+      "end": "w:17",
+      "bg": "poster",
+      "color": "accent",
+      "color2": "deep",
+      "outline": 0
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "start": "w:12",
+      "end": "w:17",
+      "y": 285,
+      "align": "left",
+      "lines": [
+        {
+          "text": "masterchef",
+          "at": "w:13",
+          "size": 180,
+          "tone": "paper"
+        },
+        {
+          "text": "australia",
+          "at": "w:14",
+          "size": 200,
+          "tone": "accent2",
+          "echo": 2
+        }
+      ]
+    },
+    {
+      "type": "BadgeOrbit",
+      "start": "w:18",
+      "end": "w:24",
+      "items": [
+        {
+          "thing": "cup",
+          "at": "w:19"
+        },
+        {
+          "icon": "heart",
+          "at": "w:19+0.12"
+        },
+        {
+          "thing": "fire",
+          "at": "w:19+0.24"
+        },
+        {
+          "icon": "sparkle",
+          "at": "w:19+0.36"
+        },
+        {
+          "thing": "star",
+          "at": "w:19+0.48"
+        }
+      ]
+    },
+    {
+      "type": "Checklist",
+      "signature": true,
+      "start": "w:25-0.2",
+      "end": "w:35",
+      "title": "kuliner Indonesia",
+      "items": [
+        {
+          "text": "Rempah",
+          "at": "w:26"
+        },
+        {
+          "text": "Teknik Masak",
+          "at": "w:28"
+        },
+        {
+          "text": "Cerita di Balik Hidangan",
+          "at": "w:30"
+        }
+      ]
+    },
+    {
+      "type": "Cutout",
+      "start": "w:36",
+      "end": "end",
+      "bg": "poster",
+      "color": "accent",
+      "color2": "deep",
+      "outline": 0
+    },
+    {
+      "type": "DepthText",
+      "mode": "echo",
+      "text": "kelas dunia",
+      "start": "w:37",
+      "end": "end",
+      "y": 430,
+      "size": 200,
+      "tone": "paper",
+      "echoTone": "accent2"
+    }
+  ],
+  "_beats": [
+    "HOOK red field opens from her head + SIAPA / SANGKA? with ghost echoes",
+    "CONTEXT the room, her own frame as a card beside her",
+    "CLAIM red field + left-aligned MASTERCHEF / AUSTRALIA",
+    "THEME food icons ring her head on 'kuliner Indonesia'",
+    "LIST checklist over the blurred frame (signature)",
+    "PAYOFF red field + KELAS DUNIA echo"
+  ]
+}

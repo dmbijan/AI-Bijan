@@ -1,0 +1,11 @@
+{
+  "id": "wooden-chair",
+  "doc": "simple wooden chair, sits facing +z (backrest at −z)",
+  "anchors": { "seat": [0, 0.46, 0.03], "front": [0, 0, 0.6] },
+  "parts": [
+    { "shape": "box", "size": [0.44, 0.04, 0.42], "at": [0, 0.45, 0], "mat": "wood:#8a6440", "round": 0.01 },
+    { "shape": "box", "size": [0.04, 0.45, 0.04], "at": [0.19, 0.225, 0.18], "mat": "wood:#6a4a2e", "mirror": "x" },
+    { "shape": "box", "size": [0.04, 0.92, 0.04], "at": [0.19, 0.46, -0.19], "mat": "wood:#6a4a2e", "mirror": "x" },
+    { "shape": "box", "size": [0.4, 0.07, 0.025], "at": [0, 0.82, -0.19], "mat": "wood:#8a6440", "repeat": { "n": 2, "step": [0, -0.16, 0] } }
+  ]
+}

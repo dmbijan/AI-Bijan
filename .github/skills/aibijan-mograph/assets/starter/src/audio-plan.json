@@ -1,0 +1,11 @@
+{
+ "durationSeconds": 12,
+ "seed": 1,
+ "sections": [
+  {"start": 0, "end": 12, "mood": "neutral", "energy": 0.35}
+ ],
+ "intentionalSilences": [],
+ "sfxCues": [],
+ "musicSource": "starter placeholder",
+ "rightsNotes": "Replace this whole plan with the real one for the buyer's voice-over (references/SOUND_DESIGN_SYSTEM.md)."
+}

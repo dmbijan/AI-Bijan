@@ -1,0 +1,3328 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 15337 src/kits/characterflow/env/room.data.ts
+// Indoor set kit (Node-safe data). A room is a box — back wall at z0, side walls at x0 / x1, the camera
+// side (+z) open — with windows and a door cut into the walls and a list of furniture pieces. Room.tsx
+// draws a layout; roomEnv() (registry.ts) derives the director's data from it: camera bounds, keep-out
+// zones, seats, marks and the light per time of day. A new indoor environment is one more layout here.
+
+import type { V3 } from "../character/spec.ts";
+import type { Seat } from "../locomotion/stand.ts";
+
+export type Wall = "back" | "left" | "right";
+/** an opening along a wall: back wall → x from a to b, side walls → z from a to b */
+export type Opening = { wall: Wall; a: number; b: number; y0: number; y1: number; kind: "window" | "door" };
+type XZ = [number, number];
+/** yaw = the direction a person using the piece faces (0 = +z, toward the cameras) */
+export type Piece =
+  | { k: "desk"; at: XZ; yaw?: number; w?: number; d?: number; top?: ("laptop" | "books" | "mug" | "monitor" | "plant")[]; seat?: string; color?: string }
+  | { k: "schoolDesk"; at: XZ; yaw?: number; seat?: string }
+  | { k: "chair"; at: XZ; yaw?: number; seat?: string; color?: string }
+  | { k: "stool"; at: XZ; yaw?: number; seat?: string }
+  | { k: "sofa"; at: XZ; yaw?: number; w?: number; seats?: string[]; color?: string }
+  | { k: "armchair"; at: XZ; yaw?: number; seat?: string; color?: string }
+  | { k: "coffeeTable"; at: XZ; yaw?: number; w?: number; d?: number }
+  | { k: "cafeTable"; at: XZ; r?: number; cups?: number }
+  | { k: "counter"; at: XZ; yaw?: number; w?: number; d?: number; h?: number; machine?: boolean }
+  | { k: "shelf"; at: XZ; yaw?: number; w?: number; h?: number }
+  | { k: "board"; at: XZ; yaw?: number; w?: number; h?: number; y?: number; style?: "white" | "chalk" | "menu" }
+  | { k: "tv"; at: XZ; yaw?: number; w?: number }
+  | { k: "plant"; at: XZ; s?: number }
+  | { k: "rug"; at: XZ; w: number; d: number; color: string; yaw?: number }
+  | { k: "frame"; at: XZ; yaw?: number; y?: number; w?: number; h?: number; colors?: [string, string, string] }
+  | { k: "clock"; at: XZ; yaw?: number; y?: number }
+  | { k: "dispenser"; at: XZ; yaw?: number }
+  | { k: "cabinet"; at: XZ; yaw?: number; w?: number; h?: number; d?: number; color?: string }
+  | { k: "lamp"; at: XZ; y: number; style?: "pendant" | "tube" };
+
+export type RoomLayout = {
+  id: string;
+  room: { x0: number; x1: number; z0: number; z1: number; h: number };
+  openings: Opening[];
+  pieces: Piece[];
+  marks: Record<string, { pos: V3; yaw: number; what: string }>;
+  palette: { wall: string; wallLow?: string; floor: string; floorKind: "wood" | "tile" | "carpet"; trim: string; accent: string; ceiling?: string };
+  /** what is seen through the windows by day */
+  view: "city" | "garden" | "street";
+  /** sound of the room */
+  ambience: "room" | "class" | "office" | "cafe";
+  /** horizontal direction cameras prefer around a subject (default +z) */
+  viewSide?: V3;
+  /** a home (people wear socks indoors) */
+  home?: boolean;
+};
+
+const FW = (yaw: number): XZ => [Math.sin(yaw), Math.cos(yaw)];
+const R = (yaw: number, lx: number, lz: number): XZ => [lx * Math.cos(yaw) + lz * Math.sin(yaw), -lx * Math.sin(yaw) + lz * Math.cos(yaw)];
+
+/** Chair offset behind a desk (the sitter faces the desk's yaw). */
+export const DESK_CHAIR = 0.62;
+export const SEAT_H = { chair: 0.47, stool: 0.62, sofa: 0.45, schoolDesk: 0.45 };
+
+/** Every seat a layout offers (pelvis point on the seat, facing yaw). */
+export const roomSeats = (L: RoomLayout): Record<string, Seat> => {
+  const out: Record<string, Seat> = {};
+  for (const p of L.pieces) {
+    const yaw = "yaw" in p && p.yaw !== undefined ? p.yaw : 0;
+    const f = FW(yaw);
+    if ((p.k === "desk" || p.k === "schoolDesk") && p.seat) {
+      const back = p.k === "desk" ? DESK_CHAIR : 0.5;
+      out[p.seat] = { pos: [p.at[0] - f[0] * back, 0, p.at[1] - f[1] * back], yaw, height: p.k === "desk" ? SEAT_H.chair : SEAT_H.schoolDesk };
+    }
+    if ((p.k === "chair" || p.k === "stool") && p.seat) out[p.seat] = { pos: [p.at[0] + f[0] * 0.03, 0, p.at[1] + f[1] * 0.03], yaw, height: p.k === "stool" ? SEAT_H.stool : SEAT_H.chair };
+    if (p.k === "armchair" && p.seat) out[p.seat] = { pos: [p.at[0] + f[0] * 0.06, 0, p.at[1] + f[1] * 0.06], yaw, height: SEAT_H.sofa };
+    if (p.k === "sofa" && p.seats) {
+      const w = p.w ?? 2.0, n = p.seats.length;
+      p.seats.forEach((id, i) => {
+        const lx = -w / 2 + 0.25 + ((w - 0.5) * (i + 0.5)) / n;
+        const o = R(yaw, lx, 0.06);
+        out[id] = { pos: [p.at[0] + o[0], 0, p.at[1] + o[1]], yaw, height: SEAT_H.sofa };
+      });
+    }
+  }
+  return out;
+};
+
+/** Keep-out spheres for cameras: tall furniture and the walls' near zone. */
+export const roomBlockers = (L: RoomLayout): { c: V3; r: number }[] => {
+  const out: { c: V3; r: number }[] = [];
+  for (const p of L.pieces) {
+    const [x, z] = p.at;
+    switch (p.k) {
+      case "shelf": out.push({ c: [x, 1.0, z], r: Math.max(0.55, (p.w ?? 1) * 0.55) }); break;
+      case "counter": out.push({ c: [x, 0.6, z], r: 0.6 }); break;
+      case "plant": out.push({ c: [x, 0.8, z], r: 0.45 * (p.s ?? 1) }); break;
+      case "dispenser": out.push({ c: [x, 0.7, z], r: 0.35 }); break;
+      case "cabinet": out.push({ c: [x, (p.h ?? 0.9) / 2, z], r: 0.45 }); break;
+      case "desk": out.push({ c: [x, 0.5, z], r: 0.5 }); break;
+      case "cafeTable": out.push({ c: [x, 0.5, z], r: 0.4 }); break;
+      case "sofa": case "armchair": out.push({ c: [x, 0.45, z], r: 0.55 }); break;
+      case "lamp": out.push({ c: [x, p.y, z], r: 0.3 }); break;
+      default: break;
+    }
+  }
+  return out;
+};
+
+// ── the four rooms ──────────────────────────────────────────────────────────
+const H = Math.PI / 2;
+
+/** An empty classroom after lessons: whiteboard, teacher's desk, two rows of school desks. */
+export const CLASSROOM: RoomLayout = {
+  id: "classroom",
+  room: { x0: -3.6, x1: 3.6, z0: -2.4, z1: 4.4, h: 3.0 },
+  openings: [
+    { wall: "right", a: -1.6, b: -0.2, y0: 0.95, y1: 2.35, kind: "window" },
+    { wall: "right", a: 0.6, b: 2.0, y0: 0.95, y1: 2.35, kind: "window" },
+    { wall: "left", a: 1.6, b: 2.6, y0: 0, y1: 2.15, kind: "door" },
+  ],
+  pieces: [
+    { k: "board", at: [0, -2.38], w: 3.2, h: 1.2, y: 1.0, style: "white" },
+    { k: "desk", at: [-2.3, -1.3], yaw: 0.35, w: 1.2, d: 0.6, top: ["books", "mug"], color: "#b98b5e" },
+    { k: "chair", at: [-2.55, -1.95], yaw: 0.35, color: "#6b7a8f" },
+    // front row (the hero seats: free space between them and the board for the cameras)
+    { k: "schoolDesk", at: [-0.55, 0.55], yaw: Math.PI, seat: "deskL" },
+    { k: "schoolDesk", at: [0.55, 0.55], yaw: Math.PI, seat: "deskR" },
+    { k: "schoolDesk", at: [-1.95, 0.55], yaw: Math.PI },
+    { k: "schoolDesk", at: [1.95, 0.55], yaw: Math.PI },
+    { k: "schoolDesk", at: [-1.95, 1.95], yaw: Math.PI },
+    { k: "schoolDesk", at: [-0.55, 1.95], yaw: Math.PI },
+    { k: "schoolDesk", at: [0.55, 1.95], yaw: Math.PI },
+    { k: "schoolDesk", at: [1.95, 1.95], yaw: Math.PI },
+    { k: "shelf", at: [-3.3, -0.4], yaw: H, w: 1.0, h: 1.4 },
+    { k: "clock", at: [1.9, -2.38], y: 2.45 },
+    { k: "frame", at: [-1.95, -2.38], y: 1.9, w: 0.5, h: 0.65, colors: ["#e63946", "#f1faee", "#1d3557"] },
+    { k: "plant", at: [3.2, -2.0], s: 0.8 },
+    { k: "lamp", at: [-1.2, -0.6], y: 2.95, style: "tube" },
+    { k: "lamp", at: [1.2, -0.6], y: 2.95, style: "tube" },
+    { k: "lamp", at: [0, 1.8], y: 2.95, style: "tube" },
+  ],
+  marks: {
+    center: { pos: [0, 0, -0.75], yaw: 0, what: "in front of the class, facing the desks" },
+    board: { pos: [-0.9, 0, -1.65], yaw: 0.2, what: "at the whiteboard, facing the class (a teacher / presenter)" },
+    talkL: { pos: [-0.42, 0, -0.85], yaw: H, what: "two people talking in front of the class (left)" },
+    talkR: { pos: [0.42, 0, -0.95], yaw: -H, what: "two people talking in front of the class (right)" },
+    window: { pos: [2.9, 0, -0.9], yaw: H, what: "at the window, looking out" },
+    door: { pos: [-2.9, 0, 2.1], yaw: H, what: "just inside the door" },
+  },
+  palette: { wall: "#f1e4c8", wallLow: "#8fb39a", floor: "#d8d2c4", floorKind: "tile", trim: "#f7f3ea", accent: "#3e7cb1" },
+  view: "garden",
+  ambience: "class",
+  viewSide: [1, 0, 0.25],
+};
+
+/** A small modern office: two desks facing the room, a window wall with the city, shelves, dispenser. */
+export const OFFICE: RoomLayout = {
+  id: "office",
+  room: { x0: -3.4, x1: 3.4, z0: -2.2, z1: 3.8, h: 2.9 },
+  openings: [
+    { wall: "back", a: -3.0, b: -0.6, y0: 0.7, y1: 2.5, kind: "window" },
+    { wall: "back", a: 0.6, b: 3.0, y0: 0.7, y1: 2.5, kind: "window" },
+    { wall: "left", a: 1.4, b: 2.4, y0: 0, y1: 2.15, kind: "door" },
+  ],
+  pieces: [
+    { k: "desk", at: [-0.85, -0.55], yaw: 0, w: 1.3, d: 0.7, top: ["laptop", "mug"], seat: "deskA", color: "#d6d0c6" },
+    { k: "desk", at: [0.85, -0.55], yaw: 0, w: 1.3, d: 0.7, top: ["laptop", "plant"], seat: "deskB", color: "#d6d0c6" },
+    { k: "desk", at: [-2.45, 0.9], yaw: H, w: 1.2, d: 0.65, top: ["monitor", "books"], color: "#d6d0c6" },
+    { k: "chair", at: [-3.05, 0.9], yaw: H, color: "#2f3542" },
+    { k: "shelf", at: [3.05, 0.6], yaw: -H, w: 1.2, h: 1.9 },
+    { k: "cabinet", at: [3.05, -1.3], yaw: -H, w: 1.0, h: 0.9, d: 0.5, color: "#d9d4cc" },
+    { k: "dispenser", at: [-3.05, -1.75], yaw: H },
+    { k: "plant", at: [0, -1.9], s: 1.1 },
+    { k: "plant", at: [3.0, 2.2], s: 0.9 },
+    { k: "frame", at: [-3.38, -0.4], yaw: H, y: 1.6, w: 0.9, h: 0.6, colors: ["#264653", "#2a9d8f", "#e9c46a"] },
+    { k: "clock", at: [3.38, -0.3], yaw: -H, y: 2.2 },
+    { k: "lamp", at: [-0.85, -0.3], y: 2.85, style: "pendant" },
+    { k: "lamp", at: [0.85, -0.3], y: 2.85, style: "pendant" },
+    { k: "lamp", at: [0, 1.9], y: 2.85, style: "tube" },
+  ],
+  marks: {
+    center: { pos: [0, 0, 0.75], yaw: 0, what: "in the middle of the office, in front of the desks" },
+    talkL: { pos: [-0.42, 0, 0.85], yaw: H, what: "two colleagues talking (left)" },
+    talkR: { pos: [0.42, 0, 0.75], yaw: -H, what: "two colleagues talking (right)" },
+    window: { pos: [1.9, 0, -1.55], yaw: Math.PI, what: "at the window, looking at the city" },
+    dispenser: { pos: [-2.55, 0, -1.45], yaw: -H, what: "at the water dispenser" },
+    door: { pos: [-2.75, 0, 1.9], yaw: H, what: "just inside the door" },
+  },
+  palette: { wall: "#d9dee2", wallLow: "#d9dee2", floor: "#8d939c", floorKind: "carpet", trim: "#eceae6", accent: "#2a9d8f" },
+  view: "city",
+  ambience: "office",
+};
+
+/** A cosy café: counter with an espresso machine and a chalk menu, small tables, street window. */
+export const CAFE: RoomLayout = {
+  id: "cafe",
+  room: { x0: -3.6, x1: 3.6, z0: -2.6, z1: 4.0, h: 3.0 },
+  openings: [
+    { wall: "left", a: -1.8, b: 2.4, y0: 0.55, y1: 2.6, kind: "window" },
+    { wall: "right", a: 1.6, b: 2.6, y0: 0, y1: 2.2, kind: "door" },
+  ],
+  pieces: [
+    { k: "counter", at: [0.9, -1.95], w: 3.2, d: 0.7, h: 1.02, machine: true },
+    { k: "board", at: [0.9, -2.58], w: 1.8, h: 0.9, y: 1.55, style: "menu" },
+    { k: "shelf", at: [-1.9, -2.42], w: 1.2, h: 1.7 },
+    // the hero table: two chairs facing each other across it (people in profile to the cameras)
+    { k: "cafeTable", at: [0.1, 0.5], cups: 2 },
+    { k: "chair", at: [-0.55, 0.5], yaw: H, seat: "tableL", color: "#8a5a3c" },
+    { k: "chair", at: [0.75, 0.5], yaw: -H, seat: "tableR", color: "#8a5a3c" },
+    { k: "cafeTable", at: [-2.6, 1.4], cups: 1 },
+    { k: "chair", at: [-2.6, 0.8], yaw: 0, seat: "window", color: "#8a5a3c" },
+    { k: "chair", at: [-2.6, 2.0], yaw: Math.PI, color: "#8a5a3c" },
+    { k: "cafeTable", at: [2.7, 0.2], cups: 0 },
+    { k: "chair", at: [2.7, -0.4], yaw: 0, color: "#8a5a3c" },
+    { k: "stool", at: [-0.3, -1.25], yaw: Math.PI, seat: "bar" },
+    { k: "stool", at: [0.6, -1.25], yaw: Math.PI },
+    { k: "plant", at: [3.2, -2.2], s: 1.0 },
+    { k: "plant", at: [-3.25, -2.2], s: 0.8 },
+    { k: "frame", at: [3.58, -0.6], yaw: -H, y: 1.7, w: 0.7, h: 0.9, colors: ["#6d4c41", "#ffcc80", "#3e2723"] },
+    { k: "lamp", at: [0.1, 0.5], y: 2.2, style: "pendant" },
+    { k: "lamp", at: [-2.6, 1.4], y: 2.2, style: "pendant" },
+    { k: "lamp", at: [0.9, -1.6], y: 2.3, style: "pendant" },
+    { k: "lamp", at: [2.7, 0.2], y: 2.2, style: "pendant" },
+  ],
+  marks: {
+    center: { pos: [0.1, 0, 1.45], yaw: 0, what: "standing in the middle of the café" },
+    counter: { pos: [1.6, 0, -1.2], yaw: Math.PI, what: "at the counter, ordering (back to the cameras: use for 1–2 beats)" },
+    talkL: { pos: [-0.35, 0, 1.6], yaw: H, what: "two people talking, standing (left)" },
+    talkR: { pos: [0.5, 0, 1.5], yaw: -H, what: "two people talking, standing (right)" },
+    window: { pos: [-2.95, 0, 0.0], yaw: -H, what: "at the window, looking at the street" },
+    door: { pos: [2.9, 0, 2.1], yaw: -H, what: "just inside the door" },
+  },
+  palette: { wall: "#efe2cf", wallLow: "#6f4e37", floor: "#9c6b45", floorKind: "wood", trim: "#3b2a20", accent: "#d4a373" },
+  view: "street",
+  ambience: "cafe",
+};
+
+/** A family living room: sofa, coffee table, TV cabinet, window, front door, family photos. */
+export const LIVINGROOM: RoomLayout = {
+  id: "livingroom",
+  room: { x0: -3.4, x1: 3.2, z0: -2.2, z1: 4.0, h: 2.85 },
+  openings: [
+    { wall: "left", a: -1.4, b: 0.6, y0: 0.8, y1: 2.3, kind: "window" },
+    { wall: "back", a: 2.0, b: 2.95, y0: 0, y1: 2.15, kind: "door" },
+  ],
+  pieces: [
+    { k: "sofa", at: [-0.3, -1.55], yaw: 0, w: 2.2, seats: ["sofaL", "sofaR"], color: "#5b7fa6" },
+    { k: "armchair", at: [-2.45, 0.1], yaw: H, seat: "armchair", color: "#d68c45" },
+    { k: "coffeeTable", at: [-0.3, -0.45], w: 1.1, d: 0.55 },
+    { k: "rug", at: [-0.3, -0.6], w: 2.8, d: 2.0, color: "#c9a27e" },
+    { k: "cabinet", at: [2.85, 0.3], yaw: -H, w: 1.6, h: 0.5, d: 0.45, color: "#8a6243" },
+    { k: "tv", at: [2.85, 0.3], yaw: -H, w: 1.2 },
+    { k: "shelf", at: [-2.75, -1.95], w: 0.9, h: 1.8 },
+    { k: "plant", at: [1.35, -1.85], s: 1.0 },
+    { k: "frame", at: [-0.7, -2.18], y: 1.75, w: 0.55, h: 0.45, colors: ["#f4a261", "#e76f51", "#264653"] },
+    { k: "frame", at: [0.05, -2.18], y: 1.85, w: 0.45, h: 0.55, colors: ["#a8dadc", "#457b9d", "#1d3557"] },
+    { k: "clock", at: [0.75, -2.18], y: 1.95 },
+    { k: "lamp", at: [-0.3, -0.5], y: 2.8, style: "pendant" },
+    { k: "lamp", at: [1.4, 1.6], y: 2.8, style: "pendant" },
+  ],
+  marks: {
+    center: { pos: [0.4, 0, 0.9], yaw: 0, what: "standing in the middle of the room" },
+    talkL: { pos: [-0.02, 0, 0.95], yaw: H, what: "two people talking, standing (left)" },
+    talkR: { pos: [0.82, 0, 0.85], yaw: -H, what: "two people talking, standing (right)" },
+    window: { pos: [-2.75, 0, -0.8], yaw: -H, what: "at the window" },
+    door: { pos: [2.45, 0, -1.4], yaw: Math.PI, what: "at the front door (back to the cameras: 1–2 beats)" },
+    tv: { pos: [1.6, 0, 0.3], yaw: H, what: "standing by the TV" },
+  },
+  palette: { wall: "#e6d9c6", wallLow: "#e6d9c6", floor: "#b08a64", floorKind: "wood", trim: "#ece8e0", accent: "#e9c46a" },
+  view: "garden",
+  ambience: "room",
+  home: true,
+};
+
+export const ROOMS = { classroom: CLASSROOM, office: OFFICE, cafe: CAFE, livingroom: LIVINGROOM };
+
+==== 26220 src/kits/characterflow/env/Room.tsx
+// Generic indoor set: draws any RoomLayout (room.data.ts) — floor, four walls with window / door openings
+// and the view outside, ceiling with lamps, and the furniture pieces. Everything is built from the same
+// small parts (rounded boxes, cylinders, spheres) and shared materials, so a new room is data only.
+
+import React from "react";
+import { DoubleSide, PlaneGeometry } from "three";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { basic, phys, shade } from "../lib/mats.ts";
+import { boardTex, carpetTex, paintTex, plankTex, spineColors, tileTex, viewTex } from "./textures.ts";
+import { DESK_CHAIR, type Piece, type RoomLayout, type Wall } from "./room.data.ts";
+import type { TimeOfDay } from "./registry.ts";
+
+type M = ReturnType<typeof mats>;
+const mats = (L: RoomLayout) => {
+  const P = L.palette;
+  const w = P.wall, rx = L.room.x1 - L.room.x0, rz = L.room.z1 - L.room.z0;
+  return {
+    wall: phys(`rmwall${L.id}`, { color: "#ffffff", map: paintTex(`rm${L.id}`, w, [3, 2]), roughness: 0.92 }),
+    wallLow: phys(`rmwallLow${L.id}`, { color: "#ffffff", map: paintTex(`rmL${L.id}`, P.wallLow ?? w, [3, 1]), roughness: 0.85 }),
+    floor: phys(`rmfloor${L.id}`, {
+      color: "#ffffff",
+      map: P.floorKind === "wood" ? plankTex([rx / 1.6, rz / 3.2], P.floor) : P.floorKind === "tile" ? tileTex(P.floor, [rx / 2, rz / 2]) : carpetTex(P.floor, [rx / 1.2, rz / 1.2]),
+      roughness: P.floorKind === "carpet" ? 0.95 : 0.55,
+      clearcoat: P.floorKind === "wood" ? 0.2 : P.floorKind === "tile" ? 0.12 : 0,
+      clearcoatRoughness: 0.45,
+    }),
+    ceiling: phys(`rmceil${L.id}`, { color: P.ceiling ?? "#e8e5df", roughness: 0.95 }),
+    trim: phys(`rmtrim${P.trim}`, { color: P.trim, roughness: 0.45, clearcoat: 0.3 }),
+    accent: phys(`rmacc${P.accent}`, { color: P.accent, roughness: 0.6, sheen: 0.4 }),
+    wood: phys("rmwood", { color: "#b98b5e", roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.4 }),
+    woodDark: phys("rmwoodD", { color: "#6b4a33", roughness: 0.55 }),
+    white: phys("rmwhite", { color: "#e4e1db", roughness: 0.4, clearcoat: 0.3 }),
+    metal: phys("rmmetal", { color: "#b9bcc2", roughness: 0.3, metalness: 0.8 }),
+    dark: phys("rmdark", { color: "#2b2d33", roughness: 0.45 }),
+    glass: phys("rmglass", { color: "#cfe6f5", roughness: 0.05, transmission: 0.9, thickness: 0.01, transparent: true, opacity: 0.25 }),
+    leaf: phys("rmleaf", { color: "#3f8f5a", roughness: 0.6, sheen: 0.4, sheenColor: "#a8e6b8" }),
+    pot: phys("rmpot", { color: "#e07a5f", roughness: 0.7 }),
+    screen: phys("rmscreen", { color: "#0d1520", emissive: "#7fb2ff", emissiveIntensity: 0.55, roughness: 0.2, clearcoat: 1 }),
+  };
+};
+
+const T = 0.12; // wall thickness
+
+/** A wall along its own axis from 0 to len, height h, with openings; drawn in local coords (x along, z out). */
+const WallMesh: React.FC<{ len: number; h: number; holes: { a: number; b: number; y0: number; y1: number }[]; m: M; split: number; shadow: boolean }> = ({ len, h, holes, m, split, shadow }) => {
+  const cuts = [...new Set([0, len, ...holes.flatMap((o) => [o.a, o.b])])].sort((a, b) => a - b);
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const a = cuts[i], b = cuts[i + 1], mid = (a + b) / 2, w = b - a;
+    if (w < 0.005) continue;
+    const hole = holes.find((o) => mid > o.a && mid < o.b);
+    const spans: [number, number][] = hole ? [[0, hole.y0], [hole.y1, h]] : [[0, h]];
+    for (const [y0, y1] of spans) {
+      if (y1 - y0 < 0.005) continue;
+      // two-tone wall: a lower band up to `split`
+      const parts: [number, number, boolean][] = y0 < split && y1 > split ? [[y0, split, true], [split, y1, false]] : [[y0, y1, y0 < split]];
+      for (const [p0, p1, low] of parts)
+        out.push(<mesh key={`${i}-${p0}`} geometry={box(w, p1 - p0, T, 0.004)} material={low ? m.wallLow : m.wall} position={[mid, (p0 + p1) / 2, 0]} castShadow={shadow} receiveShadow />);
+    }
+  }
+  // a dado rail on two-tone walls
+  if (split > 0) out.push(<mesh key="rail" geometry={box(len, 0.04, 0.03, 0.01)} material={m.trim} position={[len / 2, split, T / 2 + 0.01]} />);
+  out.push(<mesh key="base" geometry={box(len, 0.09, 0.02, 0.005)} material={m.trim} position={[len / 2, 0.045, T / 2 + 0.01]} />);
+  return <>{out}</>;
+};
+
+const WindowFrame: React.FC<{ w: number; y0: number; y1: number; m: M; view: RoomLayout["view"]; time: TimeOfDay }> = ({ w, y0, y1, m, view, time }) => {
+  const hh = y1 - y0, cy = (y0 + y1) / 2;
+  const viewMat = basic(`rmview${view}${time}`, { map: viewTex(view, time), toneMapped: true });
+  return (
+    <group>
+      {[y0, y1, cy].map((y, i) => <mesh key={`h${i}`} geometry={box(w, 0.05, 0.07, 0.01)} material={m.white} position={[w / 2, y, 0.02]} castShadow />)}
+      {[0, w, w / 2].map((x, i) => <mesh key={`v${i}`} geometry={box(0.05, hh, 0.07, 0.01)} material={m.white} position={[x, cy, 0.02]} castShadow />)}
+      <mesh geometry={box(w + 0.12, 0.04, 0.2, 0.012)} material={m.white} position={[w / 2, y0 - 0.02, 0.1]} castShadow receiveShadow />
+      <mesh geometry={cached(`rmviewplane${w}`, () => new PlaneGeometry(w * 2.2, hh * 2.4))} material={viewMat} position={[w / 2, cy + 0.2, -1.6]} />
+    </group>
+  );
+};
+
+const Door: React.FC<{ w: number; h: number; m: M }> = ({ w, h, m }) => (
+  <group>
+    <mesh geometry={box(w - 0.06, h - 0.03, 0.05, 0.01)} material={m.woodDark} position={[w / 2, (h - 0.03) / 2, -0.02]} castShadow receiveShadow />
+    {[0, w].map((x, i) => <mesh key={i} geometry={box(0.07, h, 0.15, 0.01)} material={m.trim} position={[x, h / 2, 0]} />)}
+    <mesh geometry={box(w + 0.07, 0.07, 0.15, 0.01)} material={m.trim} position={[w / 2, h, 0]} />
+    <mesh geometry={sphere(0.03, 12, 8)} material={m.metal} position={[w - 0.12, 1.0, 0.03]} />
+  </group>
+);
+
+// ── furniture ───────────────────────────────────────────────────────────────
+const Legs: React.FC<{ w: number; d: number; h: number; r?: number; m: React.ComponentProps<"mesh">["material"] }> = ({ w, d, h, r = 0.022, m }) => (
+  <>{[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => <mesh key={i} geometry={cyl(r, r * 0.85, h, 10)} material={m} position={[sx * (w / 2 - 0.05), h / 2, sz * (d / 2 - 0.05)]} castShadow />)}</>
+);
+
+const Chair: React.FC<{ color?: string; m: M }> = ({ color = "#6b7a8f", m }) => {
+  const c = phys(`rmchair${color}`, { color, roughness: 0.6, sheen: 0.3 });
+  return (
+    <group>
+      <mesh geometry={box(0.44, 0.05, 0.42, 0.02)} material={c} position={[0, 0.455, 0]} castShadow receiveShadow />
+      <mesh geometry={box(0.44, 0.44, 0.05, 0.02)} material={c} position={[0, 0.72, -0.2]} rotation={[-0.08, 0, 0]} castShadow />
+      <Legs w={0.42} d={0.4} h={0.44} r={0.016} m={m.dark} />
+    </group>
+  );
+};
+
+const Laptop: React.FC<{ m: M }> = ({ m }) => (
+  <group>
+    <mesh geometry={box(0.34, 0.018, 0.24, 0.008)} material={m.metal} position={[0, 0.009, 0]} castShadow />
+    <group position={[0, 0.018, 0.12]} rotation={[0.32, 0, 0]}>
+      <mesh geometry={box(0.34, 0.23, 0.012, 0.006)} material={m.metal} position={[0, 0.115, 0]} castShadow />
+      <mesh geometry={cached("rmlapscr", () => new PlaneGeometry(0.31, 0.2))} material={m.screen} position={[0, 0.118, -0.0065]} rotation={[0, Math.PI, 0]} />
+    </group>
+  </group>
+);
+
+const Books: React.FC<{ n?: number }> = ({ n = 4 }) => (
+  <>{Array.from({ length: n }, (_, k) => <mesh key={k} geometry={box(0.24, 0.04, 0.17, 0.006)} material={phys(`rmbook${k}`, { color: spineColors[k % spineColors.length], roughness: 0.6 })} position={[0, 0.02 + k * 0.041, 0]} rotation={[0, 0.15 * (k % 2 ? 1 : -1), 0]} castShadow />)}</>
+);
+const Mug: React.FC<{ m: M; color?: string }> = ({ m, color }) => (
+  <mesh geometry={cyl(0.04, 0.035, 0.095, 18)} material={color ? phys(`rmmug${color}`, { color, roughness: 0.35, clearcoat: 0.5 }) : m.white} position={[0, 0.048, 0]} castShadow />
+);
+const SmallPlant: React.FC<{ m: M }> = ({ m }) => (
+  <group>
+    <mesh geometry={cyl(0.06, 0.045, 0.1, 18)} material={m.pot} position={[0, 0.05, 0]} castShadow />
+    {[0, 1, 2, 3, 4].map((k) => <mesh key={k} geometry={sphere(0.05, 12, 8)} material={m.leaf} position={[0.05 * Math.cos(k * 1.3), 0.14 + 0.025 * (k % 2), 0.05 * Math.sin(k * 1.3)]} scale={[1, 0.5, 0.7]} rotation={[0.3 * k, k, 0.5]} castShadow />)}
+  </group>
+);
+
+const PieceView: React.FC<{ p: Piece; m: M; night: boolean }> = ({ p, m, night }) => {
+  const yaw = "yaw" in p && p.yaw !== undefined ? p.yaw : 0;
+  const at: [number, number, number] = [p.at[0], 0, p.at[1]];
+  switch (p.k) {
+    case "desk": {
+      const w = p.w ?? 1.2, d = p.d ?? 0.6, top = p.top ?? [];
+      const mat = phys(`rmdesk${p.color ?? "w"}`, { color: p.color ?? "#b98b5e", roughness: 0.45, clearcoat: 0.3 });
+      const slots = [-w / 2 + 0.25, w / 2 - 0.22, 0.05];
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, 0.04, d, 0.012)} material={mat} position={[0, 0.74, 0]} castShadow receiveShadow />
+          <Legs w={w} d={d} h={0.72} m={m.dark} />
+          <mesh geometry={box(w - 0.12, 0.3, 0.02, 0.006)} material={mat} position={[0, 0.55, d / 2 - 0.04]} castShadow />
+          {top.map((it, i) => (
+            <group key={i} position={[it === "laptop" ? -w / 2 + 0.3 : slots[(i + 1) % 2], 0.76, it === "laptop" ? -0.06 : 0.05]} rotation={[0, it === "laptop" ? Math.PI - 0.45 : 0.3, 0]}>
+              {it === "laptop" ? <Laptop m={m} /> : it === "books" ? <Books n={3} /> : it === "mug" ? <Mug m={m} color="#e76f51" /> : it === "plant" ? <SmallPlant m={m} /> : (
+                <group>
+                  <mesh geometry={box(0.52, 0.32, 0.03, 0.01)} material={m.dark} position={[0, 0.3, 0.1]} castShadow />
+                  <mesh geometry={cached("rmmonscr", () => new PlaneGeometry(0.48, 0.28))} material={m.screen} position={[0, 0.3, 0.084]} rotation={[0, Math.PI, 0]} />
+                  <mesh geometry={cyl(0.015, 0.015, 0.15, 8)} material={m.dark} position={[0, 0.08, 0.1]} />
+                  <mesh geometry={box(0.2, 0.015, 0.15, 0.005)} material={m.dark} position={[0, 0.008, 0.1]} />
+                </group>
+              )}
+            </group>
+          ))}
+          {p.seat ? <group position={[0, 0, -DESK_CHAIR]}><Chair m={m} color="#2f3542" /></group> : null}
+        </group>
+      );
+    }
+    case "schoolDesk":
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(0.62, 0.035, 0.45, 0.01)} material={m.wood} position={[0, 0.71, 0]} castShadow receiveShadow />
+          <mesh geometry={box(0.58, 0.012, 0.4, 0.004)} material={m.dark} position={[0, 0.62, 0]} castShadow />
+          <Legs w={0.6} d={0.43} h={0.7} r={0.015} m={m.metal} />
+          <group position={[0, 0, -0.5]}><Chair m={m} color="#3e7cb1" /></group>
+        </group>
+      );
+    case "chair":
+      return <group position={at} rotation={[0, yaw, 0]}><Chair m={m} color={p.color} /></group>;
+    case "stool":
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={cyl(0.19, 0.19, 0.05, 24)} material={m.woodDark} position={[0, 0.62, 0]} castShadow receiveShadow />
+          <mesh geometry={cyl(0.025, 0.025, 0.6, 10)} material={m.metal} position={[0, 0.3, 0]} castShadow />
+          <mesh geometry={cyl(0.18, 0.2, 0.025, 24)} material={m.metal} position={[0, 0.012, 0]} />
+        </group>
+      );
+    case "sofa": case "armchair": {
+      const w = p.k === "sofa" ? p.w ?? 2.0 : 0.95;
+      const c = phys(`rmsofa${p.color}`, { color: p.color ?? "#5b7fa6", roughness: 0.85, sheen: 0.7, sheenColor: shade(p.color ?? "#5b7fa6", 1.6) });
+      const n = p.k === "sofa" ? Math.max(2, (p.seats ?? []).length || 2) : 1;
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, 0.3, 0.85, 0.06)} material={c} position={[0, 0.22, 0]} castShadow receiveShadow />
+          <mesh geometry={box(w, 0.55, 0.2, 0.08)} material={c} position={[0, 0.6, -0.33]} castShadow receiveShadow />
+          {[-1, 1].map((s) => <mesh key={s} geometry={box(0.18, 0.5, 0.85, 0.07)} material={c} position={[s * (w / 2 - 0.09), 0.37, 0]} castShadow receiveShadow />)}
+          {Array.from({ length: n }, (_, i) => {
+            const cw = (w - 0.36) / n;
+            return <mesh key={i} geometry={box(cw - 0.03, 0.12, 0.62, 0.05)} material={c} position={[-w / 2 + 0.18 + cw * (i + 0.5), 0.41, 0.08]} castShadow receiveShadow />;
+          })}
+          {p.k === "sofa" ? <mesh geometry={box(0.42, 0.36, 0.13, 0.06)} material={m.accent} position={[w / 2 - 0.42, 0.62, -0.18]} rotation={[-0.2, -0.15, 0.04]} castShadow /> : null}
+          <Legs w={w - 0.1} d={0.75} h={0.07} r={0.025} m={m.woodDark} />
+        </group>
+      );
+    }
+    case "coffeeTable": {
+      const w = p.w ?? 1.0, d = p.d ?? 0.55;
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, 0.05, d, 0.015)} material={m.wood} position={[0, 0.42, 0]} castShadow receiveShadow />
+          <mesh geometry={box(w - 0.1, 0.03, d - 0.1, 0.01)} material={m.woodDark} position={[0, 0.14, 0]} castShadow receiveShadow />
+          <Legs w={w} d={d} h={0.41} r={0.02} m={m.woodDark} />
+          <group position={[0.22, 0.445, 0.05]}><Mug m={m} color="#2a9d8f" /></group>
+          <group position={[-0.25, 0.445, -0.04]}><Books n={2} /></group>
+        </group>
+      );
+    }
+    case "cafeTable": {
+      const r = p.r ?? 0.36;
+      return (
+        <group position={at}>
+          <mesh geometry={cyl(r, r, 0.035, 40)} material={m.wood} position={[0, 0.74, 0]} castShadow receiveShadow />
+          <mesh geometry={cyl(0.03, 0.03, 0.72, 10)} material={m.dark} position={[0, 0.37, 0]} castShadow />
+          <mesh geometry={cyl(0.22, 0.24, 0.025, 24)} material={m.dark} position={[0, 0.012, 0]} />
+          {Array.from({ length: p.cups ?? 0 }, (_, i) => (
+            <group key={i} position={[(i ? 1 : -1) * r * 0.45, 0.76, (i ? -0.06 : 0.05)]}>
+              <mesh geometry={cyl(0.07, 0.07, 0.008, 20)} material={m.white} position={[0, 0.004, 0]} />
+              <mesh geometry={cyl(0.042, 0.034, 0.075, 18)} material={m.white} position={[0, 0.045, 0]} castShadow />
+              <mesh geometry={cyl(0.037, 0.037, 0.004, 18)} material={phys("rmcoffee", { color: "#5a3a22", roughness: 0.2, clearcoat: 1 })} position={[0, 0.078, 0]} />
+            </group>
+          ))}
+        </group>
+      );
+    }
+    case "counter": {
+      const w = p.w ?? 3, d = p.d ?? 0.6, h = p.h ?? 1.0;
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, h - 0.05, d, 0.02)} material={m.woodDark} position={[0, (h - 0.05) / 2, 0]} castShadow receiveShadow />
+          <mesh geometry={box(w + 0.08, 0.05, d + 0.1, 0.012)} material={phys("rmcountertop", { color: "#e8e1d6", roughness: 0.25, clearcoat: 0.6 })} position={[0, h - 0.025, 0.02]} castShadow receiveShadow />
+          {Array.from({ length: Math.floor(w / 0.5) }, (_, i) => <mesh key={i} geometry={box(0.42, h - 0.2, 0.01, 0.004)} material={m.wood} position={[-w / 2 + 0.27 + i * 0.5, (h - 0.05) / 2, d / 2 + 0.004]} />)}
+          {p.machine ? (
+            <group position={[w / 2 - 0.6, h, -0.05]}>
+              <mesh geometry={box(0.55, 0.42, 0.4, 0.04)} material={phys("rmespresso", { color: "#c0392b", roughness: 0.25, clearcoat: 0.8 })} position={[0, 0.21, 0]} castShadow />
+              <mesh geometry={box(0.5, 0.05, 0.38, 0.01)} material={m.metal} position={[0, 0.445, 0]} castShadow />
+              {[-0.12, 0.12].map((x) => <mesh key={x} geometry={cyl(0.03, 0.03, 0.08, 12)} material={m.metal} position={[x, 0.12, 0.22]} rotation={[Math.PI / 2, 0, 0]} />)}
+              {[0, 1, 2].map((k) => <mesh key={k} geometry={cyl(0.04, 0.034, 0.08, 16)} material={m.white} position={[-0.15 + k * 0.15, 0.49, 0]} castShadow />)}
+            </group>
+          ) : null}
+          <group position={[-w / 2 + 0.5, h, 0.05]}>
+            <mesh geometry={box(0.3, 0.2, 0.25, 0.03)} material={m.dark} position={[0, 0.1, 0]} castShadow />
+            <mesh geometry={box(0.26, 0.14, 0.02, 0.01)} material={m.screen} position={[0, 0.27, 0.02]} rotation={[-0.4, 0, 0]} />
+          </group>
+          <mesh geometry={cyl(0.16, 0.12, 0.12, 24, true)} material={phys("rmjar", { color: "#f3ead8", roughness: 0.1, transmission: 0.6, transparent: true, opacity: 0.6, side: DoubleSide })} position={[-w / 2 + 1.1, h + 0.06, 0.05]} />
+        </group>
+      );
+    }
+    case "shelf": {
+      const w = p.w ?? 1.0, h = p.h ?? 1.9, d = 0.32, rows = Math.max(2, Math.round(h / 0.42));
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          {[-1, 1].map((s) => <mesh key={s} geometry={box(0.03, h, d, 0.008)} material={m.wood} position={[s * (w / 2 - 0.015), h / 2, 0]} castShadow receiveShadow />)}
+          <mesh geometry={box(w, h, 0.02, 0.005)} material={m.woodDark} position={[0, h / 2, -d / 2 + 0.01]} receiveShadow />
+          {Array.from({ length: rows + 1 }, (_, r) => <mesh key={r} geometry={box(w, 0.025, d, 0.006)} material={m.wood} position={[0, 0.03 + (r * (h - 0.06)) / rows, 0]} castShadow receiveShadow />)}
+          {Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: Math.floor((w - 0.1) / 0.05) }, (_, k) => (k * 7 + r * 3) % 11 === 0 ? null : (
+              <mesh key={`${r}-${k}`} geometry={box(0.04, 0.22 + ((k + r) % 3) * 0.04, 0.2, 0.005)} material={phys(`rmspine${(k + r) % 8}`, { color: spineColors[(k + r) % 8], roughness: 0.65 })} position={[-w / 2 + 0.07 + k * 0.05, 0.045 + (r * (h - 0.06)) / rows + 0.11 + ((k + r) % 3) * 0.02, 0.02]} castShadow />
+            )))}
+        </group>
+      );
+    }
+    case "board": {
+      const w = p.w ?? 2.4, h = p.h ?? 1.2, y = p.y ?? 0.95, st = p.style ?? "white";
+      return (
+        <group position={[at[0], y, at[2]]} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w + 0.08, h + 0.08, 0.03, 0.01)} material={st === "white" ? m.metal : m.woodDark} position={[0, h / 2, 0.015]} castShadow />
+          <mesh geometry={cached(`rmboard${w},${h}`, () => new PlaneGeometry(w, h))} material={phys(`rmboard${st}`, { map: boardTex(st), roughness: st === "white" ? 0.25 : 0.9, clearcoat: st === "white" ? 0.6 : 0 })} position={[0, h / 2, 0.032]} />
+          {st === "white" ? <mesh geometry={box(w * 0.6, 0.03, 0.07, 0.008)} material={m.metal} position={[0, -0.02, 0.05]} /> : null}
+        </group>
+      );
+    }
+    case "tv": {
+      const w = p.w ?? 1.2;
+      return (
+        <group position={[at[0], 0.5, at[2]]} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, w * 0.58, 0.05, 0.01)} material={m.dark} position={[0, 0.42, 0.04]} castShadow />
+          <mesh geometry={cached(`rmtvscr${w}`, () => new PlaneGeometry(w - 0.04, w * 0.58 - 0.04))} material={night ? phys("rmtvon", { color: "#0d1520", emissive: "#5a8fd8", emissiveIntensity: 0.35, roughness: 0.2 }) : phys("rmtvoff", { color: "#11151c", roughness: 0.15, clearcoat: 1 })} position={[0, 0.42, 0.066]} />
+          <mesh geometry={box(0.3, 0.02, 0.18, 0.005)} material={m.dark} position={[0, 0.02, 0.04]} />
+        </group>
+      );
+    }
+    case "plant": {
+      const s = p.s ?? 1;
+      return (
+        <group position={at} scale={[s, s, s]}>
+          <mesh geometry={cyl(0.18, 0.14, 0.38, 24)} material={m.pot} position={[0, 0.19, 0]} castShadow receiveShadow />
+          {Array.from({ length: 10 }, (_, k) => <mesh key={k} geometry={sphere(0.17, 16, 10)} material={m.leaf} position={[0.19 * Math.cos(k * 2.4), 0.55 + 0.09 * k, 0.19 * Math.sin(k * 2.4)]} scale={[1, 0.22, 0.62]} rotation={[0.4 * Math.sin(k), k * 2.4, 0.35]} castShadow />)}
+        </group>
+      );
+    }
+    case "rug":
+      return <mesh geometry={cached(`rmrug${p.w},${p.d}`, () => new PlaneGeometry(p.w, p.d))} material={phys(`rmrug${p.color}`, { color: p.color, roughness: 0.97, sheen: 0.6, sheenColor: "#ffffff" })} position={[at[0], 0.006, at[2]]} rotation={[-Math.PI / 2, 0, yaw]} receiveShadow />;
+    case "frame": {
+      const w = p.w ?? 0.5, h = p.h ?? 0.6, [a, b, c] = p.colors ?? ["#f4a261", "#2a9d8f", "#264653"];
+      return (
+        <group position={[at[0], p.y ?? 1.6, at[2]]} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, h, 0.03, 0.006)} material={m.dark} position={[0, 0, 0.015]} castShadow />
+          <mesh geometry={box(w - 0.06, h - 0.06, 0.01, 0.003)} material={phys(`rmart${a}`, { color: a, roughness: 0.7 })} position={[0, 0, 0.032]} />
+          <mesh geometry={sphere(Math.min(w, h) * 0.22, 20, 12)} material={phys(`rmart${b}`, { color: b, roughness: 0.7 })} position={[-w * 0.12, h * 0.08, 0.035]} scale={[1, 1, 0.05]} />
+          <mesh geometry={box(w - 0.08, h * 0.25, 0.01, 0.003)} material={phys(`rmart${c}`, { color: c, roughness: 0.7 })} position={[0, -h * 0.28, 0.038]} />
+        </group>
+      );
+    }
+    case "clock":
+      return (
+        <group position={[at[0], p.y ?? 2.2, at[2]]} rotation={[0, yaw, 0]}>
+          <mesh geometry={cyl(0.17, 0.17, 0.04, 40)} material={m.dark} position={[0, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]} castShadow />
+          <mesh geometry={cyl(0.15, 0.15, 0.01, 40)} material={m.white} position={[0, 0, 0.042]} rotation={[Math.PI / 2, 0, 0]} />
+          <mesh geometry={box(0.012, 0.1, 0.006, 0.002)} material={m.dark} position={[0, 0.045, 0.05]} />
+          <mesh geometry={box(0.07, 0.012, 0.006, 0.002)} material={m.dark} position={[0.03, 0, 0.05]} />
+        </group>
+      );
+    case "dispenser":
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(0.32, 1.0, 0.32, 0.03)} material={m.white} position={[0, 0.5, 0]} castShadow receiveShadow />
+          <mesh geometry={cyl(0.13, 0.13, 0.4, 24)} material={phys("rmgallon", { color: "#9fd3f5", roughness: 0.05, transmission: 0.7, transparent: true, opacity: 0.7 })} position={[0, 1.2, 0]} castShadow />
+          {[-0.06, 0.06].map((x, i) => <mesh key={i} geometry={box(0.04, 0.05, 0.04, 0.01)} material={phys(`rmtap${i}`, { color: i ? "#2b6cb0" : "#c0392b", roughness: 0.4 })} position={[x, 0.78, 0.17]} />)}
+        </group>
+      );
+    case "cabinet": {
+      const w = p.w ?? 1.0, h = p.h ?? 0.9, d = p.d ?? 0.45;
+      const c = phys(`rmcab${p.color}`, { color: p.color ?? "#d9d4cc", roughness: 0.5, clearcoat: 0.3 });
+      return (
+        <group position={at} rotation={[0, yaw, 0]}>
+          <mesh geometry={box(w, h, d, 0.02)} material={c} position={[0, h / 2, 0]} castShadow receiveShadow />
+          {[-1, 1].map((s) => <mesh key={s} geometry={box(0.012, h * 0.5, 0.012, 0.004)} material={m.metal} position={[s * 0.05, h * 0.55, d / 2 + 0.01]} />)}
+        </group>
+      );
+    }
+    case "lamp": {
+      const on = night ? 1 : 0.35;
+      const bulb = basic(`rmbulb${on}`, { color: "#fff2d6", toneMapped: false });
+      bulb.color.setRGB(0.5 + 1.4 * on, 0.45 + 1.15 * on, 0.36 + 0.85 * on);
+      if (p.style === "tube")
+        return (
+          <group position={[at[0], p.y, at[2]]}>
+            <mesh geometry={box(1.2, 0.05, 0.2, 0.015)} material={m.white} position={[0, -0.025, 0]} />
+            <mesh geometry={box(1.12, 0.02, 0.14, 0.008)} material={bulb} position={[0, -0.055, 0]} />
+          </group>
+        );
+      return (
+        <group position={[at[0], p.y, at[2]]}>
+          <mesh geometry={cyl(0.006, 0.006, 0.6, 6)} material={m.dark} position={[0, 0.3, 0]} />
+          <mesh geometry={cyl(0.06, 0.2, 0.2, 32, true)} material={phys("rmshade", { color: "#2b2d33", roughness: 0.5, side: DoubleSide })} position={[0, -0.05, 0]} castShadow />
+          <mesh geometry={sphere(0.05, 16, 10)} material={bulb} position={[0, -0.1, 0]} />
+        </group>
+      );
+    }
+  }
+};
+
+/** Window / door openings of one wall in its own along-wall coordinate (0 at the wall's start). */
+const holesOf = (L: RoomLayout, wall: Wall, start: number, flip: boolean) =>
+  L.openings.filter((o) => o.wall === wall).map((o) => (flip ? { a: start - o.b, b: start - o.a, y0: o.y0, y1: o.y1, o } : { a: o.a - start, b: o.b - start, y0: o.y0, y1: o.y1, o }));
+
+export const Room: React.FC<{ L: RoomLayout; time: TimeOfDay }> = ({ L, time }) => {
+  const m = mats(L);
+  const { x0, x1, z0, z1, h } = L.room;
+  const night = time === "night";
+  const split = L.palette.wallLow && L.palette.wallLow !== L.palette.wall ? 1.0 : 0;
+  const lenX = x1 - x0, lenZ = z1 - z0;
+  // back wall runs +x from x0; left wall runs −z from z1 (seen from inside: left to right); right wall +z
+  const back = holesOf(L, "back", x0, false), left = holesOf(L, "left", z1, true), right = holesOf(L, "right", z0, false);
+  const openings = (hs: ReturnType<typeof holesOf>) => hs.map((x, i) => (
+    <group key={i} position={[x.a, x.o.kind === "window" ? 0 : 0, 0]}>
+      {x.o.kind === "window" ? <WindowFrame w={x.b - x.a} y0={x.y0} y1={x.y1} m={m} view={L.view} time={time} /> : <Door w={x.b - x.a} h={x.y1} m={m} />}
+    </group>
+  ));
+  return (
+    <group>
+      <mesh geometry={box(lenX + 0.4, 0.06, lenZ + 0.4, 0.01)} material={m.floor} position={[(x0 + x1) / 2, -0.03, (z0 + z1) / 2]} receiveShadow />
+      <mesh geometry={box(lenX + 0.3, 0.06, lenZ + 0.3, 0.01)} material={m.ceiling} position={[(x0 + x1) / 2, h + 0.03, (z0 + z1) / 2]} />
+      <group position={[x0, 0, z0 - T / 2]}>
+        <WallMesh len={lenX} h={h} holes={back} m={m} split={split} shadow />
+        {openings(back)}
+      </group>
+      <group position={[x0 - T / 2, 0, z1]} rotation={[0, Math.PI / 2, 0]}>
+        <WallMesh len={lenZ} h={h} holes={left} m={m} split={split} shadow />
+        {openings(left)}
+      </group>
+      <group position={[x1 + T / 2, 0, z0]} rotation={[0, -Math.PI / 2, 0]}>
+        <WallMesh len={lenZ} h={h} holes={right} m={m} split={split} shadow />
+        {openings(right)}
+      </group>
+      {/* the camera-side wall: plain, casts no shadow (it would darken the set) */}
+      <group position={[x1, 0, z1 + T / 2]} rotation={[0, Math.PI, 0]}>
+        <WallMesh len={lenX} h={h} holes={[]} m={m} split={split} shadow={false} />
+      </group>
+      {L.pieces.map((p, i) => <PieceView key={i} p={p} m={m} night={night} />)}
+    </group>
+  );
+};
+
+==== 12928 src/kits/characterflow/env/textures.ts
+// Procedural textures for the environment kit (seeded, file-free).
+
+import { canvasTex, mulberry32, shade } from "../lib/mats.ts";
+
+/** Warm oak plank floor. */
+export const plankTex = (rep: [number, number], base = "#a77b55") =>
+  canvasTex(`cfplank${rep}${base}`, 512, 1024, (g, w, h) => {
+    const r = mulberry32(11);
+    const pw = w / 4;
+    for (let i = 0; i < 4; i++) {
+      let y = -r() * 300;
+      while (y < h) {
+        const len = 380 + r() * 320;
+        g.fillStyle = shade(base, 0.84 + r() * 0.28);
+        g.fillRect(i * pw, y, pw, len);
+        for (let k = 0; k < 22; k++) {
+          g.strokeStyle = `rgba(70,40,20,${0.05 + r() * 0.08})`;
+          g.lineWidth = 0.6 + r() * 1.5;
+          const x = i * pw + r() * pw;
+          g.beginPath();
+          g.moveTo(x, y);
+          g.bezierCurveTo(x + (r() - 0.5) * 12, y + len * 0.3, x + (r() - 0.5) * 12, y + len * 0.7, x + (r() - 0.5) * 8, y + len);
+          g.stroke();
+        }
+        g.fillStyle = "rgba(40,24,14,0.5)";
+        g.fillRect(i * pw, y, pw, 2);
+        y += len;
+      }
+      g.fillStyle = "rgba(40,24,14,0.45)";
+      g.fillRect(i * pw, 0, 2, h);
+    }
+  }, rep);
+
+/** Matte painted wall with a faint roller texture. */
+export const paintTex = (key: string, color: string, rep: [number, number]) =>
+  canvasTex(`cfpaint${key}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(5);
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 1400; k++) {
+      g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "0,0,0"},${0.012 + r() * 0.02})`;
+      g.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 3);
+    }
+  }, rep);
+
+/** Duvet cover: soft cotton with a small scattered star print. */
+export const duvetTex = (key: string, base: string, ink: string, rep: [number, number]) =>
+  canvasTex(`cfduvet${key}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(23);
+    g.fillStyle = base;
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 3) {
+      g.fillStyle = `rgba(255,255,255,${0.025 + r() * 0.02})`;
+      g.fillRect(0, y, w, 1);
+    }
+    g.fillStyle = ink;
+    for (let k = 0; k < 46; k++) {
+      const x = r() * w, y = r() * h, s = 5 + r() * 6;
+      g.save();
+      g.translate(x, y);
+      g.rotate(r() * Math.PI);
+      g.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2, rr = i % 2 ? s * 0.45 : s;
+        g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      g.closePath();
+      g.globalAlpha = 0.55 + r() * 0.3;
+      g.fill();
+      g.restore();
+    }
+  }, rep);
+
+/** Round braided rug. */
+export const rugTex = () =>
+  canvasTex("cfrug", 512, 512, (g, w, h) => {
+    const cols = ["#e9dcc4", "#d7b98f", "#e9dcc4", "#9fbcc9", "#e9dcc4", "#e3a46f"];
+    for (let i = 0; i < 30; i++) {
+      g.fillStyle = cols[i % cols.length];
+      g.beginPath();
+      g.arc(w / 2, h / 2, (w / 2) * (1 - i / 30), 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = "rgba(0,0,0,0.08)";
+      g.lineWidth = 2;
+      g.stroke();
+    }
+  });
+
+/** Night sky seen through the window: gradient, stars, moon, distant rooftops. */
+export const skyTex = () =>
+  canvasTex("cfsky", 1024, 1024, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, "#0b1a3d");
+    gr.addColorStop(0.6, "#1d3a6e");
+    gr.addColorStop(1, "#3b5f8f");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+    const r = mulberry32(31);
+    for (let k = 0; k < 220; k++) {
+      const a = 0.25 + r() * 0.75;
+      g.fillStyle = `rgba(230,240,255,${a})`;
+      const s = r() < 0.1 ? 2.4 : 1.2;
+      g.beginPath();
+      g.arc(r() * w, r() * h * 0.75, s, 0, Math.PI * 2);
+      g.fill();
+    }
+    const mx = w * 0.62, my = h * 0.26, mr = 70;
+    const halo = g.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * 4);
+    halo.addColorStop(0, "rgba(220,235,255,0.5)");
+    halo.addColorStop(1, "rgba(220,235,255,0)");
+    g.fillStyle = halo;
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#f4f6ff";
+    g.beginPath();
+    g.arc(mx, my, mr, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "rgba(170,185,215,0.35)";
+    for (const [dx, dy, rr] of [[-20, -10, 16], [18, 22, 11], [24, -26, 8], [-8, 30, 7]]) {
+      g.beginPath();
+      g.arc(mx + dx, my + dy, rr, 0, Math.PI * 2);
+      g.fill();
+    }
+    // rooftops
+    g.fillStyle = "#0a1428";
+    let x = 0;
+    while (x < w) {
+      const bw = 60 + r() * 140, bh = 90 + r() * 170;
+      g.fillRect(x, h - bh, bw, bh);
+      if (r() < 0.5) {
+        g.beginPath();
+        g.moveTo(x - 6, h - bh);
+        g.lineTo(x + bw / 2, h - bh - 50);
+        g.lineTo(x + bw + 6, h - bh);
+        g.fill();
+      }
+      for (let k = 0; k < 4; k++)
+        if (r() < 0.35) {
+          g.fillStyle = r() < 0.5 ? "#ffcf86" : "#ffe4b0";
+          g.fillRect(x + 10 + r() * (bw - 30), h - bh + 20 + r() * (bh - 40), 12, 16);
+          g.fillStyle = "#0a1428";
+        }
+      x += bw + 4;
+    }
+  });
+
+/** Poster: soft mountains at dusk. */
+export const posterTex = (key: string, a: string, b: string, c: string) =>
+  canvasTex(`cfposter${key}`, 256, 340, (g, w, h) => {
+    g.fillStyle = "#f3ece0";
+    g.fillRect(0, 0, w, h);
+    const m = 18;
+    const gr = g.createLinearGradient(0, m, 0, h - m);
+    gr.addColorStop(0, a);
+    gr.addColorStop(1, b);
+    g.fillStyle = gr;
+    g.fillRect(m, m, w - 2 * m, h - 2 * m);
+    g.fillStyle = "#fff6dd";
+    g.beginPath();
+    g.arc(w * 0.66, h * 0.35, 26, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = c;
+    g.beginPath();
+    g.moveTo(m, h - m);
+    g.lineTo(w * 0.35, h * 0.5);
+    g.lineTo(w * 0.55, h * 0.7);
+    g.lineTo(w * 0.75, h * 0.45);
+    g.lineTo(w - m, h * 0.68);
+    g.lineTo(w - m, h - m);
+    g.fill();
+    g.fillStyle = shade(c, 0.7);
+    g.beginPath();
+    g.moveTo(m, h - m);
+    g.lineTo(w * 0.25, h * 0.72);
+    g.lineTo(w * 0.5, h * 0.82);
+    g.lineTo(w - m, h * 0.76);
+    g.lineTo(w - m, h - m);
+    g.fill();
+  });
+
+/** Book spines for a shelf. */
+export const spineColors = ["#d9534f", "#f0ad4e", "#5bc0de", "#5cb85c", "#8e6cc9", "#e8e1d0", "#2f6f73", "#c97b4a"];
+
+/** Square floor tiles with grout and a faint speckle (classrooms, shops). */
+export const tileTex = (base: string, rep: [number, number]) =>
+  canvasTex(`cftile${base}${rep}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(5);
+    const n = 4, s = w / n;
+    for (let i = 0; i < n; i++)
+      for (let j = 0; j < n; j++) {
+        g.fillStyle = shade(base, 0.94 + r() * 0.1);
+        g.fillRect(i * s, j * s, s, s);
+        for (let k = 0; k < 60; k++) {
+          g.fillStyle = `rgba(60,55,50,${0.04 + r() * 0.06})`;
+          g.fillRect(i * s + r() * s, j * s + r() * s, 2, 2);
+        }
+      }
+    g.fillStyle = shade(base, 0.7);
+    for (let i = 0; i <= n; i++) { g.fillRect(i * s - 2, 0, 4, h); g.fillRect(0, i * s - 2, w, 4); }
+  }, rep);
+
+/** Office carpet tiles: soft fibre noise, tiles turned 90° from each other. */
+export const carpetTex = (base: string, rep: [number, number]) =>
+  canvasTex(`cfcarpet${base}${rep}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(9);
+    const n = 2, s = w / n;
+    for (let i = 0; i < n; i++)
+      for (let j = 0; j < n; j++) {
+        g.fillStyle = shade(base, (i + j) % 2 ? 0.95 : 1.03);
+        g.fillRect(i * s, j * s, s, s);
+        for (let k = 0; k < 900; k++) {
+          g.fillStyle = `rgba(${r() < 0.5 ? "255,255,255" : "0,0,0"},${0.03 + r() * 0.05})`;
+          const horiz = (i + j) % 2 === 0;
+          g.fillRect(i * s + r() * s, j * s + r() * s, horiz ? 6 : 1.5, horiz ? 1.5 : 6);
+        }
+      }
+    g.fillStyle = "rgba(0,0,0,0.12)";
+    for (let i = 0; i <= n; i++) { g.fillRect(i * s - 1, 0, 2, h); g.fillRect(0, i * s - 1, w, 2); }
+  }, rep);
+
+/** Whiteboard (marker diagram + lines), chalkboard, or a café chalk menu. */
+export const boardTex = (style: "white" | "chalk" | "menu") =>
+  canvasTex(`cfboard${style}`, 1024, 512, (g, w, h) => {
+    const r = mulberry32(style === "white" ? 3 : 4);
+    g.fillStyle = style === "white" ? "#f7f8f6" : style === "chalk" ? "#2f4a3a" : "#26231f";
+    g.fillRect(0, 0, w, h);
+    const ink = style === "white" ? ["#1d4e89", "#c0392b", "#2c3e50"] : ["#f4f1e8", "#f6d55c", "#f4f1e8"];
+    g.lineCap = "round";
+    if (style === "menu") {
+      g.fillStyle = "#f4f1e8";
+      g.font = "700 64px sans-serif";
+      g.textAlign = "center";
+      g.fillText("MENU", w / 2, 86);
+      g.font = "500 36px sans-serif";
+      g.textAlign = "left";
+      const items = ["KOPI SUSU", "AMERICANO", "LATTE", "TEH TARIK", "MATCHA", "ROTI BAKAR"];
+      items.forEach((it, i) => {
+        const x = i < 3 ? 70 : w / 2 + 40, y = 170 + (i % 3) * 100;
+        g.fillStyle = "#f4f1e8";
+        g.fillText(it, x, y);
+        g.fillStyle = "#f6d55c";
+        g.fillText(`${18 + i * 3}K`, x + 300, y);
+      });
+      return;
+    }
+    // a little diagram: boxes, arrows, handwriting lines
+    for (let b = 0; b < 3; b++) {
+      g.strokeStyle = ink[b % ink.length];
+      g.lineWidth = 6;
+      const x = 90 + b * 300, y = 90 + (b % 2) * 50;
+      g.strokeRect(x, y, 200, 110);
+      for (let l = 0; l < 3; l++) { g.beginPath(); g.moveTo(x + 20, y + 30 + l * 28); g.lineTo(x + 60 + r() * 120, y + 30 + l * 28 + (r() - 0.5) * 6); g.stroke(); }
+      if (b < 2) { g.beginPath(); g.moveTo(x + 210, y + 55); g.lineTo(x + 285, y + 75 - (b % 2) * 40); g.stroke(); }
+    }
+    g.strokeStyle = ink[2];
+    g.lineWidth = 5;
+    for (let l = 0; l < 4; l++) {
+      g.beginPath();
+      let x = 90;
+      g.moveTo(x, 330 + l * 42);
+      while (x < 90 + 500 + r() * 300) { x += 14 + r() * 26; g.lineTo(x, 330 + l * 42 + (r() - 0.5) * 10); }
+      g.stroke();
+    }
+  });
+
+/** What is seen through a window: city, garden or a street, by day / at sunset / at night. */
+export const viewTex = (view: "city" | "garden" | "street", time: "day" | "night" | "sunset") =>
+  canvasTex(`cfview${view}${time}`, 1024, 512, (g, w, h) => {
+    const r = mulberry32(view === "city" ? 21 : view === "garden" ? 22 : 23);
+    const night = time === "night", sun = time === "sunset";
+    const sky = g.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, night ? "#0b1a3d" : sun ? "#f3a66b" : "#7fb8ec");
+    sky.addColorStop(1, night ? "#2a4572" : sun ? "#ffd9a8" : "#d6ecfb");
+    g.fillStyle = sky;
+    g.fillRect(0, 0, w, h);
+    if (!night) for (let c = 0; c < 4; c++) {
+      g.fillStyle = sun ? "rgba(255,236,214,0.55)" : "rgba(255,255,255,0.75)";
+      const cx = r() * w, cy = 40 + r() * 120;
+      for (let k = 0; k < 5; k++) { g.beginPath(); g.ellipse(cx + k * 34, cy + (k % 2) * 8, 46, 22, 0, 0, Math.PI * 2); g.fill(); }
+    }
+    const lit = (x: number, y: number, ww: number, hh: number) => { g.fillStyle = night ? (r() < 0.55 ? "#ffd48a" : "#1b2a44") : sun ? "#f7c48c" : "#bcd7ee"; g.fillRect(x, y, ww, hh); };
+    if (view === "city") {
+      for (let layer = 0; layer < 2; layer++) {
+        let x = -20;
+        while (x < w) {
+          const bw = 70 + r() * 120, bh = (layer ? 160 : 230) + r() * 160;
+          g.fillStyle = night ? (layer ? "#13203a" : "#0c1628") : layer ? "#9fb3c8" : "#7d93ab";
+          g.fillRect(x, h - bh, bw, bh);
+          for (let yy = h - bh + 14; yy < h - 10; yy += 22) for (let xx = x + 8; xx < x + bw - 12; xx += 18) if (r() < 0.8) lit(xx, yy, 9, 12);
+          x += bw + 6;
+        }
+      }
+    } else if (view === "garden") {
+      g.fillStyle = night ? "#0f1d14" : sun ? "#8a8a4a" : "#7cbf6a";
+      g.fillRect(0, h * 0.72, w, h * 0.28);
+      for (let k = 0; k < 9; k++) {
+        const x = r() * w, s = 60 + r() * 70;
+        g.fillStyle = night ? "#0b160f" : "#5b4030";
+        g.fillRect(x - 6, h * 0.72 - s * 0.9, 12, s);
+        g.fillStyle = night ? "#10241a" : sun ? "#6f7a3a" : ["#3f9a54", "#4fae5b", "#2f7d44"][k % 3];
+        g.beginPath(); g.arc(x, h * 0.72 - s, s * 0.7, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = night ? "#2a2a2a" : "#f1ede4";
+      for (let x = 0; x < w; x += 26) g.fillRect(x, h * 0.78, 8, 70);
+      g.fillRect(0, h * 0.8, w, 8);
+    } else {
+      // street: shopfronts across a road
+      g.fillStyle = night ? "#1a1a22" : "#6b6f78";
+      g.fillRect(0, h * 0.8, w, h * 0.2);
+      g.fillStyle = night ? "#c9b45a" : "#f2f2f2";
+      for (let x = 10; x < w; x += 90) g.fillRect(x, h * 0.9, 46, 5);
+      let x = 0;
+      const cols = ["#e8c39e", "#a8c5da", "#e9a1a1", "#c7d9b5", "#f1d6a4"];
+      while (x < w) {
+        const bw = 150 + r() * 90, bh = 220 + r() * 90;
+        g.fillStyle = night ? "#1d2333" : cols[Math.floor(r() * cols.length)];
+        g.fillRect(x, h * 0.8 - bh, bw, bh);
+        g.fillStyle = night ? "#ffcf7a" : "#3b4a5a";
+        g.fillRect(x + 16, h * 0.8 - 110, bw - 32, 90);
+        g.fillStyle = night ? "#ff8f5a" : ["#d1495b", "#00798c", "#edae49"][Math.floor(r() * 3)];
+        g.fillRect(x + 10, h * 0.8 - 140, bw - 20, 24);
+        for (let k = 0; k < 2; k++) lit(x + 24 + k * (bw / 2 - 10), h * 0.8 - bh + 30, 40, 50);
+        x += bw + 8;
+      }
+    }
+  });
+
+==== 1778 src/kits/characterflow/Films.tsx
+import React from "react";
+import { Composition } from "remotion";
+import { PRESETS } from "../../core/film/frame.ts";
+import { STORIES } from "../../stories/registry.ts";
+import { CharLook, CARDS } from "./look/CharLook.tsx";
+import { StoryFilm, productionOf } from "./director/StoryFilm.tsx";
+
+// CHARACTER FLOW compositions. scripts/make.mjs adds <CharacterFlowFilms /> to src/Root.tsx once; every story in
+// src/stories/data is then registered twice: <id>-preview (540 × 960 @ 30, with the mix) and <id>-final
+// (1080 × 1920 @ 60, muted — render-final lays the mastered mix in).
+const { preview, final } = PRESETS;
+
+export const CharacterFlowFilms: React.FC = () => (
+  <>
+    {STORIES.map((s) => {
+      // a story that does not compile (being edited, a typo) is left out instead of breaking every other story's render
+      let d: number;
+      try { d = productionOf(s).duration; } catch (e) { console.warn(`story "${s.id}" skipped: ${(e as Error).message.split("\n")[0]}`); return null; }
+      return (
+        <React.Fragment key={s.id}>
+          <Composition id={`${s.id}-preview`} component={StoryFilm} defaultProps={{ story: s, audio: `audio/${s.id}-mix.wav` }} durationInFrames={Math.round(d * preview.fps)} fps={preview.fps} width={preview.width} height={preview.height} />
+          <Composition id={`${s.id}-final`} component={StoryFilm} defaultProps={{ story: s }} durationInFrames={Math.round(d * final.fps)} fps={final.fps} width={final.width} height={final.height} />
+        </React.Fragment>
+      );
+    })}
+    {/* character proof sheet: every look, expression and gesture */}
+    <Composition id="CharacterFlowLook" component={CharLook} durationInFrames={CARDS.length} fps={preview.fps} width={preview.width} height={preview.height} />
+  </>
+);
+
+==== 5441 src/kits/characterflow/fx/comedy.tsx
+// Comedy props for CHARACTERFLOW: a scoreboard that springs out of the ground (any "competition"
+// joke), and a tumbleweed for awkward silences. Text comes from the topic.
+
+import React from "react";
+import { PlaneGeometry } from "three";
+import { box, cached, cyl, lathe, sphere, torus } from "../lib/geo.ts";
+import { canvasTex, hash1, phys } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+import type { V3 } from "../character/spec.ts";
+
+const springUp = (x: number) => {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  return 1 - Math.exp(-6 * x) * Math.cos(9 * x);
+};
+
+export type BoardFace = { kicker: string; title: string; left?: string; right?: string };
+
+const boardTex = (f: BoardFace) =>
+  canvasTex(`cfboard${f.kicker}${f.title}${f.left}${f.right}`, 1024, 640, (g, w, h) => {
+    g.fillStyle = "#1d2a4d";
+    g.beginPath();
+    g.roundRect(0, 0, w, h, 40);
+    g.fill();
+    // marquee bulbs
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = i % 2 ? "#ffd166" : "#fff3c4";
+      g.beginPath();
+      g.arc(40 + i * 37.5, 28, 9, 0, Math.PI * 2);
+      g.arc(40 + i * 37.5, h - 28, 9, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.textAlign = "center";
+    g.fillStyle = "#ffd166";
+    g.font = `600 46px ${FONT}, sans-serif`;
+    g.fillText(f.kicker, w / 2, 120);
+    g.fillStyle = "#ffffff";
+    g.font = `600 84px ${FONT}, sans-serif`;
+    const words = f.title.split(" ");
+    const lines: string[] = [];
+    let cur = "";
+    for (const wd of words) { if (g.measureText(cur + " " + wd).width > w - 120 && cur) { lines.push(cur); cur = wd; } else cur = cur ? cur + " " + wd : wd; }
+    lines.push(cur);
+    lines.forEach((l, i) => g.fillText(l, w / 2, 230 + i * 92));
+    if (f.left || f.right) {
+      const y = 230 + lines.length * 92 + 40;
+      g.font = `600 70px ${FONT}, sans-serif`;
+      g.fillStyle = "#7fe0ff";
+      g.fillText(f.left ?? "", w * 0.25, y);
+      g.fillStyle = "#ff8fab";
+      g.fillText(f.right ?? "", w * 0.75, y);
+      g.fillStyle = "#ffd166";
+      g.font = `600 56px ${FONT}, sans-serif`;
+      g.fillText("VS", w / 2, y - 4);
+    }
+  });
+
+/**
+ * A scoreboard on two posts that springs up from the ground at `upAt`, swaps to `face2` at `swapAt`
+ * (flip), and sinks at `downAt`. Facing +Z at `p` (rotate with `yaw`).
+ */
+export const PopBoard: React.FC<{ p: V3; yaw?: number; scale?: number; t: number; upAt: number; swapAt: number; downAt: number; face1: BoardFace; face2: BoardFace }> = ({ p, yaw = 0, scale = 1, t, upAt, swapAt, downAt, face1, face2 }) => {
+  const up = springUp((t - upAt) / 0.9) * (1 - Math.min(1, Math.max(0, (t - downAt) / 0.45)) ** 2);
+  if (up <= 0.001) return null;
+  const flip = Math.min(1, Math.max(0, (t - swapAt) / 0.35));
+  const face = flip < 0.5 ? face1 : face2;
+  const rot = Math.PI * (flip < 0.5 ? flip : flip - 1);
+  const W = 2.2, H = 1.375;
+  const sink = (1 - up) * 3.4;
+  const post = phys("cfboardpost2", { color: "#2d3340", roughness: 0.4, metalness: 0.5 });
+  const gold = phys("cftrophy", { color: "#f4c542", metalness: 1, roughness: 0.25 });
+  return (
+    <group position={[p[0], p[1] - sink * scale, p[2]]} rotation={[0, yaw, 0]} scale={scale}>
+      {[-1, 1].map((s) => <mesh key={s} geometry={cyl(0.06, 0.06, 2.6, 12)} material={post} position={[s * 0.85, 1.3, -0.04]} castShadow />)}
+      <group position={[0, 2.35, 0]} rotation={[rot, 0, 0]}>
+        <mesh geometry={box(W + 0.12, H + 0.12, 0.12, 0.05)} material={phys("cfboardframe", { color: "#f2b544", roughness: 0.4, clearcoat: 0.5 })} castShadow />
+        <mesh geometry={cached("cfpopboard", () => new PlaneGeometry(W, H))} material={phys(`cfpopface${face.title}${face.left}`, { map: boardTex(face), emissive: "#ffffff", emissiveMap: boardTex(face), emissiveIntensity: 0.35, roughness: 0.4 })} position={[0, 0, 0.065]} />
+      </group>
+      {/* trophy on top */}
+      <group position={[0, 3.2 + 0.05 * Math.sin(t * 3), 0]} rotation={[0, t * 1.2, 0]}>
+        <mesh geometry={lathe("cftrophycup", [[0, 0], [0.16, 0], [0.16, 0.04], [0.05, 0.08], [0.04, 0.2], [0.1, 0.26], [0.19, 0.42], [0.21, 0.52], [0.0, 0.52]], 32)} material={gold} castShadow />
+        {[-1, 1].map((s) => <mesh key={s} geometry={torus(0.07, 0.016, 8, 20)} material={gold} position={[s * 0.22, 0.4, 0]} rotation={[0, Math.PI / 2, 0]} />)}
+      </group>
+    </group>
+  );
+};
+
+/** Tumbleweed rolling from `a` to `b` between t0 and t1, bouncing. */
+export const Tumbleweed: React.FC<{ a: V3; b: V3; t: number; t0: number; t1: number; r?: number }> = ({ a, b, t, t0, t1, r = 0.32 }) => {
+  if (t < t0 || t > t1) return null;
+  const k = (t - t0) / (t1 - t0);
+  const x = a[0] + (b[0] - a[0]) * k, z = a[2] + (b[2] - a[2]) * k;
+  const dist = Math.hypot(b[0] - a[0], b[2] - a[2]) * k;
+  const bounce = Math.abs(Math.sin(k * Math.PI * 5)) * 0.25 * (1 - 0.5 * k);
+  const roll = dist / r;
+  const dir = Math.atan2(b[0] - a[0], b[2] - a[2]);
+  const twig = phys("cftwig", { color: "#b08a55", roughness: 0.85 });
+  return (
+    <group position={[x, a[1] + r + bounce, z]} rotation={[0, dir, 0]}>
+      <group rotation={[roll, 0, 0]}>
+        {Array.from({ length: 14 }, (_, i) => (
+          <mesh key={i} geometry={torus(r * (0.6 + 0.4 * hash1(i, 3)), 0.012, 4, 24)} material={twig} rotation={[hash1(i, 5) * 6.3, hash1(i, 7) * 6.3, hash1(i, 9) * 6.3]} castShadow />
+        ))}
+        <mesh geometry={sphere(r * 0.35, 8, 6)} material={twig} />
+      </group>
+    </group>
+  );
+};
+
+==== 6232 src/kits/characterflow/fx/icons.ts
+// Flat glyph textures for thought bubbles and the swarm (drawn, not emoji — every machine renders them
+// the same). White glyph on transparent; bubbles tint them.
+
+import { canvasTex } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+
+export type IconName = "question" | "exclaim" | "cross" | "clock" | "chat" | "cloud" | "heart" | "chart" | "bell" | "dots";
+
+export const ICONS: IconName[] = ["question", "exclaim", "cross", "clock", "chat", "cloud", "heart", "chart"];
+
+export const iconTex = (name: IconName) =>
+  canvasTex(`cficon${name}`, 256, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "#ffffff";
+    g.strokeStyle = "#ffffff";
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    const cx = w / 2, cy = h / 2;
+    if (name === "question" || name === "exclaim") {
+      g.font = `600 170px ${FONT}, sans-serif`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText(name === "question" ? "?" : "!", cx, cy + 8);
+    } else if (name === "cross") {
+      g.lineWidth = 30;
+      g.beginPath();
+      g.moveTo(cx - 55, cy - 55); g.lineTo(cx + 55, cy + 55);
+      g.moveTo(cx + 55, cy - 55); g.lineTo(cx - 55, cy + 55);
+      g.stroke();
+    } else if (name === "clock" || name === "bell") {
+      if (name === "bell") {
+        g.beginPath();
+        g.moveTo(cx - 70, cy + 45);
+        g.quadraticCurveTo(cx - 60, cy - 85, cx, cy - 85);
+        g.quadraticCurveTo(cx + 60, cy - 85, cx + 70, cy + 45);
+        g.closePath();
+        g.fill();
+        g.fillRect(cx - 85, cy + 40, 170, 20);
+        g.beginPath();
+        g.arc(cx, cy + 75, 18, 0, Math.PI * 2);
+        g.fill();
+        g.lineWidth = 12;
+        for (const s of [-1, 1]) {
+          g.beginPath();
+          g.arc(cx, cy - 10, 105, s > 0 ? -0.5 : Math.PI - 0.3, s > 0 ? 0.3 : Math.PI + 0.5);
+          g.stroke();
+        }
+      } else {
+        g.lineWidth = 18;
+        g.beginPath();
+        g.arc(cx, cy, 80, 0, Math.PI * 2);
+        g.stroke();
+        g.lineWidth = 16;
+        g.beginPath();
+        g.moveTo(cx, cy); g.lineTo(cx, cy - 50);
+        g.moveTo(cx, cy); g.lineTo(cx + 38, cy + 14);
+        g.stroke();
+      }
+    } else if (name === "chat" || name === "dots") {
+      g.beginPath();
+      g.roundRect(cx - 95, cy - 70, 190, 120, 40);
+      g.fill();
+      g.beginPath();
+      g.moveTo(cx - 40, cy + 40); g.lineTo(cx - 70, cy + 90); g.lineTo(cx - 5, cy + 48);
+      g.fill();
+      g.globalCompositeOperation = "destination-out";
+      for (const dx of [-45, 0, 45]) {
+        g.beginPath();
+        g.arc(cx + dx, cy - 10, 15, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.globalCompositeOperation = "source-over";
+    } else if (name === "cloud") {
+      for (const [dx, dy, r] of [[-45, 10, 45], [10, -20, 60], [60, 15, 40], [0, 25, 45]]) {
+        g.beginPath();
+        g.arc(cx + dx, cy + dy - 20, r, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.lineWidth = 10;
+      for (const dx of [-40, 0, 40]) {
+        g.beginPath();
+        g.moveTo(cx + dx, cy + 55); g.lineTo(cx + dx - 12, cy + 95);
+        g.stroke();
+      }
+    } else if (name === "heart") {
+      g.beginPath();
+      g.moveTo(cx, cy + 80);
+      g.bezierCurveTo(cx - 140, cy - 10, cx - 60, cy - 110, cx, cy - 40);
+      g.bezierCurveTo(cx + 60, cy - 110, cx + 140, cy - 10, cx, cy + 80);
+      g.fill();
+      g.globalCompositeOperation = "destination-out";
+      g.lineWidth = 12;
+      g.beginPath();
+      g.moveTo(cx - 5, cy - 40); g.lineTo(cx + 15, cy); g.lineTo(cx - 12, cy + 25); g.lineTo(cx + 6, cy + 70);
+      g.stroke();
+      g.globalCompositeOperation = "source-over";
+    } else if (name === "chart") {
+      g.lineWidth = 18;
+      g.beginPath();
+      g.moveTo(cx - 90, cy - 60); g.lineTo(cx - 30, cy - 10); g.lineTo(cx + 5, cy - 35); g.lineTo(cx + 80, cy + 55);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(cx + 85, cy + 60); g.lineTo(cx + 35, cy + 60); g.lineTo(cx + 85, cy + 10);
+      g.closePath();
+      g.fill();
+    }
+  });
+
+/** Soft round bubble backdrop: bright core, rim highlight, transparent outside. */
+export const bubbleTex = () =>
+  canvasTex("cfbubble", 512, 512, (g, w, h) => {
+    const cx = w / 2, cy = h / 2, r = w * 0.47;
+    const gr = g.createRadialGradient(cx, cy - r * 0.2, r * 0.1, cx, cy, r);
+    gr.addColorStop(0, "rgba(255,255,255,0.96)");
+    gr.addColorStop(0.75, "rgba(255,255,255,0.88)");
+    gr.addColorStop(0.93, "rgba(255,255,255,0.96)");
+    gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr;
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fill();
+  });
+
+/** Outer glow halo. */
+export const haloTex = () =>
+  canvasTex("cfhalo", 256, 256, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    gr.addColorStop(0, "rgba(255,255,255,0.6)");
+    gr.addColorStop(0.45, "rgba(255,255,255,0.22)");
+    gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  });
+
+/** Small label texture (speech bubble text, phone UI, screen text). */
+export const labelTex = (key: string, w: number, h: number, draw: (g: CanvasRenderingContext2D, w: number, h: number) => void) => canvasTex(`cflabel${key}`, w, h, draw);
+
+/** Text for a thought bubble: up to ~4 short lines, auto-wrapped and sized to fit the circle. */
+export const textTex = (text: string) =>
+  canvasTex(`cftext${text}`, 512, 512, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "#0d1430";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const words = text.split(/\s+/);
+    let size = 92;
+    let lines: string[] = [];
+    for (; size >= 40; size -= 6) {
+      g.font = `600 ${size}px ${FONT}, sans-serif`;
+      lines = [];
+      let cur = "";
+      for (const wd of words) {
+        const next = cur ? `${cur} ${wd}` : wd;
+        if (g.measureText(next).width > w * 0.72 && cur) { lines.push(cur); cur = wd; } else cur = next;
+      }
+      lines.push(cur);
+      if (lines.length * size * 1.12 < h * 0.62 && lines.every((l) => g.measureText(l).width < w * 0.78)) break;
+    }
+    const lh = size * 1.12, y0 = h / 2 - ((lines.length - 1) * lh) / 2;
+    lines.forEach((l, i) => g.fillText(l, w / 2, y0 + i * lh));
+  });
+
+==== 14998 src/kits/characterflow/fx/Thoughts.tsx
+// Thought field: imagined situations orbiting a character's head. Bubbles are data (ThoughtDef), the
+// field's behaviour over time is a FieldMood that the scene computes (drift → swirl, calm → ghost →
+// alarm, freeze, dissolve). Large bubbles hold staged mini scenes (vignettes.tsx) or a glyph; the swarm
+// is instanced (cheap at 100+). Everything glowing sits on FX_LAYER so depth passes ignore it.
+//
+// Placement frame: `back` is the direction from the camera side toward the set (bubbles start behind
+// and beside the head); when the swirl carries a bubble round to the camera side it is pushed up/down
+// and outward so it never covers the face.
+
+import React, { useMemo } from "react";
+import {
+  AdditiveBlending,
+  Color,
+  DoubleSide,
+  InstancedMesh,
+  Matrix4,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Quaternion,
+  SphereGeometry,
+  Vector3,
+} from "three";
+import { FX_LAYER } from "../../../core/render/Post.tsx";
+import { setMiniFade } from "../character/materials.ts";
+import { BIMA, BOSS, FRIEND, NAYA, RAKA, RAKA_OUT, type V3 } from "../character/spec.ts";
+import { cached, sphere, torus } from "../lib/geo.ts";
+import { hash1, mixHex } from "../lib/mats.ts";
+import { bubbleTex, haloTex, iconTex, ICONS, textTex, type IconName } from "./icons.ts";
+import { Vignette, type Cast, type VignetteName, type VignetteText } from "./vignettes.tsx";
+
+export type ThoughtDef = {
+  id: string;
+  at: number;
+  vignette?: VignetteName;
+  icon?: IconName;
+  /** offset from the field centre in the field frame: [right, up, back] metres (right/back are
+   *  horizontal and follow `back`, the direction away from the main camera) */
+  slot: [number, number, number];
+  size: number;
+  trail?: boolean;
+  /** scale with the alarm pulse */
+  pulses?: boolean;
+  /** this bubble only exists from `at` until `until` */
+  until?: number;
+  /** who plays in the vignette */
+  cast?: Cast;
+  /** short text written inside the bubble (any topic, no vignette needed) */
+  text?: string;
+};
+
+export type FieldMood = {
+  /** accumulated orbit angle (rad) — the scene integrates its own speed */
+  phase: number;
+  /** motion clock (stops at a freeze) */
+  tm: number;
+  agitation: number;
+  ghost: number;
+  alarm: number;
+  pulse: number;
+  dissolve: number;
+  tight: number;
+  /** overall visibility of the large bubbles */
+  show: number;
+};
+
+export type SwarmDef = { at: number; spread: number; count: number; rMin: number; rMax: number };
+
+const COOL = { disc: "#f3f9ff", rim: "#8fdcff", glow: "#7fd0ff", ink: "#2f5d8a" };
+const HOT = { disc: "#ffd9d2", rim: "#ff4a3d", glow: "#ff3d2e", ink: "#b3201b" };
+const GHOST = { disc: "#c9d3e0", rim: "#b8c6d8", glow: "#8aa0c0", ink: "#7a8aa3" };
+
+const colors = (m: FieldMood) => {
+  const pick = (k: keyof typeof COOL) => mixHex(mixHex(COOL[k], GHOST[k], m.ghost), HOT[k], m.alarm);
+  return { disc: pick("disc"), rim: pick("rim"), glow: pick("glow"), ink: pick("ink") };
+};
+
+const popIn = (x: number) => {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const c1 = 1.9, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+};
+
+const billboard = (pos: V3, cam: V3) =>
+  new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(new Vector3(...cam), new Vector3(...pos), new Vector3(0, 1, 0)));
+
+/** World position of a slot at time t. The (right, back) part orbits round the vertical axis with the
+ *  field phase; while it passes the camera side it is pushed up/down and outward, clear of the face. */
+export const slotPos = (slot: [number, number, number], center: V3, back: V3, m: FieldMood, seed: number): V3 => {
+  const [x0, y0, d0] = slot;
+  const b = new Vector3(...back).setY(0).normalize();
+  const rt = new Vector3(-b.z, 0, b.x);
+  const ang = Math.atan2(x0, d0) + m.phase * (0.8 + 0.4 * hash1(seed, 3)) + 0.1 * Math.sin(m.tm * 0.6 + seed);
+  const rad = Math.hypot(x0, d0) * m.tight;
+  const front = Math.max(0, -Math.cos(ang));
+  const y = y0 + Math.sign(y0 - 0.05 || 1) * 0.45 * front + 0.035 * Math.sin(m.tm * (1.1 + m.agitation * 3) + seed * 1.7) * (1 + 2 * m.agitation);
+  const r = rad * (1 + 0.5 * front) + 0.015 * Math.sin(m.tm * 2.3 + seed);
+  const d = b.clone().multiplyScalar(Math.cos(ang) * r).addScaledVector(rt, Math.sin(ang) * r);
+  return [center[0] + d.x, center[1] + y, center[2] + d.z];
+};
+
+/** 0 when a bubble would sit on the lens, 1 from a comfortable distance. */
+const nearFade = (p: V3 | Vector3, cam: V3) => {
+  const v = p instanceof Vector3 ? p : new Vector3(...p);
+  const dd = v.distanceTo(new Vector3(...cam));
+  const k = Math.min(1, Math.max(0, (dd - 0.45) / 0.5));
+  return k * k * (3 - 2 * k);
+};
+
+const glowMat = () => new MeshBasicMaterial({ map: haloTex(), transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false });
+const mats = new Map<string, MeshBasicMaterial>();
+const M = (key: string, make: () => MeshBasicMaterial) => {
+  let m = mats.get(key);
+  if (!m) { m = make(); mats.set(key, m); }
+  return m;
+};
+const unit = () => cached("cfunitplane", () => new PlaneGeometry(1, 1));
+
+const Bubble: React.FC<{ d: ThoughtDef; i: number; t: number; pos: V3; cam: V3; head: V3; mood: FieldMood; txt: VignetteText; C: ReturnType<typeof colors> }> = ({ d, i, t, pos, cam, head, mood, txt, C }) => {
+  const age = t - d.at;
+  const out = d.until !== undefined ? 1 - Math.min(1, Math.max(0, (t - d.until) / 0.3)) : 1;
+  let s = d.size * popIn(age / 0.45) * out * mood.show * (1 - 0.85 * mood.dissolve);
+  if (d.pulses) s *= 1 + 0.12 * mood.pulse;
+  s *= nearFade(pos, cam);
+  if (s <= 0.002) return null;
+  const q = billboard(pos, cam);
+  const flick = mood.ghost > 0 ? 1 - mood.ghost * (0.28 + 0.22 * Math.sin(t * 23 + i * 2.1)) : 1;
+  const disc = M(`disc${i}`, () => new MeshBasicMaterial({ map: bubbleTex(), transparent: true, depthWrite: false, side: DoubleSide }));
+  disc.color.set(C.disc);
+  disc.opacity = 0.97 * flick * (1 - mood.dissolve);
+  const halo = M(`halo${i}`, glowMat);
+  halo.color.set(C.glow);
+  halo.opacity = (0.3 + 0.25 * mood.alarm * mood.pulse) * (1 - mood.dissolve);
+  const rim = M(`rim${i}`, () => new MeshBasicMaterial({ toneMapped: false }));
+  rim.color.set(C.rim).multiplyScalar(1.3 + 0.8 * mood.alarm * mood.pulse);
+  const ink = M(`ink${i}`, () => new MeshBasicMaterial({ transparent: true, depthWrite: false, side: DoubleSide }));
+  if (d.icon) ink.map = iconTex(d.icon);
+  ink.color.set(C.ink);
+  ink.opacity = flick * (1 - mood.dissolve);
+  const dashes = 28, dashK = 1 - 0.55 * mood.ghost;
+  const trail = d.trail ? [0.3, 0.5, 0.68].map((f) => [head[0] + (pos[0] - head[0]) * f, head[1] + 0.12 + (pos[1] - head[1] - 0.12) * f, head[2] + (pos[2] - head[2]) * f] as V3) : [];
+  return (
+    <>
+      <group position={pos} quaternion={q} scale={s}>
+        <mesh geometry={unit()} material={halo} scale={3.2} position={[0, 0, -0.05]} layers={FX_LAYER} />
+        <mesh geometry={cached("cfbubbledisc", () => new PlaneGeometry(2.04, 2.04))} material={disc} layers={FX_LAYER} />
+        {Array.from({ length: dashes }, (_, k) => (
+          <mesh key={k} geometry={torus(1.0, 0.03, 6, 6, ((Math.PI * 2) / dashes) * dashK)} material={rim} rotation={[0, 0, (k / dashes) * Math.PI * 2 + mood.tm * 0.4]} layers={FX_LAYER} />
+        ))}
+        {d.icon ? <mesh geometry={unit()} material={ink} scale={1.25} position={[0, 0, 0.02]} layers={FX_LAYER} /> : null}
+        {d.text ? <mesh geometry={unit()} material={M(`txt${d.text}`, () => new MeshBasicMaterial({ map: textTex(d.text!), transparent: true, depthWrite: false, toneMapped: false }))} scale={1.7} position={[0, 0, 0.025]} layers={FX_LAYER} /> : null}
+        {d.vignette ? (
+          <group position={[0, -0.8, 0.08]} scale={0.6}>
+            <Vignette name={d.vignette} t={t + i * 1.3} txt={txt} cast={d.cast} />
+          </group>
+        ) : null}
+      </group>
+      {trail.map((p, k) => (
+        <mesh key={`tr${k}`} geometry={sphere(1, 16, 12)} material={disc} position={p} scale={s * (0.08 + 0.07 * k)} layers={FX_LAYER} />
+      ))}
+    </>
+  );
+};
+
+// ── swarm (instanced) ───────────────────────────────────────────────────────
+type Inst = { dir: Vector3; r: number; at: number; icon: number; size: number; seed: number };
+const swarmData = (S: SwarmDef, back: V3): Inst[] => {
+  const out: Inst[] = [];
+  const b = new Vector3(...back).normalize();
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0, k = 0; out.length < S.count && k < S.count * 4; k++) {
+    const y = 1 - (k / (S.count * 4 - 1)) * 2;
+    const rr = Math.sqrt(1 - y * y);
+    const dir = new Vector3(Math.cos(golden * k) * rr * 0.62, y * 1.1 + 0.2, Math.sin(golden * k) * rr * 0.62);
+    // keep the camera side clear (nothing between the lens and the face)
+    if (new Vector3(dir.x, 0, dir.z).normalize().dot(b) < -0.15 && dir.y < 1.1) continue;
+    if (hash1(k, 41) < 0.5) continue;
+    out.push({ dir, r: S.rMin + (S.rMax - S.rMin) * hash1(k, 5), at: S.at + S.spread * hash1(i, 9), icon: i % ICONS.length, size: 0.05 + 0.05 * hash1(k, 13), seed: k });
+    i++;
+  }
+  return out;
+};
+
+const Swarm: React.FC<{ S: SwarmDef; t: number; center: V3; back: V3; cam: V3; mood: FieldMood; C: ReturnType<typeof colors> }> = ({ S, t, center, back, cam, mood, C }) => {
+  const data = useMemo(() => swarmData(S, back), [S, back]);
+  const meshes = useMemo(() => {
+    const discs = new InstancedMesh(cached("cfswarmdisc", () => new PlaneGeometry(2.04, 2.04)), new MeshBasicMaterial({ map: bubbleTex(), transparent: true, depthWrite: false, side: DoubleSide }), data.length);
+    const icons = ICONS.map((name, k) => new InstancedMesh(unit(), new MeshBasicMaterial({ map: iconTex(name), transparent: true, depthWrite: false, side: DoubleSide }), data.filter((d) => d.icon === k).length));
+    const glow = new InstancedMesh(unit(), new MeshBasicMaterial({ map: haloTex(), transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }), data.length);
+    for (const m of [discs, glow, ...icons]) { m.frustumCulled = false; m.layers.set(FX_LAYER); }
+    return { discs, icons, glow };
+  }, [data]);
+  const q = billboard(center, cam);
+  const counters = ICONS.map(() => 0);
+  const mx = new Matrix4(), mg = new Matrix4();
+  data.forEach((d, i) => {
+    const age = t - d.at;
+    const k = popIn(age / 0.5);
+    const sp = mood.phase * (0.6 + 0.5 * hash1(d.seed, 2));
+    const dir = d.dir.clone().applyAxisAngle(new Vector3(0, 1, 0), sp);
+    // swirled round to the camera side: lift away from the face, push out and shrink
+    const hb = new Vector3(dir.x, 0, dir.z).normalize().dot(new Vector3(...back).setY(0).normalize());
+    const front = Math.max(0, -hb);
+    dir.y += 0.7 * front * Math.sign(dir.y + 0.05);
+    const r = d.r * mood.tight * (1 + 0.5 * front) * (0.35 + 0.65 * Math.min(1, Math.max(0, age / 0.6)));
+    const bob = 0.03 * Math.sin(mood.tm * (1.3 + 2.5 * mood.agitation) + d.seed) * (1 + 2 * mood.agitation);
+    const up = mood.dissolve * (0.25 + 0.5 * hash1(d.seed, 17));
+    const p = new Vector3(center[0] + dir.x * r, center[1] + dir.y * r + bob + up, center[2] + dir.z * r);
+    const s = d.size * k * (1 - mood.dissolve) * mood.show * (1 + 0.15 * mood.pulse * mood.alarm) * nearFade(p, cam) * (1 - 0.6 * front);
+    mx.compose(p, q, new Vector3(s, s, s));
+    mg.compose(p.clone().addScaledVector(new Vector3(...back).normalize(), 0.01), q, new Vector3(s * 3, s * 3, s * 3));
+    meshes.discs.setMatrixAt(i, mx);
+    meshes.glow.setMatrixAt(i, mg);
+    const ic = meshes.icons[d.icon];
+    const p2 = p.clone().addScaledVector(new Vector3(...cam).sub(p).normalize(), 0.004);
+    mx.compose(p2, q, new Vector3(s * 1.2, s * 1.2, s * 1.2));
+    ic.setMatrixAt(counters[d.icon]++, mx);
+  });
+  for (const m of [meshes.discs, meshes.glow, ...meshes.icons]) m.instanceMatrix.needsUpdate = true;
+  const flick = 1 - mood.ghost * 0.35;
+  (meshes.discs.material as MeshBasicMaterial).color.set(C.disc);
+  (meshes.discs.material as MeshBasicMaterial).opacity = 0.9 * flick;
+  (meshes.glow.material as MeshBasicMaterial).color.set(C.glow);
+  (meshes.glow.material as MeshBasicMaterial).opacity = 0.22 + 0.2 * mood.alarm * mood.pulse;
+  for (const ic of meshes.icons) {
+    (ic.material as MeshBasicMaterial).color.set(C.ink);
+    (ic.material as MeshBasicMaterial).opacity = flick;
+  }
+  return (
+    <>
+      <primitive object={meshes.glow} />
+      <primitive object={meshes.discs} />
+      {meshes.icons.map((m, k) => <primitive key={k} object={m} />)}
+    </>
+  );
+};
+
+// ── motes: what the thoughts dissolve into ──────────────────────────────────
+const Motes: React.FC<{ t: number; from: V3[]; t0: number; cam: V3 }> = ({ t, from, t0, cam }) => {
+  const N = 140;
+  const mesh = useMemo(() => {
+    const m = new InstancedMesh(cached("cfmote", () => new SphereGeometry(1, 8, 6)), new MeshBasicMaterial({ color: new Color("#ffe3a8"), transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }), N);
+    m.frustumCulled = false;
+    m.layers.set(FX_LAYER);
+    return m;
+  }, []);
+  const age = t - t0;
+  const mx = new Matrix4();
+  for (let i = 0; i < N; i++) {
+    const src = from[i % Math.max(1, from.length)] ?? [0, 0, 0];
+    const life = 2.2 + 1.6 * hash1(i, 3);
+    const a = Math.max(0, age - 0.25 * hash1(i, 7));
+    const k = Math.min(1, a / life);
+    const p = new Vector3(src[0] + (hash1(i, 11) - 0.5) * 0.3 + 0.1 * Math.sin(a * 1.3 + i), src[1] + (hash1(i, 13) - 0.5) * 0.3 + a * (0.12 + 0.12 * hash1(i, 19)), src[2] + (hash1(i, 23) - 0.5) * 0.3 + 0.1 * Math.cos(a * 1.1 + i));
+    const s = age <= 0 ? 0 : 0.006 * (1 + hash1(i, 29)) * Math.sin(Math.PI * k);
+    mx.compose(p, new Quaternion(), new Vector3(s, s, s));
+    mesh.setMatrixAt(i, mx);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  void cam;
+  return <primitive object={mesh} />;
+};
+
+export const ThoughtField: React.FC<{
+  defs: ThoughtDef[];
+  swarm?: SwarmDef;
+  t: number;
+  center: V3;
+  head: V3;
+  back: V3;
+  cam: V3;
+  mood: FieldMood;
+  txt: Record<string, VignetteText>;
+  motesAt?: number;
+}> = ({ defs, swarm, t, center, head, back, cam, mood, txt, motesAt }) => {
+  const C = colors(mood);
+  const miniFade = (1 - 0.5 * mood.ghost) * (1 - mood.dissolve);
+  for (const s of [RAKA, RAKA_OUT, BIMA, FRIEND, BOSS, NAYA]) setMiniFade(s, miniFade);
+  const live = defs.filter((d) => t >= d.at);
+  const positions = live.map((d, i) => slotPos(d.slot, center, back, mood, i + 1));
+  return (
+    <group>
+      {live.map((d, i) => (
+        <Bubble key={d.id} d={d} i={i} t={t} pos={positions[i]} cam={cam} head={head} mood={mood} txt={txt[d.id] ?? {}} C={C} />
+      ))}
+      {swarm && t >= swarm.at ? <Swarm S={swarm} t={t} center={center} back={back} cam={cam} mood={mood} C={C} /> : null}
+      {motesAt !== undefined && t >= motesAt ? <Motes t={t} from={positions} t0={motesAt} cam={cam} /> : null}
+    </group>
+  );
+};
+
+==== 12667 src/kits/characterflow/fx/vignettes.tsx
+// Imagined situations: tiny staged scenes that live inside thought bubbles. They are cast from the
+// SAME character system (spec + presets + performance) in the "mini" material variant, so the lead is
+// recognisable inside his own thoughts. Each vignette is built in a 1-unit stage (feet at y = 0,
+// facing the viewer at +Z) and scaled into the bubble by Thoughts.tsx.
+// Text on screens/phones comes from the topic (props), so the vignettes are reusable.
+
+import React from "react";
+import { PlaneGeometry } from "three";
+import { Character } from "../character/Character.tsx";
+import { perform, type Beat, type Performance } from "../character/performance.ts";
+import { BIMA, BOSS, FRIEND, NAYA, RAKA, RAKA_OUT, type CharacterSpec } from "../character/spec.ts";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { basic, phys } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+import { labelTex } from "./icons.ts";
+
+const perfs = new Map<string, Performance>();
+const perf = (key: string, spec: CharacterSpec, x: number, z: number, yaw: number, beats: Omit<Beat, "at">[]): Performance => {
+  let p = perfs.get(key);
+  if (!p) {
+    p = { spec, anchor: { x, y: 0, z, yaw }, beats: beats.map((b, i) => ({ at: i * 0.9, dur: 0.4, ...b })) };
+    perfs.set(key, p);
+  }
+  return p;
+};
+
+const Mini: React.FC<{ p: Performance; t: number; seed: number }> = ({ p, t, seed }) => {
+  const { pose } = perform(p, t, seed);
+  return <Character pose={pose} spec={p.spec} t={t} variant="mini" shadows={false} />;
+};
+
+const plane = (w: number, h: number) => cached(`cfvplane${w},${h}`, () => new PlaneGeometry(w, h));
+
+export type VignetteText = { speech?: string; screen?: string; phoneName?: string; phoneMsg?: string; phoneStatus?: string; clock?: string };
+export type VignetteName = "talk" | "fail" | "late" | "seen" | "boss" | "laugh" | "friends" | "forgot" | "weird";
+/** `a` = the thinker (default Raka), `b` = the other person (default a friend) */
+export type Cast = { a?: CharacterSpec; b?: CharacterSpec };
+type VP = { t: number; txt: VignetteText; cast?: Cast };
+
+const Talk: React.FC<VP> = ({ t, txt }) => {
+  const a = perf("talk-r", RAKA, -0.42, 0, 0.55, [{ body: "stand", armL: "explain", armR: "rest", face: "talk", look: [0.5, 1.5, 0] }]);
+  const b = perf("talk-f", FRIEND, 0.42, 0, -0.55, [{ body: "stand", arms: "crossArms", face: "angry", look: [-0.5, 1.5, 0] }]);
+  const sp = labelTex(`speech${txt.speech}`, 256, 160, (g, w, h) => {
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.roundRect(8, 8, w - 16, h - 50, 36);
+    g.fill();
+    g.beginPath();
+    g.moveTo(60, h - 46); g.lineTo(40, h - 6); g.lineTo(100, h - 46);
+    g.fill();
+    g.fillStyle = "#e4572e";
+    g.font = `600 70px ${FONT}, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(txt.speech ?? "!?", w / 2, (h - 40) / 2 + 6);
+  });
+  return (
+    <group>
+      <Mini p={a} t={t} seed={3} />
+      <Mini p={b} t={t + 0.7} seed={4} />
+      <mesh geometry={plane(0.55, 0.34)} material={basic(`cfspeech${txt.speech}`, { map: sp, transparent: true })} position={[-0.42, 2.05, 0.3]} />
+    </group>
+  );
+};
+
+const Fail: React.FC<VP> = ({ t, txt }) => {
+  const a = perf("fail-r", RAKA, 0.05, 0.25, 0.2, [{ body: "standCower", armL: "coverMouth", armR: "rest", face: "dread" }]);
+  const scr = labelTex(`screen${txt.screen}`, 512, 320, (g, w, h) => {
+    g.fillStyle = "#f6f7fb";
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = "#d9dde6";
+    g.lineWidth = 3;
+    for (let y = 70; y < h; y += 50) { g.beginPath(); g.moveTo(30, y); g.lineTo(w - 30, y); g.stroke(); }
+    g.strokeStyle = "#e5383b";
+    g.lineWidth = 16;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(40, 80); g.lineTo(160, 130); g.lineTo(240, 110); g.lineTo(380, 250); g.lineTo(470, 280);
+    g.stroke();
+    g.fillStyle = "#1f2430";
+    g.font = `600 46px ${FONT}, sans-serif`;
+    g.fillText(txt.screen ?? "", 34, 50);
+  });
+  return (
+    <group>
+      <mesh geometry={box(1.5, 0.95, 0.06, 0.03)} material={phys("cfvscreenbody", { color: "#2c3038", roughness: 0.4 })} position={[0, 1.55, -0.35]} />
+      <mesh geometry={plane(1.38, 0.84)} material={basic(`cfvscreen${txt.screen}`, { map: scr })} position={[0, 1.55, -0.315]} />
+      <mesh geometry={cyl(0.03, 0.03, 1.05, 10)} material={phys("cfvstand", { color: "#5a5f6a" })} position={[0, 0.55, -0.37]} />
+      <Mini p={a} t={t} seed={5} />
+    </group>
+  );
+};
+
+const Late: React.FC<VP> = ({ t, txt }) => {
+  const a = perf("late-r", RAKA, 0.45, 0.2, -1.2, [{ body: "run", armL: "rest", armR: "rest", face: "dread" }]);
+  const shake = Math.sin(t * 60) * 0.06;
+  const face = labelTex(`clock${txt.clock}`, 256, 256, (g, w, h) => {
+    g.fillStyle = "#fffaf0";
+    g.beginPath();
+    g.arc(w / 2, h / 2, w / 2 - 4, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#e5383b";
+    g.font = `600 64px ${FONT}, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(txt.clock ?? "08:47", w / 2, h / 2 + 4);
+  });
+  return (
+    <group>
+      <group position={[-0.35, 1.0, -0.1]} rotation={[0, 0, shake]}>
+        <mesh geometry={cyl(0.48, 0.48, 0.22, 40)} material={phys("cfvclock", { color: "#e5383b", roughness: 0.35, clearcoat: 0.6 })} rotation={[Math.PI / 2, 0, 0]} />
+        <mesh geometry={cached("cfvclockface", () => new PlaneGeometry(0.82, 0.82))} material={basic(`cfvclockface${txt.clock}`, { map: face, transparent: true })} position={[0, 0, 0.115]} />
+        {[-1, 1].map((s) => (
+          <mesh key={s} geometry={sphere(0.17, 20, 12, Math.PI * 2, Math.PI / 2)} material={phys("cfvbell", { color: "#f4c95d", metalness: 0.6, roughness: 0.3 })} position={[s * 0.33, 0.45, 0]} rotation={[0, 0, -s * 0.5]} />
+        ))}
+        {[-1, 1].map((s) => (
+          <mesh key={`l${s}`} geometry={cyl(0.04, 0.04, 0.25, 8)} material={phys("cfvclockleg", { color: "#2c3038" })} position={[s * 0.3, -0.5, 0]} rotation={[0, 0, s * 0.4]} />
+        ))}
+      </group>
+      <Mini p={a} t={t} seed={6} />
+    </group>
+  );
+};
+
+const Seen: React.FC<VP> = ({ t, txt }) => {
+  const a = perf("seen-r", RAKA, 0.48, 0.25, -0.5, [{ body: "standSlump", armL: "rest", armR: "chin", face: "worried", look: [-0.3, 1.2, 0] }]);
+  const ui = labelTex(`phone${txt.phoneMsg}${txt.phoneStatus}`, 300, 560, (g, w, h) => {
+    g.fillStyle = "#eef2f7";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#2b59c3";
+    g.fillRect(0, 0, w, 80);
+    g.fillStyle = "#fff";
+    g.font = `600 30px ${FONT}, sans-serif`;
+    g.fillText(txt.phoneName ?? "Dimas", 24, 52);
+    g.fillStyle = "#c9f2c7";
+    g.beginPath();
+    g.roundRect(60, 200, w - 80, 110, 26);
+    g.fill();
+    g.fillStyle = "#1f2430";
+    g.font = `500 26px ${FONT}, sans-serif`;
+    const words = (txt.phoneMsg ?? "").split(" ");
+    let line = "", y = 245;
+    for (const wd of words) {
+      if (g.measureText(line + wd).width > w - 120) { g.fillText(line, 80, y); line = ""; y += 34; }
+      line += wd + " ";
+    }
+    g.fillText(line, 80, y);
+    g.fillStyle = "#6b7280";
+    g.font = `500 22px ${FONT}, sans-serif`;
+    g.textAlign = "right";
+    g.fillText(txt.phoneStatus ?? "Dibaca ✓✓", w - 24, 340);
+    g.textAlign = "left";
+    g.fillStyle = "#d4d8e0";
+    g.beginPath();
+    g.roundRect(24, 380, 120, 56, 26);
+    g.fill();
+    g.fillStyle = "#8a909c";
+    for (const k of [0, 1, 2]) { g.beginPath(); g.arc(56 + k * 28, 408, 8, 0, Math.PI * 2); g.fill(); }
+  });
+  return (
+    <group>
+      <group position={[-0.35, 1.05, -0.05]} rotation={[0, 0.25, -0.06]}>
+        <mesh geometry={box(0.62, 1.15, 0.07, 0.08)} material={phys("cfvphone", { color: "#1d1f24", roughness: 0.3, metalness: 0.5 })} />
+        <mesh geometry={plane(0.56, 1.05)} material={basic(`cfvphoneui${txt.phoneMsg}`, { map: ui })} position={[0, 0, 0.037]} />
+      </group>
+      <Mini p={a} t={t} seed={7} />
+    </group>
+  );
+};
+
+const Boss: React.FC<VP> = ({ t }) => {
+  const a = perf("boss-b", BOSS, -0.4, -0.1, 0.55, [{ body: "standProud", armL: "rest", armR: "point", face: "angry", look: [0.5, 1.0, 0.3] }]);
+  const b = perf("boss-r", RAKA, 0.45, 0.25, -0.6, [{ body: "standCower", armL: "rest", armR: "rest", face: "embarrassed", look: [-0.4, 1.9, 0] }]);
+  return (
+    <group>
+      <Mini p={a} t={t} seed={8} />
+      <Mini p={b} t={t + 0.3} seed={9} />
+    </group>
+  );
+};
+
+const Laugh: React.FC<VP> = ({ t }) => {
+  const c = perf("laugh-r", RAKA, 0, 0.3, 0, [{ body: "standSlump", armL: "rest", armR: "coverMouth", face: "embarrassed" }]);
+  const a = perf("laugh-f", FRIEND, -0.55, -0.2, 0.6, [{ body: "stand", armL: "rest", armR: "point", face: "laughing", look: [0, 1.4, 0.3] }]);
+  const b = perf("laugh-n", NAYA, 0.55, -0.2, -0.6, [{ body: "stand", armL: "coverMouth", armR: "rest", face: "laughing", look: [0, 1.4, 0.3] }]);
+  const bob = (k: number) => Math.abs(Math.sin(t * 9 + k)) * 0.03;
+  return (
+    <group>
+      <group position={[0, bob(0), 0]}><Mini p={a} t={t} seed={10} /></group>
+      <group position={[0, bob(1.4), 0]}><Mini p={b} t={t + 0.4} seed={11} /></group>
+      <Mini p={c} t={t} seed={12} />
+    </group>
+  );
+};
+
+const speechTex = (text: string, color: string) =>
+  labelTex(`speech2${text}${color}`, 256, 160, (g, w, h) => {
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.roundRect(8, 8, w - 16, h - 50, 36);
+    g.fill();
+    g.beginPath();
+    g.moveTo(60, h - 46); g.lineTo(40, h - 6); g.lineTo(100, h - 46);
+    g.fill();
+    g.fillStyle = color;
+    g.font = `600 76px ${FONT}, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, w / 2, (h - 40) / 2 + 6);
+  });
+const Speech: React.FC<{ text: string; color: string; at: [number, number, number] }> = ({ text, color, at }) => (
+  <mesh geometry={plane(0.55, 0.34)} material={basic(`cfspeech2${text}${color}`, { map: speechTex(text, color), transparent: true })} position={at} />
+);
+
+/** The two of them back when they were close: a high five. */
+const Friends: React.FC<VP> = ({ t, cast }) => {
+  const A = cast?.a ?? RAKA_OUT, B = cast?.b ?? BIMA;
+  const hi = { arm: { sw: 2.35, ab: 0.28, tw: 0, el: 0.25, wr: [0, 0, 0] as [number, number, number] }, hand: { curl: 0.05, index: 0.03, thumb: 0.1, spread: 0.5 } };
+  const a = perf(`friends-a${A.id}`, A, -0.36, 0, Math.PI / 2, [{ body: "stand", armL: "rest", armR: hi, face: "laughing", look: [0.4, 1.5, 0] }]);
+  const b = perf(`friends-b${B.id}`, B, 0.36, 0, -Math.PI / 2, [{ body: "stand", armL: hi, armR: "rest", face: "laughing", look: [-0.4, 1.5, 0] }]);
+  return (
+    <group>
+      <Mini p={a} t={t} seed={13} />
+      <Mini p={b} t={t + 0.2} seed={14} />
+    </group>
+  );
+};
+
+/** "Does he still remember me?" — he waves, the other one draws a blank. */
+const Forgot: React.FC<VP> = ({ t, cast }) => {
+  const A = cast?.a ?? RAKA_OUT, B = cast?.b ?? BIMA;
+  const a = perf(`forgot-a${A.id}`, A, -0.42, 0.1, 0.6, [{ body: "stand", armL: "rest", armR: "wave", face: "happy", look: [0.5, 1.5, 0] }]);
+  const b = perf(`forgot-b${B.id}`, B, 0.42, 0, -0.6, [{ body: "stand", armL: "rest", armR: "chin", face: { base: "thinking", add: { browUp: 0.7 } }, look: [-0.5, 1.5, 0.2] }]);
+  return (
+    <group>
+      <Mini p={a} t={t} seed={15} />
+      <Mini p={b} t={t + 0.5} seed={16} />
+      <Speech text="?" color="#2b59c3" at={[0.5, 2.05, 0.3]} />
+    </group>
+  );
+};
+
+/** "Would it be weird if I said hi first?" — a huge wave, a baffled stare. */
+const Weird: React.FC<VP> = ({ t, cast }) => {
+  const A = cast?.a ?? BIMA, B = cast?.b ?? RAKA_OUT;
+  const wave = (tt: number) => ({ arm: { sw: 0.35, ab: 1.05 + 0.22 * Math.sin(tt * 12), tw: 0.4, el: 1.5 + 0.2 * Math.sin(tt * 12 + 1), wr: [0, 0, 0] as [number, number, number] }, hand: { curl: 0.05, index: 0.03, thumb: 0.1, spread: 0.6 } });
+  const a = perf(`weird-a${A.id}`, A, -0.42, 0.1, 0.6, [{ body: "standProud", armL: "rest", armR: wave, face: "laughing", look: [0.5, 1.5, 0] }]);
+  const b = perf(`weird-b${B.id}`, B, 0.45, 0, -0.6, [{ body: "standCower", armL: "rest", armR: "rest", face: { base: "startled", add: { smile: -0.4 } }, look: [-0.5, 1.6, 0] }]);
+  return (
+    <group>
+      <Mini p={a} t={t} seed={17} />
+      <Mini p={b} t={t + 0.3} seed={18} />
+      <Speech text="…?" color="#e4572e" at={[0.55, 2.0, 0.3]} />
+    </group>
+  );
+};
+
+export const VIGNETTES: Record<VignetteName, React.FC<VP>> = { talk: Talk, fail: Fail, late: Late, seen: Seen, boss: Boss, laugh: Laugh, friends: Friends, forgot: Forgot, weird: Weird };
+
+export const Vignette: React.FC<{ name: VignetteName; t: number; txt: VignetteText; cast?: Cast }> = ({ name, t, txt, cast }) => {
+  const V = VIGNETTES[name];
+  return <V t={t} txt={txt} cast={cast} />;
+};
+
+
+==== 4099 src/kits/characterflow/lib/geo.ts
+// Small geometry kit for architecture: struts between points, merged lattices, lathe and
+// arch profiles, geodesic frames. Geometries are cached by key so a film builds each once.
+
+import {
+  BufferGeometry,
+  CylinderGeometry,
+  IcosahedronGeometry,
+  LatheGeometry,
+  Matrix4,
+  Quaternion,
+  Shape,
+  SphereGeometry,
+  TorusGeometry,
+  Vector2,
+  Vector3,
+} from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+
+const cache = new Map<string, BufferGeometry>();
+export const cached = <G extends BufferGeometry>(key: string, make: () => G): G => {
+  let g = cache.get(key);
+  if (!g) {
+    g = make();
+    cache.set(key, g);
+  }
+  return g as G;
+};
+
+export const cyl = (rt: number, rb: number, h: number, seg = 32, open = false, ts = 0, tl = Math.PI * 2) =>
+  cached(`cyl${rt},${rb},${h},${seg},${open},${ts},${tl}`, () => new CylinderGeometry(rt, rb, h, seg, 1, open, ts, tl));
+export const box = (w: number, h: number, d: number, r = 0.04, seg = 2) =>
+  cached(`box${w},${h},${d},${r}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2.01, h / 2.01, d / 2.01)));
+export const sphere = (r: number, ws = 32, hs = 16, phiLen = Math.PI * 2, thetaLen = Math.PI) =>
+  cached(`sph${r},${ws},${hs},${phiLen},${thetaLen}`, () => new SphereGeometry(r, ws, hs, 0, phiLen, 0, thetaLen));
+export const torus = (R: number, r: number, rs = 8, ts = 48, arc = Math.PI * 2) =>
+  cached(`tor${R},${r},${rs},${ts},${arc}`, () => new TorusGeometry(R, r, rs, ts, arc));
+export const lathe = (key: string, pts: [number, number][], seg = 64) =>
+  cached(`lathe${key}`, () => new LatheGeometry(pts.map(([x, y]) => new Vector2(x, y)), seg));
+
+const UP = new Vector3(0, 1, 0);
+/** A cylinder from p to q (world-free; positions in the caller's frame). */
+export const strutGeo = (p: Vector3, q: Vector3, r: number, seg = 6) => {
+  const d = new Vector3().subVectors(q, p);
+  const len = d.length();
+  const g = new CylinderGeometry(r, r, len, seg, 1, false);
+  const m = new Matrix4().compose(
+    new Vector3().addVectors(p, q).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(UP, d.normalize()),
+    new Vector3(1, 1, 1),
+  );
+  g.applyMatrix4(m);
+  return g;
+};
+
+export const merged = (key: string, make: () => BufferGeometry[]) =>
+  cached(key, () => {
+    const parts = make().map((g) => (g.index ? g.toNonIndexed() : g));
+    for (const p of parts) {
+      for (const name of Object.keys(p.attributes)) if (name !== "position" && name !== "normal" && name !== "uv") p.deleteAttribute(name);
+    }
+    return mergeGeometries(parts, false)!;
+  });
+
+/** Geodesic frame over the upper hemisphere (edges of a subdivided icosahedron). */
+export const geodesicFrame = (R: number, detail: number, strutR: number) =>
+  merged(`geo${R},${detail},${strutR}`, () => {
+    const ico = new IcosahedronGeometry(R, detail);
+    const p = ico.attributes.position;
+    const key = (v: Vector3) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    const edges = new Map<string, [Vector3, Vector3]>();
+    for (let i = 0; i < p.count; i += 3) {
+      const tri = [0, 1, 2].map((k) => new Vector3(p.getX(i + k), p.getY(i + k), p.getZ(i + k)));
+      for (let k = 0; k < 3; k++) {
+        const a = tri[k], b = tri[(k + 1) % 3];
+        if (a.y < -0.01 || b.y < -0.01) continue;
+        const ka = key(a), kb = key(b);
+        const id = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+        if (!edges.has(id)) edges.set(id, [a, b]);
+      }
+    }
+    return [...edges.values()].map(([a, b]) => strutGeo(a, b, strutR, 5));
+  });
+
+/** Arch outline (flat sides, rounded roof) in the x-y plane, base on y = 0. */
+export const archShape = (w: number, h: number, shoulder: number, inset = 0) => {
+  const s = new Shape();
+  const hw = w / 2 - inset;
+  s.moveTo(-hw, inset > 0 ? 0 : 0);
+  s.lineTo(-hw, h - shoulder);
+  s.quadraticCurveTo(-hw, h - inset, 0, h - inset);
+  s.quadraticCurveTo(hw, h - inset, hw, h - shoulder);
+  s.lineTo(hw, 0);
+  s.lineTo(-hw, 0);
+  return s;
+};
+
+==== 4182 src/kits/characterflow/lib/mats.ts
+// Shared materials, deterministic randomness and procedural canvas textures. Every material is built
+// once per key and shared; textures are drawn from seeded randomness, so nothing depends on files.
+
+import {
+  CanvasTexture,
+  Color,
+  type Material,
+  MeshBasicMaterial,
+  type MeshBasicMaterialParameters,
+  MeshPhysicalMaterial,
+  type MeshPhysicalMaterialParameters,
+  RepeatWrapping,
+  SRGBColorSpace,
+  type Texture,
+} from "three";
+
+export { mulberry32, hash1, noise1 } from "./rng.ts";
+import { mulberry32 } from "./rng.ts";
+
+const cache = new Map<string, Material>();
+export const phys = (key: string, p: MeshPhysicalMaterialParameters): MeshPhysicalMaterial => {
+  let m = cache.get(key) as MeshPhysicalMaterial | undefined;
+  if (!m) {
+    m = new MeshPhysicalMaterial(p);
+    cache.set(key, m);
+  }
+  return m;
+};
+export const basic = (key: string, p: MeshBasicMaterialParameters): MeshBasicMaterial => {
+  let m = cache.get(key) as MeshBasicMaterial | undefined;
+  if (!m) {
+    m = new MeshBasicMaterial(p);
+    cache.set(key, m);
+  }
+  return m;
+};
+
+const texCache = new Map<string, Texture>();
+export const canvasTex = (key: string, w: number, h: number, draw: (g: CanvasRenderingContext2D, w: number, h: number) => void, repeat?: [number, number], srgb = true) => {
+  let t = texCache.get(key);
+  if (!t) {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d")!;
+    draw(g, w, h);
+    t = new CanvasTexture(c);
+    if (srgb) t.colorSpace = SRGBColorSpace;
+    t.anisotropy = 8;
+    if (repeat) {
+      t.wrapS = t.wrapT = RepeatWrapping;
+      t.repeat.set(...repeat);
+    }
+    texCache.set(key, t);
+  }
+  return t;
+};
+
+export const shade = (hex: string, k: number) => {
+  const c = new Color(hex);
+  c.multiplyScalar(k);
+  return `#${c.getHexString()}`;
+};
+export const mixHex = (a: string, b: string, k: number) => `#${new Color(a).lerp(new Color(b), Math.min(1, Math.max(0, k))).getHexString()}`;
+
+/** Soft woven fabric. */
+export const weaveTex = (key: string, color: string, rep: [number, number], stripe?: string) =>
+  canvasTex(`weave${key}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(3);
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 4)
+      for (let x = 0; x < w; x += 4) {
+        g.fillStyle = `rgba(${(x + y) % 8 ? "255,255,255" : "0,0,0"},${0.02 + r() * 0.03})`;
+        g.fillRect(x, y, 4, 2);
+      }
+    if (stripe) {
+      g.fillStyle = stripe;
+      for (let y = 0; y < h; y += 64) g.fillRect(0, y + 20, w, 10);
+    }
+  }, rep);
+
+/** Stylised eye: equirect sphere texture with the iris centred on +Z (u = 0.25, v = 0.5). */
+export const eyeTex = (key: string, iris: string) =>
+  canvasTex(`eye${key}`, 1024, 512, (g, w, h) => {
+    g.fillStyle = "#f7f3ee";
+    g.fillRect(0, 0, w, h);
+    // faint warm vignette toward the back of the eyeball
+    const bg = g.createRadialGradient(w * 0.25, h * 0.5, w * 0.05, w * 0.25, h * 0.5, w * 0.3);
+    bg.addColorStop(0, "rgba(0,0,0,0)");
+    bg.addColorStop(1, "rgba(150,90,80,0.18)");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, w, h);
+    const cx = w * 0.25, cy = h * 0.5;
+    const rx = w * 0.108, ry = h * 0.216;
+    const gr = g.createRadialGradient(cx, cy - ry * 0.25, 0, cx, cy, rx);
+    gr.addColorStop(0, shade(iris, 2.1));
+    gr.addColorStop(0.5, shade(iris, 1.25));
+    gr.addColorStop(0.85, iris);
+    gr.addColorStop(1, shade(iris, 0.35));
+    g.fillStyle = gr;
+    g.beginPath();
+    g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = "rgba(255,225,170,0.22)";
+    g.lineWidth = 2;
+    for (let k = 0; k < 64; k++) {
+      const a = (k / 64) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(cx + Math.cos(a) * rx * 0.5, cy + Math.sin(a) * ry * 0.5);
+      g.lineTo(cx + Math.cos(a) * rx * 0.88, cy + Math.sin(a) * ry * 0.88);
+      g.stroke();
+    }
+    g.fillStyle = "#0b0706";
+    g.beginPath();
+    g.ellipse(cx, cy, rx * 0.44, ry * 0.44, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = shade(iris, 0.25);
+    g.lineWidth = 6;
+    g.beginPath();
+    g.ellipse(cx, cy, rx * 0.985, ry * 0.985, 0, 0, Math.PI * 2);
+    g.stroke();
+  });
+
+==== 811 src/kits/characterflow/lib/rng.ts
+// Deterministic randomness (Node-safe).
+export const mulberry32 = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+/** Integer hash → [0, 1). */
+export const hash1 = (x: number, seed = 0) => {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(seed | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+};
+/** Smooth 1-D value noise in [-1, 1]. */
+export const noise1 = (x: number, seed = 0) => {
+  const i = Math.floor(x), f = x - i;
+  const u = f * f * (3 - 2 * f);
+  return (hash1(i, seed) * (1 - u) + hash1(i + 1, seed) * u) * 2 - 1;
+};
+
+==== 7100 src/kits/characterflow/locomotion/stand.ts
+// Standing and sitting blocking with planted feet (leg IK), for any character.
+//
+//   standBody — standing on a mark: living idle (slow weight shift), turns in place with real steps
+//               (each foot lifts and re-plants at the new heading, staggered), optional base preset.
+//   seatBody  — a chair/bench/bed-edge seat: sits down and stands up through a forward-lean crouch
+//               while the feet stay planted in front of the seat.
+// Pure maths — the director and the sound department (footsteps on turns) share it.
+
+import { BODY, type BodyName } from "../character/presets/bodies.ts";
+import { blend, clonePose, type Pose } from "../character/pose.ts";
+import { DIMS, type CharacterSpec, type V3 } from "../character/spec.ts";
+
+const D = Math.PI / 180;
+const smooth = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+const ANKLE_H = 0.087;
+
+export type Turn = { at: number; dur: number; to: number };
+const wrap = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+/** Heading at time t after a list of turns (shortest way round). */
+export const yawAt = (yaw0: number, turns: Turn[], t: number, lag = 0) => {
+  let y = yaw0;
+  for (const tr of turns) {
+    if (t < tr.at) break;
+    const k = smooth((t - tr.at - lag * tr.dur) / tr.dur);
+    y = y + wrap(tr.to - y) * k;
+  }
+  return y;
+};
+
+const quatYXZ = (yaw: number, pitch: number): [number, number, number, number] => {
+  const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cx = Math.cos(pitch / 2), sx = Math.sin(pitch / 2);
+  return [cy * sx, sy * cx, -sy * sx, cy * cx];
+};
+
+/** Foot (ankle target + orientation) standing at `pos` with heading `yaw`; side −1 = left, +1 = right. */
+const footAt = (pos: V3, yaw: number, side: number, spec: CharacterSpec, lift = 0, back = 0.02): { t: V3; q: [number, number, number, number] } => {
+  const gap = 0.1 * spec.scale;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  const rx = -fz, rz = fx; // his right
+  return {
+    t: [pos[0] + rx * gap * side - fx * back, pos[1] + ANKLE_H * spec.scale + lift, pos[2] + rz * gap * side - fz * back],
+    q: quatYXZ(yaw - side * 0.07, 0),
+  };
+};
+
+/** Turn progress of one foot inside a turn: left steps first, right follows. */
+const stepK = (turns: Turn[], t: number, first: boolean) => {
+  for (const tr of turns) {
+    const u = (t - tr.at) / tr.dur;
+    if (u > 0 && u < 1) {
+      const [a, b] = first ? [0.05, 0.55] : [0.45, 0.95];
+      const k = smooth((u - a) / (b - a));
+      return { k, lift: 0.06 * Math.sin(Math.PI * Math.min(1, Math.max(0, (u - a) / (b - a)))) };
+    }
+  }
+  return null;
+};
+
+export const standBody = (spec: CharacterSpec, pos: V3, yaw0: number, turns: Turn[] = [], base: BodyName = "stand", mod?: (p: Pose, t: number) => void) => (t: number): Pose => {
+  const yaw = yawAt(yaw0, turns, t);
+  const p = clonePose(BODY[base]({ x: pos[0], y: pos[1], z: pos[2], yaw }, spec, t));
+  // idle: slow weight shift between the feet
+  const w = Math.sin(t * 2 * Math.PI * 0.11 + spec.scale * 10);
+  p.hips = [p.hips[0], p.hips[1] + 1.2 * D * w, p.hips[2] + 1.8 * D * w];
+  p.chest = [p.chest[0], p.chest[1] - 0.8 * D * w, p.chest[2] - 1.0 * D * w];
+  p.x += Math.cos(yaw) * 0.012 * w;
+  p.z += -Math.sin(yaw) * 0.012 * w;
+  p.hipY -= 0.008;
+  // turning: dip a little while stepping round
+  for (const tr of turns) { const u = (t - tr.at) / tr.dur; if (u > 0 && u < 1) p.hipY -= 0.018 * Math.sin(Math.PI * u); }
+  // feet: each re-plants at the new heading on its own step
+  const prevYaw = (side: -1 | 1) => {
+    const s = stepK(turns, t, side === -1);
+    if (!s) return { yaw, lift: 0 };
+    // heading this foot has reached
+    let y = yaw0;
+    for (const tr of turns) { if (t < tr.at) break; if (t > tr.at + tr.dur) y = y + wrap(tr.to - y); else y = y + wrap(tr.to - y) * s.k; }
+    return { yaw: y, lift: s.lift };
+  };
+  const L = prevYaw(-1), R = prevYaw(1);
+  const fl = footAt(pos, L.yaw, -1, spec, L.lift), fr = footAt(pos, R.yaw, 1, spec, R.lift);
+  p.legL = { ...p.legL, ik: { t: fl.t, q: fl.q, w: 1 } };
+  p.legR = { ...p.legR, ik: { t: fr.t, q: fr.q, w: 1 } };
+  if (mod) mod(p, t);
+  return p;
+};
+
+/** Steps of a turn (for footstep sounds). */
+export const turnSteps = (turns: Turn[]) => turns.flatMap((tr) => [tr.at + tr.dur * 0.55, tr.at + tr.dur * 0.95]);
+
+// ── sitting ─────────────────────────────────────────────────────────────────
+export type Seat = { pos: V3; yaw: number; height: number; floor?: number };
+/** sit = 1 seated, 0 standing in front of the seat; transitions take ~1 s each */
+export type SeatChange = { at: number; sit: boolean; dur?: number };
+
+export const sitAmount = (start: boolean, changes: SeatChange[], t: number) => {
+  let k = start ? 1 : 0;
+  for (const c of changes) {
+    if (t < c.at) break;
+    const d = c.dur ?? 1.1;
+    const target = c.sit ? 1 : 0;
+    k = k + (target - k) * smooth((t - c.at) / d);
+  }
+  return k;
+};
+
+/** Position where he stands when he gets up from the seat (feet stay where they were). */
+export const seatStandPos = (s: Seat, spec: CharacterSpec): V3 => {
+  const f = 0.36 * spec.scale / 0.94;
+  return [s.pos[0] + Math.sin(s.yaw) * f, s.floor ?? 0, s.pos[2] + Math.cos(s.yaw) * f];
+};
+
+export const seatBody = (spec: CharacterSpec, seat: Seat, startSeated: boolean, changes: SeatChange[], mod?: (p: Pose, t: number) => void) => (t: number): Pose => {
+  const k = sitAmount(startSeated, changes, t);
+  const floor = seat.floor ?? 0;
+  const standPos = seatStandPos(seat, spec);
+  const fx = Math.sin(seat.yaw), fz = Math.cos(seat.yaw);
+  // standing
+  const st = BODY.stand({ x: standPos[0], y: floor, z: standPos[2], yaw: seat.yaw }, spec, t);
+  // seated: pelvis on the seat, thighs forward, upright back
+  const se = clonePose(BODY.stand({ x: seat.pos[0], y: floor, z: seat.pos[2], yaw: seat.yaw }, spec, t));
+  se.y = seat.height + 0.1 * spec.scale - DIMS.pelvisH * spec.scale;
+  se.hips = [-4 * D, 0, 0];
+  se.spine = [5 * D, 0, 0];
+  se.chest = [5 * D, 0, 0];
+  se.armL = { ...se.armL, sw: 0.45, ab: 0.14, el: 0.7 };
+  se.armR = { ...se.armR, sw: 0.45, ab: 0.14, el: 0.7 };
+  // half-way: weight forward over the feet
+  const cr = clonePose(st);
+  cr.x = (seat.pos[0] + standPos[0]) / 2 + fx * 0.06;
+  cr.z = (seat.pos[2] + standPos[2]) / 2 + fz * 0.06;
+  cr.y = floor + (seat.height + 0.1 * spec.scale - DIMS.pelvisH * spec.scale - floor) * 0.55;
+  cr.hips = [22 * D, 0, 0];
+  cr.spine = [16 * D, 0, 0];
+  cr.chest = [10 * D, 0, 0];
+  cr.armL = { ...cr.armL, sw: 0.5, el: 0.5 };
+  cr.armR = { ...cr.armR, sw: 0.5, el: 0.5 };
+  const p = k < 0.5 ? blend(st, cr, smooth(k * 2)) : blend(cr, se, smooth((k - 0.5) * 2));
+  const fl = footAt(standPos, seat.yaw, -1, spec, 0, 0.03), fr = footAt(standPos, seat.yaw, 1, spec, 0, 0.03);
+  p.legL = { ...p.legL, ik: { t: fl.t, q: fl.q, w: 1 } };
+  p.legR = { ...p.legR, ik: { t: fr.t, q: fr.q, w: 1 } };
+  if (mod) mod(p, t);
+  return p;
+};
+
+==== 9724 src/kits/characterflow/locomotion/walk.ts
+// Locomotion: characters really walk through the set — no treadmill, no sliding feet.
+//
+// A Walker integrates a speed profile (m/s keys) into distance and gait phase. Step length follows
+// speed, so cadence and stride change together; when the speed drops to zero the gait finishes its
+// step and both feet come to rest. Each foot is planted at the body's position at mid-stance and
+// swings to its next plant with a lift arc, toe-off and heel strike; the legs reach the plants with
+// IK (skeleton.ts), so foot contact is exact. walkBody() layers the upper-body motion on any body
+// preset: pelvis bob and yaw, counter-rotating chest, arm swing (unless a gesture owns the arm).
+//
+// Pure maths (no rendering), so the sound department can place footsteps on the same plants.
+
+import { BODY, type BodyName } from "../character/presets/bodies.ts";
+import { clonePose, type Pose } from "../character/pose.ts";
+import { DIMS, type CharacterSpec, type V3 } from "../character/spec.ts";
+
+export type SpeedKey = [t: number, v: number];
+export type WalkerDef = {
+  /** ground point where distance 0 is */
+  start: V3;
+  /** horizontal travel direction (normalised internally) */
+  dir: V3;
+  /** speed keys (m/s), eased between keys */
+  speed: SpeedKey[];
+  spec: CharacterSpec;
+  /** distance already covered at speed[0][0] */
+  d0?: number;
+  /** gait phase at speed[0][0] (cycles) — continue another walker's stride */
+  phi0?: number;
+  /** sideways offset from the line (m, + = his right) over time — lane changes */
+  lane?: (t: number) => number;
+};
+export type Foot = { t: V3; q: [number, number, number, number]; lift: number; planted: boolean };
+export type WalkState = { d: number; v: number; phi: number; pos: V3; yaw: number; amt: number };
+
+const DT = 1 / 240;
+const smooth = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * (3 - 2 * k); };
+const smoother = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k * k * k * (k * (k * 6 - 15) + 10); };
+
+/** Step length (m) at speed v for a character of this scale. */
+export const stepLength = (v: number, scale: number) => Math.min(0.8, Math.max(0.3, 0.3 + 0.38 * v)) * (scale / 0.94);
+const ankleH = (spec: CharacterSpec) => 0.087 * spec.scale;
+
+const quatYXZ = (yaw: number, pitch: number): [number, number, number, number] => {
+  const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cx = Math.cos(pitch / 2), sx = Math.sin(pitch / 2);
+  // q = qy * qx
+  return [cy * sx, sy * cx, -sy * sx, cy * cx];
+};
+
+export class Walker {
+  def: WalkerDef;
+  t0: number;
+  dir: V3;
+  right: V3;
+  yaw: number;
+  private d: Float64Array;
+  private phi: Float64Array;
+  private v: Float64Array;
+
+  constructor(def: WalkerDef, t1: number) {
+    this.def = def;
+    this.t0 = def.speed[0][0];
+    const l = Math.hypot(def.dir[0], def.dir[2]);
+    this.dir = [def.dir[0] / l, 0, def.dir[2] / l];
+    this.right = [-this.dir[2], 0, this.dir[0]];
+    this.yaw = Math.atan2(this.dir[0], this.dir[2]);
+    const n = Math.ceil((t1 - this.t0) / DT) + 2;
+    this.d = new Float64Array(n);
+    this.phi = new Float64Array(n);
+    this.v = new Float64Array(n);
+    let d = def.d0 ?? 0, phi = def.phi0 ?? 0;
+    for (let i = 0; i < n; i++) {
+      const t = this.t0 + i * DT;
+      const v = this.speedAt(t);
+      this.d[i] = d;
+      this.phi[i] = phi;
+      this.v[i] = v;
+      const L = stepLength(v, def.spec.scale);
+      let rate = v / (2 * L);
+      // stopping: finish the current step so both feet end on the ground (rest at φ ≡ 0.06 mod 0.5)
+      if (v < 0.04) {
+        const u = (((phi - 0.06) % 0.5) + 0.5) % 0.5;
+        rate = u > 0.012 ? Math.max(rate, 0.9) : 0;
+      }
+      d += v * DT;
+      phi += rate * DT;
+    }
+  }
+
+  speedAt(t: number) {
+    const k = this.def.speed;
+    if (t <= k[0][0]) return k[0][1];
+    for (let i = 1; i < k.length; i++) if (t <= k[i][0]) return k[i - 1][1] + (k[i][1] - k[i - 1][1]) * smooth((t - k[i - 1][0]) / (k[i][0] - k[i - 1][0]));
+    return k[k.length - 1][1];
+  }
+
+  private sample(arr: Float64Array, t: number) {
+    const x = Math.min(arr.length - 1.001, Math.max(0, (t - this.t0) / DT));
+    const i = Math.floor(x), f = x - i;
+    return arr[i] * (1 - f) + arr[i + 1] * f;
+  }
+  /** distance at the moment the phase reaches `p` (binary search; phase is monotonic) */
+  private dAtPhase(p: number) {
+    const a = this.phi;
+    if (p <= a[0]) return this.d[0] - (a[0] - p) * 2 * stepLength(this.v[0], this.def.spec.scale);
+    let lo = 0, hi = a.length - 1;
+    if (p >= a[hi]) return this.d[hi];
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (a[m] < p) lo = m; else hi = m; }
+    const f = (p - a[lo]) / Math.max(1e-9, a[hi] - a[lo]);
+    return this.d[lo] + (this.d[hi] - this.d[lo]) * f;
+  }
+  private at3(d: number, lateral = 0, t = this.t0): V3 {
+    const s = this.def.start;
+    lateral += this.def.lane ? this.def.lane(t) : 0;
+    return [s[0] + this.dir[0] * d + this.right[0] * lateral, s[1], s[2] + this.dir[2] * d + this.right[2] * lateral];
+  }
+
+  at(t: number): WalkState {
+    const d = this.sample(this.d, t), v = this.sample(this.v, t), phi = this.sample(this.phi, t);
+    return { d, v, phi, pos: this.at3(d, 0, t), yaw: this.yaw, amt: Math.min(1.2, v / 1.0) };
+  }
+
+  /** Ankle targets + foot orientations for both feet at time t. */
+  feet(t: number): { L: Foot; R: Foot } {
+    const st = this.at(t);
+    const spec = this.def.spec;
+    const gap = 0.1 * spec.scale;
+    const foot = (off: number, side: 1 | -1): Foot => {
+      const pf = st.phi + off;
+      const n = Math.floor(pf), u = pf - n;
+      const plant = (k: number) => this.dAtPhase(k + 0.3 - off) - 0.04;
+      let dd: number, lift = 0, pitch = 0, planted = true;
+      if (u < 0.6) {
+        dd = plant(n);
+        pitch = 0.16 * smooth((u - 0.42) / 0.18) * Math.min(1, st.v / 0.4); // heel rises late in stance
+      } else {
+        const k = smoother((u - 0.6) / 0.4);
+        dd = plant(n) + (plant(n + 1) - plant(n)) * k;
+        const amp = Math.min(1, 0.25 + st.v / 0.6);
+        lift = 0.075 * Math.sin(Math.PI * k) * amp;
+        pitch = 0.5 * Math.cos(Math.PI * k) * Math.sqrt(Math.sin(Math.PI * k)) * amp;
+        planted = false;
+      }
+      const p = this.at3(dd, side * gap, t);
+      const y = p[1] + ankleH(spec) + lift + Math.max(0, pitch) * 0.12 + Math.max(0, -pitch) * 0.05;
+      return { t: [p[0], y, p[2]], q: quatYXZ(this.yaw - side * 0.07, pitch), lift, planted };
+    };
+    // `right` points to his right: left foot −gap, right foot +gap; toes turn slightly out
+    return { L: foot(0, -1), R: foot(0.5, 1) };
+  }
+
+  /** Times (s) of heel strikes in [a, b] — for footstep sounds. */
+  heelStrikes(a: number, b: number): { t: number; side: "L" | "R" }[] {
+    const out: { t: number; side: "L" | "R" }[] = [];
+    let prevL = this.sample(this.phi, a), prevR = prevL + 0.5;
+    for (let t = a + DT; t <= b; t += DT) {
+      const p = this.sample(this.phi, t);
+      if (Math.floor(p) > Math.floor(prevL) && this.sample(this.v, t) > 0.02) out.push({ t, side: "L" });
+      if (Math.floor(p + 0.5) > Math.floor(prevR) && this.sample(this.v, t) > 0.02) out.push({ t, side: "R" });
+      prevL = p; prevR = p + 0.5;
+    }
+    return out;
+  }
+}
+
+/** Distance covered at time t by a speed profile (no walker needed). */
+export const distanceAt = (speed: SpeedKey[], t: number, d0 = 0) => {
+  const w = { speedAt: Walker.prototype.speedAt, def: { speed } } as unknown as Walker;
+  let d = d0;
+  for (let x = speed[0][0]; x < t; x += DT) d += w.speedAt(x) * DT;
+  return d;
+};
+
+/**
+ * Scale the cruise speed of a profile so the walk covers exactly `dist` by `tEnd`
+ * (`keys(v)` builds the profile for a cruise speed v; bisection, deterministic).
+ */
+export const fitCruise = (keys: (v: number) => SpeedKey[], dist: number, tEnd: number) => {
+  let lo = 0.05, hi = 3;
+  for (let i = 0; i < 40; i++) {
+    const m = (lo + hi) / 2;
+    if (distanceAt(keys(m), tEnd) < dist) lo = m; else hi = m;
+  }
+  return keys((lo + hi) / 2);
+};
+
+const D = Math.PI / 180;
+
+/**
+ * A walking body: `base` preset at the walker's position, plus gait motion and planted legs.
+ * `amtOverride` scales the upper-body swing (e.g. smaller while holding a phone).
+ */
+export const walkBody = (w: Walker, base: BodyName = "stand", mod?: (p: Pose, t: number) => void) => (t: number): Pose => {
+  const st = w.at(t);
+  const spec = w.def.spec;
+  const p = clonePose(BODY[base]({ x: st.pos[0], y: st.pos[1], z: st.pos[2], yaw: st.yaw }, spec, t));
+  const a = Math.min(1, st.amt);
+  const c = Math.cos(2 * Math.PI * st.phi);
+  p.hipY = p.hipY - 0.008 - 0.024 * a + 0.011 * a * Math.cos(4 * Math.PI * (st.phi - 0.3));
+  p.hips = [p.hips[0] + 3 * D * a, p.hips[1] - 6 * D * a * c, p.hips[2] + 2.2 * D * a * Math.sin(2 * Math.PI * (st.phi - 0.3))];
+  p.chest = [p.chest[0] + 1.5 * D * a, p.chest[1] + 8 * D * a * c, p.chest[2]];
+  p.neck = [p.neck[0] - 1 * D * a, p.neck[1] - 2 * D * a * c, p.neck[2]];
+  p.armL = { ...p.armL, sw: p.armL.sw - 0.34 * a * c, el: p.armL.el + 0.1 * a + 0.12 * a * Math.max(0, -c) };
+  p.armR = { ...p.armR, sw: p.armR.sw + 0.34 * a * c, el: p.armR.el + 0.1 * a + 0.12 * a * Math.max(0, c) };
+  const f = w.feet(t);
+  p.legL = { ...p.legL, ik: { t: f.L.t, q: f.L.q, w: 1 } };
+  p.legR = { ...p.legR, ik: { t: f.R.t, q: f.R.q, w: 1 } };
+  if (mod) mod(p, t);
+  return p;
+};
+
+/** World eye position of a walking character (for look-at between characters, no recursion). */
+export const eyeOf = (w: Walker, t: number): V3 => {
+  const st = w.at(t);
+  const h = (DIMS.pelvisH + DIMS.spineY + DIMS.chestY + DIMS.neckY + DIMS.headY + DIMS.headCenter[1]) * w.def.spec.scale;
+  return [st.pos[0] + w.dir[0] * 0.08, st.pos[1] + h - 0.03, st.pos[2] + w.dir[2] * 0.08];
+};
+
+==== 7012 src/kits/characterflow/look/CharLook.tsx
+// Look development + QA sheet for the character system. Each frame is one test card: turnarounds,
+// face close-ups for every expression, and the body presets with gestures. Render with
+//   node scripts/stills.mjs out/look 0,1,2,... CharLook
+// Nothing here is topic specific — it is the character system's proof sheet.
+
+import React from "react";
+import { useCurrentFrame, useVideoConfig } from "remotion";
+import { Stage3D } from "../../../core/film/Stage3D.tsx";
+import { FONT } from "../../../core/type/fonts.ts";
+import { Character } from "../character/Character.tsx";
+import { perform, type Beat } from "../character/performance.ts";
+import { EXPR, type ExprName } from "../character/presets/expressions.ts";
+import type { GestureName } from "../character/presets/gestures.ts";
+import type { BodyName } from "../character/presets/bodies.ts";
+import { facePoint, skeleton } from "../character/skeleton.ts";
+import { BOSS, FRIEND, NAYA, RAKA, type CharacterSpec, type V3 } from "../character/spec.ts";
+import { CameraRig, FilmPost, GRADE0, type Cam } from "../render/FilmPost.tsx";
+import { Lights, P_OFF, type LightState } from "../render/Lights.tsx";
+import { box, cyl } from "../lib/geo.ts";
+import { phys } from "../lib/mats.ts";
+
+type Card = { title: string; spec?: CharacterSpec; body: BodyName; armL?: GestureName; armR?: GestureName; face: ExprName; cam: "full" | "face" | "face34" | "profile" | "bed" | "bedTop" | "mid"; yaw?: number; look?: V3 };
+
+export const CARDS: Card[] = [
+  { title: "turnaround · front", body: "stand", face: "content", cam: "full" },
+  { title: "turnaround · 3/4", body: "stand", face: "neutral", cam: "full", yaw: 0.65 },
+  { title: "turnaround · side", body: "stand", face: "neutral", cam: "full", yaw: 1.5708 },
+  { title: "turnaround · back", body: "stand", face: "neutral", cam: "full", yaw: 3.1416 },
+  ...(["neutral", "content", "happy", "sleepy", "asleep", "startled", "worried", "anxious", "overwhelmed", "thinking", "calm", "focused", "relieved", "exhale", "sad", "angry"] as ExprName[]).map(
+    (e): Card => ({ title: `face · ${e}`, body: "stand", face: e, cam: "face" }),
+  ),
+  { title: "face 3/4 · worried", body: "stand", face: "worried", cam: "face34" },
+  { title: "face profile", body: "stand", face: "neutral", cam: "profile" },
+  { title: "lie", body: "lie", armL: "lieSide", armR: "lieSide", face: "asleep", cam: "bed" },
+  { title: "lie · behind head", body: "lie", armL: "lieSide", armR: "behindHead", face: "asleepSmile", cam: "bed" },
+  { title: "sit · lap", body: "sit", armL: "onLap", armR: "onLap", face: "worried", cam: "mid" },
+  { title: "sit · temple", body: "sit", armL: "onLap", armR: "temple", face: "thinking", cam: "mid" },
+  { title: "sit · rub neck", body: "sit", armL: "onLap", armR: "rubNeck", face: "worried", cam: "mid" },
+  { title: "sit hunch · head in hands", body: "sitHunch", armL: "headInHands", armR: "headInHands", face: "overwhelmed", cam: "mid" },
+  { title: "sit · grab hair", body: "sitHunch", armL: "grabHair", armR: "grabHair", face: "dread", cam: "mid" },
+  { title: "sit · hand on chest", body: "sit", armL: "onLap", armR: "onChest", face: "exhale", cam: "mid" },
+  { title: "sit write · hold book", body: "sitWrite", armL: "holdBook", armR: "clasp", face: "focused", cam: "mid" },
+  { title: "sit · reach right", body: "sitReachRight", armL: "onLap", armR: "point", face: "neutral", cam: "mid" },
+  { title: "stand · explain", spec: FRIEND, body: "stand", armL: "explain", armR: "rest", face: "talk", cam: "full" },
+  { title: "stand · cross arms", spec: FRIEND, body: "stand", armL: "crossArms", armR: "crossArms", face: "angry", cam: "full" },
+  { title: "boss · point", spec: BOSS, body: "standProud", armL: "rest", armR: "point", face: "angry", cam: "full" },
+  { title: "naya · wave", spec: NAYA, body: "stand", armL: "wave", armR: "rest", face: "happy", cam: "full" },
+  { title: "cower", body: "standCower", armL: "coverMouth", armR: "rest", face: "dread", cam: "full" },
+];
+
+const L: LightState = {
+  bg: "#d9dde4", fog: { color: "#d9dde4", density: 0 }, env: 0.55,
+  hemi: { sky: "#f4f1ec", ground: "#7a6f66", i: 0.75 },
+  moon: { dir: [0.55, 0.75, 0.6], color: "#fff4e6", i: 2.4, box: { min: [-1.6, -0.1, -1.6], max: [1.6, 2.2, 1.6] } },
+  spot: { pos: [-1.8, 2.6, -1.6], target: [0, 1.2, 0], color: "#bcd6ff", i: 14, angle: 0.6, penumbra: 0.8, dist: 8 },
+  pts: [{ pos: [-1.4, 1.6, 1.8], color: "#d8e6ff", i: 3, dist: 7 }, P_OFF, P_OFF, P_OFF],
+};
+
+export const CharLook: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const card = CARDS[Math.min(CARDS.length - 1, frame)];
+  const spec = card.spec ?? RAKA;
+  const t = 1.3 + frame * 0.37;
+  const anchor = card.body === "lie" || card.body.startsWith("sit") ? { x: 0, y: 0.5, z: 0, yaw: 0 } : { x: 0, y: 0, z: 0, yaw: card.yaw ?? 0 };
+  const beats: Beat[] = [{ at: 0, body: card.body, armL: card.armL ?? "rest", armR: card.armR ?? "rest", face: card.face, nervous: 0, breath: { amp: 0.3 } }];
+  const perf = { spec, anchor, beats };
+  const { pose } = perform(perf, t);
+  if (card.cam === "face" || card.cam === "face34" || card.cam === "profile") pose.face = { ...EXPR[card.face], eyeX: card.cam === "face" ? 0 : pose.face.eyeX, eyeY: 0 };
+  const sk = skeleton(pose, spec, t);
+  const fp = facePoint(sk);
+  let cam: Cam;
+  if (card.cam === "full") cam = { pos: [0, 1.0, 5.6], target: [0, 0.88, 0], fov: 26 };
+  else if (card.cam === "face") cam = { pos: [fp[0], fp[1] + 0.03, fp[2] + 1.6], target: [fp[0], fp[1] + 0.01, fp[2]], fov: 17 };
+  else if (card.cam === "face34") cam = { pos: [fp[0] + 1.0, fp[1] + 0.08, fp[2] + 1.25], target: [fp[0], fp[1] + 0.01, fp[2] - 0.03], fov: 17 };
+  else if (card.cam === "profile") cam = { pos: [fp[0] + 1.6, fp[1] + 0.03, fp[2] - 0.05], target: [fp[0], fp[1] + 0.01, fp[2] - 0.07], fov: 17 };
+  else if (card.cam === "bed") cam = { pos: [1.6, 1.9, 1.6], target: [0, 0.6, -0.15], fov: 30 };
+  else cam = { pos: [0.9, 1.25, 2.6], target: [0, 0.92, 0.1], fov: 30 };
+  return (
+    <Stage3D background="#d9dde4" overlay={() => (
+      <div style={{ position: "absolute", left: 40, top: 40, fontFamily: FONT, fontSize: 40, fontWeight: 600, color: "#2a2f38" }}>
+        {card.title}
+        <div style={{ fontSize: 26, fontWeight: 500, opacity: 0.6 }}>CHARACTERFLOW · {spec.id} · card {frame} · {fps} fps</div>
+      </div>
+    )}>
+      <Lights s={L} />
+      <mesh geometry={cyl(3, 3, 0.02, 64)} material={phys("lookFloor", { color: "#c9ccd2", roughness: 0.9 })} position={[0, -0.01, 0]} receiveShadow />
+      {anchor.y > 0 ? <mesh geometry={box(1.4, 0.5, 2.1, 0.08)} material={phys("lookBed", { color: "#e8e6e1", roughness: 0.9 })} position={[0, 0.25, 0.2]} receiveShadow castShadow /> : null}
+      <Character pose={pose} spec={spec} t={t} />
+      <CameraRig cam={cam} />
+      <FilmPost cam={cam} grade={{ ...GRADE0, exposure: 1.0, vignette: 0.12, grain: 0.01, bloom: 0.12, bloomThreshold: 1.2 }} frame={frame} />
+    </Stage3D>
+  );
+};
+
+==== 1671 src/kits/characterflow/props/attach.ts
+// Prop attach maths (pure, Node-safe): a prop's world matrix is a chain of states — resting
+// somewhere, or held by a hand. When a hand takes a prop the grip offset is measured at that instant
+// (prop rest × inverse hand), so the prop never jumps; when let go it settles onto its next rest pose.
+
+import { Euler, Matrix4, Quaternion, Vector3 } from "three";
+import type { V3 } from "../character/spec.ts";
+
+export const mat = (p: V3, yaw = 0, pitch = 0, roll = 0) => {
+  const q = new Quaternion().setFromEuler(new Euler(pitch, yaw, roll, "YXZ"));
+  return new Matrix4().compose(new Vector3(...p), q, new Vector3(1, 1, 1));
+};
+export const lerpMat = (a: Matrix4, b: Matrix4, k: number) => {
+  if (k <= 0) return a.clone();
+  if (k >= 1) return b.clone();
+  const pa = new Vector3(), qa = new Quaternion(), sa = new Vector3(), pb = new Vector3(), qb = new Quaternion(), sb = new Vector3();
+  a.decompose(pa, qa, sa);
+  b.decompose(pb, qb, sb);
+  return new Matrix4().compose(pa.lerp(pb, k), qa.slerp(qb, k), sa.lerp(sb, k));
+};
+/** Offset that keeps `prop` where it is when attached to `hand`. */
+export const gripOffset = (hand: Matrix4, prop: Matrix4) => hand.clone().invert().multiply(prop);
+export const held = (hand: Matrix4, offset: Matrix4) => hand.clone().multiply(offset);
+export const toPQ = (m: Matrix4) => {
+  const p = new Vector3(), q = new Quaternion(), s = new Vector3();
+  m.decompose(p, q, s);
+  return { position: [p.x, p.y, p.z] as V3, quaternion: [q.x, q.y, q.z, q.w] as [number, number, number, number] };
+};
+export const xform = (m: Matrix4, local: V3): V3 => {
+  const v = new Vector3(...local).applyMatrix4(m);
+  return [v.x, v.y, v.z];
+};
+
+
+==== 2360 src/kits/characterflow/props/grip.ts
+// Hand-prop poses (pure, Node-safe): the phone held in a right palm, the reading pose, and
+// `gripFor` — derive the HAND from where the prop must be (wrist target + hand orientation for IK).
+
+import { Matrix4, Quaternion, Vector3 } from "three";
+import type { V3 } from "../character/spec.ts";
+
+export const PHONE = { w: 0.072, h: 0.152, t: 0.009 };
+export const BAG = { w: 0.3, h: 0.21, d: 0.085 };
+
+/** Phone lying in a RIGHT palm (hand space): back on the palm (+X side), top toward the fingertips. */
+export const PHONE_IN_HAND = (() => {
+  const yAxis = new Vector3(0, -1, 0), zAxis = new Vector3(1, 0, 0);
+  const xAxis = new Vector3().crossVectors(yAxis, zAxis);
+  const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(xAxis, yAxis, zAxis));
+  return new Matrix4().compose(new Vector3(0.024, -0.085, 0.005), q, new Vector3(1, 1, 1));
+})();
+
+/**
+ * Wrist target + hand orientation (world) that put `propInHand` at the world pose `prop`.
+ * `handScale` = character scale × spec.handScale (the wrist frame is scaled by both).
+ */
+export const gripFor = (prop: Matrix4, propInHand: Matrix4, handScale: number) => {
+  const pp = new Vector3(), pq = new Quaternion(), ps = new Vector3();
+  prop.decompose(pp, pq, ps);
+  const lp = new Vector3(), lq = new Quaternion(), ls = new Vector3();
+  propInHand.decompose(lp, lq, ls);
+  const hq = pq.clone().multiply(lq.clone().invert());
+  const wrist = pp.clone().sub(lp.clone().multiplyScalar(handScale).applyQuaternion(hq));
+  return { wrist: [wrist.x, wrist.y, wrist.z] as V3, q: [hq.x, hq.y, hq.z, hq.w] as [number, number, number, number] };
+};
+
+/** Phone held up to read: in front of and below the eyes, screen turned to them. */
+export const phoneReadPose = (eye: V3, forward: V3, right: V3, lower = 0.27, out = 0.27, side = -0.04) => {
+  const f = new Vector3(...forward).setY(0).normalize();
+  const r = new Vector3(...right).normalize();
+  const p = new Vector3(...eye).addScaledVector(f, out).add(new Vector3(0, -lower, 0)).addScaledVector(r, side);
+  const z = new Vector3(...eye).sub(p).normalize();
+  const y = new Vector3(0, 1, 0).addScaledVector(z, -z.y).normalize();
+  const x = new Vector3().crossVectors(y, z).normalize();
+  const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, y, z));
+  return new Matrix4().compose(p, q, new Vector3(1, 1, 1));
+};
+
+
+==== 5555 src/kits/characterflow/props/handheld.tsx
+// Everyday hand props: a phone and a crossbody sling bag (with a live strap). The grip rule from the
+// notebook pen applies: when a prop's pose matters (a phone held up to the eyes), the HAND is derived
+// from the prop — `gripFor` returns the wrist target + hand orientation for arm IK.
+
+import React from "react";
+import { type Matrix4, PlaneGeometry, Quaternion, Vector3 } from "three";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { canvasTex, phys } from "../lib/mats.ts";
+import { FONT } from "../../../core/type/fonts.ts";
+import { toPQ } from "./attach.ts";
+import { BAG, PHONE } from "./grip.ts";
+export { BAG, PHONE, PHONE_IN_HAND, gripFor, phoneReadPose } from "./grip.ts";
+import type { V3 } from "../character/spec.ts";
+
+// ── phone ───────────────────────────────────────────────────────────────────
+
+const homeTex = (clock: string) =>
+  canvasTex(`cfhome${clock}`, 256, 540, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, h);
+    gr.addColorStop(0, "#5b8def");
+    gr.addColorStop(0.55, "#9b6be8");
+    gr.addColorStop(1, "#f08aa7");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#ffffff";
+    g.textAlign = "center";
+    g.font = `300 64px ${FONT}, sans-serif`;
+    g.fillText(clock, w / 2, 110);
+    g.font = `500 16px ${FONT}, sans-serif`;
+    g.fillText("Jumat, 31 Oktober", w / 2, 138);
+    const cols = ["#ffd166", "#06d6a0", "#ef476f", "#118ab2", "#ffffff", "#f78c6b", "#83d483", "#c3a6ff"];
+    for (let i = 0; i < 12; i++) {
+      const x = 38 + (i % 4) * 60, y = 220 + Math.floor(i / 4) * 72;
+      g.fillStyle = cols[i % cols.length];
+      g.beginPath();
+      g.roundRect(x - 20, y - 20, 40, 40, 11);
+      g.fill();
+    }
+    g.fillStyle = "rgba(255,255,255,0.35)";
+    g.beginPath();
+    g.roundRect(18, h - 78, w - 36, 56, 22);
+    g.fill();
+  });
+
+/** Phone: centre at the origin, screen faces +Z, top toward +Y. */
+export const Phone: React.FC<{ m: Matrix4; on: number; clock?: string }> = ({ m, on, clock = "07:42" }) => {
+  const { position, quaternion } = toPQ(m);
+  const scr = phys(`cfphonescr${clock}`, { color: "#000000", emissive: "#ffffff", emissiveMap: homeTex(clock), emissiveIntensity: 1, roughness: 0.15, clearcoat: 1 });
+  scr.emissiveIntensity = 0.15 + 0.75 * on;
+  return (
+    <group position={position} quaternion={quaternion}>
+      <mesh geometry={box(PHONE.w, PHONE.h, PHONE.t, 0.009)} material={phys("cfphonebody", { color: "#2a2d36", roughness: 0.3, metalness: 0.5, clearcoat: 0.6 })} castShadow />
+      <mesh geometry={cached("cfphonescreen", () => new PlaneGeometry(PHONE.w - 0.006, PHONE.h - 0.008))} material={scr} position={[0, 0, PHONE.t / 2 + 0.0004]} />
+      <mesh geometry={cyl(0.007, 0.007, 0.002, 16)} material={phys("cfphonecam", { color: "#111", roughness: 0.1, clearcoat: 1 })} position={[-0.02, 0.058, -PHONE.t / 2 - 0.0008]} rotation={[Math.PI / 2, 0, 0]} />
+    </group>
+  );
+};
+
+// ── sling bag ───────────────────────────────────────────────────────────────
+
+/** Sling bag: origin at the centre of its top edge, front faces +Z, hangs along −Y. */
+export const SlingBag: React.FC<{ m: Matrix4; flap: number; color?: string }> = ({ m, flap, color = "#e07a3f" }) => {
+  const { position, quaternion } = toPQ(m);
+  const body = phys(`cfbag${color}`, { color, roughness: 0.75, sheen: 0.6, sheenColor: "#ffd7b5" });
+  const dark = phys("cfbagtrim", { color: "#5b3a29", roughness: 0.6 });
+  const a = -2.3 * Math.min(1, Math.max(0, flap));
+  return (
+    <group position={position} quaternion={quaternion}>
+      <mesh geometry={box(BAG.w, BAG.h, BAG.d, 0.03)} material={body} position={[0, -BAG.h / 2, 0]} castShadow receiveShadow />
+      <mesh geometry={box(BAG.w - 0.04, 0.012, BAG.d - 0.03, 0.005)} material={phys("cfbaginside", { color: "#3a2a22", roughness: 0.9 })} position={[0, -0.004, 0]} />
+      {/* flap hinged at the back of the top edge */}
+      <group position={[0, 0.004, -BAG.d / 2]} rotation={[a, 0, 0]}>
+        <mesh geometry={box(BAG.w + 0.008, 0.012, BAG.d + 0.004, 0.005)} material={body} position={[0, 0, BAG.d / 2]} castShadow />
+        <mesh geometry={box(BAG.w + 0.01, 0.13, 0.012, 0.005)} material={body} position={[0, -0.065, BAG.d + 0.004]} castShadow />
+        <mesh geometry={box(0.05, 0.03, 0.006, 0.004)} material={dark} position={[0, -0.11, BAG.d + 0.012]} />
+      </group>
+    </group>
+  );
+};
+
+/** Strap as a tube through world points. */
+export const Strap: React.FC<{ pts: V3[]; r?: number; color?: string }> = ({ pts, r = 0.011, color = "#5b3a29" }) => {
+  const mat = phys(`cfstrap${color}`, { color, roughness: 0.7 });
+  const up = new Vector3(0, 1, 0);
+  return (
+    <group>
+      {pts.slice(1).map((b, i) => {
+        const a = new Vector3(...pts[i]), c = new Vector3(...b);
+        const len = a.distanceTo(c);
+        const mid = a.clone().add(c).multiplyScalar(0.5);
+        const q = new Quaternion().setFromUnitVectors(up, c.clone().sub(a).normalize());
+        return <mesh key={i} geometry={cyl(r, r, 1, 8)} material={mat} position={[mid.x, mid.y, mid.z]} quaternion={[q.x, q.y, q.z, q.w]} scale={[1.6, len, 0.55]} castShadow />;
+      })}
+      {pts.map((p, i) => <mesh key={`j${i}`} geometry={sphere(r * 1.05, 8, 6)} material={mat} position={p} scale={[1.6, 1, 0.55]} />)}
+    </group>
+  );
+};
+
+==== 7265 src/kits/characterflow/props/props.tsx
+// Hand props + the attach maths that lets a character pick things up and put them down.
+//
+// A prop's world matrix over time is a chain of states: resting somewhere, or held by a hand. When a
+// hand takes a prop, the grip offset is measured at that instant (prop rest × inverse hand), so the
+// prop never jumps; when it is let go it settles onto its next rest pose. All pure functions of t.
+
+import React, { useMemo } from "react";
+import { CanvasTexture, DoubleSide, type Matrix4, PlaneGeometry, SRGBColorSpace } from "three";
+import { box, cached, cyl, sphere } from "../lib/geo.ts";
+import { phys } from "../lib/mats.ts";
+
+export { mat, lerpMat, gripOffset, held, toPQ, xform } from "./attach.ts";
+import { toPQ } from "./attach.ts";
+
+// ── notebook with live handwriting ──────────────────────────────────────────
+export const NB = { w: 0.15, d: 0.21, t: 0.014 };
+const CW = 600, CH = Math.round((CW * NB.d) / NB.w);
+
+export type Writing = { header: string; lines: string[]; checkbox: boolean; font: string; ink: string };
+
+type Layout = { x0: number; y: number; w: number }[];
+const layoutLines = (g: CanvasRenderingContext2D, W: Writing): Layout => {
+  g.font = `64px ${W.font}`;
+  const out: Layout = [];
+  let y = 300;
+  W.lines.forEach((ln, i) => {
+    const x0 = i === 0 && W.checkbox ? 130 : 70;
+    out.push({ x0, y, w: g.measureText(ln).width });
+    y += 96;
+  });
+  return out;
+};
+const totalLen = (L: Layout, W: Writing) => L.reduce((s, l) => s + l.w, 0) + (W.checkbox ? 160 : 0);
+
+/** Page-space (0…1) position of the pen tip for writing progress p. */
+export const penOnPage = (W: Writing, p: number): [number, number] => {
+  const c = document.createElement("canvas").getContext("2d")!;
+  const L = layoutLines(c, W);
+  let d = Math.min(1, Math.max(0, p)) * totalLen(L, W);
+  if (W.checkbox) {
+    if (d < 160) {
+      const k = d / 160, s = 50;
+      const [x, y] = k < 0.25 ? [70 + s * (k / 0.25), 250] : k < 0.5 ? [70 + s, 250 + s * ((k - 0.25) / 0.25)] : k < 0.75 ? [70 + s - s * ((k - 0.5) / 0.25), 250 + s] : [70, 250 + s - s * ((k - 0.75) / 0.25)];
+      return [x / CW, y / CH];
+    }
+    d -= 160;
+  }
+  for (const l of L) {
+    if (d <= l.w) {
+      const wob = Math.sin(d * 0.21) * 9 + Math.sin(d * 0.057) * 6;
+      return [(l.x0 + d) / CW, (l.y - 14 + wob) / CH];
+    }
+    d -= l.w;
+  }
+  const last = L[L.length - 1];
+  return [(last.x0 + last.w + 6) / CW, (last.y - 10) / CH];
+};
+
+const drawPage = (g: CanvasRenderingContext2D, W: Writing, p: number) => {
+  g.fillStyle = "#fbf8f0";
+  g.fillRect(0, 0, CW, CH);
+  g.strokeStyle = "rgba(90,140,200,0.35)";
+  g.lineWidth = 2;
+  for (let y = 210; y < CH - 30; y += 96) {
+    g.beginPath();
+    g.moveTo(30, y + 112);
+    g.lineTo(CW - 30, y + 112);
+    g.stroke();
+  }
+  g.strokeStyle = "rgba(230,90,90,0.45)";
+  g.beginPath();
+  g.moveTo(52, 0);
+  g.lineTo(52, CH);
+  g.stroke();
+  g.fillStyle = "rgba(60,70,90,0.55)";
+  g.font = `600 30px Manrope, sans-serif`;
+  g.textAlign = "right";
+  g.fillText(W.header, CW - 40, 120);
+  g.textAlign = "left";
+  const L = layoutLines(g, W);
+  let d = Math.min(1, Math.max(0, p)) * totalLen(L, W);
+  g.strokeStyle = W.ink;
+  g.fillStyle = W.ink;
+  g.lineWidth = 6;
+  g.lineCap = "round";
+  if (W.checkbox) {
+    const k = Math.min(1, d / 160), s = 50;
+    g.beginPath();
+    const pts: [number, number][] = [[70, 250], [70 + s, 252], [72 + s, 250 + s], [69, 249 + s], [70, 250]];
+    const segs = 4 * k;
+    g.moveTo(...pts[0]);
+    for (let i = 0; i < 4; i++) {
+      if (segs <= i) break;
+      const f = Math.min(1, segs - i);
+      g.lineTo(pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f);
+    }
+    g.stroke();
+    d -= 160;
+  }
+  g.font = `64px ${W.font}`;
+  W.lines.forEach((ln, i) => {
+    const l = L[i];
+    if (d <= 0) return;
+    const show = Math.min(l.w, d);
+    g.save();
+    g.beginPath();
+    g.rect(l.x0 - 10, l.y - 90, show + 12, 140);
+    g.clip();
+    g.fillText(ln, l.x0, l.y);
+    g.restore();
+    d -= l.w;
+  });
+};
+
+export const Notebook: React.FC<{ m: Matrix4; open: number; writing: Writing; progress: number }> = ({ m, open, writing, progress }) => {
+  const page = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = CW;
+    c.height = CH;
+    const tex = new CanvasTexture(c);
+    tex.colorSpace = SRGBColorSpace;
+    tex.anisotropy = 8;
+    return { c, tex, last: -1 };
+  }, []);
+  const q = Math.round(progress * 400) / 400;
+  if (q !== page.last) {
+    drawPage(page.c.getContext("2d")!, writing, q);
+    page.tex.needsUpdate = true;
+    page.last = q;
+  }
+  const pageMat = phys("cfnbpage", { color: "#ffffff", roughness: 0.75, side: DoubleSide });
+  pageMat.map = page.tex;
+  const cover = phys("cfnbcover", { color: "#e4572e", roughness: 0.55, clearcoat: 0.3 });
+  const { position, quaternion } = toPQ(m);
+  const ang = Math.PI * Math.min(1, Math.max(0, open));
+  return (
+    <group position={position} quaternion={quaternion}>
+      <mesh geometry={box(NB.w, 0.004, NB.d, 0.002)} material={cover} position={[0, 0.002, 0]} castShadow receiveShadow />
+      <mesh geometry={box(NB.w - 0.006, NB.t - 0.006, NB.d - 0.006, 0.002)} material={phys("cfnbpages", { color: "#f4efe2", roughness: 0.9 })} position={[0, NB.t / 2, 0]} castShadow receiveShadow />
+      <mesh geometry={cached("cfnbpageplane", () => new PlaneGeometry(NB.w - 0.008, NB.d - 0.008))} material={pageMat} position={[0, NB.t - 0.0025, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+      {/* spiral along the left edge */}
+      {Array.from({ length: 11 }, (_, k) => (
+        <mesh key={k} geometry={cyl(0.0035, 0.0035, 0.004, 8)} material={phys("cfspiral", { color: "#cfd3d8", metalness: 0.9, roughness: 0.25 })} position={[-NB.w / 2, NB.t / 2, -NB.d / 2 + 0.012 + k * 0.0186]} rotation={[0, 0, Math.PI / 2]} scale={[1, 1, 2.2]} />
+      ))}
+      {/* cover hinges on the left edge and folds under */}
+      <group position={[-NB.w / 2, NB.t, 0]} rotation={[0, 0, ang]}>
+        <mesh geometry={box(NB.w, 0.004, NB.d, 0.002)} material={cover} position={[NB.w / 2, 0.002, 0]} castShadow receiveShadow />
+        <mesh geometry={box(0.05, 0.0012, NB.d * 0.7, 0.0005)} material={phys("cfnblabel", { color: "#fff3d6", roughness: 0.7 })} position={[NB.w / 2 + 0.03, 0.0048, 0]} />
+      </group>
+    </group>
+  );
+};
+
+/** Ball pen; tip at the local origin, body along +Y. */
+export const Pen: React.FC<{ m: Matrix4 }> = ({ m }) => {
+  const { position, quaternion } = toPQ(m);
+  return (
+    <group position={position} quaternion={quaternion}>
+      <mesh geometry={cyl(0.0012, 0.0035, 0.012, 10)} material={phys("cfpentip", { color: "#c9ccd2", metalness: 0.9, roughness: 0.25 })} position={[0, 0.006, 0]} />
+      <mesh geometry={cyl(0.0048, 0.0048, 0.11, 14)} material={phys("cfpen", { color: "#2b59c3", roughness: 0.3, clearcoat: 0.7 })} position={[0, 0.067, 0]} castShadow />
+      <mesh geometry={sphere(0.0048, 12, 8)} material={phys("cfpen", { color: "#2b59c3" })} position={[0, 0.122, 0]} />
+      <mesh geometry={box(0.0016, 0.045, 0.004, 0.0008)} material={phys("cfpenclip", { color: "#e8e8ea", metalness: 0.9, roughness: 0.2 })} position={[0.0055, 0.1, 0]} />
+    </group>
+  );
+};
+
+==== 7543 src/kits/characterflow/render/FilmPost.tsx
+// Camera + finishing chain (adapted from core/render/Post.tsx): MSAA → NaN guard → GTAO
+// → bokeh DOF → bloom → PBR Neutral tone map → film grade. The grade is driven per shot and
+// carries flash / fade for transitions.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { Color, HalfFloatType, NeutralToneMapping, PerspectiveCamera, Vector2, Vector3, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { FX_LAYER, withoutFx } from "../../../core/render/Post.tsx";
+import type { V3 } from "../character/spec.ts";
+
+export type Cam = { pos: V3; target: V3; fov: number; roll?: number; focus?: number; aperture?: number; maxBlur?: number; near?: number; far?: number };
+
+export type Grade = {
+  exposure: number;
+  /** additive lift in the shadows, multiplicative gain */
+  lift: V3; gain: V3;
+  sat: number; contrast: number;
+  vignette: number; grain: number;
+  bloom: number; bloomRadius: number; bloomThreshold: number;
+  /** 0..1 flash toward `flashColor`, 0..1 fade to black */
+  flash: number; flashColor: string; black: number;
+  ao: number;
+};
+
+export const GRADE0: Grade = {
+  exposure: 1, lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0.22, grain: 0.016,
+  bloom: 0.22, bloomRadius: 0.45, bloomThreshold: 1.05, flash: 0, flashColor: "#ffffff", black: 0, ao: 1,
+};
+
+export const CameraRig: React.FC<{ cam: Cam }> = ({ cam }) => {
+  const { camera } = useThree();
+  useLayoutEffect(() => {
+    const c = camera as PerspectiveCamera;
+    c.position.set(...cam.pos);
+    const f = new Vector3(...cam.target).sub(c.position).normalize();
+    const r = cam.roll ?? 0;
+    // roll about the view axis
+    const up = new Vector3(0, 1, 0);
+    const side = new Vector3().crossVectors(f, up).normalize();
+    const u2 = new Vector3().crossVectors(side, f).normalize();
+    c.up.copy(u2.multiplyScalar(Math.cos(r)).addScaledVector(side, Math.sin(r)));
+    c.lookAt(...cam.target);
+    c.fov = cam.fov;
+    c.near = cam.near ?? 0.05;
+    c.far = cam.far ?? 900;
+    c.updateProjectionMatrix();
+    c.updateMatrixWorld();
+    c.layers.enable(FX_LAYER);
+  }, [cam, camera]);
+  return null;
+};
+
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uRes: { value: new Vector2(1080, 1920) },
+    uLift: { value: new Vector3() },
+    uGain: { value: new Vector3(1, 1, 1) },
+    uSat: { value: 1 },
+    uContrast: { value: 1 },
+    uVignette: { value: 0.2 },
+    uGrain: { value: 0.015 },
+    uFlash: { value: 0 },
+    uFlashColor: { value: new Color("#fff") },
+    uBlack: { value: 0 },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes;
+    uniform vec3 uLift; uniform vec3 uGain; uniform float uSat; uniform float uContrast;
+    uniform float uVignette; uniform float uGrain; uniform float uFlash; uniform vec3 uFlashColor; uniform float uBlack;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec3 x = clamp(c.rgb, 0.0, 1.0);
+      x = x * uGain + uLift * (1.0 - x);
+      float l = dot(x, vec3(0.2126, 0.7152, 0.0722));
+      x = mix(vec3(l), x, uSat);
+      x = clamp((x - 0.5) * uContrast + 0.5, 0.0, 1.0);
+      x = mix(x, x * x * (3.0 - 2.0 * x), 0.18);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.15);
+      x *= 1.0 - uVignette * smoothstep(0.3, 0.95, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      x += g * uGrain * (0.5 + 0.5 * (1.0 - l));
+      x = mix(x, uFlashColor, clamp(uFlash, 0.0, 1.0));
+      x *= 1.0 - clamp(uBlack, 0.0, 1.0);
+      gl_FragColor = vec4(x, 1.0);
+    }`,
+};
+
+export const FilmPost: React.FC<{ cam: Cam; grade: Grade; frame: number }> = ({ cam, grade, frame }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(NanGuardShader));
+    const gtao = new GTAOPass(scene, camera, w, h);
+    gtao.blendIntensity = 1.0;
+    gtao.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.6, thickness: 0.6, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+    composer.addPass(withoutFx(gtao, camera));
+    const dof = withoutFx(new BokehPass(scene, camera, { focus: 3, aperture: 0.002, maxblur: 0.008 }), camera);
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.25, 0.5, 0.85);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const g = new ShaderPass(GradeShader);
+    g.uniforms.uRes.value.set(w, h);
+    composer.addPass(g);
+    return { composer, dof, bloom, gtao, g };
+  }, [gl, scene, camera, size.width, size.height]);
+
+  useLayoutEffect(() => {
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = grade.exposure;
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    const dist = new Vector3(...cam.pos).distanceTo(new Vector3(...cam.target));
+    u.focus.value = cam.focus ?? dist;
+    u.aperture.value = cam.aperture ?? 0;
+    u.maxblur.value = cam.maxBlur ?? 0;
+    chain.dof.enabled = (cam.aperture ?? 0) > 0 && (cam.maxBlur ?? 0) > 0;
+    chain.bloom.strength = grade.bloom;
+    chain.bloom.radius = grade.bloomRadius;
+    chain.bloom.threshold = grade.bloomThreshold;
+    chain.gtao.blendIntensity = grade.ao;
+    chain.gtao.enabled = grade.ao > 0.01;
+    const U = chain.g.uniforms;
+    U.uTime.value = frame % 997;
+    U.uLift.value.set(...grade.lift);
+    U.uGain.value.set(...grade.gain);
+    U.uSat.value = grade.sat;
+    U.uContrast.value = grade.contrast;
+    U.uVignette.value = grade.vignette;
+    U.uGrain.value = grade.grain;
+    U.uFlash.value = grade.flash;
+    U.uFlashColor.value.set(grade.flashColor);
+    U.uBlack.value = grade.black;
+  }, [frame, chain, cam, grade, gl]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+==== 5115 src/kits/characterflow/render/Lights.tsx
+// Fixed light rig for a whole film. The set of lights never changes (so three.js never recompiles
+// a shader mid-film); shots only move them and change colour/intensity. Two lights cast shadows:
+// the key (directional, frustum fitted to the shot box) and one spot (a practical lamp).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import {
+  Color,
+  DirectionalLight,
+  FogExp2,
+  HemisphereLight,
+  Matrix4,
+  Object3D,
+  PMREMGenerator,
+  PointLight,
+  SpotLight,
+  Vector3,
+} from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import type { V3 } from "../character/spec.ts";
+
+export type PointL = { pos: V3; color: string; i: number; dist: number };
+export type LightState = {
+  bg: string;
+  fog: { color: string; density: number };
+  env: number;
+  hemi: { sky: string; ground: string; i: number };
+  moon: { dir: V3; color: string; i: number; box: { min: V3; max: V3 } };
+  spot: { pos: V3; target: V3; color: string; i: number; angle: number; penumbra: number; dist: number };
+  pts: [PointL, PointL, PointL, PointL];
+};
+
+export const P_OFF: PointL = { pos: [0, -50, 0], color: "#ffffff", i: 0, dist: 1 };
+
+export const Lights: React.FC<{ s: LightState }> = ({ s }) => {
+  const { scene, gl } = useThree();
+  const rig = useMemo(() => {
+    const hemi = new HemisphereLight("#8899bb", "#221a14", 0.5);
+    const moon = new DirectionalLight("#9fb8ff", 1);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.bias = -0.0004;
+    moon.shadow.normalBias = 0.025;
+    moon.shadow.radius = 3;
+    const mt = new Object3D();
+    moon.target = mt;
+    const spot = new SpotLight("#ffd9a8", 0);
+    spot.castShadow = true;
+    spot.shadow.mapSize.set(1024, 1024);
+    spot.shadow.bias = -0.0006;
+    spot.shadow.normalBias = 0.02;
+    spot.shadow.radius = 4;
+    spot.shadow.camera.near = 0.1;
+    const st = new Object3D();
+    spot.target = st;
+    const pts = [0, 1, 2, 3].map(() => {
+      const p = new PointLight("#fff", 0, 1, 2);
+      p.castShadow = false;
+      return p;
+    });
+    const pm = new PMREMGenerator(gl);
+    const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    return { hemi, moon, mt, spot, st, pts, env };
+  }, [gl]);
+
+  useLayoutEffect(() => {
+    scene.environment = rig.env;
+    scene.background = new Color(s.bg);
+    if (!(scene.fog instanceof FogExp2)) scene.fog = new FogExp2(s.fog.color, s.fog.density);
+    (scene.fog as FogExp2).color.set(s.fog.color);
+    (scene.fog as FogExp2).density = s.fog.density;
+    scene.environmentIntensity = s.env;
+
+    rig.hemi.color.set(s.hemi.sky);
+    rig.hemi.groundColor.set(s.hemi.ground);
+    rig.hemi.intensity = s.hemi.i;
+
+    // moon: fixed frustum fitted around the shot box in light space
+    const { min, max } = s.moon.box;
+    const L = new Vector3(...s.moon.dir).normalize();
+    const c = new Vector3(...min).add(new Vector3(...max)).multiplyScalar(0.5);
+    rig.mt.position.copy(c);
+    rig.mt.updateMatrixWorld();
+    rig.moon.position.copy(c).addScaledVector(L, 120);
+    const view = new Matrix4().lookAt(rig.moon.position, c, Math.abs(L.y) > 0.98 ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0));
+    const inv = new Matrix4().makeTranslation(rig.moon.position.x, rig.moon.position.y, rig.moon.position.z).multiply(view).invert();
+    const lo = new Vector3(Infinity, Infinity, Infinity), hi = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (let k = 0; k < 8; k++) {
+      const p = new Vector3(k & 1 ? max[0] : min[0], k & 2 ? max[1] : min[1], k & 4 ? max[2] : min[2]).applyMatrix4(inv);
+      lo.min(p);
+      hi.max(p);
+    }
+    const sc = rig.moon.shadow.camera;
+    sc.left = lo.x; sc.right = hi.x; sc.bottom = lo.y; sc.top = hi.y;
+    sc.near = Math.max(0.5, -hi.z - 5);
+    sc.far = -lo.z + 5;
+    sc.updateProjectionMatrix();
+    rig.moon.color.set(s.moon.color);
+    rig.moon.intensity = s.moon.i;
+    // shadow maps render every frame even for a dark light: an unrendered shadow map makes WebGL
+    // reject every draw call ("mismatch between texture format and sampler type")
+    rig.moon.shadow.autoUpdate = true;
+
+    rig.spot.position.set(...s.spot.pos);
+    rig.st.position.set(...s.spot.target);
+    rig.st.updateMatrixWorld();
+    rig.spot.color.set(s.spot.color);
+    rig.spot.intensity = s.spot.i;
+    rig.spot.angle = s.spot.angle;
+    rig.spot.penumbra = s.spot.penumbra;
+    rig.spot.distance = s.spot.dist;
+    rig.spot.decay = 2;
+    rig.spot.shadow.camera.far = s.spot.dist;
+    rig.spot.shadow.autoUpdate = true;
+
+    s.pts.forEach((p, i) => {
+      const l = rig.pts[i];
+      l.position.set(...p.pos);
+      l.color.set(p.color);
+      l.intensity = p.i;
+      l.distance = p.dist;
+      l.decay = 2;
+    });
+  }, [s, rig, scene]);
+
+  return (
+    <>
+      <primitive object={rig.hemi} />
+      <primitive object={rig.moon} />
+      <primitive object={rig.mt} />
+      <primitive object={rig.spot} />
+      <primitive object={rig.st} />
+      {rig.pts.map((p, i) => (
+        <primitive key={i} object={p} />
+      ))}
+    </>
+  );
+};
+
+==== 2822 src/kits/characterflow/render/looks.ts
+// Blending of light states and grades (scene moods change continuously: lamp off, alarm, calm).
+
+import { Color } from "three";
+import type { Grade } from "./FilmPost.tsx";
+import type { LightState, PointL } from "./Lights.tsx";
+import type { V3 } from "../character/spec.ts";
+
+const mixN = (a: number, b: number, k: number) => a + (b - a) * k;
+const mix3 = (a: V3, b: V3, k: number): V3 => [mixN(a[0], b[0], k), mixN(a[1], b[1], k), mixN(a[2], b[2], k)];
+const _a = new Color(), _b = new Color();
+const mixC = (a: string, b: string, k: number) => `#${_a.set(a).lerp(_b.set(b), k).getHexString()}`;
+const mixP = (a: PointL, b: PointL, k: number): PointL => {
+  // a light fading in/out keeps its position (no sliding across the room)
+  const pos = a.i === 0 ? b.pos : b.i === 0 ? a.pos : mix3(a.pos, b.pos, k);
+  return { pos, color: mixC(a.color, b.color, k), i: mixN(a.i, b.i, k), dist: mixN(a.dist, b.dist, k) };
+};
+
+export const mixLight = (a: LightState, b: LightState, k: number): LightState => {
+  if (k <= 0) return a;
+  if (k >= 1) return b;
+  return {
+    bg: mixC(a.bg, b.bg, k),
+    fog: { color: mixC(a.fog.color, b.fog.color, k), density: mixN(a.fog.density, b.fog.density, k) },
+    env: mixN(a.env, b.env, k),
+    hemi: { sky: mixC(a.hemi.sky, b.hemi.sky, k), ground: mixC(a.hemi.ground, b.hemi.ground, k), i: mixN(a.hemi.i, b.hemi.i, k) },
+    moon: { dir: mix3(a.moon.dir, b.moon.dir, k), box: a.moon.box, color: mixC(a.moon.color, b.moon.color, k), i: mixN(a.moon.i, b.moon.i, k) },
+    spot: a.spot.i === 0 ? { ...b.spot, i: b.spot.i * k } : b.spot.i === 0 ? { ...a.spot, i: a.spot.i * (1 - k) } : { ...b.spot, i: mixN(a.spot.i, b.spot.i, k) },
+    pts: [0, 1, 2, 3].map((i) => mixP(a.pts[i], b.pts[i], k)) as LightState["pts"],
+  };
+};
+
+export const mixGrade = (a: Grade, b: Grade, k: number): Grade => {
+  if (k <= 0) return a;
+  if (k >= 1) return b;
+  const o = { ...a };
+  for (const key of Object.keys(a) as (keyof Grade)[]) {
+    const va = a[key], vb = b[key];
+    if (typeof va === "number" && typeof vb === "number") (o as Record<string, unknown>)[key] = mixN(va, vb, k);
+    else if (Array.isArray(va) && Array.isArray(vb)) (o as Record<string, unknown>)[key] = mix3(va as V3, vb as V3, k);
+    else if (typeof va === "string" && typeof vb === "string") (o as Record<string, unknown>)[key] = mixC(va, vb, k);
+  }
+  return o;
+};
+
+/** Piecewise timeline of keyed states with smooth blends: [[t, state, blendSeconds], …]. */
+export const keyed = <S,>(keys: [number, S, number][], mix: (a: S, b: S, k: number) => S, t: number): S => {
+  let cur = keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    const [t0, s, d] = keys[i];
+    if (t < t0) break;
+    const k = d <= 0 ? 1 : Math.min(1, (t - t0) / d);
+    const e = k * k * (3 - 2 * k);
+    cur = mix(cur, s, e);
+  }
+  return cur;
+};
+
+==== 1361 src/kits/characterflow/timing/cues.ts
+// Voice-over cues: scenes refer to words of the transcript ("the lamp clicks off on *mati*") instead of
+// seconds, so a re-recorded voice-over only needs a new transcript — the acting re-times itself.
+
+export type Word = [text: string, start: number, end: number];
+
+const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+export type Cues = {
+  /** film time of a word (n = occurrence, 0-based); throws if the word is missing */
+  at: (word: string, n?: number, edge?: "start" | "end") => number;
+  end: (word: string, n?: number) => number;
+  /** film time of the k-th word overall */
+  word: (k: number) => number;
+  words: Word[];
+  offset: number;
+  voEnd: number;
+};
+
+export const makeCues = (words: Word[], offset: number): Cues => {
+  const find = (w: string, n = 0) => {
+    const key = norm(w);
+    let k = -1;
+    for (let i = 0, seen = 0; i < words.length; i++)
+      if (norm(words[i][0]) === key) {
+        if (seen === n) { k = i; break; }
+        seen++;
+      }
+    if (k < 0) throw new Error(`cue "${w}" #${n} not in transcript`);
+    return words[k];
+  };
+  return {
+    at: (w, n = 0, edge = "start") => offset + find(w, n)[edge === "start" ? 1 : 2],
+    end: (w, n = 0) => offset + find(w, n)[2],
+    word: (k) => offset + words[k][1],
+    words,
+    offset,
+    voEnd: offset + words[words.length - 1][2],
+  };
+};
+
+==== 0 src/stories/data/.keep
+
+==== 202 src/stories/registry.ts
+// Generated by scripts/make.mjs — every story in src/stories/data becomes two compositions.
+import type { Story } from "../kits/characterflow/director/story.ts";
+
+export const STORIES: Story[] = [];

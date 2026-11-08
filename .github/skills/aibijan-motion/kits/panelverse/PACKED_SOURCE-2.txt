@@ -1,0 +1,3274 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 31426 src/kits/panelverse/engine/three/ComicCharacter.tsx
+import React from "react";
+import { CatmullRomCurve3, Matrix4, Quaternion, TubeGeometry, Vector3 } from "three";
+import { Toon, useShotFrame, type V3 } from "./Toon.tsx";
+import { G, headRadiusAt, memoGeo, starShape } from "./geometries.ts";
+import { BODY, segment, solveIK, type Expr, type Pose } from "./rig.ts";
+import { SW, type SwatchKey } from "../../theme/palette.ts";
+import { hash, noise1 } from "../keyframes.ts";
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ComicCharacter — a parametric cast. A story describes each person as a `Look` (hair, outfit,
+// colours, build, accessories); the rig, IK limbs and face system are shared, so every new person
+// moves and emotes exactly like the tested ones.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+import { type Look, type HairStyle, type TopStyle, type Build } from "./looks.ts";
+export { LOOKS, look, LOOK_DEFAULTS, type Look, type LookName } from "./looks.ts";
+
+// ── torso silhouettes (lathe profiles, torso space; pelvis at y=0, shoulders ≈0.7) ────────────
+const TEE: [number, number][] = [[0, -0.12], [0.26, -0.11], [0.28, 0.0], [0.27, 0.18], [0.29, 0.4], [0.315, 0.56], [0.305, 0.68], [0.24, 0.78], [0.12, 0.83], [0, 0.84]];
+const TUNIC: [number, number][] = [[0, -0.33], [0.37, -0.33], [0.355, -0.18], [0.315, 0.02], [0.3, 0.2], [0.3, 0.42], [0.31, 0.56], [0.295, 0.68], [0.23, 0.78], [0.12, 0.83], [0, 0.84]];
+const DRESS: [number, number][] = [[0, -0.62], [0.46, -0.62], [0.42, -0.4], [0.33, -0.12], [0.29, 0.06], [0.29, 0.24], [0.3, 0.44], [0.31, 0.56], [0.295, 0.68], [0.23, 0.78], [0.12, 0.83], [0, 0.84]];
+const JACKET: [number, number][] = [[0, -0.16], [0.29, -0.15], [0.3, 0.0], [0.295, 0.2], [0.31, 0.42], [0.33, 0.56], [0.32, 0.68], [0.25, 0.79], [0.13, 0.84], [0, 0.85]];
+const PROFILES: Record<TopStyle, [number, number][]> = { tee: TEE, longsleeve: TEE, shirt: TEE, hoodie: JACKET, jacket: JACKET, tunic: TUNIC, dress: DRESS };
+const LONG_SLEEVES: Record<TopStyle, boolean> = { tee: false, longsleeve: true, shirt: true, hoodie: true, jacket: true, tunic: true, dress: true };
+const BUILD: Record<Build, { scale: number; head: number; torso: V3; spine: number }> = {
+  kid: { scale: 0.74, head: 1.2, torso: [1, 1, 1], spine: 0 },
+  teen: { scale: 0.92, head: 1.06, torso: [1, 1, 1], spine: 0 },
+  adult: { scale: 1, head: 1, torso: [1, 1, 1], spine: 0 },
+  elder: { scale: 0.96, head: 1, torso: [1.02, 1, 1.04], spine: 0.12 },
+  big: { scale: 1.02, head: 1, torso: [1.2, 1, 1.18], spine: 0 },
+};
+
+const R = BODY.headR;
+/** z of the head surface at head-space (x, y) */
+const surfZ = (x: number, y: number) => {
+  const r = headRadiusAt(y / R) * R;
+  return Math.sqrt(Math.max(r * r - x * x, 0)) * 0.92;
+};
+const faceYaw = (x: number, y: number) => Math.atan2(x, Math.max(surfZ(x, y), 0.05)) * 0.85;
+const v3 = (a: V3) => new Vector3(a[0], a[1], a[2]);
+
+// ── limb helpers ───────────────────────────────────────────────────────────────────────────────
+const Seg: React.FC<{ a: Vector3; b: Vector3; r0: number; r1: number; sw: SwatchKey; ink?: number; double?: boolean }> = ({ a, b, r0, r1, sw, ink = 3.5, double }) => {
+  const s = segment(a, b);
+  const ratio = Math.round((r1 / r0) * 100) / 100;
+  return <Toon geo={G.limb(ratio, 1)} sw={sw} outline={ink} position={s.pos} quaternion={s.q} scale={[r0, s.len, r0]} mat={double ? { side: "double" } : undefined} />;
+};
+const Ball: React.FC<{ p: Vector3; r: number; sw: SwatchKey; ink?: number }> = ({ p, r, sw, ink = 3.5 }) => (
+  <Toon geo={G.sphere()} sw={sw} outline={ink} position={[p.x, p.y, p.z]} scale={r} />
+);
+const handQuat = (elbow: Vector3, wrist: Vector3, twist: number) => {
+  const y = wrist.clone().sub(elbow).normalize();
+  let x = new Vector3().crossVectors(y, new Vector3(0, 0, 1));
+  if (x.lengthSq() < 1e-4) x = new Vector3(1, 0, 0);
+  x.normalize();
+  const z = new Vector3().crossVectors(x, y).normalize();
+  const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, y, z));
+  return q.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), twist));
+};
+const Hand: React.FC<{ side: 1 | -1; elbow: Vector3; wrist: Vector3; twist: number; fist: number; skin: SwatchKey }> = ({ side, elbow, wrist, twist, fist, skin }) => (
+  <group position={[wrist.x, wrist.y, wrist.z]} quaternion={handQuat(elbow, wrist, twist)}>
+    <Toon geo={G.sphere()} sw={skin} outline={3} position={[0, 0.068 - 0.01 * fist, 0]} scale={[0.052 + 0.016 * fist, 0.098 - 0.02 * fist, 0.074 - 0.004 * fist]} />
+    <Toon
+      geo={G.sphere()}
+      sw={skin}
+      outline={2.5}
+      position={[side * (0.022 + 0.01 * fist), 0.05, 0.058 - 0.008 * fist]}
+      rotation={[0.5 - 0.6 * fist, 0, side * (0.5 + 0.3 * fist)]}
+      scale={[0.026, 0.05, 0.026]}
+    />
+  </group>
+);
+
+// ── face ───────────────────────────────────────────────────────────────────────────────────────
+const Eye: React.FC<{ side: 1 | -1; e: Expr; open: number; lashes: boolean }> = ({ side, e, open, lashes }) => {
+  const f = useShotFrame();
+  const k = e.eyeSize;
+  const x = side * 0.148;
+  const y = 0.0 + (k - 1) * 0.02;
+  const z = surfZ(x, y) - 0.032;
+  const yaw = faceYaw(x, y) * 1.12;
+  if (e.eyeMode === "happy") {
+    return (
+      <group position={[x, y - 0.01, z + 0.03]} rotation={[0, yaw, 0]}>
+        <Toon geo={G.torusArc(0.07, 0.017, Math.PI)} sw="ink" mat={{ flat: true }} outline={0} scale={[k, k * 0.95, 1]} />
+      </group>
+    );
+  }
+  if (e.eyeMode === "heart" || e.eyeMode === "star") {
+    const beat = 1 + 0.08 * Math.max(0, Math.sin(f * 0.3));
+    return (
+      <group position={[x, y, z + 0.035]} rotation={[0, yaw, e.eyeMode === "star" ? side * 0.15 : 0]} scale={beat * k}>
+        {e.eyeMode === "heart" ? (
+          <Toon geo={G.heart()} sw="red" mat={{ spec: 1, specSize: 0.05 }} outline={3} scale={[0.085, 0.085, 0.04]} />
+        ) : (
+          <Toon geo={G.extrude("starEye", () => starShape(1, 0.48), 0.2, 0.05)} sw="yellow" mat={{ spec: 1, specSize: 0.05 }} outline={3} scale={[0.1, 0.1, 0.12]} />
+        )}
+      </group>
+    );
+  }
+  if (e.eyeMode === "shut" || open < 0.12) {
+    return (
+      <group position={[x, y - 0.02, z + 0.035]} rotation={[0, yaw, Math.PI / 2 + side * 0.08]}>
+        <Toon geo={G.capsule(0.016, 0.11)} sw="ink" mat={{ flat: true }} outline={0} scale={[1, k, 1]} />
+      </group>
+    );
+  }
+  const ex = 0.088 * k;
+  const ey = 0.108 * k * open;
+  const px = e.look[0] * 0.034 * k;
+  const py = e.look[1] * 0.04 * k * Math.min(open, 1);
+  const pr = 0.047 * e.pupil * k;
+  return (
+    <group position={[x, y, z]} rotation={[0, yaw, 0]}>
+      <Toon geo={G.sphere()} sw="white" mat={{ cut: -0.25, halftone: 0.6 }} outline={3.2} scale={[ex, ey, 0.042]} />
+      <Toon geo={G.sphere()} sw="ink" mat={{ flat: true }} outline={0} position={[px, py, 0.028]} scale={[pr, Math.min(pr * 1.18, ey * 0.86), 0.022]} />
+      <Toon geo={G.sphereLo()} sw="white" mat={{ flat: true }} outline={0} position={[px + pr * 0.42, py + pr * 0.5, 0.043]} scale={0.013 * k * Math.max(0.6, e.pupil)} />
+      {lashes ? (
+        <>
+          <Toon geo={G.capsule(0.011, 0.04)} sw="ink" mat={{ flat: true }} outline={0} position={[side * ex * 0.95, ey * 0.62, 0.02]} rotation={[0, 0, -side * 0.95]} />
+          <Toon geo={G.capsule(0.01, 0.03)} sw="ink" mat={{ flat: true }} outline={0} position={[side * ex * 0.7, ey * 0.9, 0.025]} rotation={[0, 0, -side * 0.55]} />
+        </>
+      ) : null}
+    </group>
+  );
+};
+
+const Brow: React.FC<{ side: 1 | -1; e: Expr; w: number; sw: SwatchKey }> = ({ side, e, w, sw }) => {
+  const x = side * 0.15;
+  const y = 0.162 + e.browUp * 0.045 + (e.eyeSize - 1) * 0.07 + (side === 1 ? e.browAsym * 0.03 : 0);
+  const z = surfZ(x, y) + 0.004;
+  return (
+    <group position={[x, y, z]} rotation={[-0.25, faceYaw(x, y), 0]}>
+      <group rotation={[0, 0, -side * e.browIn * 0.36]}>
+        <Toon geo={G.capsule(0.024 * w, 0.1)} sw={sw} mat={{ flat: true }} outline={0} rotation={[0, 0, Math.PI / 2]} />
+      </group>
+    </group>
+  );
+};
+
+const wobblePts = (n = 9): [number, number, number][] =>
+  Array.from({ length: n }, (_, i) => {
+    const t = i / (n - 1);
+    return [(t - 0.5) * 0.15, Math.sin(t * Math.PI * 3) * 0.012, 0];
+  });
+
+const Mouth: React.FC<{ e: Expr; f: number }> = ({ e, f }) => {
+  const y = -0.205;
+  const z = surfZ(0, y) - 0.004;
+  const w = e.mouthW;
+  const o = e.mouthOpen;
+  let body: React.ReactNode = null;
+  switch (e.mouth) {
+    case "smile":
+      body = <Toon geo={G.torusArc(0.07, 0.015, Math.PI)} sw="ink" mat={{ flat: true }} outline={0} rotation={[0, 0, Math.PI]} scale={[w, w * 0.85, 1]} position={[0, 0.04 * w, 0]} />;
+      break;
+    case "smirk":
+      body = <Toon geo={G.torusArc(0.06, 0.015, Math.PI * 0.62)} sw="ink" mat={{ flat: true }} outline={0} rotation={[0, 0, Math.PI + 0.55]} scale={[w, w * 0.8, 1]} position={[0.03, 0.03, 0]} />;
+      break;
+    case "frown":
+      body = <Toon geo={G.torusArc(0.06, 0.015, Math.PI)} sw="ink" mat={{ flat: true }} outline={0} scale={[w, w * 0.6, 1]} position={[0, -0.02, 0]} />;
+      break;
+    case "flat":
+      body = <Toon geo={G.capsule(0.014, 0.1)} sw="ink" mat={{ flat: true }} outline={0} rotation={[0, 0, Math.PI / 2]} scale={[1, w, 1]} />;
+      break;
+    case "wobble": {
+      const step = Math.floor(f / 2);
+      body = <Toon geo={G.tube("wobble", wobblePts(), 0.013)} sw="ink" mat={{ flat: true }} outline={0} scale={[w, 1 + 0.35 * Math.sin(step * 1.7), 1]} />;
+      break;
+    }
+    case "chew": {
+      const ch = Math.sin(f * 0.55);
+      body = <Toon geo={G.torusArc(0.045, 0.014, Math.PI)} sw="ink" mat={{ flat: true }} outline={0} rotation={[0, 0, Math.PI + ch * 0.12]} position={[0.015 * ch, 0.02, 0]} scale={[w, 0.7 + 0.25 * ch, 1]} />;
+      break;
+    }
+    default: {
+      const round = e.mouth === "o";
+      const sx = (round ? 0.05 : 0.078) * w;
+      const sy = 0.012 + (round ? 0.062 : 0.058) * o;
+      body = (
+        <group>
+          <Toon geo={G.sphere()} sw="mouth" mat={{ flat: true }} outline={3} scale={[sx, sy, 0.03]} />
+          <Toon geo={G.sphere()} sw="tongue" mat={{ flat: true }} outline={0} position={[0, -sy * 0.45, 0.012]} scale={[sx * 0.62, sy * 0.42, 0.022]} />
+          {e.mouth === "shout" || e.mouth === "grin" ? (
+            <Toon geo={G.roundedBox(1, 1, 1, 0.3)} sw="white" mat={{ flat: true }} outline={0} position={[0, sy * 0.62, 0.02]} scale={[sx * 1.35, sy * 0.32, 0.012]} />
+          ) : null}
+        </group>
+      );
+    }
+  }
+  return (
+    <group position={[0, y, z]} rotation={[0.34, 0, 0]}>
+      {body}
+    </group>
+  );
+};
+
+const Drop: React.FC<{ p: V3; f: number; phase: number; s: number; fall?: number; period?: number }> = ({ p, f, phase, s, fall = 0.12, period = 70 }) => {
+  const cyc = ((f + phase) % period) / period;
+  const sc = s * (cyc < 0.15 ? cyc / 0.15 : cyc > 0.85 ? (1 - cyc) / 0.15 : 1);
+  if (sc <= 0.01) return null;
+  return (
+    <group position={[p[0], p[1] - cyc * fall, p[2]]} scale={sc}>
+      <Toon geo={G.sphere()} sw="sky" mat={{ spec: 1, specSize: 0.12, cut: 0.0 }} outline={2.5} scale={[0.034, 0.036, 0.03]} />
+      <Toon geo={G.cone(20)} sw="sky" mat={{ cut: 0.0 }} outline={2.5} position={[0, 0.042, 0]} scale={[0.031, 0.06, 0.027]} />
+    </group>
+  );
+};
+
+// ── hair / headwear (head-centre space) ────────────────────────────────────────────────────────
+const hm = { spec: 1, specSize: 0.01, specColor: "#2674B9", cut: 0.1, halftone: 0.6 };
+const Cap: React.FC<{ sw: SwatchKey; s?: number }> = ({ sw, s = 1 }) => (
+  <Toon geo={G.sphereCap("hairTop", 0, Math.PI * 0.6)} sw={sw} mat={{ ...hm, spec: 0, side: "double" }} outline={4} position={[0, 0.035, -0.01]} rotation={[-0.72, 0, 0]} scale={[R * 1.085 * s, R * 1.1 * s, R * 1.085 * s]} />
+);
+const Sideburns: React.FC<{ sw: SwatchKey }> = ({ sw }) => (
+  <>
+    <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3} position={[0.365, -0.03, 0.07]} scale={[0.035, 0.09, 0.055]} />
+    <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3} position={[-0.365, -0.03, 0.07]} scale={[0.035, 0.09, 0.055]} />
+  </>
+);
+const Bangs: React.FC<{ sw: SwatchKey; w?: number }> = ({ sw, w = 1 }) => (
+  <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3.5} position={[0, 0.29, 0.27]} rotation={[-0.55, 0, 0]} scale={[0.3 * w, 0.085, 0.13]} />
+);
+const SideCurtains: React.FC<{ sw: SwatchKey; len: number }> = ({ sw, len }) => (
+  <>
+    {([1, -1] as const).map((s) => (
+      <Toon key={s} geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[s * 0.36, 0.02 - len * 0.25, -0.03]} rotation={[0.1, 0, s * 0.06]} scale={[0.11, 0.26 + len * 0.28, 0.27]} />
+    ))}
+    <Toon geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[0, -0.02 - len * 0.25, -0.17]} scale={[0.38, 0.34 + len * 0.3, 0.27]} />
+  </>
+);
+const CURLS: V3[] = Array.from({ length: 16 }, (_, i) => {
+  const a = (i / 16) * Math.PI * 2;
+  const ring = i % 2;
+  const el = ring ? 0.55 : 0.95;
+  return [Math.cos(a) * Math.cos(el) * 0.42, Math.sin(el) * 0.42 + 0.02, Math.sin(a) * Math.cos(el) * 0.42 - 0.03];
+});
+
+const Hair: React.FC<{ look: Look }> = ({ look: L }) => {
+  const sw = L.hairSw;
+  switch (L.hair) {
+    case "quiff":
+      return (
+        <group>
+          <Cap sw={sw} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[-0.02, 0.35, 0.1]} rotation={[-0.3, 0, -0.12]} scale={[0.33, 0.15, 0.27]} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[0.1, 0.38, 0.2]} rotation={[-0.75, 0.1, -0.5]} scale={[0.17, 0.085, 0.16]} />
+          <Sideburns sw={sw} />
+        </group>
+      );
+    case "short":
+      return (
+        <group>
+          <Cap sw={sw} s={1.02} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3.5} position={[0.06, 0.31, 0.24]} rotation={[-0.6, 0, -0.25]} scale={[0.24, 0.07, 0.11]} />
+          <Sideburns sw={sw} />
+        </group>
+      );
+    case "buzz":
+      return <Cap sw={sw} s={0.975} />;
+    case "bob":
+      return (
+        <group>
+          <Cap sw={sw} />
+          <SideCurtains sw={sw} len={0} />
+          <Bangs sw={sw} />
+        </group>
+      );
+    case "long":
+      return (
+        <group>
+          <Cap sw={sw} />
+          <SideCurtains sw={sw} len={1} />
+          <Bangs sw={sw} w={0.85} />
+        </group>
+      );
+    case "ponytail":
+      return (
+        <group>
+          <Cap sw={sw} />
+          <Bangs sw={sw} w={0.8} />
+          <Toon geo={G.sphere()} sw="red" outline={3} position={[0, 0.14, -0.41]} scale={0.05} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[0, -0.08, -0.49]} rotation={[0.35, 0, 0]} scale={[0.09, 0.25, 0.09]} />
+        </group>
+      );
+    case "bun":
+      return (
+        <group>
+          <Cap sw={sw} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={4} position={[0, 0.36, -0.22]} scale={0.15} />
+        </group>
+      );
+    case "curly":
+      return (
+        <group>
+          <Cap sw={sw} s={1.06} />
+          {CURLS.map((p, i) => (
+            <Toon key={i} geo={G.sphere()} sw={sw} mat={hm} outline={3.5} position={p} scale={0.1 + 0.02 * ((i * 7) % 3) / 2} />
+          ))}
+        </group>
+      );
+    case "cap":
+      return (
+        <group>
+          <Sideburns sw="hair" />
+          <Toon geo={G.sphereCap("hat", 0, Math.PI * 0.5)} sw={sw} mat={{ side: "double", spec: 0.6, specSize: 0.03 }} outline={4} position={[0, 0.06, -0.01]} rotation={[-0.12, 0, 0]} scale={[R * 1.1, R * 1.05, R * 1.1]} />
+          <Toon geo={G.cylinder(1, 1, 32)} sw={sw} outline={3.5} position={[0, 0.1, 0.33]} rotation={[-0.15, 0, 0]} scale={[0.25, 0.02, 0.2]} />
+          <Toon geo={G.sphereLo()} sw="white" outline={2} position={[0, 0.48, 0.0]} scale={0.03} />
+        </group>
+      );
+    case "bald":
+      return (
+        <>
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3} position={[0.37, 0.02, -0.06]} scale={[0.05, 0.08, 0.14]} />
+          <Toon geo={G.sphere()} sw={sw} mat={hm} outline={3} position={[-0.37, 0.02, -0.06]} scale={[0.05, 0.08, 0.14]} />
+        </>
+      );
+    case "hijab":
+      return <Hijab sw={sw} />;
+  }
+};
+const showsEars = (h: HairStyle) => !["bob", "long", "hijab"].includes(h);
+
+// Head-hugging hijab: the head shape inflated slightly, oval face opening cut in the shader, traced
+// inner-cap band along the opening rim.
+const HIJAB_SCALE: V3 = [R * 1.08, R * 1.12, R * 0.92 * 1.1];
+const HIJAB_OFF: V3 = [0, 0.012, -0.01];
+const HOLE: [number, number, number, number] = [0.72, 0.82, -0.06, 0.15];
+const hijabRim = () =>
+  memoGeo("hijabRim", () => {
+    const pts: Vector3[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const ux = HOLE[0] * Math.cos(a);
+      const uy = HOLE[2] + HOLE[1] * Math.sin(a);
+      const r = headRadiusAt(uy);
+      const uz = Math.sqrt(Math.max(r * r - ux * ux, 0.0225));
+      pts.push(new Vector3(ux * HIJAB_SCALE[0] + HIJAB_OFF[0], uy * HIJAB_SCALE[1] + HIJAB_OFF[1], uz * HIJAB_SCALE[2] + HIJAB_OFF[2]));
+    }
+    return new TubeGeometry(new CatmullRomCurve3(pts, true, "centripetal"), 96, 0.014, 8, true);
+  });
+const Hijab: React.FC<{ sw: SwatchKey }> = ({ sw }) => (
+  <group>
+    <Toon geo={G.head()} sw={sw} mat={{ side: "double", cut: 0.05, clip: HOLE }} outline={4} position={HIJAB_OFF} scale={HIJAB_SCALE} />
+    <Toon geo={hijabRim()} sw="paper" mat={{ cut: -0.3 }} outline={2} />
+  </group>
+);
+
+const Glasses: React.FC<{ sw: SwatchKey }> = ({ sw }) => (
+  <group>
+    {([1, -1] as const).map((s) => (
+      <group key={s} position={[s * 0.148, 0.0, surfZ(s * 0.148, 0) + 0.035]} rotation={[0, faceYaw(s * 0.148, 0) * 1.1, 0]}>
+        <Toon geo={G.torusArc(0.088, 0.012, Math.PI * 2)} sw={sw} mat={{ flat: true }} outline={0} scale={[1, 1.05, 1]} />
+      </group>
+    ))}
+    <Toon geo={G.capsule(0.01, 0.07)} sw={sw} mat={{ flat: true }} outline={0} position={[0, 0.02, surfZ(0, 0.02) + 0.03]} rotation={[0, 0, Math.PI / 2]} />
+  </group>
+);
+
+// ── the character ──────────────────────────────────────────────────────────────────────────────
+export type ComicCharacterProps = {
+  look: Look;
+  pose: Pose;
+  expr: Expr;
+  heldL?: React.ReactNode;
+  heldR?: React.ReactNode;
+  holdRotL?: V3;
+  holdRotR?: V3;
+  holdOffL?: V3;
+  holdOffR?: V3;
+  shadow?: boolean;
+  /** things parented to the head centre (thought bubbles, steam, icons…) */
+  headExtras?: React.ReactNode;
+  /** things placed in torso space (a phone held in both hands, a bowl on the lap…) */
+  torsoExtras?: React.ReactNode;
+  /** head + neck only (expression sheets, inserts) */
+  bust?: boolean;
+};
+
+export const ComicCharacter: React.FC<ComicCharacterProps> = ({
+  look: L,
+  pose,
+  expr,
+  heldL,
+  heldR,
+  holdRotL = [0, 0, 0],
+  holdRotR = [0, 0, 0],
+  holdOffL = [0, 0, 0],
+  holdOffR = [0, 0, 0],
+  shadow = true,
+  headExtras,
+  torsoExtras,
+  bust = false,
+}) => {
+  const f = useShotFrame();
+  const seed = Math.abs(Math.round(hash(L.id.length * 13.7 + L.id.charCodeAt(0)) * 50));
+  let open = expr.eyeOpen;
+  if (expr.blink) {
+    const period = 150 + Math.round(hash(seed) * 30);
+    const t = (f + seed * 37) % period;
+    if (t < 7) open *= Math.abs(t - 3.5) / 3.5;
+  }
+  const breathe = Math.sin((f + seed * 20) / 38) * 0.012;
+  const tr = expr.tremble;
+  const trem: V3 = [noise1(f * 0.9, seed) * 0.012 * tr, noise1(f * 1.1, seed + 3) * 0.008 * tr, 0];
+  const B = BUILD[L.build];
+  const sq = pose.squash;
+  const pelvis = new Vector3(pose.pelvis[0], BODY.pelvisH + pose.pelvis[1], pose.pelvis[2]);
+
+  const legs = ([1, -1] as const).map((s) => {
+    const hip = pelvis.clone().add(new Vector3(s * BODY.hipX, BODY.hipY, 0));
+    const [knee, ankle] = solveIK(hip, v3(s === 1 ? pose.footL : pose.footR), BODY.thigh, BODY.shin, v3(s === 1 ? pose.kneeL : pose.kneeR));
+    return { s, hip, knee, ankle };
+  });
+  const arms = ([1, -1] as const).map((s) => {
+    const sh = new Vector3(s * BODY.shoulderX * B.torso[0], BODY.shoulderY + pose.shrug * 0.06, 0);
+    const [elbow, wrist] = solveIK(sh, v3(s === 1 ? pose.handL : pose.handR), BODY.upperArm, BODY.foreArm, v3(s === 1 ? pose.elbowL : pose.elbowR));
+    return { s, sh, elbow, wrist };
+  });
+  const top = L.topSw;
+  const skin = L.skin;
+  const long = LONG_SLEEVES[L.top];
+  const torsoGeo = G.lathe(`torso_${L.top}`, PROFILES[L.top]);
+  const legSw = (part: "thigh" | "shin"): SwatchKey => (L.bottom === "pants" ? L.bottomSw : L.bottom === "shorts" ? (part === "thigh" ? L.bottomSw : skin) : skin);
+  const sc = B.scale;
+  const blush = Math.max(expr.blush, L.blush);
+  const spineX = pose.spine[0] + B.spine;
+  return (
+    <group position={pose.pos} rotation={[0, pose.rotY, 0]} scale={[sc / Math.sqrt(sq), sc * sq, sc / Math.sqrt(sq)]}>
+      {shadow && !bust ? (
+        <Toon geo={G.circle()} sw="ink" mat={{ dotOnly: true, pattern: 0.42 }} outline={0} position={[0, 0.006, 0.02]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.55, 0.42, 1]} />
+      ) : null}
+      {!bust && legs.map(({ s, hip, knee, ankle }) => (
+        <group key={s}>
+          <Seg a={hip} b={knee} r0={L.bottom === "shorts" ? 0.13 : 0.125} r1={0.108} sw={legSw("thigh")} />
+          <Ball p={knee} r={0.105} sw={legSw("shin")} />
+          <Seg a={knee} b={ankle} r0={0.104} r1={0.088} sw={legSw("shin")} />
+          <group position={[ankle.x, ankle.y, ankle.z]}>
+            <Toon geo={G.sphere()} sw={L.shoes} mat={{ spec: 0.8, specSize: 0.05 }} outline={3.5} position={[0, -0.01, 0.06]} scale={[0.105, 0.08, 0.175]} />
+            <Toon geo={G.sphere()} sw="white" outline={3} position={[0, -0.055, 0.065]} scale={[0.11, 0.03, 0.18]} />
+          </group>
+        </group>
+      ))}
+      <group position={[pelvis.x, pelvis.y, pelvis.z]}>
+        {!bust && <Toon geo={G.lathe("pelvis", [[0, -0.22], [0.2, -0.21], [0.27, -0.12], [0.28, 0.0], [0.27, 0.06], [0, 0.08]])} sw={L.bottomSw} outline={3.5} scale={[B.torso[0], 1, 0.74 * B.torso[2]]} />}
+        {!bust && L.bottom === "skirt" && L.top !== "dress" ? (
+          <Toon geo={G.lathe("skirt", [[0, -0.6], [0.44, -0.6], [0.4, -0.38], [0.32, -0.12], [0.29, 0.04], [0, 0.06]])} sw={L.bottomSw} outline={4} scale={[B.torso[0], 1, 0.8 * B.torso[2]]} />
+        ) : null}
+        {/* torso space */}
+        <group rotation={[spineX + breathe * 0.5, pose.spine[1], pose.spine[2]]}>
+          <group visible={!bust} scale={[(1 + breathe * 0.4) * B.torso[0], 1, (1 + breathe * 0.6) * B.torso[2]]}>
+            <Toon geo={torsoGeo} sw={top} outline={4} scale={[1, 1, 0.7]} />
+            {L.top === "jacket" ? (
+              <Toon geo={G.roundedBox(0.09, 0.62, 0.03, 0.012)} sw={L.innerSw} outline={2.5} position={[0, 0.37, 0.205]} rotation={[-0.06, 0, 0]} />
+            ) : null}
+            {L.top === "hoodie" ? (
+              <>
+                <Toon geo={G.roundedBox(0.34, 0.16, 0.04, 0.03)} sw={top} outline={3} position={[0, 0.16, 0.205]} rotation={[-0.08, 0, 0]} />
+                {([1, -1] as const).map((s) => (
+                  <Toon key={s} geo={G.capsule(0.009, 0.14)} sw={L.innerSw} mat={{ flat: true }} outline={0} position={[s * 0.06, 0.6, 0.215]} rotation={[-0.15, 0, 0]} />
+                ))}
+              </>
+            ) : null}
+            {L.top === "shirt" ? (
+              [0.18, 0.34, 0.5].map((y) => <Toon key={y} geo={G.sphereLo()} sw="ink" mat={{ flat: true }} outline={0} position={[0, y, 0.205]} scale={0.014} />)
+            ) : null}
+          </group>
+          {L.top === "tee" || L.top === "longsleeve" ? (
+            <Toon geo={G.torusArc(0.12, 0.022, Math.PI * 2)} sw={top} outline={2.5} position={[0, 0.8, 0.0]} rotation={[Math.PI / 2 + 0.1, 0, 0]} scale={[1, 0.75, 1]} />
+          ) : null}
+          {L.top === "shirt" || L.top === "jacket" ? (
+            ([1, -1] as const).map((s) => (
+              <Toon key={s} geo={G.roundedBox(0.12, 0.09, 0.02, 0.01)} sw={L.top === "jacket" ? top : L.innerSw} outline={2.5} position={[s * 0.08, 0.78, 0.11]} rotation={[-0.5, s * 0.5, s * 0.55]} />
+            ))
+          ) : null}
+          {L.top === "hoodie" ? <Toon geo={G.torusArc(0.17, 0.065, Math.PI * 2)} sw={top} outline={3.5} position={[0, 0.82, -0.08]} rotation={[Math.PI / 2 - 0.5, 0, 0]} scale={[1, 0.8, 1]} /> : null}
+          {L.tie ? (
+            <group position={[0, 0.6, 0.215]} rotation={[-0.12, 0, 0]}>
+              <Toon geo={G.cone(4)} sw="red" outline={2.5} position={[0, -0.12, 0]} rotation={[Math.PI, Math.PI / 4, 0]} scale={[0.05, 0.28, 0.012]} />
+              <Toon geo={G.sphereLo()} sw="red" outline={2} position={[0, 0.08, 0]} scale={[0.035, 0.03, 0.02]} />
+            </group>
+          ) : null}
+          <Seg a={new Vector3(0, BODY.neckY - 0.06, 0)} b={new Vector3(0, BODY.headPivotY + 0.06, 0.01)} r0={0.075} r1={0.07} sw={skin} ink={3} />
+          {!bust && arms.map(({ s, sh, elbow, wrist }) => {
+            const sleeveEnd = sh.clone().lerp(elbow, 0.55);
+            const cuff = elbow.clone().lerp(wrist, 0.86);
+            return (
+              <group key={s}>
+                <Ball p={sh} r={0.092} sw={top} />
+                <Seg a={sh} b={elbow} r0={0.072} r1={0.066} sw={long ? top : skin} ink={3.2} />
+                {!long ? <Seg a={sh} b={sleeveEnd} r0={0.1} r1={0.096} sw={top} double ink={3.5} /> : null}
+                <Ball p={elbow} r={0.066} sw={long ? top : skin} ink={3.2} />
+                {long ? (
+                  <>
+                    <Seg a={elbow} b={cuff} r0={0.066} r1={0.06} sw={top} ink={3.2} />
+                    <Seg a={cuff} b={wrist} r0={0.054} r1={0.052} sw={skin} ink={3} />
+                  </>
+                ) : (
+                  <Seg a={elbow} b={wrist} r0={0.064} r1={0.054} sw={skin} ink={3.2} />
+                )}
+                <Ball p={wrist} r={0.052} sw={skin} ink={3} />
+                <Hand side={s} elbow={elbow} wrist={wrist} twist={s === 1 ? pose.twistL : pose.twistR} fist={s === 1 ? pose.fistL : pose.fistR} skin={skin} />
+                {(s === 1 ? heldL : heldR) ? (
+                  <group
+                    position={[wrist.x + (s === 1 ? holdOffL : holdOffR)[0], wrist.y + (s === 1 ? holdOffL : holdOffR)[1], wrist.z + (s === 1 ? holdOffL : holdOffR)[2]]}
+                    rotation={s === 1 ? holdRotL : holdRotR}
+                  >
+                    {s === 1 ? heldL : heldR}
+                  </group>
+                ) : null}
+              </group>
+            );
+          })}
+          {L.hair === "hijab" && !bust ? (
+            <Toon geo={G.lathe("drape", [[0.0, 0.4], [0.3, 0.4], [0.355, 0.47], [0.375, 0.6], [0.33, 0.75], [0.23, 0.9], [0.15, 1.0], [0.1, 1.09], [0.0, 1.1]])} sw={L.hairSw} outline={4} scale={[B.torso[0], 1, 0.72 * B.torso[2]]} />
+          ) : null}
+          {torsoExtras}
+          {/* head */}
+          <group position={[trem[0], BODY.headPivotY + trem[1], 0.01]} rotation={[pose.head[0] - B.spine * 0.6, pose.head[1], pose.head[2], "YXZ"]} scale={B.head}>
+            <group position={[0, BODY.headUp, 0.02]}>
+              <Toon geo={G.head()} sw={skin} mat={{ cut: 0.08 }} outline={4.2} scale={[R, R, R * 0.92]} />
+              {showsEars(L.hair) ? (
+                <>
+                  <Toon geo={G.sphere()} sw={skin} outline={3} position={[0.392, -0.02, -0.01]} scale={[0.05, 0.09, 0.07]} />
+                  <Toon geo={G.sphere()} sw={skin} outline={3} position={[-0.392, -0.02, -0.01]} scale={[0.05, 0.09, 0.07]} />
+                </>
+              ) : null}
+              <Hair look={L} />
+              {expr.puff > 0.02
+                ? ([1, -1] as const).map((s) => (
+                    <Toon key={s} geo={G.sphere()} sw={skin} outline={3} position={[s * 0.17, -0.17, surfZ(0.17, -0.17) - 0.07 + 0.025 * expr.puff * (1 + 0.15 * Math.sin(f * 0.55))]} scale={0.08 * expr.puff} />
+                  ))
+                : null}
+              {blush > 0.02
+                ? ([1, -1] as const).map((s) => (
+                    <Toon
+                      key={`b${s}`}
+                      geo={G.circle()}
+                      sw={{ c: SW.red.c, s: SW.red.c, d: SW.red.c }}
+                      mat={{ dotOnly: true, pattern: 0.5 }}
+                      outline={0}
+                      position={[s * 0.235, -0.1, surfZ(0.235, -0.1) + 0.02]}
+                      rotation={[0, faceYaw(0.235, -0.1) * 1.1, 0]}
+                      scale={[0.065 * blush, 0.045 * blush, 1]}
+                    />
+                  ))
+                : null}
+              <Eye side={1} e={expr} open={open} lashes={L.lashes} />
+              <Eye side={-1} e={expr} open={open} lashes={L.lashes} />
+              <Brow side={1} e={expr} w={L.browW} sw={L.hair === "bald" || L.hairSw === "hairGrey" ? "grey" : "ink"} />
+              <Brow side={-1} e={expr} w={L.browW} sw={L.hair === "bald" || L.hairSw === "hairGrey" ? "grey" : "ink"} />
+              <Toon geo={G.sphere()} sw={skin} outline={2.5} position={[0, -0.085, surfZ(0, -0.085) - 0.012]} scale={[0.042, 0.038, 0.045]} />
+              {L.mustache ? <Toon geo={G.capsule(0.022, 0.09)} sw={L.hair === "hijab" ? "hair" : L.hairSw} mat={{ flat: true }} outline={0} position={[0, -0.14, surfZ(0, -0.14) + 0.01]} rotation={[0.3, 0, Math.PI / 2]} /> : null}
+              {L.beard ? <Toon geo={G.sphere()} sw={L.hairSw} mat={hm} outline={3} position={[0, -0.31, surfZ(0, -0.31) - 0.07]} scale={[0.19, 0.1, 0.12]} /> : null}
+              <Mouth e={expr} f={f} />
+              {L.glasses ? <Glasses sw={L.glasses} /> : null}
+              {expr.sweat > 0.05 ? (
+                <>
+                  <Drop p={[0.31, 0.2, surfZ(0.31, 0.2) + 0.02]} f={f} phase={0} s={Math.min(1, expr.sweat * 1.4)} />
+                  {expr.sweat > 0.6 ? <Drop p={[-0.33, 0.12, surfZ(-0.33, 0.12) + 0.02]} f={f} phase={33} s={(expr.sweat - 0.6) * 2.5} /> : null}
+                </>
+              ) : null}
+              {expr.tears > 0.05
+                ? ([1, -1] as const).map((s) => (
+                    <group key={`t${s}`}>
+                      <Toon geo={G.capsule(0.02, 0.16)} sw="sky" mat={{ spec: 1, specSize: 0.08 }} outline={2.5} position={[s * 0.17, -0.14, surfZ(0.17, -0.14) + 0.02]} scale={[expr.tears, expr.tears, 0.6]} />
+                      <Drop p={[s * 0.17, -0.25, surfZ(0.17, -0.25) + 0.03]} f={f} phase={s * 20} s={expr.tears * 0.8} fall={0.18} period={30} />
+                    </group>
+                  ))
+                : null}
+              {headExtras}
+            </group>
+          </group>
+        </group>
+      </group>
+    </group>
+  );
+};
+
+==== 3231 src/kits/panelverse/engine/three/ComicStage.tsx
+import React, { useContext, useLayoutEffect, useMemo } from "react";
+import { ThreeCanvas } from "@remotion/three";
+import { useThree } from "@react-three/fiber";
+import { PerspectiveCamera, Vector2, Vector3 } from "three";
+import { RenderScaleCtx, StageCtx, type V3 } from "./Toon.tsx";
+import { DEFAULT_CELL, DEFAULT_LIGHT } from "./materials.ts";
+import type { CamState } from "../camera.ts";
+export { sampleCam, CAM0, type CamKey, type CamState } from "../camera.ts";
+
+// ── ComicCamera ──
+
+/**
+ * Dolly-zoom helper: camera distance that keeps a subject of `size` world units filling the same
+ * fraction of frame height while the fov changes (Hitchcock "vertigo" move).
+ */
+export const dollyDistance = (size: number, fov: number, frac = 0.5) => size / frac / (2 * Math.tan((fov * Math.PI) / 360));
+
+const CameraRig: React.FC<{ cam: CamState; shake?: V3 }> = ({ cam, shake = [0, 0, 0] }) => {
+  const camera = useThree((s) => s.camera) as PerspectiveCamera;
+  useLayoutEffect(() => {
+    camera.position.set(cam.pos[0] + shake[0], cam.pos[1] + shake[1], cam.pos[2] + shake[2]);
+    const fwd = new Vector3(...cam.target).sub(camera.position).normalize();
+    const right = new Vector3().crossVectors(fwd, new Vector3(0, 1, 0)).normalize();
+    const up = new Vector3().crossVectors(right, fwd).normalize();
+    camera.up.copy(up.multiplyScalar(Math.cos(cam.roll)).addScaledVector(right, Math.sin(cam.roll)));
+    camera.lookAt(cam.target[0] + shake[0], cam.target[1] + shake[1], cam.target[2] + shake[2]);
+    camera.fov = cam.fov;
+    camera.near = 0.05;
+    camera.far = 200;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+  });
+  return null;
+};
+
+// ── ComicStage: one WebGL canvas with comic stage context ─────────────────────────────────────
+export type ComicStageProps = {
+  width: number;
+  height: number;
+  frame: number;
+  cam: CamState;
+  shake?: V3;
+  light?: V3;
+  bg?: string;
+  cell?: number;
+  ink?: number;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+};
+
+export const ComicStage: React.FC<ComicStageProps> = ({
+  width,
+  height,
+  frame,
+  cam,
+  shake,
+  light = DEFAULT_LIGHT,
+  bg = "#F6E8C8",
+  cell = DEFAULT_CELL,
+  ink = 1,
+  style,
+  children,
+}) => {
+  // previews draw the same 1080-space layout at a lower device-pixel ratio: ink widths stay in layout
+  // pixels (uRes = layout size) and the halftone cell scales with the device pixels, so the look is identical
+  const scale = useContext(RenderScaleCtx);
+  const res = useMemo(() => new Vector2(width, height), [width, height]);
+  const ctx = useMemo(() => ({ light, res, cell: cell * scale, frame, ink }), [light, res, cell, scale, frame, ink]);
+  return (
+    <ThreeCanvas
+      width={width}
+      height={height}
+      dpr={scale}
+      flat
+      gl={{ antialias: true, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+      style={{ position: "absolute", left: 0, top: 0, ...style }}
+    >
+      <color attach="background" args={[bg]} />
+      <StageCtx.Provider value={ctx}>
+        <CameraRig cam={cam} shake={shake} />
+        {children}
+      </StageCtx.Provider>
+    </ThreeCanvas>
+  );
+};
+
+==== 8036 src/kits/panelverse/engine/three/geometries.ts
+import {
+  BufferGeometry,
+  CapsuleGeometry,
+  CatmullRomCurve3,
+  CylinderGeometry,
+  ExtrudeGeometry,
+  LatheGeometry,
+  Shape,
+  SphereGeometry,
+  TorusGeometry,
+  TubeGeometry,
+  Vector2,
+  Vector3,
+  ConeGeometry,
+  CircleGeometry,
+  PlaneGeometry,
+} from "three";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+
+// Shared, cached geometry. Every geometry has a matching "hull" with welded, averaged normals so the
+// screen-space ink extrusion never cracks open at hard edges (boxes, extrusions, caps).
+
+const cache = new Map<string, BufferGeometry>();
+const hulls = new WeakMap<BufferGeometry, BufferGeometry>();
+
+export const memoGeo = (key: string, make: () => BufferGeometry) => {
+  let g = cache.get(key);
+  if (!g) {
+    g = make();
+    g.computeBoundingSphere();
+    cache.set(key, g);
+  }
+  return g;
+};
+
+export const hullOf = (g: BufferGeometry) => {
+  let h = hulls.get(g);
+  if (!h) {
+    const pos = g.getAttribute("position");
+    const bare = new BufferGeometry();
+    bare.setAttribute("position", pos.clone());
+    if (g.index) bare.setIndex(g.index.clone());
+    h = mergeVertices(bare, 1e-4);
+    h.computeVertexNormals();
+    hulls.set(g, h);
+  }
+  return h;
+};
+
+const smoothProfile = (pts: [number, number][], n: number) => {
+  const curve = new CatmullRomCurve3(pts.map(([x, y]) => new Vector3(x, y, 0)), false, "centripetal");
+  return curve.getPoints(n).map((p) => new Vector2(Math.max(0, p.x), p.y));
+};
+
+// Unit egg-shaped head, R = 1, chin at y≈-0.95, crown at y≈1.02 (later scaled per character).
+export const HEAD_PROFILE: [number, number][] = [
+  [0.0, -0.96],
+  [0.36, -0.9],
+  [0.64, -0.7],
+  [0.84, -0.42],
+  [0.96, -0.1],
+  [1.0, 0.18],
+  [0.96, 0.48],
+  [0.84, 0.74],
+  [0.6, 0.93],
+  [0.3, 1.01],
+  [0.0, 1.03],
+];
+export const headRadiusAt = (y: number) => {
+  const p = HEAD_PROFILE;
+  if (y <= p[0][1]) return 0;
+  for (let i = 1; i < p.length; i++) {
+    if (y <= p[i][1]) {
+      const t = (y - p[i - 1][1]) / (p[i][1] - p[i - 1][1]);
+      return p[i - 1][0] + (p[i][0] - p[i - 1][0]) * t;
+    }
+  }
+  return 0;
+};
+
+export const G = {
+  sphere: () => memoGeo("sphere", () => new SphereGeometry(1, 40, 28)),
+  sphereLo: () => memoGeo("sphereLo", () => new SphereGeometry(1, 20, 14)),
+  /** unit cylinder along +Y from y=0 to y=1, radius top rT / bottom rB (relative) */
+  limb: (rTop = 1, rBot = 1) =>
+    memoGeo(`limb${rTop}_${rBot}`, () => {
+      const g = new CylinderGeometry(rTop, rBot, 1, 28, 1, true);
+      g.translate(0, 0.5, 0);
+      return g;
+    }),
+  cylinder: (rTop = 1, rBot = 1, seg = 32) =>
+    memoGeo(`cyl${rTop}_${rBot}_${seg}`, () => new CylinderGeometry(rTop, rBot, 1, seg, 1, false)),
+  capsule: (r: number, len: number) => memoGeo(`cap${r}_${len}`, () => new CapsuleGeometry(r, len, 8, 20)),
+  head: () =>
+    memoGeo("head", () => {
+      const g = new LatheGeometry(smoothProfile(HEAD_PROFILE, 40), 56);
+      return g;
+    }),
+  lathe: (key: string, pts: [number, number][], seg = 48) =>
+    memoGeo(`lathe_${key}`, () => new LatheGeometry(smoothProfile(pts, 36), seg)),
+  roundedBox: (w: number, h: number, d: number, r: number) =>
+    memoGeo(`rbox${w}_${h}_${d}_${r}`, () => new RoundedBoxGeometry(w, h, d, 4, r)),
+  torusArc: (radius: number, tube: number, arc: number) =>
+    memoGeo(`tor${radius}_${tube}_${arc}`, () => new TorusGeometry(radius, tube, 10, 32, arc)),
+  sphereCap: (key: string, thetaStart: number, thetaLength: number) =>
+    memoGeo(`cap_${key}`, () => new SphereGeometry(1, 48, 32, 0, Math.PI * 2, thetaStart, thetaLength)),
+  cone: (seg = 32) => memoGeo(`cone${seg}`, () => new ConeGeometry(1, 1, seg, 1, false)),
+  circle: () => memoGeo("circle", () => new CircleGeometry(1, 48)),
+  plane: () => memoGeo("plane", () => new PlaneGeometry(1, 1)),
+  tube: (key: string, pts: [number, number, number][], r: number) =>
+    memoGeo(`tube_${key}`, () => new TubeGeometry(new CatmullRomCurve3(pts.map((p) => new Vector3(...p))), 40, r, 10, false)),
+  heart: () =>
+    memoGeo("heart", () => {
+      const s = new Shape();
+      s.moveTo(0, -1);
+      s.bezierCurveTo(-0.35, -0.62, -1.05, -0.25, -1.05, 0.32);
+      s.bezierCurveTo(-1.05, 0.82, -0.55, 1.02, -0.27, 0.98);
+      s.bezierCurveTo(-0.08, 0.95, 0, 0.78, 0, 0.66);
+      s.bezierCurveTo(0, 0.78, 0.08, 0.95, 0.27, 0.98);
+      s.bezierCurveTo(0.55, 1.02, 1.05, 0.82, 1.05, 0.32);
+      s.bezierCurveTo(1.05, -0.25, 0.35, -0.62, 0, -1);
+      const g = new ExtrudeGeometry(s, { depth: 0.35, bevelEnabled: true, bevelThickness: 0.22, bevelSize: 0.16, bevelSegments: 6, curveSegments: 40 });
+      g.center();
+      g.computeVertexNormals();
+      return g;
+    }),
+  /** half of the heart split along a jagged crack, side = -1 (left) or 1 (right) */
+  heartHalf: (side: -1 | 1) =>
+    memoGeo(`heartHalf${side}`, () => {
+      const crack: [number, number][] = [
+        [0, 0.66],
+        [0.12, 0.4],
+        [-0.1, 0.16],
+        [0.14, -0.1],
+        [-0.08, -0.38],
+        [0.06, -0.66],
+        [0, -1],
+      ];
+      const s = new Shape();
+      if (side === -1) {
+        s.moveTo(0, -1);
+        s.bezierCurveTo(-0.35, -0.62, -1.05, -0.25, -1.05, 0.32);
+        s.bezierCurveTo(-1.05, 0.82, -0.55, 1.02, -0.27, 0.98);
+        s.bezierCurveTo(-0.08, 0.95, 0, 0.78, 0, 0.66);
+        for (let i = 1; i < crack.length; i++) s.lineTo(crack[i][0], crack[i][1]);
+      } else {
+        s.moveTo(0, 0.66);
+        s.bezierCurveTo(0, 0.78, 0.08, 0.95, 0.27, 0.98);
+        s.bezierCurveTo(0.55, 1.02, 1.05, 0.82, 1.05, 0.32);
+        s.bezierCurveTo(1.05, -0.25, 0.35, -0.62, 0, -1);
+        for (let i = crack.length - 2; i >= 0; i--) s.lineTo(crack[i][0], crack[i][1]);
+      }
+      const g = new ExtrudeGeometry(s, { depth: 0.35, bevelEnabled: true, bevelThickness: 0.22, bevelSize: 0.12, bevelSegments: 5, curveSegments: 32 });
+      g.translate(0, 0, -0.175);
+      g.computeVertexNormals();
+      return g;
+    }),
+  extrude: (key: string, shape: () => Shape, depth: number, bevel = 0.02) =>
+    memoGeo(`ext_${key}`, () => {
+      const g = new ExtrudeGeometry(shape(), { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 24 });
+      g.translate(0, 0, -depth / 2);
+      g.computeVertexNormals();
+      return g;
+    }),
+};
+
+export const roundedRectShape = (w: number, h: number, r: number) => {
+  const s = new Shape();
+  const x = -w / 2;
+  const y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r);
+  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r);
+  s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+};
+
+/** Chat bubble with a tail at bottom-left (tail = -1) or bottom-right (tail = 1). */
+export const chatBubbleShape = (w: number, h: number, r: number, tail: -1 | 1) => {
+  const s = new Shape();
+  const x = -w / 2;
+  const y = -h / 2;
+  s.moveTo(x + r, y);
+  if (tail === -1) {
+    s.lineTo(x + r * 0.2, y - h * 0.32);
+    s.lineTo(x + r * 1.6, y);
+  }
+  s.lineTo(x + w - r * (tail === 1 ? 1.6 : 1), y);
+  if (tail === 1) {
+    s.lineTo(x + w - r * 0.2, y - h * 0.32);
+    s.lineTo(x + w - r, y);
+  }
+  s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r);
+  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r);
+  s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+};
+
+/** n-point star outline (comic stars, star eyes, sparkles). */
+export const starShape = (r1: number, r2: number, n = 5) => {
+  const s = new Shape();
+  for (let i = 0; i <= n * 2; i++) {
+    const a = (i / (n * 2)) * Math.PI * 2 + Math.PI / 2;
+    const r = i % 2 === 0 ? r1 : r2;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) s.moveTo(x, y);
+    else s.lineTo(x, y);
+  }
+  return s;
+};
+
+==== 33259 src/kits/panelverse/engine/three/library.tsx
+import React from "react";
+import { Shape } from "three";
+import { Toon } from "./Toon.tsx";
+import { G, roundedRectShape, starShape } from "./geometries.ts";
+import { Phone, Sign } from "./props.tsx";
+import type { SwatchKey } from "../../theme/palette.ts";
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// Object library — everyday things built from inked, cel-shaded primitives. Every item stands on
+// y = 0 at its origin (wall items hang centred on their origin, facing +z). Sizes are in world
+// units: a standing adult is ≈ 2.7 tall, a table top ≈ 0.86, a door ≈ 2.3.
+// Stories place items through sets (`items: [{ type, pos, rot, scale, sw, sw2, text, … }]`).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+export type ItemProps = { sw?: SwatchKey; sw2?: SwatchKey; text?: string; sub?: string; on?: boolean; n?: number; f: number; t?: number };
+type Item = { render: (p: ItemProps) => React.ReactNode; desc: string; wall?: boolean };
+
+const box = (w: number, h: number, d: number, r = 0.03) => G.roundedBox(w, h, d, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
+const leg = (x: number, z: number, h: number, sw: SwatchKey, r = 0.035) => <Toon key={`${x}${z}`} geo={G.limb(1, 1)} sw={sw} outline={3} position={[x, 0, z]} scale={[r, h, r]} />;
+
+const bolt = () => {
+  const s = new Shape();
+  [[0.1, 1], [-0.45, -0.05], [-0.05, -0.05], [-0.2, -1], [0.45, 0.15], [0.05, 0.15], [0.25, 1]].forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  s.closePath();
+  return s;
+};
+const arrowShape = () => {
+  const s = new Shape();
+  [[-0.15, -1], [0.15, -1], [0.15, 0.2], [0.45, 0.2], [0, 1], [-0.45, 0.2], [-0.15, 0.2]].forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  s.closePath();
+  return s;
+};
+const flame = () => {
+  const s = new Shape();
+  s.moveTo(0, 1);
+  s.bezierCurveTo(0.25, 0.55, 0.62, 0.35, 0.55, -0.15);
+  s.bezierCurveTo(0.5, -0.65, 0.2, -0.9, 0, -0.9);
+  s.bezierCurveTo(-0.2, -0.9, -0.5, -0.65, -0.55, -0.15);
+  s.bezierCurveTo(-0.6, 0.3, -0.2, 0.4, 0, 1);
+  return s;
+};
+
+export const LIB: Record<string, Item> = {
+  // ── furniture ────────────────────────────────────────────────────────────────────────────────
+  bed: {
+    desc: "bed 3.4×0.7×2.2 (sw blanket, sw2 frame)",
+    render: ({ sw = "teal", sw2 = "wood" }) => (
+      <group>
+        <Toon geo={box(3.4, 0.32, 2.2, 0.1)} sw={sw2} outline={4} position={[0, 0.18, 0]} />
+        <Toon geo={box(3.3, 0.24, 2.1, 0.11)} sw="white" outline={4} position={[0, 0.44, 0]} />
+        <Toon geo={box(2.3, 0.16, 2.14, 0.08)} sw={sw} mat={{ pattern: 0.1 }} outline={4} position={[-0.55, 0.6, 0]} />
+        <Toon geo={box(0.9, 0.26, 0.6, 0.13)} sw="paper" outline={4} position={[1.15, 0.7, -0.55]} rotation={[0.2, -0.3, 0]} />
+        <Toon geo={box(3.4, 1.2, 0.14, 0.05)} sw={sw2} outline={4} position={[0, 0.9, -1.1]} />
+      </group>
+    ),
+  },
+  sofa: {
+    desc: "two-seat sofa 2.2×1.0×0.9, seat height 0.5",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={box(2.2, 0.4, 0.9, 0.12)} sw={sw} outline={4} position={[0, 0.3, 0]} />
+        <Toon geo={box(2.2, 0.75, 0.25, 0.12)} sw={sw} outline={4} position={[0, 0.72, -0.34]} />
+        {[-1, 1].map((s) => (
+          <Toon key={s} geo={box(0.25, 0.55, 0.9, 0.11)} sw={sw} outline={4} position={[s * 1.0, 0.5, 0]} />
+        ))}
+        {[-0.48, 0.48].map((x) => (
+          <Toon key={x} geo={box(0.86, 0.14, 0.7, 0.06)} sw={sw} mat={{ pattern: 0.08 }} outline={3.5} position={[x, 0.55, 0.06]} />
+        ))}
+      </group>
+    ),
+  },
+  chair: {
+    desc: "chair, seat height 0.5 (sw)",
+    render: ({ sw = "wood" }) => (
+      <group>
+        <Toon geo={box(0.5, 0.07, 0.5)} sw={sw} outline={3.5} position={[0, 0.5, 0]} />
+        <Toon geo={box(0.5, 0.55, 0.07)} sw={sw} outline={3.5} position={[0, 0.8, -0.22]} />
+        {[[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]].map(([x, z]) => leg(x, z, 0.47, sw, 0.03))}
+      </group>
+    ),
+  },
+  stool: {
+    desc: "round stool, seat height 0.5",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={G.cylinder(1, 1, 32)} sw={sw} outline={3.5} position={[0, 0.5, 0]} scale={[0.24, 0.07, 0.24]} />
+        {[0, 1, 2].map((i) => leg(Math.cos(i * 2.1) * 0.16, Math.sin(i * 2.1) * 0.16, 0.47, "metal", 0.025))}
+      </group>
+    ),
+  },
+  table: {
+    desc: "table 2.0×0.86×1.1 (sw top, sw2 legs); `on` = cloth drop to hide legs",
+    render: ({ sw = "woodLight", sw2 = "wood", on }) => (
+      <group>
+        <Toon geo={box(2.0, 0.08, 1.1)} sw={sw} mat={{ pattern: 0.06 }} outline={4} position={[0, 0.86, 0]} />
+        {on ? <Toon geo={box(2.0, 0.5, 0.04, 0.02)} sw={sw} mat={{ pattern: 0.15 }} outline={4} position={[0, 0.6, 0.55]} /> : null}
+        {[[-0.88, -0.45], [0.88, -0.45], [-0.88, 0.45], [0.88, 0.45]].map(([x, z]) => leg(x, z, 0.82, sw2, 0.04))}
+      </group>
+    ),
+  },
+  desk: {
+    desc: "office desk 1.8×0.86×0.9 with drawer block",
+    render: ({ sw = "woodLight", sw2 = "grey" }) => (
+      <group>
+        <Toon geo={box(1.8, 0.07, 0.9)} sw={sw} outline={4} position={[0, 0.86, 0]} />
+        <Toon geo={box(0.5, 0.8, 0.8)} sw={sw2} outline={3.5} position={[0.6, 0.42, 0]} />
+        {[0.25, 0.55].map((y) => <Toon key={y} geo={box(0.2, 0.04, 0.03)} sw="ink" outline={0} position={[0.6, y, 0.41]} />)}
+        {[[-0.82, -0.38], [-0.82, 0.38]].map(([x, z]) => leg(x, z, 0.82, sw2, 0.035))}
+      </group>
+    ),
+  },
+  counter: {
+    desc: "shop / kitchen counter 2.6×1.0×0.7 (sw front, sw2 top)",
+    render: ({ sw = "teal", sw2 = "white" }) => (
+      <group>
+        <Toon geo={box(2.6, 0.95, 0.7, 0.05)} sw={sw} mat={{ pattern: 0.12 }} outline={4} position={[0, 0.48, 0]} />
+        <Toon geo={box(2.7, 0.08, 0.8, 0.03)} sw={sw2} outline={4} position={[0, 0.99, 0]} />
+      </group>
+    ),
+  },
+  shelf: {
+    desc: "bookshelf 1.2×2.0×0.4 with books",
+    render: ({ sw = "wood" }) => (
+      <group>
+        <Toon geo={box(1.2, 2.0, 0.4, 0.04)} sw={sw} outline={4} position={[0, 1.0, 0]} />
+        {[0.45, 1.05, 1.65].map((y, r) =>
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <Toon
+              key={`${r}${i}`}
+              geo={box(0.12, 0.38 - ((i * 7 + r) % 3) * 0.05, 0.28, 0.02)}
+              sw={(["red", "blue", "yellow", "teal", "orange", "paper"] as SwatchKey[])[(i + r * 2) % 6]}
+              outline={2.5}
+              position={[-0.42 + i * 0.165, y + (0.19 - ((i * 7 + r) % 3) * 0.025), 0.07]}
+            />
+          )),
+        )}
+      </group>
+    ),
+  },
+  wardrobe: {
+    desc: "wardrobe / lemari 1.3×2.2×0.6",
+    render: ({ sw = "woodLight" }) => (
+      <group>
+        <Toon geo={box(1.3, 2.2, 0.6, 0.05)} sw={sw} outline={4} position={[0, 1.1, 0]} />
+        <Toon geo={box(0.02, 2.0, 0.02)} sw="ink" outline={0} position={[0, 1.12, 0.305]} />
+        {[-1, 1].map((s) => <Toon key={s} geo={G.sphereLo()} sw="metal" outline={2} position={[s * 0.09, 1.15, 0.32]} scale={0.035} />)}
+      </group>
+    ),
+  },
+  door: {
+    desc: "wall door 1.0×2.3 (wall item; `on` = ajar)",
+    wall: true,
+    render: ({ sw = "wood", on }) => (
+      <group>
+        <Toon geo={box(1.16, 2.42, 0.1, 0.02)} sw="white" outline={3.5} position={[0, 1.21, 0]} />
+        <group position={[-0.5, 0, 0.06]} rotation={[0, on ? -0.9 : 0, 0]}>
+          <Toon geo={box(1.0, 2.3, 0.07, 0.03)} sw={sw} outline={4} position={[0.5, 1.15, 0]} />
+          <Toon geo={G.sphereLo()} sw="metal" outline={2} position={[0.88, 1.1, 0.06]} scale={0.045} />
+        </group>
+      </group>
+    ),
+  },
+  window: {
+    desc: "wall window 1.3×1.5 (`on` = night sky with moon, else day sky with clouds; sw frame)",
+    wall: true,
+    render: ({ sw = "white", on }) => {
+      const w = 1.3, h = 1.5;
+      return (
+        <group>
+          <Toon geo={G.plane()} sw={on ? "night" : "sky"} mat={{ pattern: on ? 0.2 : 0.06, flat: true }} outline={0} scale={[w, h, 1]} />
+          {on ? (
+            <>
+              <Toon geo={G.circle()} sw="yellow" mat={{ flat: true }} outline={3} position={[w * 0.18, h * 0.2, 0.02]} scale={0.22} />
+              <Toon geo={G.circle()} sw="night" mat={{ flat: true }} outline={0} position={[w * 0.27, h * 0.25, 0.03]} scale={0.19} />
+            </>
+          ) : (
+            <>
+              <Toon geo={G.sphere()} sw="white" mat={{ cut: -0.3 }} outline={3} position={[-0.2, 0.25, 0.02]} scale={[0.28, 0.12, 0.02]} />
+              <Toon geo={G.sphere()} sw="white" mat={{ cut: -0.3 }} outline={3} position={[0.12, 0.3, 0.02]} scale={[0.2, 0.14, 0.02]} />
+            </>
+          )}
+          <Toon geo={box(w + 0.16, 0.1, 0.12)} sw={sw} outline={3.5} position={[0, h / 2, 0.04]} />
+          <Toon geo={box(w + 0.22, 0.12, 0.2)} sw={sw} outline={3.5} position={[0, -h / 2, 0.07]} />
+          <Toon geo={box(0.1, h, 0.12)} sw={sw} outline={3.5} position={[-w / 2, 0, 0.04]} />
+          <Toon geo={box(0.1, h, 0.12)} sw={sw} outline={3.5} position={[w / 2, 0, 0.04]} />
+          <Toon geo={box(0.06, h, 0.08)} sw={sw} outline={3} position={[0, 0, 0.04]} />
+          <Toon geo={box(w, 0.06, 0.08)} sw={sw} outline={3} position={[0, 0.05, 0.04]} />
+        </group>
+      );
+    },
+  },
+  frame: {
+    desc: "wall picture frame 0.9×0.7 with a simple graphic (sw art colour); `text` = lettering instead",
+    wall: true,
+    render: ({ sw = "red", text }) =>
+      text ? (
+        <Sign text={text} w={0.9} h={0.6} sw="paper" />
+      ) : (
+        <group>
+          <Toon geo={box(0.9, 0.7, 0.05)} sw="paper" outline={3.5} />
+          <Toon geo={G.circle()} sw={sw} mat={{ flat: true }} outline={3} position={[-0.12, 0.05, 0.03]} scale={0.18} />
+          <Toon geo={G.extrude("frameStar", () => starShape(0.12, 0.05), 0.02, 0)} sw="yellow" mat={{ flat: true }} outline={2.5} position={[0.2, -0.08, 0.03]} />
+        </group>
+      ),
+  },
+  poster: {
+    desc: "wall poster 0.9×1.25 with star (sw)",
+    wall: true,
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={G.extrude("poster", () => roundedRectShape(0.9, 1.25, 0.04), 0.03, 0.01)} sw={sw} mat={{ pattern: 0.15 }} outline={3.5} />
+        <Toon geo={G.extrude("star5", () => starShape(0.3, 0.13), 0.05, 0.015)} sw="yellow" outline={3} position={[0, 0.12, 0.04]} rotation={[0, 0, 0.12]} />
+      </group>
+    ),
+  },
+  clock: {
+    desc: "wall clock (t = seconds shown; n = hour hand position 0..12)",
+    wall: true,
+    render: ({ t = 0, n = 4, sw = "red" }) => (
+      <group>
+        <Toon geo={G.cylinder(1, 1, 48)} sw="white" mat={{ cut: -0.3 }} outline={4} rotation={[Math.PI / 2, 0, 0]} scale={[0.36, 0.06, 0.36]} />
+        <Toon geo={G.torusArc(0.37, 0.045, Math.PI * 2)} sw={sw} outline={3.5} position={[0, 0, 0.03]} />
+        {Array.from({ length: 12 }, (_, i) => {
+          const a = (i / 12) * Math.PI * 2;
+          return <Toon key={i} geo={G.sphereLo()} sw="ink" mat={{ flat: true }} outline={0} position={[Math.sin(a) * 0.28, Math.cos(a) * 0.28, 0.035]} scale={i % 3 === 0 ? 0.028 : 0.015} />;
+        })}
+        <group position={[0, 0, 0.045]} rotation={[0, 0, -(n / 12) * Math.PI * 2]}>
+          <Toon geo={G.capsule(0.022, 0.14)} sw="ink" mat={{ flat: true }} outline={0} position={[0, 0.08, 0]} />
+        </group>
+        <group position={[0, 0, 0.05]} rotation={[0, 0, -(t / 3600) * Math.PI * 2]}>
+          <Toon geo={G.capsule(0.017, 0.2)} sw="ink" mat={{ flat: true }} outline={0} position={[0, 0.11, 0]} />
+        </group>
+        <group position={[0, 0, 0.056]} rotation={[0, 0, -(t / 60) * Math.PI * 2]}>
+          <Toon geo={G.capsule(0.008, 0.26)} sw="red" mat={{ flat: true }} outline={0} position={[0, 0.1, 0]} />
+        </group>
+      </group>
+    ),
+  },
+  calendar: {
+    desc: "wall calendar page (text = big date, sub = month)",
+    wall: true,
+    render: ({ text = "25", sub = "BULAN INI", sw = "white" }) => (
+      <group>
+        <Toon geo={box(0.7, 0.16, 0.06)} sw="red" outline={3} position={[0, 0.42, 0.01]} />
+        <Sign text={text} sub={sub} w={0.66} h={0.7} sw={sw} />
+      </group>
+    ),
+  },
+  sign: {
+    desc: "standalone sign board with lettering (text, sub, sw board colour) on a post",
+    render: ({ text = "WARUNG", sub, sw = "yellow" }) => (
+      <group>
+        {leg(-0.5, 0, 1.6, "dark", 0.04)}
+        {leg(0.5, 0, 1.6, "dark", 0.04)}
+        <Sign text={text} sub={sub} w={1.4} h={0.55} sw={sw} position={[0, 1.85, 0]} depth={0.08} />
+      </group>
+    ),
+  },
+  lamp: {
+    desc: "desk lamp (stands on a table top)",
+    render: ({ sw = "yellow", on = true }) => (
+      <group>
+        <Toon geo={G.cylinder(1, 1, 32)} sw="ink" outline={3} scale={[0.16, 0.04, 0.16]} />
+        <Toon geo={G.limb(1, 1)} sw="ink" outline={3} scale={[0.025, 0.55, 0.025]} rotation={[0, 0, 0.25]} />
+        <group position={[-0.13, 0.54, 0]} rotation={[0, 0, -0.9]}>
+          <Toon geo={G.cone(32)} sw={sw} mat={{ side: "double" }} outline={3.5} scale={[0.18, 0.24, 0.18]} />
+          {on ? <Toon geo={G.sphere()} sw="white" mat={{ flat: true }} outline={0} position={[0, -0.1, 0]} scale={0.06} /> : null}
+        </group>
+      </group>
+    ),
+  },
+  bulb: {
+    desc: "hanging lamp (hangs down from its origin, 1.3 cord)",
+    render: ({ sw = "teal", on = true }) => (
+      <group>
+        <Toon geo={G.limb(1, 1)} sw="ink" outline={1.5} position={[0, -1.3, 0]} scale={[0.012, 1.3, 0.012]} />
+        <Toon geo={G.cone(24)} sw={sw} mat={{ side: "double" }} outline={3} position={[0, -1.35, 0]} scale={[0.28, 0.2, 0.28]} />
+        <Toon geo={G.sphere()} sw={on ? "yellow" : "white"} mat={{ flat: on }} outline={2} position={[0, -1.46, 0]} scale={0.09} />
+      </group>
+    ),
+  },
+  plant: {
+    desc: "potted plant 0.9 tall (sw pot)",
+    render: ({ sw = "orange" }) => (
+      <group>
+        <Toon geo={G.cylinder(1.15, 0.85, 24)} sw={sw} outline={3.5} position={[0, 0.2, 0]} scale={[0.22, 0.4, 0.22]} />
+        {[[0, 0.62, 0, 0.2], [0.14, 0.75, 0.04, 0.15], [-0.15, 0.72, -0.02, 0.16], [0.02, 0.88, -0.05, 0.13]].map(([x, y, z, r], i) => (
+          <Toon key={i} geo={G.sphere()} sw="green" mat={{ pattern: 0.05 }} outline={3.5} position={[x, y, z]} scale={[r, r * 1.2, r]} />
+        ))}
+      </group>
+    ),
+  },
+  tv: {
+    desc: "TV on a low cabinet (`on` = bright screen)",
+    render: ({ on }) => (
+      <group>
+        <Toon geo={box(1.6, 0.5, 0.45)} sw="wood" outline={4} position={[0, 0.25, 0]} />
+        <Toon geo={box(1.3, 0.78, 0.08)} sw="ink" outline={3.5} position={[0, 0.98, 0]} />
+        <Toon geo={G.plane()} sw={on ? "sky" : "dark"} mat={{ flat: true, pattern: on ? 0.1 : 0.25 }} outline={0} position={[0, 0.98, 0.045]} scale={[1.2, 0.68, 1]} />
+      </group>
+    ),
+  },
+  fridge: {
+    desc: "fridge 0.8×1.9×0.7",
+    render: ({ sw = "white" }) => (
+      <group>
+        <Toon geo={box(0.8, 1.9, 0.7, 0.08)} sw={sw} outline={4} position={[0, 0.95, 0]} />
+        <Toon geo={box(0.8, 0.02, 0.02)} sw="ink" outline={0} position={[0, 1.3, 0.35]} />
+        <Toon geo={box(0.04, 0.4, 0.05)} sw="metal" outline={2} position={[0.3, 1.55, 0.37]} />
+        <Toon geo={box(0.04, 0.4, 0.05)} sw="metal" outline={2} position={[0.3, 0.95, 0.37]} />
+      </group>
+    ),
+  },
+  rug: {
+    desc: "floor rug (flat, sw)",
+    render: ({ sw = "red" }) => <Toon geo={G.circle()} sw={sw} mat={{ pattern: 0.2, cut: -1 }} outline={3} position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.3, 0.9, 1]} />,
+  },
+  // ── small things (sit on tables / are held) ──────────────────────────────────────────────────
+  laptop: {
+    desc: "open laptop (`on` = screen lit)",
+    render: ({ sw = "metal", on = true }) => (
+      <group>
+        <Toon geo={box(0.62, 0.03, 0.42, 0.012)} sw={sw} outline={3} position={[0, 0.015, 0]} />
+        <group position={[0, 0.03, -0.2]} rotation={[-0.35, 0, 0]}>
+          <Toon geo={box(0.62, 0.42, 0.03, 0.012)} sw={sw} outline={3} position={[0, 0.21, 0]} />
+          <Toon geo={G.plane()} sw={on ? "sky" : "dark"} mat={{ flat: true, pattern: 0.08 }} outline={0} position={[0, 0.21, 0.017]} scale={[0.54, 0.34, 1]} />
+        </group>
+      </group>
+    ),
+  },
+  phone: {
+    desc: "phone lying on a surface, screen up (text = notification text)",
+    render: ({ text, sw = "red" }) => (
+      <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]}>
+        <Phone screen={text ? { kind: "notif", app: "Chat", title: text, text: "" } : { kind: "lock", time: "21:07" }} case={sw} />
+      </group>
+    ),
+  },
+  book: {
+    desc: "stack of n books",
+    render: ({ n = 3 }) => (
+      <group>
+        {Array.from({ length: n }, (_, i) => (
+          <Toon key={i} geo={box(0.34, 0.07, 0.25, 0.015)} sw={(["blue", "red", "yellow", "teal"] as SwatchKey[])[i % 4]} outline={2.5} position={[((i * 37) % 5) * 0.012 - 0.02, 0.035 + i * 0.072, 0]} rotation={[0, (i % 2 ? 1 : -1) * 0.12, 0]} />
+        ))}
+      </group>
+    ),
+  },
+  mug: {
+    desc: "mug (sw); `on` = steam",
+    render: ({ sw = "red", on, f }) => (
+      <group>
+        <Toon geo={G.cylinder(1, 1, 24)} sw={sw} outline={3} position={[0, 0.1, 0]} scale={[0.07, 0.2, 0.07]} />
+        <Toon geo={G.torusArc(0.045, 0.012, Math.PI * 2)} sw={sw} outline={2} position={[0.08, 0.1, 0]} />
+        {on ? <Toon geo={G.tube("mugwisp", [[0, 0, 0], [0.02, 0.05, 0], [-0.02, 0.1, 0], [0.015, 0.15, 0]], 0.008)} sw="white" outline={2} position={[0, 0.22 + Math.sin(f * 0.1) * 0.01, 0]} /> : null}
+      </group>
+    ),
+  },
+  plate: {
+    desc: "plate of food (sw food colour: rice/noodle/bakso…)",
+    render: ({ sw = "rice" }) => (
+      <group>
+        <Toon geo={G.cylinder(1, 0.75, 32)} sw="white" outline={3} position={[0, 0.02, 0]} scale={[0.28, 0.04, 0.28]} />
+        <Toon geo={G.sphere()} sw={sw} mat={{ pattern: 0.08 }} outline={3} position={[0, 0.07, 0]} scale={[0.18, 0.08, 0.16]} />
+        <Toon geo={G.sphere()} sw="orange" outline={2.5} position={[0.1, 0.09, 0.04]} scale={[0.07, 0.035, 0.06]} />
+      </group>
+    ),
+  },
+  glass: {
+    desc: "glass of iced drink with straw (sw drink)",
+    render: ({ sw = "yellow" }) => (
+      <group>
+        <Toon geo={G.lathe("glass", [[0, 0], [0.09, 0], [0.11, 0.3], [0.0, 0.3]])} sw={sw} mat={{ spec: 1, specSize: 0.05, pattern: 0.08 }} outline={3} />
+        <Toon geo={G.limb(1, 1)} sw="red" outline={2} position={[0.03, 0.25, 0]} rotation={[0, 0, -0.25]} scale={[0.012, 0.22, 0.012]} />
+      </group>
+    ),
+  },
+  bottle: {
+    desc: "sauce bottle (sw)",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={G.lathe("bottle", [[0, 0], [0.07, 0], [0.075, 0.2], [0.05, 0.28], [0.03, 0.34], [0.0, 0.35]])} sw={sw} mat={{ spec: 1, specSize: 0.04 }} outline={3} />
+        <Toon geo={G.cylinder(1, 1, 16)} sw="white" outline={2.5} position={[0, 0.36, 0]} scale={[0.032, 0.04, 0.032]} />
+      </group>
+    ),
+  },
+  money: {
+    desc: "stack of n banknotes (sw note colour; text = value on top note)",
+    render: ({ n = 4, sw = "money", text }) => (
+      <group>
+        {Array.from({ length: n }, (_, i) => (
+          <Toon key={i} geo={box(0.42, 0.012, 0.2, 0.005)} sw={sw} mat={{ pattern: 0.12 }} outline={2.5} position={[((i * 13) % 5) * 0.01, 0.008 + i * 0.014, 0]} rotation={[0, ((i * 7) % 5) * 0.06 - 0.12, 0]} />
+        ))}
+        {text ? <Sign text={text} w={0.24} h={0.1} sw={sw} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02 + n * 0.014, 0]} depth={0.004} /> : null}
+      </group>
+    ),
+  },
+  coin: {
+    desc: "coin (stands upright)",
+    render: () => <Toon geo={G.cylinder(1, 1, 32)} sw="yellow" mat={{ spec: 1, specSize: 0.06 }} outline={3} position={[0, 0.1, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.1, 0.025, 0.1]} />,
+  },
+  wallet: {
+    desc: "wallet (`on` = flipped open and empty)",
+    render: ({ sw = "brown", on }) => (
+      <group>
+        <Toon geo={box(0.32, 0.04, 0.24, 0.015)} sw={sw} outline={3} position={[0, 0.02, 0]} />
+        <group position={[0, 0.04, -0.12]} rotation={[on ? -1.9 : -0.04, 0, 0]}>
+          <Toon geo={box(0.32, 0.03, 0.24, 0.015)} sw={sw} outline={3} position={[0, 0, 0.12]} />
+        </group>
+      </group>
+    ),
+  },
+  bag: {
+    desc: "shopping bag (sw, text = label)",
+    render: ({ sw = "orange", text }) => (
+      <group>
+        <Toon geo={box(0.4, 0.45, 0.2, 0.02)} sw={sw} outline={3} position={[0, 0.225, 0]} />
+        <Toon geo={G.torusArc(0.1, 0.012, Math.PI)} sw="ink" mat={{ flat: true }} outline={0} position={[0, 0.45, 0]} />
+        {text ? <Sign text={text} w={0.28} h={0.12} sw="white" position={[0, 0.25, 0.11]} depth={0.01} /> : null}
+      </group>
+    ),
+  },
+  backpack: {
+    desc: "backpack (sw)",
+    render: ({ sw = "blue" }) => (
+      <group>
+        <Toon geo={box(0.42, 0.55, 0.22, 0.1)} sw={sw} outline={3.5} position={[0, 0.28, 0]} />
+        <Toon geo={box(0.32, 0.22, 0.08, 0.05)} sw={sw} outline={3} position={[0, 0.2, 0.13]} />
+      </group>
+    ),
+  },
+  gift: {
+    desc: "gift box (sw box, sw2 ribbon)",
+    render: ({ sw = "red", sw2 = "yellow" }) => (
+      <group>
+        <Toon geo={box(0.4, 0.34, 0.4, 0.02)} sw={sw} outline={3.5} position={[0, 0.17, 0]} />
+        <Toon geo={box(0.42, 0.34, 0.08, 0.01)} sw={sw2} outline={0} position={[0, 0.17, 0]} />
+        <Toon geo={box(0.08, 0.35, 0.42, 0.01)} sw={sw2} outline={0} position={[0, 0.17, 0]} />
+        {[-1, 1].map((s) => <Toon key={s} geo={G.torusArc(0.07, 0.02, Math.PI * 2)} sw={sw2} outline={2} position={[s * 0.06, 0.38, 0]} rotation={[0, Math.PI / 2, s * 0.6]} />)}
+      </group>
+    ),
+  },
+  envelope: {
+    desc: "envelope / letter (stands upright; text = label)",
+    render: ({ sw = "white", text }) => (
+      <group position={[0, 0.17, 0]}>
+        <Toon geo={box(0.46, 0.32, 0.02, 0.01)} sw={sw} outline={3} />
+        <Toon geo={G.cone(3)} sw={sw} mat={{ cut: -0.2 }} outline={2.5} position={[0, 0.05, 0.012]} rotation={[0, 0, Math.PI]} scale={[0.27, 0.22, 0.002]} />
+        {text ? <Sign text={text} w={0.2} h={0.08} sw="red" position={[0, -0.06, 0.02]} depth={0.004} /> : null}
+      </group>
+    ),
+  },
+  alarm: {
+    desc: "alarm clock (`on` = ringing shake)",
+    render: ({ on, f, sw = "red" }) => (
+      <group rotation={[0, 0, on ? Math.sin(f * 1.7) * 0.15 : 0]}>
+        <Toon geo={G.cylinder(1, 1, 32)} sw={sw} outline={3} position={[0, 0.17, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.15, 0.1, 0.15]} />
+        <Toon geo={G.circle()} sw="white" mat={{ flat: true }} outline={2} position={[0, 0.17, 0.052]} scale={0.12} />
+        {[-1, 1].map((s) => <Toon key={s} geo={G.sphere()} sw={sw} outline={2.5} position={[s * 0.1, 0.33, 0]} scale={[0.06, 0.04, 0.06]} />)}
+        {[-1, 1].map((s) => <Toon key={`l${s}`} geo={G.limb(1, 1)} sw="ink" outline={1.5} position={[s * 0.09, 0, 0]} scale={[0.012, 0.06, 0.012]} />)}
+      </group>
+    ),
+  },
+  trophy: {
+    desc: "trophy",
+    render: () => (
+      <group>
+        <Toon geo={box(0.26, 0.08, 0.2)} sw="dark" outline={3} position={[0, 0.04, 0]} />
+        <Toon geo={G.limb(1, 1)} sw="yellow" outline={3} position={[0, 0.08, 0]} scale={[0.03, 0.14, 0.03]} />
+        <Toon geo={G.lathe("cup", [[0, 0], [0.04, 0], [0.13, 0.12], [0.15, 0.26], [0.0, 0.26]])} sw="yellow" mat={{ spec: 1, specSize: 0.06 }} outline={3} position={[0, 0.2, 0]} />
+      </group>
+    ),
+  },
+  umbrella: {
+    desc: "open umbrella (sw)",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={G.limb(1, 1)} sw="ink" outline={2} scale={[0.015, 1.1, 0.015]} />
+        <Toon geo={G.sphereCap("umb", 0, Math.PI * 0.42)} sw={sw} mat={{ side: "double" }} outline={4} position={[0, 0.65, 0]} scale={[0.75, 0.5, 0.75]} />
+      </group>
+    ),
+  },
+  atm: {
+    desc: "ATM / cash machine 0.9×1.8 (text = screen lettering)",
+    render: ({ text = "SALDO", sw = "blue" }) => (
+      <group>
+        <Toon geo={box(0.9, 1.8, 0.6, 0.05)} sw={sw} outline={4} position={[0, 0.9, 0]} />
+        <Sign text={text} w={0.56} h={0.36} sw="sky" position={[0, 1.3, 0.31]} depth={0.02} />
+        <Toon geo={box(0.5, 0.2, 0.15, 0.02)} sw="grey" outline={3} position={[0, 0.9, 0.33]} rotation={[0.4, 0, 0]} />
+        <Toon geo={box(0.4, 0.04, 0.05)} sw="ink" outline={0} position={[0, 0.65, 0.31]} />
+      </group>
+    ),
+  },
+  // ── outdoor ──────────────────────────────────────────────────────────────────────────────────
+  tree: {
+    desc: "stylised tree 3.2 tall (sw foliage)",
+    render: ({ sw = "green" }) => (
+      <group>
+        <Toon geo={G.cylinder(0.75, 1, 16)} sw="brown" outline={4} position={[0, 0.8, 0]} scale={[0.16, 1.6, 0.16]} />
+        {[[0, 2.2, 0, 0.9], [0.55, 1.9, 0.1, 0.6], [-0.55, 1.95, -0.1, 0.62], [0.1, 2.75, 0, 0.6]].map(([x, y, z, r], i) => (
+          <Toon key={i} geo={G.sphere()} sw={sw} mat={{ pattern: 0.06 }} outline={4.5} position={[x, y, z]} scale={r} />
+        ))}
+      </group>
+    ),
+  },
+  bush: {
+    desc: "bush 0.8 tall",
+    render: ({ sw = "green" }) => (
+      <group>
+        {[[0, 0.35, 0, 0.42], [0.4, 0.28, 0.05, 0.3], [-0.4, 0.3, -0.05, 0.32]].map(([x, y, z, r], i) => (
+          <Toon key={i} geo={G.sphere()} sw={sw} mat={{ pattern: 0.06 }} outline={4} position={[x, y, z]} scale={r} />
+        ))}
+      </group>
+    ),
+  },
+  streetlamp: {
+    desc: "street lamp 3.6 tall (`on` = lit)",
+    render: ({ on = true }) => (
+      <group>
+        <Toon geo={G.limb(1, 1)} sw="dark" outline={3} scale={[0.05, 3.4, 0.05]} />
+        <Toon geo={box(0.5, 0.1, 0.22)} sw="dark" outline={3} position={[0.18, 3.42, 0]} />
+        <Toon geo={G.sphere()} sw={on ? "yellow" : "white"} mat={{ flat: on }} outline={2.5} position={[0.32, 3.33, 0]} scale={[0.12, 0.07, 0.1]} />
+      </group>
+    ),
+  },
+  bench: {
+    desc: "park bench 1.8 wide, seat 0.48",
+    render: ({ sw = "wood" }) => (
+      <group>
+        {[0.48, 0.62].map((y, i) => <Toon key={y} geo={box(1.8, 0.06, 0.18)} sw={sw} outline={3} position={[0, y, -0.12 + i * 0.2 - 0.2 * i]} />)}
+        <Toon geo={box(1.8, 0.06, 0.4)} sw={sw} outline={3} position={[0, 0.48, 0]} />
+        <Toon geo={box(1.8, 0.35, 0.06)} sw={sw} outline={3} position={[0, 0.82, -0.2]} />
+        {[-0.75, 0.75].map((x) => <Toon key={x} geo={box(0.08, 0.48, 0.42)} sw="dark" outline={3} position={[x, 0.24, 0]} />)}
+      </group>
+    ),
+  },
+  building: {
+    desc: "building façade w×h (n = floors, sw wall, sw2 window, text = shop sign)",
+    render: ({ sw = "orange", sw2 = "sky", n = 3, text }) => {
+      const w = 3.2, fh = 1.6;
+      return (
+        <group>
+          <Toon geo={box(w, n * fh, 1.2, 0.05)} sw={sw} mat={{ pattern: 0.06 }} outline={4.5} position={[0, (n * fh) / 2, 0]} />
+          {Array.from({ length: n }, (_, r) =>
+            [-0.9, 0, 0.9].map((x) =>
+              r === 0 && text ? null : <Toon key={`${r}${x}`} geo={box(0.6, 0.8, 0.06, 0.02)} sw={sw2} mat={{ flat: true, pattern: 0.1 }} outline={3} position={[x, r * fh + 0.85, 0.61]} />,
+            ),
+          )}
+          {text ? <Sign text={text} w={2.4} h={0.5} sw="yellow" position={[0, 1.25, 0.66]} depth={0.06} /> : null}
+          {text ? <Toon geo={box(1.6, 0.9, 0.05)} sw="dark" outline={3} position={[0, 0.45, 0.61]} /> : null}
+        </group>
+      );
+    },
+  },
+  car: {
+    desc: "toy-like car 2.4 long (sw body)",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={box(2.4, 0.55, 1.1, 0.2)} sw={sw} mat={{ spec: 0.7, specSize: 0.03 }} outline={4} position={[0, 0.55, 0]} />
+        <Toon geo={box(1.3, 0.5, 1.0, 0.18)} sw={sw} outline={4} position={[-0.15, 1.0, 0]} />
+        <Toon geo={box(1.2, 0.36, 1.02, 0.12)} sw="glass" mat={{ flat: true }} outline={3} position={[-0.15, 1.02, 0]} />
+        {[[-0.75, 0.55], [0.75, 0.55], [-0.75, -0.55], [0.75, -0.55]].map(([x, z]) => (
+          <Toon key={`${x}${z}`} geo={G.cylinder(1, 1, 24)} sw="ink" outline={2.5} position={[x, 0.27, z]} rotation={[Math.PI / 2, 0, 0]} scale={[0.27, 0.16, 0.27]} />
+        ))}
+      </group>
+    ),
+  },
+  scooter: {
+    desc: "motor scooter (parked) 1.7 long (sw body)",
+    render: ({ sw = "teal" }) => (
+      <group>
+        {[-0.62, 0.62].map((x) => <Toon key={x} geo={G.cylinder(1, 1, 24)} sw="ink" outline={2.5} position={[x, 0.24, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.24, 0.12, 0.24]} />)}
+        <Toon geo={box(1.2, 0.3, 0.36, 0.12)} sw={sw} outline={3.5} position={[-0.05, 0.5, 0]} />
+        <Toon geo={box(0.55, 0.12, 0.34, 0.05)} sw="dark" outline={3} position={[-0.25, 0.74, 0]} />
+        <Toon geo={box(0.18, 0.75, 0.3, 0.06)} sw={sw} outline={3} position={[0.55, 0.75, 0]} rotation={[0, 0, -0.25]} />
+        <Toon geo={G.limb(1, 1)} sw="dark" outline={2} position={[0.65, 1.12, -0.32]} rotation={[Math.PI / 2, 0, 0]} scale={[0.025, 0.64, 0.025]} />
+      </group>
+    ),
+  },
+  // ── comic symbols (float in the scene; scale ≈ 1 ⇒ ~0.6 tall) ───────────────────────────────
+  question: {
+    desc: "3D question mark (sw)",
+    render: ({ sw = "yellow" }) => (
+      <group>
+        <Toon geo={G.tube("qmark", [[-0.18, 0.42, 0], [-0.12, 0.6, 0], [0.12, 0.62, 0], [0.2, 0.42, 0], [0.02, 0.24, 0], [0, 0.08, 0]], 0.06)} sw={sw} outline={4} />
+        <Toon geo={G.sphere()} sw={sw} outline={4} position={[0, -0.08, 0]} scale={0.07} />
+      </group>
+    ),
+  },
+  exclaim: {
+    desc: "3D exclamation mark (sw)",
+    render: ({ sw = "red" }) => (
+      <group>
+        <Toon geo={G.cone(16)} sw={sw} outline={4} position={[0, 0.32, 0]} rotation={[Math.PI, 0, 0]} scale={[0.1, 0.5, 0.1]} />
+        <Toon geo={G.sphere()} sw={sw} outline={4} position={[0, -0.06, 0]} scale={0.075} />
+      </group>
+    ),
+  },
+  star: {
+    desc: "chunky comic star (sw)",
+    render: ({ sw = "yellow" }) => <Toon geo={G.extrude("libstar", () => starShape(0.35, 0.16), 0.12, 0.03)} sw={sw} mat={{ spec: 1, specSize: 0.05 }} outline={4} />,
+  },
+  heart: {
+    desc: "heart (sw)",
+    render: ({ sw = "red" }) => <Toon geo={G.heart()} sw={sw} mat={{ spec: 1, specSize: 0.04 }} outline={4} scale={0.3} />,
+  },
+  bolt: {
+    desc: "lightning bolt (sw)",
+    render: ({ sw = "yellow" }) => <Toon geo={G.extrude("bolt", bolt, 0.12, 0.02)} sw={sw} outline={4} scale={0.4} />,
+  },
+  arrow: {
+    desc: "big comic arrow pointing up (rotate it; sw)",
+    render: ({ sw = "red" }) => <Toon geo={G.extrude("arrow", arrowShape, 0.12, 0.02)} sw={sw} outline={4} scale={0.45} />,
+  },
+  flame: {
+    desc: "stylised flame (sw outer; flickers)",
+    render: ({ sw = "orange", f }) => (
+      <group scale={[1, 1 + Math.sin(f * 0.6) * 0.06, 1]}>
+        <Toon geo={G.extrude("flame", flame, 0.15, 0.03)} sw={sw} outline={4} scale={0.4} position={[0, 0.36, 0]} />
+        <Toon geo={G.extrude("flame", flame, 0.15, 0.03)} sw="yellow" outline={2.5} scale={0.22} position={[0, 0.26, 0.06]} />
+      </group>
+    ),
+  },
+  cloud: {
+    desc: "puffy sky cloud (sw)",
+    render: ({ sw = "white" }) => (
+      <group>
+        {[[0, 0, 0, 0.5], [0.55, -0.08, 0, 0.36], [-0.55, -0.06, 0, 0.38], [0.2, 0.25, -0.05, 0.36]].map(([x, y, z, r], i) => (
+          <Toon key={i} geo={G.sphere()} sw={sw} mat={{ cut: -0.25 }} outline={4.5} position={[x, y, z]} scale={[r, r * 0.85, r * 0.7]} />
+        ))}
+      </group>
+    ),
+  },
+  rain: {
+    desc: "rain cloud with falling drops (animated)",
+    render: ({ f }) => (
+      <group>
+        {LIB.cloud.render({ sw: "grey", f })}
+        {Array.from({ length: 6 }, (_, i) => {
+          const t = ((f * 0.03 + i * 0.37) % 1);
+          return <Toon key={i} geo={G.capsule(0.02, 0.12)} sw="sky" outline={2} position={[-0.5 + i * 0.2, -0.4 - t * 1.4, 0]} />;
+        })}
+      </group>
+    ),
+  },
+  sun: {
+    desc: "comic sun with rays",
+    render: ({ f }) => (
+      <group rotation={[0, 0, f * 0.004]}>
+        <Toon geo={G.circle()} sw="yellow" mat={{ flat: true }} outline={4} scale={0.55} />
+        {Array.from({ length: 10 }, (_, i) => (
+          <group key={i} rotation={[0, 0, (i / 10) * Math.PI * 2]}>
+            <Toon geo={G.cone(3)} sw="orange" mat={{ flat: true }} outline={3} position={[0, 0.82, -0.01]} scale={[0.12, 0.3, 0.001]} />
+          </group>
+        ))}
+      </group>
+    ),
+  },
+  moon: {
+    desc: "crescent moon",
+    render: () => (
+      <group>
+        <Toon geo={G.circle()} sw="yellow" mat={{ flat: true }} outline={4} scale={0.5} />
+        <Toon geo={G.circle()} sw="night" mat={{ flat: true }} outline={0} position={[0.22, 0.16, 0.01]} scale={0.43} />
+      </group>
+    ),
+  },
+};
+export type ItemType = keyof typeof LIB;
+export const ITEM_TYPES = Object.keys(LIB);
+
+==== 3792 src/kits/panelverse/engine/three/looks.ts
+// People as data (pure TS): stories describe each person as a Look; ComicCharacter renders it.
+import type { SwatchKey } from "../../theme/palette.ts";
+
+export type HairStyle = "quiff" | "short" | "buzz" | "bob" | "long" | "ponytail" | "bun" | "curly" | "hijab" | "cap" | "bald";
+export type TopStyle = "tee" | "longsleeve" | "shirt" | "jacket" | "hoodie" | "tunic" | "dress";
+export type BottomStyle = "pants" | "shorts" | "skirt";
+export type Build = "kid" | "teen" | "adult" | "elder" | "big";
+
+export type Look = {
+  id: string;
+  skin: SwatchKey;
+  hair: HairStyle;
+  hairSw: SwatchKey; // hair colour, or hijab / cap colour
+  top: TopStyle;
+  topSw: SwatchKey;
+  innerSw: SwatchKey; // collar / shirt under a jacket / tie
+  bottom: BottomStyle;
+  bottomSw: SwatchKey;
+  shoes: SwatchKey;
+  build: Build;
+  glasses: false | SwatchKey;
+  mustache: boolean;
+  beard: boolean;
+  tie: boolean;
+  lashes: boolean;
+  blush: number; // resting blush 0..1
+  browW: number;
+};
+
+export const LOOK_DEFAULTS: Omit<Look, "id"> = {
+  skin: "skinA",
+  hair: "short",
+  hairSw: "hair",
+  top: "tee",
+  topSw: "yellow",
+  innerSw: "white",
+  bottom: "pants",
+  bottomSw: "blue",
+  shoes: "red",
+  build: "adult",
+  glasses: false,
+  mustache: false,
+  beard: false,
+  tie: false,
+  lashes: false,
+  blush: 0,
+  browW: 1,
+};
+export const look = (o: Partial<Look> & { id: string }): Look => ({ ...LOOK_DEFAULTS, ...o });
+
+/** Ready-made people. Stories may use them as they are or as a base (`look({...LOOKS.ibu, topSw: "pink"})`). */
+export const LOOKS = {
+  raka: look({ id: "raka", skin: "skinA", hair: "quiff", top: "tee", topSw: "yellow", bottomSw: "blue", shoes: "red", browW: 1.1 }),
+  dinda: look({ id: "dinda", skin: "skinB", hair: "hijab", hairSw: "teal", top: "tunic", topSw: "red", bottomSw: "navy", shoes: "white", lashes: true, browW: 0.85 }),
+  sari: look({ id: "sari", skin: "skinC", hair: "bob", hairSw: "hair", top: "longsleeve", topSw: "teal", bottom: "skirt", bottomSw: "yellow", shoes: "ink", lashes: true, browW: 0.85 }),
+  bima: look({ id: "bima", skin: "skinD", hair: "curly", top: "hoodie", topSw: "red", bottomSw: "dark", shoes: "white", browW: 1.15 }),
+  ayah: look({ id: "ayah", skin: "skinA", hair: "short", top: "shirt", topSw: "sky", innerSw: "white", bottomSw: "dark", shoes: "brown", mustache: true, build: "big", browW: 1.2 }),
+  ibu: look({ id: "ibu", skin: "skinB", hair: "hijab", hairSw: "pink", top: "dress", topSw: "purple", bottom: "skirt", bottomSw: "purple", shoes: "brown", lashes: true, browW: 0.85 }),
+  bos: look({ id: "bos", skin: "skinC", hair: "short", hairSw: "hairGrey", top: "jacket", topSw: "navy", innerSw: "white", tie: true, bottomSw: "navy", shoes: "ink", glasses: "ink", build: "big", browW: 1.2 }),
+  adik: look({ id: "adik", skin: "skinB", hair: "ponytail", top: "tee", topSw: "pink", bottom: "shorts", bottomSw: "blue", shoes: "yellow", build: "kid", lashes: true, blush: 0.4, browW: 0.8 }),
+  nenek: look({ id: "nenek", skin: "skinB", hair: "bun", hairSw: "hairGrey", top: "tunic", topSw: "green", bottom: "skirt", bottomSw: "brown", shoes: "brown", glasses: "brown", build: "elder", lashes: true, browW: 0.8 }),
+  ojol: look({ id: "ojol", skin: "skinD", hair: "cap", hairSw: "green", top: "jacket", topSw: "green", innerSw: "ink", bottomSw: "dark", shoes: "ink", browW: 1.1 }),
+  kasir: look({ id: "kasir", skin: "skinC", hair: "ponytail", hairSw: "hairBrown", top: "shirt", topSw: "red", innerSw: "white", bottomSw: "dark", shoes: "ink", lashes: true, browW: 0.85 }),
+  teman: look({ id: "teman", skin: "skinA", hair: "buzz", hairSw: "hairBrown", top: "jacket", topSw: "orange", innerSw: "white", bottomSw: "blue", shoes: "white", glasses: "ink", browW: 1.05 }),
+} satisfies Record<string, Look>;
+export type LookName = keyof typeof LOOKS;
+
+
+==== 6964 src/kits/panelverse/engine/three/materials.ts
+import { Color, DoubleSide, FrontSide, BackSide, ShaderMaterial, Vector2, Vector3, Vector4, type Side } from "three";
+import { SW, INK, type Swatch, type SwatchKey } from "../../theme/palette.ts";
+
+// Colour pipeline: swatch hexes are sRGB, three converts them to linear on input and the shaders convert
+// back with <colorspace_fragment> on output (no tone mapping), so flat fills land on the exact palette hex.
+
+const COMMON = /* glsl */ `
+  float aastep(float th, float v) { float w = max(fwidth(v) * 0.75, 1e-4); return smoothstep(th - w, th + w, v); }
+  // Screen-space Ben-Day dot field (45°), dot coverage = tone in [0,1]. Locked to the canvas pixel grid
+  // so every surface in a shot prints with one coherent screen, like a real halftone plate.
+  float dots(float tone, float cell) {
+    vec2 p = gl_FragCoord.xy;
+    const float a = 0.785398;
+    vec2 q = mat2(cos(a), sin(a), -sin(a), cos(a)) * p / cell;
+    vec2 g = fract(q) - 0.5;
+    float d = length(g);
+    float r = sqrt(clamp(tone, 0.0, 1.0)) * 0.64;
+    float w = max(fwidth(d) * 0.8, 1e-4);
+    return 1.0 - smoothstep(r - w, r + w, d);
+  }
+`;
+
+const VERT = /* glsl */ `
+  varying vec3 vN;
+  varying vec3 vPos;
+  varying vec2 vUv;
+  varying vec3 vObj;
+  void main() {
+    vObj = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vPos = mv.xyz;
+    vN = normalize(normalMatrix * normal);
+    vUv = uv;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const FRAG = /* glsl */ `
+  uniform vec3 uColor; uniform vec3 uShade; uniform vec3 uDot; uniform vec3 uSpecColor; uniform vec3 uRimColor;
+  uniform vec3 uLight;     // world-space direction TO the key light
+  uniform float uCut;      // cel terminator (n·l)
+  uniform float uCell;     // halftone cell size in px
+  uniform float uHalftone; // halftone strength
+  uniform float uPattern;  // flat all-over Ben-Day tone (walls / print fills)
+  uniform float uSpec; uniform float uSpecSize;
+  uniform float uRim;
+  uniform float uFlat;     // 1 = unlit graphic fill
+  uniform float uOpacity;
+  uniform float uDotOnly;  // 1 = print only the dot screen (graphic shadows, blush)
+  uniform vec4 uClip;      // object-space front ellipse cut-out: (halfW, halfH, centreY, minZ); halfW<=0 = off
+  varying vec3 vN; varying vec3 vPos; varying vec2 vUv; varying vec3 vObj;
+  ${COMMON}
+  void main() {
+    if (uClip.x > 0.0 && vObj.z > uClip.w) {
+      vec2 e = vec2(vObj.x / uClip.x, (vObj.y - uClip.z) / uClip.y);
+      if (dot(e, e) < 1.0) discard;
+    }
+    if (uDotOnly > 0.5) {
+      if (dots(uPattern, uCell) < 0.5) discard;
+      gl_FragColor = vec4(uDot, uOpacity);
+      #include <colorspace_fragment>
+      return;
+    }
+    vec3 N = normalize(vN);
+    if (!gl_FrontFacing) N = -N;
+    vec3 L = normalize((viewMatrix * vec4(uLight, 0.0)).xyz);
+    vec3 V = normalize(-vPos);
+    float ndl = dot(N, L);
+    vec3 col = uColor;
+    if (uFlat < 0.5) {
+      float lit = aastep(uCut, ndl);
+      col = mix(uShade, uColor, lit);
+      // halftone fade across the terminator (lit side) ...
+      float t1 = 1.0 - smoothstep(uCut, uCut + 0.42, ndl);
+      col = mix(col, uShade, dots(t1 * 0.62, uCell) * lit * uHalftone);
+      // ... and a deeper dot screen inside the core shadow
+      float t2 = smoothstep(uCut - 0.05, uCut - 0.85, ndl);
+      col = mix(col, uDot, dots(t2 * 0.55, uCell) * (1.0 - lit) * uHalftone);
+      // hard comic specular
+      vec3 H = normalize(L + V);
+      col = mix(col, uSpecColor, aastep(1.0 - uSpecSize, dot(N, H)) * uSpec);
+      // back rim (graphic kicker)
+      float rim = aastep(0.62, 1.0 - max(dot(N, V), 0.0)) * aastep(0.0, -ndl + 0.25);
+      col = mix(col, uRimColor, rim * uRim);
+    }
+    if (uPattern > 0.0) col = mix(col, uDot, dots(uPattern, uCell));
+    gl_FragColor = vec4(col, uOpacity);
+    #include <colorspace_fragment>
+  }
+`;
+
+export type ComicMatOpts = {
+  sw?: Swatch | SwatchKey;
+  light?: [number, number, number];
+  cut?: number;
+  cell?: number;
+  halftone?: number;
+  pattern?: number;
+  spec?: number;
+  specSize?: number;
+  specColor?: string;
+  rim?: number;
+  rimColor?: string;
+  flat?: boolean;
+  side?: "front" | "double" | "back";
+  opacity?: number;
+  dotOnly?: boolean;
+  clip?: [number, number, number, number];
+};
+
+const sideOf = (s?: ComicMatOpts["side"]): Side => (s === "double" ? DoubleSide : s === "back" ? BackSide : FrontSide);
+const col = (hex: string) => new Color().setStyle(hex);
+
+export const DEFAULT_LIGHT: [number, number, number] = [-0.55, 0.75, 0.6];
+export const DEFAULT_CELL = 9;
+
+/** HalftoneMaterial: cel bands + screen-locked Ben-Day dots + hard spec. */
+export const createComicMaterial = (o: ComicMatOpts = {}) => {
+  const sw: Swatch = typeof o.sw === "string" ? SW[o.sw] : (o.sw ?? SW.paper);
+  const L = new Vector3(...(o.light ?? DEFAULT_LIGHT)).normalize();
+  return new ShaderMaterial({
+    uniforms: {
+      uColor: { value: col(sw.c) },
+      uShade: { value: col(sw.s) },
+      uDot: { value: col(sw.d) },
+      uSpecColor: { value: col(o.specColor ?? "#FFF7E6") },
+      uRimColor: { value: col(o.rimColor ?? "#FFF7E6") },
+      uLight: { value: L },
+      uCut: { value: o.cut ?? 0.12 },
+      uCell: { value: o.cell ?? DEFAULT_CELL },
+      uHalftone: { value: o.halftone ?? 1 },
+      uPattern: { value: o.pattern ?? 0 },
+      uSpec: { value: o.spec ?? 0 },
+      uSpecSize: { value: o.specSize ?? 0.04 },
+      uRim: { value: o.rim ?? 0 },
+      uFlat: { value: o.flat ? 1 : 0 },
+      uOpacity: { value: o.opacity ?? 1 },
+      uDotOnly: { value: o.dotOnly ? 1 : 0 },
+      uClip: { value: new Vector4(...(o.clip ?? [0, 0, 0, 0])) },
+    },
+    vertexShader: VERT,
+    fragmentShader: FRAG,
+    side: sideOf(o.side),
+    transparent: (o.opacity ?? 1) < 1,
+  });
+};
+
+const OUTLINE_VERT = /* glsl */ `
+  uniform float uWidth; uniform vec2 uRes;
+  void main() {
+    vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec3 nv = normalize(normalMatrix * normal);
+    vec4 nc = projectionMatrix * vec4(nv, 0.0);
+    vec2 dpx = nc.xy * uRes;                // normal direction in pixel space
+    float l = length(dpx);
+    vec2 dir = l > 1e-6 ? dpx / l : vec2(0.0);
+    // constant on-screen ink width, softened for very close geometry so lines never balloon
+    clip.xy += dir * (2.0 * uWidth / uRes) * clip.w;
+    gl_Position = clip;
+  }
+`;
+const OUTLINE_FRAG = /* glsl */ `
+  uniform vec3 uInk; uniform float uOpacity;
+  void main() { gl_FragColor = vec4(uInk, uOpacity);
+    #include <colorspace_fragment>
+  }
+`;
+
+/** InkOutline: inverted-hull contour with constant pixel width (screen-space extrusion). */
+export const createInkMaterial = (widthPx: number, res: Vector2, ink = INK, opacity = 1) =>
+  new ShaderMaterial({
+    uniforms: {
+      uWidth: { value: widthPx },
+      uRes: { value: res },
+      uInk: { value: col(ink) },
+      uOpacity: { value: opacity },
+    },
+    vertexShader: OUTLINE_VERT,
+    fragmentShader: OUTLINE_FRAG,
+    side: BackSide,
+    transparent: opacity < 1,
+  });
+
+==== 14274 src/kits/panelverse/engine/three/props.tsx
+import React, { useMemo } from "react";
+import { DoubleSide, MeshBasicMaterial } from "three";
+import { Toon, type V3 } from "./Toon.tsx";
+import { G } from "./geometries.ts";
+import { roundRect, useCanvasTexture } from "./canvasTexture.ts";
+import { FONT_IMPACT, FONT_LETTER } from "../../theme/fonts.ts";
+import { BLUE, INK, PAPER, RED, SW, TEAL, YELLOW, type SwatchKey } from "../../theme/palette.ts";
+
+// ── hand-drawn squiggle "words" (comic convention for unreadable small lettering) ─────────────
+export const drawScribble = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, seed: number) => {
+  ctx.beginPath();
+  let cx = x;
+  let i = 0;
+  while (cx < x + w - 10) {
+    const ww = 18 + ((Math.sin(seed * 9.1 + i * 3.7) + 1) / 2) * 34;
+    const end = Math.min(cx + ww, x + w);
+    ctx.moveTo(cx, y);
+    for (let px = cx; px <= end; px += 4) ctx.lineTo(px, y + Math.sin(px * 0.55 + seed) * 3.2);
+    cx = end + 10;
+    i++;
+  }
+  ctx.stroke();
+};
+const heartPath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number) => {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.9);
+  ctx.bezierCurveTo(cx - s * 1.3, cy + s * 0.1, cx - s * 0.9, cy - s * 0.9, cx, cy - s * 0.35);
+  ctx.bezierCurveTo(cx + s * 0.9, cy - s * 0.9, cx + s * 1.3, cy + s * 0.1, cx, cy + s * 0.9);
+  ctx.closePath();
+};
+
+// ── Phone with a live screen ───────────────────────────────────────────────────────────────────
+export type ChatMsg = { from: "me" | "them"; text?: string; scribble?: number; reveal?: number };
+export type PhoneScreen =
+  | { kind: "chat"; title: string; messages: ChatMsg[]; typing?: number; read?: boolean }
+  | { kind: "notif"; app: string; title: string; text: string; time?: string }
+  | { kind: "balance"; label: string; amount: string; note?: string; alert?: boolean }
+  | { kind: "lock"; time: string; date?: string; notif?: string }
+  | { kind: "off" };
+
+const drawScreen = (ctx: CanvasRenderingContext2D, w: number, h: number, s: PhoneScreen) => {
+  ctx.fillStyle = s.kind === "lock" ? "#1E3F6E" : "#F6E8C8";
+  ctx.fillRect(0, 0, w, h);
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = INK;
+  if (s.kind === "chat") {
+    ctx.fillStyle = TEAL;
+    ctx.fillRect(0, 0, w, 96);
+    ctx.fillStyle = YELLOW;
+    ctx.beginPath();
+    ctx.arc(52, 50, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#FFF7E6";
+    ctx.font = `700 34px "${FONT_LETTER}"`;
+    ctx.fillText(s.title, 92, 52);
+    let y = 128;
+    for (const [i, m] of s.messages.entries()) {
+      const r = m.reveal ?? 1;
+      if (r <= 0) continue;
+      const mine = m.from === "me";
+      ctx.font = `700 40px "${FONT_LETTER}"`;
+      const lines = m.scribble ?? 0;
+      const bw = lines ? 300 : Math.min(w - 60, ctx.measureText(m.text ?? "").width + 50);
+      const bh = lines ? 34 + lines * 30 : 76;
+      const bx = mine ? w - bw - 18 : 18;
+      ctx.globalAlpha = Math.min(1, r * 1.5);
+      ctx.fillStyle = mine ? YELLOW : "#F9EDD4";
+      roundRect(ctx, bx, y + (1 - r) * 24, bw, bh, 22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = INK;
+      if (lines) {
+        ctx.lineCap = "round";
+        for (let l = 0; l < lines; l++) drawScribble(ctx, bx + 22, y + 34 + l * 30 + (1 - r) * 24, l === lines - 1 ? 140 : bw - 44, l + i * 3);
+      } else ctx.fillText(m.text ?? "", bx + 25, y + bh / 2 + (1 - r) * 24 + 2);
+      if (!mine === false && s.read && i === s.messages.length - 1) {
+        ctx.strokeStyle = BLUE;
+        for (const off of [0, 12]) {
+          ctx.beginPath();
+          ctx.moveTo(bx + bw - 44 + off, y + bh - 20);
+          ctx.lineTo(bx + bw - 38 + off, y + bh - 13);
+          ctx.lineTo(bx + bw - 26 + off, y + bh - 28);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = INK;
+      }
+      ctx.globalAlpha = 1;
+      y += bh + 22;
+    }
+    if (s.typing !== undefined && s.typing >= 0) {
+      const bx = 18;
+      ctx.fillStyle = "#F9EDD4";
+      roundRect(ctx, bx, y, 132, 64, 30);
+      ctx.fill();
+      ctx.stroke();
+      for (let d = 0; d < 3; d++) {
+        const ph = Math.sin((s.typing - d * 6) * 0.22);
+        ctx.fillStyle = INK;
+        ctx.beginPath();
+        ctx.arc(bx + 36 + d * 30, y + 32 - Math.max(0, ph) * 8, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = "#EADBB8";
+    ctx.fillRect(0, h - 90, w, 90);
+  } else if (s.kind === "notif") {
+    ctx.fillStyle = "#EADBB8";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#F9EDD4";
+    roundRect(ctx, 20, 150, w - 40, 210, 26);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = RED;
+    roundRect(ctx, 40, 172, 56, 56, 14);
+    ctx.fill();
+    ctx.fillStyle = INK;
+    ctx.font = `700 28px "${FONT_LETTER}"`;
+    ctx.fillText(s.app, 110, 200);
+    if (s.time) ctx.fillText(s.time, w - 110, 200);
+    ctx.font = `700 38px "${FONT_LETTER}"`;
+    ctx.fillText(s.title, 44, 262);
+    ctx.font = `700 30px "${FONT_LETTER}"`;
+    ctx.fillText(s.text, 44, 316);
+  } else if (s.kind === "balance") {
+    ctx.fillStyle = TEAL;
+    ctx.fillRect(0, 0, w, 260);
+    ctx.fillStyle = "#FFF7E6";
+    ctx.font = `700 32px "${FONT_LETTER}"`;
+    ctx.fillText(s.label, 32, 80);
+    ctx.font = `64px "${FONT_IMPACT}"`;
+    ctx.fillStyle = s.alert ? YELLOW : "#FFF7E6";
+    ctx.fillText(s.amount, 32, 170);
+    if (s.note) {
+      ctx.fillStyle = INK;
+      ctx.font = `700 30px "${FONT_LETTER}"`;
+      ctx.fillText(s.note, 32, 320);
+    }
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 ? "#F6E8C8" : "#EADBB8";
+      ctx.fillRect(0, 380 + i * 90, w, 90);
+      ctx.strokeStyle = "#cbb88f";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      drawScribble(ctx, 30, 425 + i * 90, 200, i * 2);
+      ctx.fillStyle = RED;
+      ctx.font = `40px "${FONT_IMPACT}"`;
+      ctx.fillText("-", w - 120, 425 + i * 90);
+    }
+  } else if (s.kind === "lock") {
+    ctx.fillStyle = "#FFF7E6";
+    ctx.textAlign = "center";
+    ctx.font = `150px "${FONT_IMPACT}"`;
+    ctx.fillText(s.time, w / 2, 230);
+    if (s.date) {
+      ctx.font = `700 34px "${FONT_LETTER}"`;
+      ctx.fillText(s.date, w / 2, 330);
+    }
+    if (s.notif) {
+      ctx.fillStyle = "#FFF7E6";
+      roundRect(ctx, 24, 420, w - 48, 110, 24);
+      ctx.fill();
+      ctx.fillStyle = INK;
+      ctx.font = `700 32px "${FONT_LETTER}"`;
+      ctx.fillText(s.notif, w / 2, 476);
+    }
+    ctx.textAlign = "left";
+  }
+};
+
+export const Phone: React.FC<{ screen: PhoneScreen; case?: SwatchKey; position?: V3; rotation?: V3; scale?: number }> = ({ screen, case: caseSw = "red", position, rotation, scale = 1 }) => {
+  const key = JSON.stringify(screen, (_k, v) => (typeof v === "number" ? Math.round(v * 20) / 20 : v));
+  const tex = useCanvasTexture(400, 800, key, (ctx, w, h) => drawScreen(ctx, w, h, screen));
+  const screenMat = useMemo(() => new MeshBasicMaterial({ map: tex, toneMapped: false }), [tex]);
+  const offMat = useMemo(() => new MeshBasicMaterial({ color: "#1d2a3a", toneMapped: false }), []);
+  return (
+    <group position={position} rotation={rotation} scale={scale}>
+      <Toon geo={G.roundedBox(0.23, 0.44, 0.045, 0.035)} sw={caseSw} mat={{ spec: 1, specSize: 0.03 }} outline={3.5} />
+      <Toon geo={G.roundedBox(0.205, 0.415, 0.01, 0.03)} sw="ink" mat={{ flat: true }} outline={0} position={[0, 0, 0.02]} />
+      <mesh position={[0, 0, 0.0262]} geometry={G.plane()} scale={[0.19, 0.38, 1]} material={screen.kind === "off" ? offMat : screenMat} />
+      <Toon geo={G.roundedBox(0.07, 0.07, 0.02, 0.015)} sw="ink" mat={{ flat: true }} outline={0} position={[0.06, 0.15, -0.026]} />
+    </group>
+  );
+};
+
+// ── Balloon cards: hand-inked speech / chat / thought balloons living in 3D space ─────────────
+export type BubbleIcon = "?" | "!" | "?!" | "..." | "zzz" | "heart" | "Rp" | "$";
+export type BubbleContent =
+  | { kind: "text"; text: string; font?: string; px?: number; color?: string }
+  | { kind: "squiggle"; lines: number }
+  | { kind: "dots"; phase: number }
+  | { kind: "icon"; icon: BubbleIcon; color?: string };
+export type BubbleOpts = { w: number; h: number; tail?: "left" | "right" | "none"; fill?: string; content: BubbleContent };
+
+const TAIL = 0.34;
+export const drawBubbleCard = (ctx: CanvasRenderingContext2D, cw: number, ch: number, o: BubbleOpts) => {
+  const bodyH = ch / (1 + TAIL);
+  const lw = Math.round(cw * 0.022);
+  const m = lw * 1.2;
+  const x = m, y = m, w = cw - 2 * m, h = bodyH - 2 * m;
+  const r = Math.min(w, h) * 0.38;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  if (o.tail === "right") {
+    ctx.lineTo(x + w * 0.82, y + h);
+    ctx.quadraticCurveTo(x + w * 0.86, y + h + bodyH * 0.18, x + w * 0.95, y + h + bodyH * 0.3);
+    ctx.quadraticCurveTo(x + w * 0.72, y + h + bodyH * 0.16, x + w * 0.64, y + h);
+  }
+  if (o.tail === "left") {
+    ctx.lineTo(x + w * 0.36, y + h);
+    ctx.quadraticCurveTo(x + w * 0.28, y + h + bodyH * 0.16, x + w * 0.05, y + h + bodyH * 0.3);
+    ctx.quadraticCurveTo(x + w * 0.14, y + h + bodyH * 0.18, x + w * 0.18, y + h);
+  }
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fillStyle = o.fill ?? "#F9EDD4";
+  ctx.fill();
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = INK;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+  const c = o.content;
+  ctx.fillStyle = INK;
+  ctx.strokeStyle = INK;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (c.kind === "text" || c.kind === "icon") {
+    if (c.kind === "icon" && c.icon === "heart") {
+      heartPath(ctx, x + w / 2, y + h / 2, h * 0.32);
+      ctx.fillStyle = c.color ?? RED;
+      ctx.fill();
+      ctx.lineWidth = lw * 0.8;
+      ctx.stroke();
+      return;
+    }
+    const text = c.kind === "text" ? c.text : c.icon === "zzz" ? "Zzz" : c.icon;
+    const font = c.kind === "text" ? c.font ?? FONT_IMPACT : FONT_IMPACT;
+    let px = c.kind === "text" ? c.px ?? Math.round(h * 0.62) : Math.round(h * 0.78);
+    ctx.font = `${px}px "${font}"`;
+    while (ctx.measureText(text).width > w * 0.8 && px > 16) {
+      px -= 6;
+      ctx.font = `${px}px "${font}"`;
+    }
+    ctx.fillStyle = c.color ?? (c.kind === "icon" && (c.icon === "!" || c.icon === "?!") ? RED : INK);
+    ctx.fillText(text, x + w / 2, y + h / 2 + px * 0.06);
+  } else if (c.kind === "squiggle") {
+    ctx.lineWidth = lw * 0.75;
+    ctx.lineCap = "round";
+    for (let l = 0; l < c.lines; l++) {
+      const yy = y + h * (0.2 + (0.6 * l) / Math.max(1, c.lines - 1));
+      drawScribble(ctx, x + w * 0.14, yy, l === c.lines - 1 ? w * 0.42 : w * 0.72, l * 1.7 + 2);
+    }
+  } else {
+    for (let d = 0; d < 3; d++) {
+      const ph = Math.sin((c.phase - d * 6) * 0.22);
+      ctx.beginPath();
+      ctx.arc(x + w * (0.3 + d * 0.2), y + h / 2 - Math.max(0, ph) * h * 0.12, h * 0.11, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+};
+const bubbleKey = (o: BubbleOpts) => JSON.stringify([o.w, o.h, o.tail, o.fill, o.content.kind === "dots" ? { k: "dots", p: Math.round(o.content.phase) } : o.content]);
+export const useBubbleTexture = (o: BubbleOpts) => {
+  const cw = 1024;
+  const ch = Math.round((cw * o.h * (1 + TAIL)) / o.w);
+  return useCanvasTexture(cw, ch, bubbleKey(o), (ctx, w, h) => drawBubbleCard(ctx, w, h, o));
+};
+
+/** A balloon card in 3D: inked face + offset ink "print extrusion" behind it for depth. */
+export const ChatBubble3D: React.FC<BubbleOpts & { position?: V3; rotation?: V3; scale?: number | V3; opacity?: number }> = ({ position, rotation, scale = 1, opacity = 1, ...o }) => {
+  const tex = useBubbleTexture(o);
+  const face = useMemo(() => new MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, side: DoubleSide, alphaTest: 0.02 }), [tex]);
+  const back = useMemo(() => new MeshBasicMaterial({ map: tex, color: "#000000", transparent: true, toneMapped: false, side: DoubleSide, alphaTest: 0.02 }), [tex]);
+  face.opacity = opacity;
+  back.opacity = opacity;
+  const s: V3 = typeof scale === "number" ? [scale, scale, scale] : scale;
+  const H = o.h * (1 + TAIL);
+  return (
+    <group position={position} rotation={rotation} scale={s}>
+      <mesh geometry={G.plane()} material={back} position={[o.w * 0.035, -H / 2 + o.h / 2 - o.w * 0.04, -0.03]} scale={[o.w, H, 1]} />
+      <mesh geometry={G.plane()} material={face} position={[0, -H / 2 + o.h / 2, 0]} scale={[o.w, H, 1]} renderOrder={2} />
+    </group>
+  );
+};
+
+// ── Sign: an in-world inked card with lettering (shop signs, price tags, calendar pages, labels) ──
+export const Sign: React.FC<{
+  text: string;
+  sub?: string;
+  w?: number;
+  h?: number;
+  sw?: SwatchKey;
+  ink?: string;
+  font?: "impact" | "letter";
+  position?: V3;
+  rotation?: V3;
+  scale?: number;
+  depth?: number;
+}> = ({ text, sub, w = 1, h = 0.4, sw = "paper", ink = INK, font = "impact", position, rotation, scale = 1, depth = 0.04 }) => {
+  const bg = SW[sw].c;
+  const tex = useCanvasTexture(1024, Math.round((1024 * h) / w), `${text}|${sub}|${bg}|${ink}|${font}`, (ctx, cw, ch) => {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = ink;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const fam = font === "impact" ? FONT_IMPACT : FONT_LETTER;
+    let px = Math.round(ch * (sub ? 0.5 : 0.66));
+    ctx.font = `${font === "letter" ? "700 " : ""}${px}px "${fam}"`;
+    while (ctx.measureText(text).width > cw * 0.86 && px > 14) {
+      px -= 6;
+      ctx.font = `${font === "letter" ? "700 " : ""}${px}px "${fam}"`;
+    }
+    ctx.fillText(text, cw / 2, sub ? ch * 0.4 : ch / 2 + px * 0.05);
+    if (sub) {
+      ctx.font = `700 ${Math.round(ch * 0.2)}px "${FONT_LETTER}"`;
+      ctx.fillText(sub, cw / 2, ch * 0.78);
+    }
+  });
+  const mat = useMemo(() => new MeshBasicMaterial({ map: tex, toneMapped: false }), [tex]);
+  return (
+    <group position={position} rotation={rotation} scale={scale}>
+      <Toon geo={G.roundedBox(w + 0.04, h + 0.04, depth, Math.min(0.03, depth / 2))} sw={sw} outline={4} />
+      <mesh geometry={G.plane()} material={mat} position={[0, 0, depth / 2 + 0.002]} scale={[w, h, 1]} />
+    </group>
+  );
+};
+
+export { PAPER };
+
+==== 8681 src/kits/panelverse/engine/three/rig.ts
+import { Quaternion, Vector3 } from "three";
+import type { V3 } from "../types.ts";
+import { sample, type Key } from "../keyframes.ts";
+
+// ── Body proportions ─────────────────────────────────────────────────────────────────────────────
+// Stylised ~3.6-heads-tall figure. Limbs are solved with analytic two-bone IK every frame and drawn as
+// tapered segments between joint positions, so arms and legs can never detach or break.
+export const BODY = {
+  pelvisH: 1.02,
+  hipX: 0.145,
+  hipY: -0.07,
+  thigh: 0.5,
+  shin: 0.47,
+  shoulderX: 0.33,
+  shoulderY: 0.7,
+  upperArm: 0.4,
+  foreArm: 0.36,
+  neckY: 0.78,
+  headPivotY: 0.9,
+  headR: 0.4,
+  headUp: 0.33,
+};
+
+// ── Pose ───────────────────────────────────────────────────────────────────────────────────────
+// Character space: +Y up, character faces +Z, +X is the character's LEFT.
+export type Pose = {
+  pos: V3; // root on the ground
+  rotY: number;
+  squash: number; // 1 = neutral; >1 stretch, <1 squash (volume-preserving)
+  pelvis: V3; // offset from standing pelvis (x, dy, z)
+  spine: V3; // torso euler (x = bend forward, y = twist, z = side lean)
+  head: V3; // head euler relative to torso (x = nod down, y = turn to own left, z = tilt)
+  shrug: number;
+  handL: V3; // wrist targets, torso space
+  handR: V3;
+  elbowL: V3; // elbow pole directions, torso space
+  elbowR: V3;
+  twistL: number; // hand twist around forearm
+  twistR: number;
+  fistL: number; // 0 open mitten → 1 fist
+  fistR: number;
+  footL: V3; // ankle targets, root space
+  footR: V3;
+  kneeL: V3; // knee pole directions, root space
+  kneeR: V3;
+};
+
+export const STAND: Pose = {
+  pos: [0, 0, 0],
+  rotY: 0,
+  squash: 1,
+  pelvis: [0, 0, 0],
+  spine: [0, 0, 0],
+  head: [0, 0, 0],
+  shrug: 0,
+  handL: [0.42, 0.02, 0.06],
+  handR: [-0.42, 0.02, 0.06],
+  elbowL: [0.6, -0.2, -0.8],
+  elbowR: [-0.6, -0.2, -0.8],
+  twistL: 0,
+  twistR: 0,
+  fistL: 0.3,
+  fistR: 0.3,
+  footL: [0.15, 0.08, 0.02],
+  footR: [-0.15, 0.08, 0.02],
+  kneeL: [0.1, 0, 1],
+  kneeR: [-0.1, 0, 1],
+};
+
+export type PoseKey = Key<Partial<Pose>>;
+export const samplePose = (keys: readonly PoseKey[], f: number): Pose => ({ ...STAND, ...sample<Partial<Pose>>(keys, f) });
+
+// ── Expression ─────────────────────────────────────────────────────────────────────────────────
+export type MouthShape = "smile" | "frown" | "flat" | "wobble" | "open" | "grin" | "shout" | "chew" | "o" | "smirk";
+export type EyeMode = "open" | "happy" | "shut" | "heart" | "star";
+export type Expr = {
+  browIn: number; // inner-end raise (+ worried, − angry)
+  browUp: number; // overall raise
+  browAsym: number;
+  eyeOpen: number; // vertical eye scale
+  eyeSize: number;
+  pupil: number;
+  look: [number, number]; // pupil offset −1..1
+  eyeMode: EyeMode;
+  mouth: MouthShape;
+  mouthOpen: number;
+  mouthW: number;
+  puff: number; // cheek puff (chewing)
+  blush: number;
+  sweat: number; // 0..1 sweat drops
+  tears: number; // 0..1 comic tear streams
+  tremble: number;
+  blink: boolean; // automatic blinks
+};
+
+export const NEUTRAL: Expr = {
+  browIn: 0,
+  browUp: 0,
+  browAsym: 0,
+  eyeOpen: 1,
+  eyeSize: 1,
+  pupil: 1,
+  look: [0, 0],
+  eyeMode: "open",
+  mouth: "smile",
+  mouthOpen: 0,
+  mouthW: 0.8,
+  puff: 0,
+  blush: 0,
+  sweat: 0,
+  tears: 0,
+  tremble: 0,
+  blink: true,
+};
+
+export const EXPR = {
+  neutral: NEUTRAL,
+  hopeful: { ...NEUTRAL, browUp: 0.5, browIn: 0.2, eyeSize: 1.06, mouth: "smile", mouthW: 1.1 } as Expr,
+  concerned: { ...NEUTRAL, browIn: 0.9, browUp: 0.2, mouth: "flat", mouthW: 0.7, eyeOpen: 1.0, pupil: 0.85 } as Expr,
+  worried: { ...NEUTRAL, browIn: 1.1, browUp: 0.35, mouth: "wobble", mouthW: 0.85, pupil: 0.75, sweat: 0.6 } as Expr,
+  panic: {
+    ...NEUTRAL,
+    browIn: 1.3,
+    browUp: 1,
+    eyeSize: 1.35,
+    eyeOpen: 1.2,
+    pupil: 0.42,
+    mouth: "wobble",
+    mouthW: 1.1,
+    sweat: 1,
+    tremble: 1,
+    blink: false,
+  } as Expr,
+  angry: { ...NEUTRAL, browIn: -1.2, browUp: -0.3, eyeOpen: 0.78, pupil: 0.9, mouth: "shout", mouthOpen: 0.85, mouthW: 1.1, tremble: 0.5, blink: false } as Expr,
+  guilty: { ...NEUTRAL, browIn: 1.2, browUp: 0.1, eyeOpen: 0.9, pupil: 0.7, look: [0.3, -0.6], mouth: "wobble", mouthW: 0.6, sweat: 0.8 } as Expr,
+  devastated: {
+    ...NEUTRAL,
+    browIn: 1.4,
+    browUp: 0.8,
+    eyeSize: 1.2,
+    eyeOpen: 1.15,
+    pupil: 0.5,
+    mouth: "o",
+    mouthOpen: 0.9,
+    mouthW: 0.8,
+    sweat: 1,
+    blink: false,
+  } as Expr,
+  cold: { ...NEUTRAL, browIn: -0.3, browUp: -0.1, eyeOpen: 0.55, look: [-0.7, 0], mouth: "flat", mouthW: 0.6 } as Expr,
+  calm: { ...NEUTRAL, browUp: 0.1, eyeOpen: 0.95, mouth: "smile", mouthW: 0.7 } as Expr,
+  bliss: { ...NEUTRAL, browUp: 0.45, browIn: 0.25, eyeMode: "happy", mouth: "chew", puff: 1, blush: 1, blink: false } as Expr,
+  yum: { ...NEUTRAL, browUp: 0.3, eyeOpen: 1.05, mouth: "o", mouthOpen: 0.75, mouthW: 0.75, blush: 0.6 } as Expr,
+  // added for PANELVERSE scripts beyond the prototype
+  shocked: { ...NEUTRAL, browUp: 1.2, browIn: 0.3, eyeSize: 1.3, eyeOpen: 1.25, pupil: 0.45, mouth: "o", mouthOpen: 1, mouthW: 0.9, blink: false } as Expr,
+  laugh: { ...NEUTRAL, browUp: 0.5, eyeMode: "happy", mouth: "grin", mouthOpen: 0.9, mouthW: 1.2, blush: 0.4, blink: false } as Expr,
+  sad: { ...NEUTRAL, browIn: 1.1, browUp: 0.1, eyeOpen: 0.85, pupil: 0.9, look: [0, -0.5], mouth: "frown", mouthW: 0.8 } as Expr,
+  cry: { ...NEUTRAL, browIn: 1.4, browUp: 0.3, eyeMode: "shut", mouth: "shout", mouthOpen: 0.7, mouthW: 1, tears: 1, tremble: 0.6, blink: false } as Expr,
+  smug: { ...NEUTRAL, browAsym: 1, browIn: -0.4, eyeOpen: 0.55, look: [0.4, 0], mouth: "smirk", mouthW: 0.9 } as Expr,
+  sleepy: { ...NEUTRAL, browUp: -0.2, eyeOpen: 0.28, look: [0, -0.3], mouth: "o", mouthOpen: 0.2, mouthW: 0.5, blink: false } as Expr,
+  determined: { ...NEUTRAL, browIn: -0.8, browUp: -0.1, eyeOpen: 0.9, mouth: "grin", mouthOpen: 0.35, mouthW: 1 } as Expr,
+  confused: { ...NEUTRAL, browAsym: 1.2, browIn: 0.5, look: [0.5, 0.6], mouth: "wobble", mouthW: 0.6 } as Expr,
+  love: { ...NEUTRAL, browUp: 0.5, eyeMode: "heart", mouth: "smile", mouthW: 1.1, blush: 1, blink: false } as Expr,
+  starry: { ...NEUTRAL, browUp: 0.8, eyeMode: "star", mouth: "grin", mouthOpen: 0.6, mouthW: 1.1, blink: false } as Expr,
+  embarrassed: { ...NEUTRAL, browIn: 0.8, eyeOpen: 0.8, look: [-0.6, -0.4], mouth: "wobble", mouthW: 0.6, blush: 1, sweat: 0.5 } as Expr,
+} satisfies Record<string, Expr>;
+
+export type ExprKey = Key<Partial<Expr>>;
+export const sampleExpr = (keys: readonly ExprKey[], f: number): Expr => ({ ...NEUTRAL, ...sample<Partial<Expr>>(keys, f) });
+
+// ── Two-bone IK ────────────────────────────────────────────────────────────────────────────────
+const _v = new Vector3();
+const _d = new Vector3();
+const _b = new Vector3();
+/** Returns [joint, end] for a chain root→joint→end of lengths a,b reaching for target, bending toward pole. */
+export const solveIK = (root: Vector3, target: Vector3, a: number, b: number, pole: Vector3): [Vector3, Vector3] => {
+  _d.copy(target).sub(root);
+  let dist = _d.length();
+  if (dist < 1e-5) {
+    _d.set(0, -1, 0);
+    dist = 1e-5;
+  }
+  _d.divideScalar(dist);
+  const d = Math.min(dist, a + b - 1e-4);
+  const dMin = Math.abs(a - b) + 1e-3;
+  const dd = Math.max(d, dMin);
+  const x = (a * a - b * b + dd * dd) / (2 * dd);
+  const h = Math.sqrt(Math.max(a * a - x * x, 0));
+  _b.copy(pole).addScaledVector(_d, -pole.dot(_d));
+  if (_b.lengthSq() < 1e-8) _b.set(0, 0, 1).addScaledVector(_d, -_d.z);
+  _b.normalize();
+  const joint = new Vector3().copy(root).addScaledVector(_d, x).addScaledVector(_b, h);
+  const end = new Vector3().copy(root).addScaledVector(_d, dd);
+  return [joint, end];
+};
+
+const UP = new Vector3(0, 1, 0);
+/** Placement (position, quaternion, length) of a +Y unit segment from a to b. */
+export const segment = (a: Vector3, b: Vector3) => {
+  _v.copy(b).sub(a);
+  const len = _v.length();
+  const q = new Quaternion().setFromUnitVectors(UP, len > 1e-6 ? _v.clone().divideScalar(len) : UP);
+  return { pos: [a.x, a.y, a.z] as V3, q, len };
+};
+
+==== 5166 src/kits/panelverse/engine/three/setPresets.ts
+// Ready-made sets. A story uses one as a base and remixes it — change colours, move, add or remove
+// items, swap the wall — so two videos never share the same room. Back wall is at z = -2.4.
+import type { SetSpec } from "./setTypes.ts";
+
+const WALL = -2.36;
+export const SET_PRESETS: Record<string, SetSpec> = {
+  bedroomNight: {
+    kind: "interior", floor: "wood", wall: "blue", wallDots: 0.2, wainscot: null, sideWall: "none",
+    items: [
+      { type: "bed", pos: [0.15, 0, -1.0] },
+      { type: "window", pos: [-1.35, 2.45, WALL], on: true },
+      { type: "poster", pos: [-3.0, 2.3, WALL], rot: [0, 0, 0.04] },
+      { type: "clock", pos: [1.35, 2.75, WALL + 0.03] },
+      { type: "lamp", pos: [2.45, 0.72, -1.6] },
+      { type: "shelf", pos: [3.3, 0, -1.9] },
+    ],
+  },
+  warung: {
+    kind: "interior", floor: "paper", floorDots: 0.1, wall: "yellow", wallDots: 0.12, wainscot: "teal", sideWall: "none",
+    items: [
+      { type: "window", pos: [-1.0, 2.5, WALL] },
+      { type: "frame", pos: [0.82, 2.62, WALL], rot: [0, 0, -0.04] },
+      { type: "bulb", pos: [0.1, 3.9, -0.3], on: true },
+      { type: "table", pos: [0, 0, 0.55], sw: "teal", on: true },
+      { type: "bottle", pos: [-0.6, 0.9, 0.2], sw: "red" },
+      { type: "bottle", pos: [-0.74, 0.9, 0.42], sw: "ink" },
+      { type: "glass", pos: [0.62, 0.9, 0.22] },
+    ],
+  },
+  cafe: {
+    kind: "interior", floor: "woodLight", wall: "teal", wallDots: 0.14, wainscot: "wood", sideWall: "none",
+    items: [
+      { type: "counter", pos: [1.8, 0, -1.6], sw: "wood", sw2: "white" },
+      { type: "sign", pos: [-1.8, 0, -2.0], text: "KOPI", sw: "yellow" },
+      { type: "bulb", pos: [-0.6, 4.0, -0.6], sw: "yellow" },
+      { type: "bulb", pos: [1.2, 4.0, -1.0], sw: "red" },
+      { type: "table", pos: [0, 0, 0.5], sw: "white", sw2: "dark" },
+      { type: "mug", pos: [-0.35, 0.9, 0.55], on: true },
+      { type: "plant", pos: [-2.8, 0, -1.8] },
+    ],
+  },
+  office: {
+    kind: "interior", floor: "grey", floorDots: 0.08, wall: "white", wallDots: 0.1, wainscot: null, sideWall: "none",
+    items: [
+      { type: "desk", pos: [0, 0, 0.45] },
+      { type: "laptop", pos: [-0.15, 0.9, 0.4] },
+      { type: "mug", pos: [0.45, 0.9, 0.55], sw: "blue" },
+      { type: "window", pos: [-1.6, 2.4, WALL] },
+      { type: "clock", pos: [1.4, 2.9, WALL + 0.03] },
+      { type: "shelf", pos: [2.4, 0, -1.9], sw: "grey" },
+      { type: "plant", pos: [-2.6, 0, -1.7], sw: "blue" },
+    ],
+  },
+  classroom: {
+    kind: "interior", floor: "woodLight", wall: "green", wallDots: 0.12, wainscot: "wood", sideWall: "none",
+    items: [
+      { type: "frame", pos: [0, 2.5, WALL], text: "PR!", scale: 2.2 },
+      { type: "clock", pos: [2.2, 3.1, WALL + 0.03] },
+      { type: "desk", pos: [0, 0, 0.5], sw: "woodLight", sw2: "metal" },
+      { type: "book", pos: [-0.3, 0.9, 0.5], n: 3 },
+      { type: "chair", pos: [0, 0, -0.2] },
+    ],
+  },
+  kitchen: {
+    kind: "interior", floor: "white", floorDots: 0.12, wall: "orange", wallDots: 0.1, wainscot: "white", sideWall: "none",
+    items: [
+      { type: "fridge", pos: [-2.0, 0, -1.9] },
+      { type: "counter", pos: [1.2, 0, -1.9], sw: "white", sw2: "woodLight" },
+      { type: "window", pos: [1.2, 2.4, WALL] },
+      { type: "table", pos: [0, 0, 0.5], sw: "red", on: true },
+    ],
+  },
+  livingroom: {
+    kind: "interior", floor: "woodLight", wall: "pink", wallDots: 0.12, wainscot: null, sideWall: "none",
+    items: [
+      { type: "sofa", pos: [0, 0, -1.2], sw: "teal" },
+      { type: "rug", pos: [0, 0, 0.3], sw: "yellow" },
+      { type: "tv", pos: [2.6, 0, -1.6], rot: -0.5, on: true },
+      { type: "frame", pos: [0, 2.6, WALL] },
+      { type: "plant", pos: [-1.8, 0, -1.8] },
+      { type: "bulb", pos: [0, 4.0, -0.5], sw: "yellow" },
+    ],
+  },
+  street: {
+    kind: "exterior", time: "day", ground: "grey", road: true,
+    items: [
+      { type: "building", pos: [-3.4, 0, -4.5], sw: "orange", n: 3 },
+      { type: "building", pos: [0, 0, -4.8], sw: "teal", n: 2, text: "TOKO" },
+      { type: "building", pos: [3.4, 0, -4.5], sw: "red", n: 4 },
+      { type: "streetlamp", pos: [-1.8, 0, -1.9] },
+      { type: "tree", pos: [2.2, 0, -2.4] },
+    ],
+  },
+  park: {
+    kind: "exterior", time: "day", ground: "green", road: false,
+    items: [
+      { type: "tree", pos: [-2.4, 0, -3.0] },
+      { type: "tree", pos: [2.8, 0, -4.0], sw: "teal" },
+      { type: "bench", pos: [0, 0, -1.2] },
+      { type: "bush", pos: [-1.2, 0, -2.2] },
+      { type: "streetlamp", pos: [1.6, 0, -2.2], on: false },
+      { type: "cloud", pos: [-2.0, 6.5, -10], scale: 2.5 },
+      { type: "sun", pos: [3.5, 7.5, -12], scale: 2.4 },
+    ],
+  },
+  shop: {
+    kind: "interior", floor: "white", floorDots: 0.1, wall: "sky", wallDots: 0.12, wainscot: "blue", sideWall: "none",
+    items: [
+      { type: "counter", pos: [0, 0, 0.2], sw: "red", sw2: "white" },
+      { type: "shelf", pos: [-2.2, 0, -1.9], sw: "white" },
+      { type: "shelf", pos: [2.2, 0, -1.9], sw: "white" },
+      { type: "sign", pos: [0, 0.4, -2.2], text: "DISKON", sw: "yellow", scale: 1.2 },
+    ],
+  },
+};
+export type SetPresetName = keyof typeof SET_PRESETS;
+
+==== 9315 src/kits/panelverse/engine/three/sets.tsx
+import React from "react";
+import { Shape } from "three";
+import { Toon, type V3 } from "./Toon.tsx";
+import { G } from "./geometries.ts";
+import { LIB, type ItemProps } from "./library.tsx";
+import { CliffHalf, Spotlight } from "./storyProps.tsx";
+import { sample } from "../keyframes.ts";
+import type { ItemSpec, SetSpec } from "./setTypes.ts";
+import type { SwatchKey } from "../../theme/palette.ts";
+
+/**
+ * Register a story's own elements (made for one script) next to the library items. Call it at the
+ * top level of `src/pv-stories/<id>/elements.tsx`; the names become usable as set items and as
+ * `item` props in that story.
+ */
+export const registerItems = (items: Record<string, { desc: string; render: (p: ItemProps) => React.ReactNode; wall?: boolean }>) => {
+  for (const [k, v] of Object.entries(items)) LIB[k] = v;
+};
+
+/** One placed item (animated fields sampled at the shot frame). */
+export const PlacedItem: React.FC<{ spec: ItemSpec; f: number }> = ({ spec, f }) => {
+  const s = spec.keys ? { ...spec, ...sample<Partial<ItemSpec>>(spec.keys, f) } : spec;
+  const item = LIB[s.type];
+  if (!item) throw new Error(`PANELVERSE: unknown item "${s.type}" — use a library item or registerItems() it in the story's elements.tsx`);
+  const rot: V3 = typeof s.rot === "number" ? [0, s.rot, 0] : s.rot ?? [0, 0, 0];
+  const scale: V3 = typeof s.scale === "number" ? [s.scale, s.scale, s.scale] : s.scale ?? [1, 1, 1];
+  return (
+    <group position={s.pos} rotation={rot} scale={scale}>
+      {item.render({ sw: s.sw, sw2: s.sw2, text: s.text, sub: s.sub, on: s.on, n: s.n, t: s.t ?? f / 60, f })}
+    </group>
+  );
+};
+
+// ── stage looks (abstract comic spaces) ────────────────────────────────────────────────────────
+export const BurstBackdrop: React.FC<{ position: V3; scale: number; a: SwatchKey; b: SwatchKey; rays?: number; spin?: number }> = ({ position, scale, a, b, rays = 18, spin = 0 }) => (
+  <group position={position}>
+    <Toon geo={G.circle()} sw={a} mat={{ flat: true, pattern: 0.12 }} outline={0} scale={scale} />
+    {Array.from({ length: rays }, (_, i) => (
+      <group key={i} rotation={[0, 0, (i / rays) * Math.PI * 2 + spin]}>
+        <Toon geo={G.cone(3)} sw={b} mat={{ flat: true }} outline={0} position={[0, scale * 0.5, 0.01]} scale={[scale * 0.09, scale, 0.001]} rotation={[0, 0, Math.PI]} />
+      </group>
+    ))}
+  </group>
+);
+const jag = () => {
+  const s = new Shape();
+  const pts: [number, number][] = [[0, 12], [0.6, 8], [-0.5, 4], [0.7, 0], [-0.6, -4], [0.5, -8], [0, -12]];
+  s.moveTo(-30, 12);
+  pts.forEach(([x, y]) => s.lineTo(x, y));
+  s.lineTo(-30, -12);
+  s.closePath();
+  return s;
+};
+
+const Stage: React.FC<{ set: SetSpec; f: number }> = ({ set, f }) => {
+  const a = set.a ?? "red", b = set.b ?? "yellow";
+  switch (set.look ?? "burst") {
+    case "burst":
+      return (
+        <group>
+          <Toon geo={G.circle()} sw={a} mat={{ pattern: 0.25, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={9} />
+          <BurstBackdrop position={[0, 2.2, -5]} scale={9} a={a} b={b} rays={20} spin={f * (set.spin ?? 0.004)} />
+        </group>
+      );
+    case "spotlight":
+      return (
+        <group>
+          <Toon geo={G.plane()} sw={a} mat={{ pattern: 0.3, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={[30, 30, 1]} />
+          <Toon geo={G.circle()} sw={b} mat={{ flat: true, pattern: 0.18 }} outline={0} position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.35, 1.25, 1]} />
+          <Toon geo={G.plane()} sw={a} mat={{ pattern: 0.42, flat: true }} outline={0} position={[0, 4, -6]} scale={[30, 14, 1]} />
+          <Spotlight position={[0, 4.3, 0]} height={4.0} radius={1.35} swing={Math.sin(f * 0.05) * 0.03} />
+        </group>
+      );
+    case "split":
+      return (
+        <group>
+          <Toon geo={G.plane()} sw={b} mat={{ flat: true, pattern: 0.15 }} outline={0} position={[0, 3, -6]} scale={[60, 24, 1]} />
+          <Toon geo={G.extrude("splitJag", jag, 0.02, 0)} sw={a} mat={{ flat: true, pattern: 0.15 }} outline={6} position={[0, 3, -5.9]} />
+          <Toon geo={G.plane()} sw="paper" mat={{ pattern: 0.12, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={[30, 30, 1]} />
+        </group>
+      );
+    case "tunnel":
+      return (
+        <group>
+          {Array.from({ length: 14 }, (_, i) => {
+            const z = -((i * 2 + (f * 0.12) % 2) % 28);
+            return <Toon key={i} geo={G.torusArc(3.2, 0.5, Math.PI * 2)} sw={i % 2 ? a : b} mat={{ flat: true, pattern: 0.1 }} outline={5} position={[0, 2, z]} />;
+          })}
+        </group>
+      );
+    case "paper":
+      return <Toon geo={G.plane()} sw="paper" mat={{ flat: true, pattern: 0.06 }} outline={0} position={[0, 3, -6]} scale={[60, 30, 1]} />;
+    case "dots":
+      return (
+        <group>
+          <Toon geo={G.plane()} sw={a} mat={{ flat: true, pattern: 0.38 }} outline={0} position={[0, 3, -6]} scale={[60, 30, 1]} />
+          <Toon geo={G.plane()} sw={a} mat={{ pattern: 0.25, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={[30, 30, 1]} />
+        </group>
+      );
+    case "cliff":
+      return (
+        <group>
+          <Toon geo={G.plane()} sw={a === "red" ? "navy" : a} mat={{ pattern: 0.35, flat: true }} outline={0} position={[0, -3, -12]} scale={[60, 40, 1]} />
+          <CliffHalf side={-1} offset={(set.gap ?? 0) / 2} tilt={set.tilt ?? 0} drop={set.drop ?? 0} />
+          <CliffHalf side={1} offset={(set.gap ?? 0) / 2} tilt={set.tilt ?? 0} drop={set.drop ?? 0} />
+        </group>
+      );
+    case "void":
+    default:
+      return <Toon geo={G.plane()} sw={a} mat={{ flat: true, pattern: 0.1 }} outline={0} position={[0, 3, -8]} scale={[60, 30, 1]} />;
+  }
+};
+
+const SKY: Record<string, SwatchKey> = { day: "sky", sunset: "orange", night: "night" };
+
+/** Renders any SetSpec (interior / exterior / stage) plus its items. */
+export const SetRenderer: React.FC<{ set: SetSpec; f: number }> = ({ set, f }) => (
+  <group>
+    {set.kind === "interior" ? (
+      <group>
+        <Toon geo={G.plane()} sw={set.floor ?? "wood"} mat={{ pattern: set.floorDots ?? 0.1, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={[16, 12, 1]} />
+        <Toon geo={G.plane()} sw={set.wall ?? "blue"} mat={{ pattern: set.wallDots ?? 0.15, cut: -1 }} outline={0} position={[0, 3, -2.4]} scale={[16, 6, 1]} />
+        {set.wainscot ? (
+          <>
+            <Toon geo={G.roundedBox(16, 1.1, 0.06, 0.02)} sw={set.wainscot} mat={{ pattern: 0.15 }} outline={3.5} position={[0, 0.55, -2.36]} />
+            <Toon geo={G.roundedBox(16, 0.08, 0.1, 0.02)} sw="white" outline={3} position={[0, 1.12, -2.33]} />
+          </>
+        ) : (
+          <Toon geo={G.roundedBox(16, 0.18, 0.08, 0.02)} sw="white" outline={3} position={[0, 0.09, -2.36]} />
+        )}
+        {(set.sideWall === "left" || set.sideWall === "both") && (
+          <Toon geo={G.plane()} sw={set.wall ?? "blue"} mat={{ pattern: (set.wallDots ?? 0.15) + 0.1, cut: -1 }} outline={0} position={[-4.2, 3, 2]} rotation={[0, Math.PI / 2, 0]} scale={[9, 6, 1]} />
+        )}
+        {(set.sideWall === "right" || set.sideWall === "both") && (
+          <Toon geo={G.plane()} sw={set.wall ?? "blue"} mat={{ pattern: (set.wallDots ?? 0.15) + 0.1, cut: -1 }} outline={0} position={[4.2, 3, 2]} rotation={[0, -Math.PI / 2, 0]} scale={[9, 6, 1]} />
+        )}
+      </group>
+    ) : null}
+    {set.kind === "exterior" ? (
+      <group>
+        <Toon geo={G.plane()} sw={SKY[set.time ?? "day"]} mat={{ flat: true, pattern: set.time === "night" ? 0.22 : 0.06 }} outline={0} position={[0, 8, -16]} scale={[80, 30, 1]} />
+        {set.time === "sunset" ? <Toon geo={G.plane()} sw="pink" mat={{ flat: true, pattern: 0.2 }} outline={0} position={[0, 2.5, -15.9]} scale={[80, 6, 1]} /> : null}
+        <Toon geo={G.plane()} sw={set.ground ?? "grey"} mat={{ pattern: 0.12, cut: -1 }} outline={0} rotation={[-Math.PI / 2, 0, 0]} scale={[60, 40, 1]} />
+        {set.road ? (
+          <group>
+            <Toon geo={G.plane()} sw="dark" mat={{ pattern: 0.1, cut: -1 }} outline={0} position={[0, 0.01, 1.6]} rotation={[-Math.PI / 2, 0, 0]} scale={[60, 3, 1]} />
+            {Array.from({ length: 12 }, (_, i) => (
+              <Toon key={i} geo={G.plane()} sw="white" mat={{ flat: true }} outline={0} position={[-11 + i * 2, 0.02, 1.6]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.9, 0.12, 1]} />
+            ))}
+            <Toon geo={G.roundedBox(60, 0.14, 0.3, 0.03)} sw="white" outline={3} position={[0, 0.07, 0.05]} />
+          </group>
+        ) : null}
+      </group>
+    ) : null}
+    {set.kind === "stage" ? <Stage set={set} f={f} /> : null}
+    {(set.items ?? []).map((it, i) => (
+      <PlacedItem key={i} spec={it} f={f} />
+    ))}
+  </group>
+);
+
+/** Anchors a set exposes for actors (e.g. the cliff halves drift apart carrying the people on them). */
+export const setAnchors = (set: SetSpec): Record<string, { pos: V3; rot: V3 }> => {
+  if (set.kind === "stage" && set.look === "cliff") {
+    const g = (set.gap ?? 0) / 2, t = set.tilt ?? 0, d = set.drop ?? 0;
+    return { "cliff-left": { pos: [-g, -d, 0], rot: [0, 0, t] }, "cliff-right": { pos: [g, -d, 0], rot: [0, 0, -t] } };
+  }
+  return {};
+};
+
+==== 1379 src/kits/panelverse/engine/three/setTypes.ts
+// Set (environment) specs — pure data so stories can build and remix them from Node and the browser.
+import type { Key } from "../keyframes.ts";
+import type { V3 } from "../types.ts";
+import type { SwatchKey } from "../../theme/palette.ts";
+
+export type ItemSpec = {
+  type: string; // a library item (see references/panelverse/elements.md) or a story's own element
+  pos: V3;
+  rot?: number | V3; // number = yaw (radians)
+  scale?: number | V3;
+  sw?: SwatchKey;
+  sw2?: SwatchKey;
+  text?: string;
+  sub?: string;
+  on?: boolean;
+  n?: number;
+  t?: number;
+  /** animate any of the fields above over shot-local frames */
+  keys?: Key<Partial<Omit<ItemSpec, "keys" | "type">>>[];
+};
+
+export type StageLook = "burst" | "spotlight" | "void" | "split" | "tunnel" | "paper" | "dots" | "cliff";
+export type SetSpec = {
+  kind: "interior" | "exterior" | "stage";
+  // interior
+  floor?: SwatchKey;
+  floorDots?: number;
+  wall?: SwatchKey;
+  wallDots?: number;
+  wainscot?: SwatchKey | null;
+  sideWall?: "left" | "right" | "both" | "none";
+  // exterior
+  time?: "day" | "sunset" | "night";
+  ground?: SwatchKey;
+  road?: boolean;
+  // stage
+  look?: StageLook;
+  a?: SwatchKey;
+  b?: SwatchKey;
+  spin?: number; // burst rotation speed
+  gap?: number; // cliff: split width
+  tilt?: number; // cliff: halves tilt
+  drop?: number; // cliff: halves sink
+  items?: ItemSpec[];
+};
+
+==== 16352 src/kits/panelverse/engine/three/storyProps.tsx
+import React, { useMemo } from "react";
+import { DoubleSide, MeshBasicMaterial, Shape, ShapeGeometry } from "three";
+import { Toon, type V3 } from "./Toon.tsx";
+import { G, memoGeo } from "./geometries.ts";
+import { useBubbleTexture, type BubbleOpts } from "./props.tsx";
+import { EASES, clamp, hash, prog } from "../keyframes.ts";
+import { shardsOf, type Pt, type Quad } from "../panels/geometry.ts";
+
+// ── Thought cloud (volumetric puffs, union-inked) ─────────────────────────────────────────────
+const CLOUD: [number, number, number, number][] = [
+  [0, 0, 0, 0.42],
+  [0.42, 0.08, -0.05, 0.34],
+  [-0.42, 0.05, -0.05, 0.34],
+  [0.22, 0.3, -0.08, 0.32],
+  [-0.22, 0.3, -0.08, 0.3],
+  [0.65, -0.12, -0.1, 0.24],
+  [-0.66, -0.12, -0.1, 0.24],
+  [0.25, -0.24, 0.0, 0.28],
+  [-0.26, -0.22, 0.0, 0.27],
+];
+export const ThoughtCloud: React.FC<{ position: V3; scale: number; f: number; sw?: "white" | "paper" }> = ({ position, scale, f, sw = "paper" }) => {
+  if (scale <= 0.001) return null;
+  return (
+    <group position={position} scale={scale}>
+      {CLOUD.map(([x, y, z, r], i) => {
+        const wob = 1 + Math.sin(f * 0.12 + i * 1.7) * 0.03;
+        return <Toon key={i} geo={G.sphere()} sw={sw} mat={{ cut: -0.25, halftone: 0.8 }} outline={5} position={[x, y, z]} scale={r * wob} />;
+      })}
+    </group>
+  );
+};
+
+/** small puffs trailing from the head up to the cloud, popping in sequence */
+export const ThoughtTrail: React.FC<{ from: V3; to: V3; f: number; at: number; gap?: number }> = ({ from, to, f, at, gap = 7 }) => (
+  <group>
+    {[0, 1, 2].map((i) => {
+      const s = EASES.outBackBig(prog(f, at + i * gap, at + i * gap + 10)) * (0.07 + i * 0.035);
+      const t = 0.22 + i * 0.26;
+      const p: V3 = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t];
+      return s > 0.001 ? <Toon key={i} geo={G.sphere()} sw="white" mat={{ cut: -0.25 }} outline={4} position={p} scale={s} /> : null;
+    })}
+  </group>
+);
+
+// ── Steam puffs (anger / hot food), cyclic rise ───────────────────────────────────────────────
+export const SteamPuffs: React.FC<{ origin: V3; f: number; count?: number; spread?: number; size?: number; rise?: number; period?: number; sw?: "white" | "paper" }> = ({
+  origin,
+  f,
+  count = 4,
+  spread = 0.35,
+  size = 0.12,
+  rise = 0.9,
+  period = 48,
+  sw = "white",
+}) => (
+  <group position={origin}>
+    {Array.from({ length: count }, (_, i) => {
+      const t = ((f + (i * period) / count) % period) / period;
+      const side = i % 2 === 0 ? 1 : -1;
+      const x = side * spread * (0.4 + 0.6 * t) + hash(i) * 0.05;
+      const s = size * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (0.8 + 0.4 * ((i * 7) % 3) / 2);
+      return s > 0.004 ? (
+        <Toon key={i} geo={G.sphere()} sw={sw} mat={{ cut: -0.2 }} outline={3.5} position={[x, t * rise, 0.05 * side]} scale={[s * 1.1, s, s]} />
+      ) : null;
+    })}
+  </group>
+);
+
+// ── Spotlight: hanging lamp, translucent light cone, floor pool ───────────────────────────────
+export const Spotlight: React.FC<{ position: V3; height: number; radius: number; swing?: number }> = ({ position, height, radius, swing = 0 }) => (
+  <group position={position} rotation={[0, 0, swing]}>
+    <Toon geo={G.limb(1, 1)} sw="ink" outline={2} scale={[0.015, 3, 0.015]} />
+    <Toon geo={G.cone(32)} sw="ink" mat={{ side: "double", spec: 1, specSize: 0.04, specColor: "#3d5f8a" }} outline={3} position={[0, -0.12, 0]} scale={[0.32, 0.36, 0.32]} rotation={[Math.PI, 0, 0]} />
+    <Toon geo={G.sphere()} sw="yellow" mat={{ flat: true }} outline={0} position={[0, -0.3, 0]} scale={[0.14, 0.06, 0.14]} />
+    {/* light cone */}
+    <Toon geo={G.cone(48)} sw={{ c: "#F5CC27", s: "#F5CC27", d: "#F5CC27" }} mat={{ dotOnly: true, pattern: 0.12, side: "back" }} outline={0} position={[0, -0.3 - height / 2, 0]} scale={[radius, height, radius]} rotation={[Math.PI, 0, 0]} />
+  </group>
+);
+
+// ── Cliff halves for "hubungan kalian tamat" ─────────────────────────────────────────────────
+const CRACK: [number, number][] = [
+  [0.05, -5],
+  [-0.25, -3.6],
+  [0.3, -2.4],
+  [-0.2, -1.3],
+  [0.25, -0.4],
+  [-0.3, 0.5],
+  [0.2, 1.4],
+  [-0.15, 2.4],
+  [0.3, 3.4],
+  [0, 5],
+];
+const cliffShape = (side: -1 | 1) => {
+  const s = new Shape();
+  s.moveTo(side * 9, -5);
+  for (const [x, z] of CRACK) s.lineTo(x, z);
+  s.lineTo(side * 9, 5);
+  s.closePath();
+  return s;
+};
+export const CliffHalf: React.FC<{ side: -1 | 1; offset: number; tilt: number; drop: number }> = ({ side, offset, tilt, drop }) => {
+  // shape is drawn in (x, z) and extruded downwards (−y)
+  const top = G.extrude(`cliffTop${side}`, () => cliffShape(side), 0.22, 0.04);
+  const body = G.extrude(`cliffBody${side}`, () => cliffShape(side), 4, 0.06);
+  return (
+    <group position={[side * offset, -drop, 0]} rotation={[0, 0, -side * tilt]}>
+      <group rotation={[Math.PI / 2, 0, 0]}>
+        <Toon geo={top} sw="yellow" mat={{ pattern: 0.08 }} outline={5} position={[0, 0, 0.11]} />
+        <Toon geo={body} sw="brown" mat={{ pattern: 0.15 }} outline={5} position={[0, 0, 2.2]} />
+      </group>
+    </group>
+  );
+};
+
+// ── Heart that cracks in two ───────────────────────────────────────────────────────────────────
+export const BreakingHeart: React.FC<{ position: V3; scale: number; crack: number; split: number; f: number }> = ({ position, scale, crack, split, f }) => {
+  const beat = 1 + Math.max(0, Math.sin(f * 0.25)) * 0.06 * (1 - crack);
+  if (split <= 0) {
+    return (
+      <group position={position} scale={scale * beat}>
+        <Toon geo={G.heart()} sw="red" mat={{ spec: 1, specSize: 0.03 }} outline={5} />
+        {crack > 0 ? (
+          <Toon
+            geo={G.tube("heartcrack", [
+              [0, 0.66, 0.36],
+              [0.12, 0.4, 0.38],
+              [-0.1, 0.16, 0.39],
+              [0.14, -0.1, 0.38],
+              [-0.08, -0.38, 0.36],
+            ], 0.035)}
+            sw="ink"
+            mat={{ flat: true }}
+            outline={0}
+            scale={[1, 1, 1]}
+            position={[0, 0, 0]}
+            visible={crack > 0.05}
+          />
+        ) : null}
+      </group>
+    );
+  }
+  const fall = EASES.in(clamp(split)) * 4;
+  return (
+    <group position={position} scale={scale}>
+      {([-1, 1] as const).map((s) => (
+        <Toon
+          key={s}
+          geo={G.heartHalf(s)}
+          sw="red"
+          mat={{ spec: 1, specSize: 0.03 }}
+          outline={5}
+          position={[s * (0.08 + split * 0.9), -fall, 0]}
+          rotation={[split * 0.6, 0, s * split * 1.1]}
+        />
+      ))}
+    </group>
+  );
+};
+
+// ── Shattering balloon: the balloon texture cut into wedges that fly apart ────────────────────
+const SHATTER_QUAD: Quad = [
+  [0, 1],
+  [1, 1],
+  [1, 0],
+  [0, 0],
+];
+const SHATTER_CUTS = [0.03, 0.16, 0.31, 0.45, 0.57, 0.72, 0.86];
+export const ShatterBubble: React.FC<BubbleOpts & { position: V3; rotation?: V3; scale?: number; t: number }> = ({ position, rotation, scale = 1, t, ...o }) => {
+  const tex = useBubbleTexture(o);
+  const mat = useMemo(() => new MeshBasicMaterial({ map: tex, transparent: true, side: DoubleSide, toneMapped: false, alphaTest: 0.02 }), [tex]);
+  const H = o.h * 1.34;
+  const impact: Pt = [0.46, 0.58];
+  const pieces = useMemo(
+    () =>
+      shardsOf(SHATTER_QUAD, impact, SHATTER_CUTS).map((pts, i) =>
+        memoGeo(`shard${i}`, () => {
+          const s = new Shape();
+          pts.forEach((p, k) => (k === 0 ? s.moveTo(p[0], p[1]) : s.lineTo(p[0], p[1])));
+          const g = new ShapeGeometry(s);
+          g.translate(-0.5, -0.5, 0);
+          return g;
+        }),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  return (
+    <group position={position} rotation={rotation} scale={scale}>
+      {pieces.map((g, i) => {
+        const ang = (i / pieces.length) * Math.PI * 2 + 0.4;
+        const k = EASES.out(clamp(t));
+        const dx = Math.cos(ang) * k * (0.5 + 0.2 * hash(i));
+        const dy = Math.sin(ang) * k * 0.4 - t * t * 1.2;
+        return (
+          <mesh
+            key={i}
+            geometry={g}
+            material={mat}
+            position={[dx, -H / 2 + o.h / 2 + dy, k * 0.3 * hash(i + 3)]}
+            rotation={[k * hash(i * 2) * 1.2, k * hash(i * 5) * 1.4, k * hash(i * 7) * 2]}
+            scale={[o.w, H, 1]}
+          />
+        );
+      })}
+    </group>
+  );
+};
+
+// ── Bakso set ──────────────────────────────────────────────────────────────────────────────────
+export const BaksoBowl: React.FC<{ position: V3; f: number; balls?: number }> = ({ position, f, balls = 4 }) => (
+  <group position={position}>
+    {/* classic white bowl with red rim band */}
+    <Toon geo={G.lathe("bowl", [[0, 0], [0.16, 0.0], [0.2, 0.03], [0.3, 0.16], [0.34, 0.27], [0.33, 0.28], [0.29, 0.17], [0.0, 0.12]], 48)} sw="white" mat={{ side: "double", cut: -0.1 }} outline={4} />
+    <Toon geo={G.torusArc(0.335, 0.018, Math.PI * 2)} sw="red" outline={0} mat={{ cut: -0.3 }} position={[0, 0.265, 0]} rotation={[Math.PI / 2, 0, 0]} />
+    {/* broth */}
+    <Toon geo={G.circle()} sw="broth" mat={{ pattern: 0.1, cut: -1 }} outline={0} position={[0, 0.235, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={0.3} />
+    {/* noodles */}
+    {[0, 1, 2].map((i) => (
+      <Toon key={`n${i}`} geo={G.torusArc(0.12 + i * 0.03, 0.012, Math.PI * 1.2)} sw="noodle" outline={2} position={[0.04 * i - 0.04, 0.245, 0.02 * i]} rotation={[-Math.PI / 2, 0, i * 1.3]} />
+    ))}
+    {/* bakso */}
+    {Array.from({ length: balls }, (_, i) => {
+      const a = i * 1.9 + 0.3;
+      return <Toon key={`b${i}`} geo={G.sphere()} sw="bakso" mat={{ spec: 0.6, specSize: 0.02 }} outline={3.5} position={[Math.cos(a) * 0.14, 0.27, Math.sin(a) * 0.13]} scale={0.075} />;
+    })}
+    {/* green onion bits */}
+    {Array.from({ length: 7 }, (_, i) => (
+      <Toon key={`g${i}`} geo={G.sphereLo()} sw="green" mat={{ flat: true }} outline={0} position={[hash(i) * 0.22, 0.25, hash(i + 9) * 0.2]} scale={[0.022, 0.008, 0.022]} />
+    ))}
+    <SteamWisps origin={[0, 0.27, 0.08]} f={f} height={0.09} spread={0.09} />
+  </group>
+);
+
+export const Spoon: React.FC<{ withBakso?: boolean }> = ({ withBakso }) => (
+  <group>
+    <Toon geo={G.capsule(0.012, 0.22)} sw="white" mat={{ spec: 1, specSize: 0.05 }} outline={2.5} position={[0, 0.12, 0]} />
+    <Toon geo={G.sphere()} sw="white" mat={{ spec: 1, specSize: 0.05 }} outline={2.5} position={[0, 0.27, 0.01]} scale={[0.05, 0.075, 0.018]} />
+    {withBakso ? <Toon geo={G.sphere()} sw="bakso" mat={{ spec: 0.6, specSize: 0.02 }} outline={3} position={[0, 0.28, 0.05]} scale={0.055} /> : null}
+  </group>
+);
+
+export const Table: React.FC<{ position: V3; w?: number; d?: number; h?: number }> = ({ position, w = 2.8, d = 1.3, h = 0.86 }) => (
+  <group position={position}>
+    <Toon geo={G.roundedBox(w, 0.08, d, 0.03)} sw="teal" mat={{ pattern: 0.12 }} outline={4} position={[0, h, 0]} />
+    {/* cloth drop hides the legs */}
+    <Toon geo={G.roundedBox(w, h * 0.55, 0.05, 0.02)} sw="teal" mat={{ pattern: 0.2 }} outline={4} position={[0, h - h * 0.3, d / 2]} />
+    <Toon geo={G.roundedBox(0.1, h * 0.5, 0.1, 0.03)} sw="wood" outline={3} position={[-w / 2 + 0.15, h * 0.25, d / 2 - 0.15]} />
+    <Toon geo={G.roundedBox(0.1, h * 0.5, 0.1, 0.03)} sw="wood" outline={3} position={[w / 2 - 0.15, h * 0.25, d / 2 - 0.15]} />
+  </group>
+);
+
+export const Bottle: React.FC<{ position: V3; sw: "red" | "ink" | "yellow" }> = ({ position, sw }) => (
+  <group position={position}>
+    <Toon geo={G.lathe(`bottle`, [[0, 0], [0.07, 0], [0.075, 0.2], [0.05, 0.28], [0.03, 0.34], [0.0, 0.35]])} sw={sw} mat={{ spec: 1, specSize: 0.04 }} outline={3} />
+    <Toon geo={G.cylinder(1, 1, 16)} sw="white" outline={2.5} position={[0, 0.36, 0]} scale={[0.032, 0.04, 0.032]} />
+  </group>
+);
+
+export const Glass: React.FC<{ position: V3 }> = ({ position }) => (
+  <group position={position}>
+    <Toon geo={G.lathe("glass", [[0, 0], [0.09, 0], [0.11, 0.3], [0.0, 0.3]])} sw="yellow" mat={{ spec: 1, specSize: 0.05, pattern: 0.08 }} outline={3} />
+    <Toon geo={G.limb(1, 1)} sw="red" outline={2} position={[0.03, 0.25, 0]} rotation={[0, 0, -0.25]} scale={[0.012, 0.22, 0.012]} />
+  </group>
+);
+
+export const FloatingHearts: React.FC<{ origin: V3; f: number; at: number; count?: number }> = ({ origin, f, at, count = 3 }) => (
+  <group position={origin}>
+    {Array.from({ length: count }, (_, i) => {
+      const t = (f - at - i * 9) / 50;
+      if (t <= 0 || t >= 1) return null;
+      const s = Math.sin(Math.PI * t) * 0.07;
+      return <Toon key={i} geo={G.heart()} sw="red" outline={3} position={[(i - 1) * 0.22 + Math.sin(t * 6 + i) * 0.04, t * 0.6, 0]} scale={s} />;
+    })}
+  </group>
+);
+
+/** vibration arcs around a buzzing phone (3D ink strokes) */
+export const BuzzArcs: React.FC<{ position: V3; on: boolean; f: number; rotation?: V3 }> = ({ position, on, f, rotation }) =>
+  on ? (
+    <group position={position} rotation={rotation}>
+      {([-1, 1] as const).map((s) =>
+        [0, 1].map((k) => (
+          <Toon
+            key={`${s}${k}`}
+            geo={G.torusArc(0.2 + k * 0.07, 0.012, 0.9)}
+            sw="ink"
+            mat={{ flat: true }}
+            outline={0}
+            rotation={[0, 0, s === 1 ? -0.45 : Math.PI - 0.45]}
+            visible={Math.floor(f / 3) % 2 === k}
+          />
+        )),
+      )}
+    </group>
+  ) : null;
+
+// ── Ground impact star (stomps, slams) ─────────────────────────────────────────────────────────
+const spikyShape = (r1: number, r2: number, n: number, seed: number) => {
+  const s = new Shape();
+  for (let i = 0; i < n * 2; i++) {
+    const a = (i / (n * 2)) * Math.PI * 2;
+    const r = i % 2 === 0 ? r1 * (0.85 + 0.25 * (hash(seed + i) + 1) * 0.5) : r2;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) s.moveTo(x, y);
+    else s.lineTo(x, y);
+  }
+  s.closePath();
+  return s;
+};
+export const ImpactStar: React.FC<{ position: V3; scale: number; rot?: number }> = ({ position, scale, rot = 0 }) =>
+  scale > 0.001 ? (
+    <group position={position} rotation={[-Math.PI / 2, 0, rot]} scale={scale}>
+      <Toon geo={G.extrude("impactStar", () => spikyShape(1, 0.55, 11, 3), 0.04, 0.01)} sw="yellow" mat={{ flat: true }} outline={5} />
+      <Toon geo={G.extrude("impactStar2", () => spikyShape(0.6, 0.34, 9, 8), 0.05, 0.01)} sw="white" mat={{ flat: true }} outline={4} position={[0, 0, 0.03]} />
+    </group>
+  ) : null;
+
+// ── Steam wisps: classic inked S-curls rising and fading (hot food) ──────────────────────────
+const WISP: [number, number, number][] = Array.from({ length: 9 }, (_, i) => {
+  const t = i / 8;
+  return [Math.sin(t * Math.PI * 2) * 0.035, t * 0.2, 0];
+});
+export const SteamWisps: React.FC<{ origin: V3; f: number; count?: number; spread?: number; height?: number; period?: number }> = ({
+  origin,
+  f,
+  count = 3,
+  spread = 0.1,
+  height = 0.22,
+  period = 64,
+}) => (
+  <group position={origin}>
+    {Array.from({ length: count }, (_, i) => {
+      const t = ((f + (i * period) / count) % period) / period;
+      const s = Math.sin(Math.PI * t);
+      return s > 0.05 ? (
+        <Toon
+          key={i}
+          geo={G.tube("wisp", WISP, 0.011)}
+          sw="white"
+          mat={{ flat: true }}
+          outline={2.5}
+          position={[(i - (count - 1) / 2) * spread, t * height, 0]}
+          rotation={[0, 0, Math.sin(f * 0.08 + i * 2) * 0.25]}
+          scale={[0.9, 0.35 + 0.35 * s, 0.9]}
+          opacity={1}
+          visible={s > 0.12}
+        />
+      ) : null;
+    })}
+  </group>
+);
+
+==== 3130 src/kits/panelverse/engine/three/Toon.tsx
+import React, { createContext, useContext, useMemo } from "react";
+import { BufferGeometry, Vector2, type Euler, type Quaternion } from "three";
+import { createComicMaterial, createInkMaterial, DEFAULT_CELL, DEFAULT_LIGHT, type ComicMatOpts } from "./materials.ts";
+import { hullOf } from "./geometries.ts";
+import type { Swatch, SwatchKey } from "../../theme/palette.ts";
+
+import type { V3 } from "../types.ts";
+export type { V3 };
+
+/** Render scale of the whole film (1 = final 1080×1920, 0.5 = preview 540×960). */
+export const RenderScaleCtx = createContext(1);
+
+/** Per-canvas stage info shared by every comic mesh: key light, ink resolution, halftone cell, shot clock. */
+export type StageInfo = {
+  light: V3;
+  res: Vector2;
+  cell: number;
+  /** shot-local frame (already frozen / remapped by the shot) */
+  frame: number;
+  /** global ink width multiplier (e.g. wider for close-ups) */
+  ink: number;
+};
+export const StageCtx = createContext<StageInfo>({
+  light: DEFAULT_LIGHT,
+  res: new Vector2(1080, 1920),
+  cell: DEFAULT_CELL,
+  frame: 0,
+  ink: 1,
+});
+export const useStage = () => useContext(StageCtx);
+export const useShotFrame = () => useContext(StageCtx).frame;
+
+export type ToonProps = {
+  geo: BufferGeometry;
+  sw?: SwatchKey | Swatch;
+  mat?: Omit<ComicMatOpts, "sw" | "light" | "cell">;
+  /** ink width in px; 0 disables the contour */
+  outline?: number;
+  inkColor?: string;
+  position?: V3;
+  rotation?: V3 | Euler;
+  quaternion?: Quaternion;
+  scale?: V3 | number;
+  visible?: boolean;
+  opacity?: number;
+  renderOrder?: number;
+  children?: React.ReactNode;
+};
+
+/** A cel-shaded, halftone-printed mesh with its own inverted-hull ink contour. */
+export const Toon: React.FC<ToonProps> = ({
+  geo,
+  sw = "paper",
+  mat,
+  outline = 4,
+  inkColor,
+  position,
+  rotation,
+  quaternion,
+  scale,
+  visible = true,
+  opacity = 1,
+  renderOrder,
+  children,
+}) => {
+  const st = useStage();
+  const key = JSON.stringify([sw, mat, st.light, st.cell, opacity < 1]);
+  const material = useMemo(
+    () => createComicMaterial({ ...mat, sw, light: st.light, cell: st.cell, opacity: opacity < 1 ? opacity : 1 }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
+  );
+  material.uniforms.uOpacity.value = opacity;
+  const ink = useMemo(
+    () => (outline > 0 ? createInkMaterial(outline * st.ink, st.res, inkColor, opacity < 1 ? opacity : 1) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [outline, st.ink, st.res, inkColor, opacity < 1],
+  );
+  if (ink) ink.uniforms.uOpacity.value = opacity;
+  const hull = useMemo(() => (outline > 0 ? hullOf(geo) : null), [geo, outline]);
+  const s: V3 | undefined = typeof scale === "number" ? [scale, scale, scale] : scale;
+  return (
+    <group
+      position={position}
+      rotation={rotation as V3 | undefined}
+      quaternion={quaternion}
+      scale={s}
+      visible={visible && opacity > 0.001}
+    >
+      <mesh geometry={geo} material={material} renderOrder={renderOrder} />
+      {ink && hull ? <mesh geometry={hull} material={ink} renderOrder={renderOrder} /> : null}
+      {children}
+    </group>
+  );
+};
+
+==== 140 src/kits/panelverse/engine/types.ts
+/** A 3-vector as a plain tuple (positions, rotations, scales in the declarative story data). */
+export type V3 = [number, number, number];
+
+==== 1787 src/kits/panelverse/Films.tsx
+import React from "react";
+import { Composition } from "remotion";
+import { StoryPlayer } from "./director/StoryPlayer.tsx";
+import { Catalog, CATALOG_PAGES } from "./catalog/Catalog.tsx";
+import { PV_STORIES } from "../../pv-stories/registry.ts";
+
+const byId = (id: string) => {
+  const s = PV_STORIES.find((x) => x.id === id);
+  if (!s) throw new Error(`PANELVERSE story "${id}" is not registered (run scripts/pv-make.mjs)`);
+  return s;
+};
+const Preview: React.FC<{ id: string }> = ({ id }) => <StoryPlayer story={byId(id)} step={2} scale={0.5} audio={`audio/${id}-mix.wav`} />;
+const Final: React.FC<{ id: string }> = ({ id }) => <StoryPlayer story={byId(id)} />;
+/** silent preview for stills (no audio file needed) */
+const Stills: React.FC<{ id: string }> = ({ id }) => <StoryPlayer story={byId(id)} step={2} scale={0.5} />;
+
+/** Every PANELVERSE story as `<id>-preview` (540×960 @ 30), `<id>-final` (1080×1920 @ 60), `<id>-stills`; plus the element catalog. */
+export const PanelverseFilms: React.FC = () => (
+  <>
+    {PV_STORIES.map((s) => (
+      <React.Fragment key={s.id}>
+        <Composition id={`${s.id}-preview`} component={Preview} defaultProps={{ id: s.id }} durationInFrames={Math.ceil(s.durationInFrames / 2)} fps={30} width={540} height={960} />
+        <Composition id={`${s.id}-stills`} component={Stills} defaultProps={{ id: s.id }} durationInFrames={Math.ceil(s.durationInFrames / 2)} fps={30} width={540} height={960} />
+        <Composition id={`${s.id}-final`} component={Final} defaultProps={{ id: s.id }} durationInFrames={s.durationInFrames} fps={60} width={1080} height={1920} />
+      </React.Fragment>
+    ))}
+    <Composition id="PanelverseCatalog" component={Catalog} durationInFrames={CATALOG_PAGES} fps={1} width={1080} height={1920} />
+  </>
+);
+
+==== 1092 src/kits/panelverse/theme/fonts.ts
+import { staticFile } from "remotion";
+
+// All fonts are OFL-1.1 (Bangers, Luckiest Guy, Comic Neue), bundled in public/fonts — no network at render time.
+export const FONT_IMPACT = "PV Bangers"; // classic comic display lettering
+export const FONT_TITLE = "PV Luckiest Guy"; // chunky payoff titles
+export const FONT_LETTER = "PV Comic Neue"; // speech / chat / caption lettering
+
+const FILES: [string, string, string][] = [
+  [FONT_IMPACT, "fonts/pv-Bangers.woff2", "400"],
+  [FONT_TITLE, "fonts/pv-LuckiestGuy.woff2", "400"],
+  [FONT_LETTER, "fonts/pv-ComicNeue-Bold.woff2", "700"],
+];
+
+let loaded: Promise<unknown> | null = null;
+/** Loads the comic fonts once per page (FontFace API, no extra packages). */
+export const ensureFonts = () => {
+  if (!loaded) {
+    loaded = Promise.all(
+      FILES.map(async ([family, file, weight]) => {
+        const face = new FontFace(family, `url(${staticFile(file)}) format("woff2")`, { weight });
+        await face.load();
+        (document.fonts as unknown as { add: (x: FontFace) => void }).add(face);
+      }),
+    );
+  }
+  return loaded;
+};
+
+==== 2807 src/kits/panelverse/theme/palette.ts
+// PANELVERSE retro pop palette. The core six are the style's identity; every other swatch is a
+// hand-picked shade/dot companion in the same printed family so cel bands never drift off-palette.
+export const INK = "#171717";
+export const PAPER = "#F6E8C8";
+export const YELLOW = "#F5CC27";
+export const RED = "#EF4035";
+export const BLUE = "#2674B9";
+export const TEAL = "#1B927C";
+
+/** A cel-shaded surface: lit flat colour, shadow band colour, halftone dot colour (deep shadow). */
+export type Swatch = { c: string; s: string; d: string };
+
+export const SW = {
+  // core
+  paper: { c: PAPER, s: "#DCC69A", d: "#B89A68" },
+  white: { c: "#F9EDD4", s: "#E3CFA8", d: "#C4A878" }, // print cream (never pure white: stays below the QA burnt-white threshold)
+  yellow: { c: YELLOW, s: "#DDA01C", d: "#B5701A" },
+  red: { c: RED, s: "#C02A2A", d: "#8A1C22" },
+  blue: { c: BLUE, s: "#1B568F", d: "#123A66" },
+  teal: { c: TEAL, s: "#126A5A", d: "#0B4A3F" },
+  ink: { c: INK, s: INK, d: INK },
+  // print companions (accents)
+  navy: { c: "#1E3F6E", s: "#142C50", d: "#0C1C36" },
+  night: { c: "#1B3A66", s: "#132A4C", d: "#0B1A32" },
+  orange: { c: "#F28C28", s: "#CF6A18", d: "#A04C10" },
+  pink: { c: "#F29BB8", s: "#D67096", d: "#A84B70" },
+  purple: { c: "#7A55A8", s: "#5A3C82", d: "#3E2860" },
+  green: { c: "#5BAA3C", s: "#3D822A", d: "#285C1C" },
+  sky: { c: "#7FC3EA", s: "#58A0CC", d: "#3B7AA6" },
+  grey: { c: "#A8A39A", s: "#86817A", d: "#625E58" },
+  dark: { c: "#3A3733", s: "#2A2825", d: "#1C1A18" },
+  // materials
+  wood: { c: "#B9743F", s: "#94552A", d: "#6E3C1C" },
+  woodLight: { c: "#D9A46A", s: "#B7824A", d: "#8E6030" },
+  brown: { c: "#8A5A3A", s: "#6A4028", d: "#4A2A18" },
+  metal: { c: "#C9CCD0", s: "#9EA3AA", d: "#70757D" },
+  glass: { c: "#BFE3F2", s: "#93C4DC", d: "#679FBD" },
+  // skin tones (Indonesian range, light → deep)
+  skinA: { c: "#C9895A", s: "#A2633D", d: "#7E4428" },
+  skinB: { c: "#DFA57C", s: "#B97A55", d: "#93553A" },
+  skinC: { c: "#EFC29B", s: "#CF9A72", d: "#A8724E" },
+  skinD: { c: "#9E6440", s: "#7C4A2C", d: "#5A321C" },
+  // hair
+  hair: { c: "#232220", s: "#141414", d: "#0A0A0A" },
+  hairBrown: { c: "#5A3A26", s: "#3E2618", d: "#28170E" },
+  hairGrey: { c: "#C9C6C0", s: "#A29E97", d: "#7A766F" },
+  // faces / food / things
+  mouth: { c: "#5C1A16", s: "#40100E", d: "#2A0908" },
+  tongue: { c: "#E8655A", s: "#C2453F", d: "#9A2E2C" },
+  bakso: { c: "#A5835E", s: "#7F6244", d: "#5C442E" },
+  broth: { c: "#E7B25A", s: "#C88E3A", d: "#A06C26" },
+  noodle: { c: "#F7DC7A", s: "#E0B84A", d: "#BC9030" },
+  rice: { c: "#FFF9EE", s: "#E9DEC8", d: "#C9B998" },
+  money: { c: "#8FC98A", s: "#6BA866", d: "#4C8248" },
+} satisfies Record<string, Swatch>;
+
+export type SwatchKey = keyof typeof SW;
+export const SWATCH_KEYS = Object.keys(SW) as SwatchKey[];
+
+==== 215 src/pv-stories/registry.ts
+// Generated by scripts/pv-make.mjs — every story in src/pv-stories/<id>/ becomes two compositions.
+import type { StoryDef } from "../kits/panelverse/director/types.ts";
+
+export const PV_STORIES: StoryDef[] = [];

@@ -1,8 +1,18 @@
-<?php
+﻿<?php
 
 return [
     App\Modules\AIAgents\AIAgentsServiceProvider::class,
     App\Modules\AIGateway\AIGatewayServiceProvider::class,
+    App\Modules\OpenGenAI\OpenGenAIServiceProvider::class,
+    App\Modules\VoiceStudio\VoiceStudioServiceProvider::class,
+    App\Modules\OpenWhispr\OpenWhisprServiceProvider::class,
+    App\Modules\OpenSEO\OpenSeoServiceProvider::class,
+    App\Modules\Workspace\WorkspaceServiceProvider::class,
+    App\Modules\WorkManagement\WorkManagementServiceProvider::class,
+    App\Modules\Scheduling\SchedulingServiceProvider::class,
+    App\Modules\SharedInbox\SharedInboxServiceProvider::class,
+    App\Modules\ScreenRecorder\ScreenRecorderServiceProvider::class,
+    App\Modules\VideoStudio\VideoStudioServiceProvider::class,
     App\Modules\TeamAI\TeamAIServiceProvider::class,
     App\Modules\ADE\ADEServiceProvider::class,
     App\Modules\Affiliate\AffiliateServiceProvider::class,

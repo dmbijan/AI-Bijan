@@ -1,0 +1,2501 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 24878 project/scripts/synth.ts
+// CHARACTERFLOW sound kit: a tiny deterministic synthesiser (no samples, no third-party audio).
+// Buses, filters, oscillators, instruments, foley generators, reverb and a VO-ducking mixer.
+// Topic scores (scripts/sound.ts) place these on the film clock.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+
+export const SR = 48000;
+export const S = (t: number) => Math.round(t * SR);
+
+export const rng = (seed: number) => () => {
+  seed |= 0;
+  seed = (seed + 0x6d2b79f5) | 0;
+  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+};
+export const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
+export const smooth = (a: number, b: number, x: number) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+export const dbg = (db: number) => 10 ** (db / 20);
+const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
+const NOTE: Record<string, number> = { C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6, G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11 };
+export const nf = (n: string) => { const m = /^([A-G][#b]?)(-?\d)$/.exec(n)!; return mtof(12 * (Number(m[2]) + 1) + NOTE[m[1]]); };
+
+export class Bus {
+  L: Float32Array; R: Float32Array; N: number;
+  constructor(N: number) { this.N = N; this.L = new Float32Array(N); this.R = new Float32Array(N); }
+  /** add a mono signal at time t (s), equal-power pan −1..1 */
+  add(t: number, x: Float32Array, gain = 1, pan = 0) {
+    const o = S(t);
+    const gl = Math.cos(((pan + 1) * Math.PI) / 4) * gain * Math.SQRT2, gr = Math.sin(((pan + 1) * Math.PI) / 4) * gain * Math.SQRT2;
+    for (let i = 0; i < x.length; i++) { const j = o + i; if (j < 0 || j >= this.N) continue; this.L[j] += x[i] * gl; this.R[j] += x[i] * gr; }
+  }
+  addSt(t: number, l: Float32Array, r: Float32Array, gain = 1) {
+    const o = S(t);
+    for (let i = 0; i < l.length; i++) { const j = o + i; if (j < 0 || j >= this.N) continue; this.L[j] += l[i] * gain; this.R[j] += r[i] * gain; }
+  }
+}
+
+/** RBJ biquad, in place. `f` may vary per sample. */
+export const biquad = (x: Float32Array, type: "lp" | "hp" | "bp" | "peak", f: number | ((i: number) => number), q = 0.707, gainDb = 0) => {
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0, b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0, lastF = -1;
+  const coef = (fc: number) => {
+    const w = (2 * Math.PI * clamp(fc, 10, SR * 0.45)) / SR, cw = Math.cos(w), sw = Math.sin(w), al = sw / (2 * q);
+    let a0: number;
+    if (type === "lp") { b0 = (1 - cw) / 2; b1 = 1 - cw; b2 = b0; a0 = 1 + al; a1 = -2 * cw; a2 = 1 - al; }
+    else if (type === "hp") { b0 = (1 + cw) / 2; b1 = -(1 + cw); b2 = b0; a0 = 1 + al; a1 = -2 * cw; a2 = 1 - al; }
+    else if (type === "bp") { b0 = al; b1 = 0; b2 = -al; a0 = 1 + al; a1 = -2 * cw; a2 = 1 - al; }
+    else { const A = 10 ** (gainDb / 40); b0 = 1 + al * A; b1 = -2 * cw; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * cw; a2 = 1 - al / A; }
+    b0 /= a0; b1 /= a0; b2 /= a0; a1 /= a0; a2 /= a0;
+  };
+  for (let i = 0; i < x.length; i++) {
+    const fc = typeof f === "number" ? f : f(i);
+    if (typeof f !== "number" ? (i & 31) === 0 : lastF < 0) { coef(fc); lastF = fc; }
+    const y = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = x[i]; y2 = y1; y1 = y;
+    x[i] = y;
+  }
+  return x;
+};
+
+export const noise = (n: number, seed = 1) => { const r = rng(seed); const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = r() * 2 - 1; return a; };
+export const pink = (n: number, seed = 1) => {
+  const w = noise(n, seed); let b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 0; i < n; i++) { b0 = 0.99765 * b0 + w[i] * 0.099046; b1 = 0.963 * b1 + w[i] * 0.2965164; b2 = 0.57 * b2 + w[i] * 1.0526913; w[i] = (b0 + b1 + b2 + w[i] * 0.1848) * 0.2; }
+  return w;
+};
+export const envExp = (x: Float32Array, tau: number, attack = 0.002) => { for (let i = 0; i < x.length; i++) { const t = i / SR; x[i] *= Math.min(1, t / attack) * Math.exp(-t / tau); } return x; };
+export const envAR = (x: Float32Array, a: number, r: number) => { const d = x.length / SR; for (let i = 0; i < x.length; i++) { const t = i / SR; x[i] *= smooth(0, a, t) * (1 - smooth(d - r, d, t)); } return x; };
+export const sine = (dur: number, f: number | ((t: number) => number), phase = 0) => {
+  const n = S(dur), a = new Float32Array(n); let p = phase;
+  for (let i = 0; i < n; i++) { const fr = typeof f === "number" ? f : f(i / SR); p += (2 * Math.PI * fr) / SR; a[i] = Math.sin(p); }
+  return a;
+};
+export const saw = (dur: number, f: number, seed = 0) => {
+  const n = S(dur), a = new Float32Array(n); let p = rng(seed)();
+  for (let i = 0; i < n; i++) { p += f / SR; p -= Math.floor(p); a[i] = 2 * p - 1; }
+  return a;
+};
+export const mixInto = (dst: Float32Array, src: Float32Array, g = 1) => { for (let i = 0; i < Math.min(dst.length, src.length); i++) dst[i] += src[i] * g; return dst; };
+
+// ── instruments ─────────────────────────────────────────────────────────────
+export type Out = { dry: Bus; verb: Bus };
+
+/** Warm pad: 3 detuned saws per note → 2-pole low-pass, slow envelope. */
+export const pad = (o: Out, t0: number, t1: number, notes: string[], g: number, cutoff = 900, a = 1.5, r = 1.5, pan = 0, bright = 0) => {
+  const dur = t1 - t0, n = S(dur);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  notes.forEach((nn, k) => {
+    const f = nf(nn);
+    for (const [d, p] of [[-0.006, -0.6], [0, 0], [0.007, 0.6]] as const) {
+      const s = saw(dur, f * (1 + d), k * 7 + Math.round(d * 1000));
+      const gl = Math.cos(((p * 0.7 + pan + 1) * Math.PI) / 4), gr = Math.sin(((p * 0.7 + pan + 1) * Math.PI) / 4);
+      for (let i = 0; i < n; i++) { L[i] += s[i] * gl; R[i] += s[i] * gr; }
+    }
+  });
+  const fc = (i: number) => cutoff * (1 + bright * smooth(0, n, i));
+  biquad(L, "lp", fc, 0.6); biquad(L, "lp", fc, 0.6); biquad(R, "lp", fc, 0.6); biquad(R, "lp", fc, 0.6);
+  envAR(L, a, r); envAR(R, a, r);
+  const k = g / Math.max(1, notes.length * 1.2);
+  o.dry.addSt(t0, L, R, k);
+  o.verb.addSt(t0, L, R, k * 0.5);
+};
+
+export const pluck = (o: Out, t: number, note: string, g: number, pan = 0, decay = 0.996, brightness = 0.5) => {
+  const f = nf(note), p = Math.max(2, Math.round(SR / f));
+  const n = S(2.2), y = new Float32Array(n), buf = noise(p, Math.round(t * 1000 + f));
+  biquad(buf, "lp", 1500 + brightness * 5000);
+  for (let i = 0; i < n; i++) { const j = i % p; const v = buf[j]; buf[j] = decay * 0.5 * (v + buf[(j + 1) % p]); y[i] = v; }
+  envExp(y, 0.9, 0.002);
+  o.dry.add(t, y, g, pan);
+  o.verb.add(t, y, g * 0.5, pan);
+};
+
+export const bell = (o: Out, t: number, note: string, g: number, dur = 3, pan = 0) => {
+  const f = nf(note), n = S(dur), y = new Float32Array(n);
+  for (const [m, a, tau] of [[1, 1, 1.4], [2.76, 0.45, 0.7], [5.4, 0.25, 0.35], [8.93, 0.12, 0.2]] as const) mixInto(y, envExp(sine(dur, f * m), tau * (dur / 3), 0.002), a);
+  o.dry.add(t, y, g * 0.3, pan);
+  o.verb.add(t, y, g * 0.35, pan);
+};
+
+export const kalimba = (o: Out, t: number, note: string, g: number, pan = 0) => {
+  const f = nf(note), y = envExp(sine(1.8, f), 0.55, 0.002);
+  mixInto(y, envExp(sine(1.8, f * 5.4), 0.06, 0.001), 0.25);
+  mixInto(y, envExp(sine(1.8, f * 2), 0.25, 0.002), 0.15);
+  o.dry.add(t, y, g * 0.35, pan);
+  o.verb.add(t, y, g * 0.3, pan);
+};
+
+/** Electric-piano chord (sine partials + tremolo). */
+export const ep = (o: Out, t: number, notes: string[], g: number, dur: number) => {
+  notes.forEach((nn, k) => {
+    const f = nf(nn), y = envExp(sine(dur, f), dur * 0.45, 0.01);
+    mixInto(y, envExp(sine(dur, f * 2), dur * 0.18, 0.005), 0.25);
+    mixInto(y, envExp(sine(dur, f * 3), dur * 0.08, 0.003), 0.08);
+    for (let i = 0; i < y.length; i++) y[i] *= 1 + 0.12 * Math.sin((2 * Math.PI * 4.5 * i) / SR);
+    envAR(y, 0.01, 0.4);
+    o.dry.add(t + k * 0.014, y, (g * 0.3) / notes.length, (k / Math.max(1, notes.length - 1) - 0.5) * 0.5);
+    o.verb.add(t, y, (g * 0.25) / notes.length);
+  });
+};
+
+export const subPulse = (o: Out, t: number, g: number, f0 = 55) => { const x = envExp(sine(0.6, (u) => f0 - 18 * Math.min(1, u * 5)), 0.12, 0.004); o.dry.add(t, x, g); };
+
+// ── foley / design ──────────────────────────────────────────────────────────
+export const click = (o: Out, t: number, f: number, g: number, pan = 0, tau = 0.012) => {
+  const x = envExp(biquad(noise(S(0.08), Math.round(t * 997)), "bp", f, 2.5), tau * 0.5, 0.0005);
+  mixInto(x, envExp(sine(0.08, f * 0.62), tau, 0.0005), 0.4);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.15, pan);
+};
+export const thud = (o: Out, t: number, g: number, f = 60, tau = 0.18, pan = 0) => {
+  const x = envExp(sine(0.8, (u) => f * (1.25 - 0.3 * Math.min(1, u * 4))), tau, 0.002);
+  mixInto(x, envExp(biquad(noise(S(0.8), Math.round(t * 31)), "lp", 500), tau * 0.4, 0.002), 0.6);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.3, pan);
+};
+/** Fabric: band-passed noise with a slow, uneven swell. */
+export const rustle = (o: Out, t: number, dur: number, g: number, pan = 0, f = 2400) => {
+  const n = S(dur);
+  const x = biquad(biquad(noise(n, Math.round(t * 113)), "bp", f, 0.7), "hp", 700);
+  const r = rng(Math.round(t * 71));
+  let e = 0;
+  for (let i = 0; i < n; i++) {
+    const u = i / n;
+    if ((i & 255) === 0) e = 0.55 + 0.45 * r();
+    x[i] *= Math.sin(Math.PI * u) * e;
+  }
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.12, pan);
+};
+export const whoosh = (o: Out, t: number, dur: number, g: number, f0: number, f1: number, pan0 = -0.4, pan1 = 0.4) => {
+  const n = S(dur);
+  const x = biquad(noise(n, Math.round(t * 71)), "bp", (i) => f0 * (f1 / f0) ** (i / n), 1.2);
+  for (let i = 0; i < n; i++) { const u = i / n; x[i] *= Math.sin(Math.PI * u) ** 1.5; }
+  const L = new Float32Array(n), R = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const p = pan0 + (pan1 - pan0) * (i / n); L[i] = x[i] * Math.cos(((p + 1) * Math.PI) / 4); R[i] = x[i] * Math.sin(((p + 1) * Math.PI) / 4); }
+  o.dry.addSt(t, L, R, g);
+  o.verb.addSt(t, L, R, g * 0.3);
+};
+export const heartbeat = (o: Out, t: number, g: number) => {
+  for (const [dt, k] of [[0, 1], [0.17, 0.7]] as const) {
+    const x = envExp(sine(0.4, (u) => 58 - 22 * Math.min(1, u * 6)), 0.07, 0.004);
+    biquad(x, "lp", 160);
+    o.dry.add(t + dt, x, g * k);
+  }
+};
+/** A soft notification "bloop": a rising sine blip with a bell sparkle. */
+export const pop = (o: Out, t: number, g: number, f = 880, pan = 0) => {
+  const x = envExp(sine(0.35, (u) => f * (0.75 + 0.35 * Math.min(1, u * 18))), 0.07, 0.003);
+  mixInto(x, envExp(sine(0.35, f * 2.01), 0.04, 0.002), 0.25);
+  mixInto(x, envExp(sine(0.35, f * 3.02), 0.02, 0.001), 0.12);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.35, pan);
+};
+export const shimmer = (o: Out, t: number, dur: number, g: number, base = 2400, seed = 1) => {
+  const r = rng(seed);
+  for (let k = 0; k < Math.round(dur * 26); k++) {
+    const tt = t + r() * dur, f = base * (1 + r() * 2);
+    const x = envExp(sine(0.25, f), 0.05 + r() * 0.08, 0.002);
+    const w = Math.sin(Math.PI * ((tt - t) / dur));
+    o.dry.add(tt, x, g * 0.05 * w, r() * 1.6 - 0.8);
+    o.verb.add(tt, x, g * 0.05 * w, 0);
+  }
+};
+/** Breath: filtered noise, inhale (rising) then exhale (falling). */
+export const breath = (o: Out, t: number, inhale: number, exhale: number, g: number) => {
+  const a = biquad(biquad(pink(S(inhale), Math.round(t * 17)), "bp", (i) => 900 + 700 * (i / S(inhale)), 0.8), "hp", 300);
+  for (let i = 0; i < a.length; i++) a[i] *= Math.sin((Math.PI * i) / a.length) ** 1.2;
+  const b = biquad(biquad(pink(S(exhale), Math.round(t * 19)), "bp", (i) => 1300 - 700 * (i / S(exhale)), 0.7), "hp", 250);
+  for (let i = 0; i < b.length; i++) b[i] *= Math.sin((Math.PI * i) / b.length) ** 0.8;
+  o.dry.add(t, a, g * 0.9);
+  o.dry.add(t + inhale, b, g);
+};
+/** Pen on paper: short scratchy grains, one per stroke. */
+export const scribble = (o: Out, t0: number, t1: number, g: number, seed = 5) => {
+  const r = rng(seed);
+  let t = t0;
+  while (t < t1) {
+    const d = 0.05 + r() * 0.1;
+    const x = biquad(biquad(noise(S(d), Math.round(t * 1000)), "bp", 3500 + r() * 2500, 1.4), "hp", 1800);
+    for (let i = 0; i < x.length; i++) x[i] *= Math.sin((Math.PI * i) / x.length) * (0.6 + 0.4 * Math.sin(i * 0.004 * (1 + r())));
+    o.dry.add(t, x, g * (0.6 + 0.4 * r()), 0.15);
+    t += d + r() * 0.05;
+  }
+};
+
+/** Freeverb-style stereo reverb. */
+export const freeverb = (x: Float32Array, spread: number, room = 0.84, damp = 0.25) => {
+  const k = SR / 44100;
+  const combs = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617].map((d) => ({ b: new Float32Array(Math.round((d + spread) * k)), i: 0, f: 0 }));
+  const aps = [556, 441, 341, 225].map((d) => ({ b: new Float32Array(Math.round((d + spread) * k)), i: 0 }));
+  const y = new Float32Array(x.length);
+  for (let n = 0; n < x.length; n++) {
+    const inp = x[n] * 0.015;
+    let out = 0;
+    for (const c of combs) { const o = c.b[c.i]; c.f = o * (1 - damp) + c.f * damp; c.b[c.i] = inp + c.f * room; c.i = (c.i + 1) % c.b.length; out += o; }
+    for (const a of aps) { const o = a.b[a.i]; a.b[a.i] = out + o * 0.5; a.i = (a.i + 1) % a.b.length; out = o - out; }
+    y[n] = out;
+  }
+  return y;
+};
+
+/** Decode an audio file to mono float at SR. */
+export const decode = (file: string) => {
+  const raw = spawnSync("ffmpeg", ["-v", "error", "-i", file, "-f", "f32le", "-ac", "1", "-ar", String(SR), "-"], { maxBuffer: 1 << 30 }).stdout as Buffer;
+  return new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+};
+
+/** Speech envelope → ducking gain 0…1 (attack 60 ms, release 380 ms). */
+export const duckEnvelope = (vo: Float32Array) => {
+  const N = vo.length, win = S(0.02), duck = new Float32Array(N);
+  let env = 0;
+  for (let i = 0; i < N; i += win) {
+    let e = 0;
+    for (let j = i; j < Math.min(N, i + win); j++) e += vo[j] * vo[j];
+    const on = Math.sqrt(e / win) > 0.012 ? 1 : 0;
+    const a = on > env ? 1 - Math.exp(-0.02 / 0.06) : 1 - Math.exp(-0.02 / 0.38);
+    env += (on - env) * a;
+    for (let j = i; j < Math.min(N, i + win); j++) duck[j] = env;
+  }
+  return duck;
+};
+
+export const writeWav = (file: string, l: Float32Array, r: Float32Array, k = 1) => {
+  const N = l.length;
+  const b = Buffer.alloc(44 + N * 4);
+  b.write("RIFF", 0); b.writeUInt32LE(36 + N * 4, 4); b.write("WAVE", 8); b.write("fmt ", 12);
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(2, 22); b.writeUInt32LE(SR, 24); b.writeUInt32LE(SR * 4, 28);
+  b.writeUInt16LE(4, 32); b.writeUInt16LE(16, 34); b.write("data", 36); b.writeUInt32LE(N * 4, 40);
+  for (let i = 0; i < N; i++) {
+    b.writeInt16LE(Math.round(clamp(l[i] * k, -1, 1) * 32767), 44 + i * 4);
+    b.writeInt16LE(Math.round(clamp(r[i] * k, -1, 1) * 32767), 46 + i * 4);
+  }
+  fs.writeFileSync(file, b);
+};
+
+// ── comedy kit ──────────────────────────────────────────────────────────────
+/** Cartoon boing: a sine that springs up in pitch with a wobble. */
+export const boing = (o: Out, t: number, g: number, f0 = 180, f1 = 520, dur = 0.6, pan = 0) => {
+  const x = sine(dur, (u) => (f0 + (f1 - f0) * Math.min(1, u / (dur * 0.35))) * (1 + 0.08 * Math.sin(u * 2 * Math.PI * 14) * Math.exp(-u * 4)));
+  envAR(x, 0.005, dur * 0.5);
+  mixInto(x, envExp(sine(dur, f1 * 2), 0.08, 0.002), 0.15);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.3, pan);
+};
+/** Referee whistle: a pea-trill around 2.6 kHz. */
+export const whistle = (o: Out, t: number, dur: number, g: number, pan = 0) => {
+  const n = S(dur), x = new Float32Array(n);
+  let p = 0;
+  for (let i = 0; i < n; i++) {
+    const u = i / SR;
+    const f = 2650 + 180 * Math.sign(Math.sin(2 * Math.PI * 28 * u));
+    p += (2 * Math.PI * f) / SR;
+    x[i] = Math.sin(p) * (0.85 + 0.15 * Math.sin(2 * Math.PI * 28 * u));
+  }
+  mixInto(x, biquad(noise(n, Math.round(t * 99)), "bp", 2650, 3), 0.25);
+  envAR(x, 0.01, 0.05);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.25, pan);
+};
+/** Crowd cheer: band-limited noise swell with "voices" (formant wobble). */
+export const cheer = (o: Out, t: number, dur: number, g: number) => {
+  const n = S(dur);
+  const x = biquad(biquad(pink(n, 55), "bp", (i) => 900 + 400 * Math.sin(i / SR * 9), 0.8), "hp", 250);
+  for (let i = 0; i < n; i++) { const u = i / n; x[i] *= Math.sin(Math.PI * Math.min(1, u * 1.6)) * (1 - u) * 1.4 * (0.8 + 0.2 * Math.sin(i / SR * 37)); }
+  o.dry.add(t, x, g, 0);
+  o.verb.add(t, x, g * 0.4, 0);
+};
+/** Rubber squeak (an aborted gesture). */
+export const squeak = (o: Out, t: number, g: number, pan = 0) => {
+  const x = sine(0.16, (u) => 1400 + 900 * Math.sin(u * Math.PI * 6));
+  envAR(x, 0.01, 0.06);
+  o.dry.add(t, x, g, pan);
+};
+/** Zipper: a fast train of clicks. */
+export const zipper = (o: Out, t: number, dur: number, g: number, pan = 0) => {
+  const r = rng(Math.round(t * 77));
+  for (let tt = 0; tt < dur; tt += 0.008 + r() * 0.006) {
+    const x = envExp(biquad(noise(S(0.02), Math.round((t + tt) * 3000)), "bp", 3500 + r() * 2500, 2), 0.003, 0.0005);
+    o.dry.add(t + tt, x, g * (0.6 + 0.4 * Math.sin((Math.PI * tt) / dur)), pan);
+  }
+};
+/** Clock tick-tock. */
+export const ticktock = (o: Out, t0: number, t1: number, g: number) => {
+  let k = 0;
+  for (let t = t0; t < t1; t += 0.5, k++) {
+    const f = k % 2 ? 2300 : 3100;
+    const x = envExp(biquad(noise(S(0.05), k + 9), "bp", f, 6), 0.006, 0.0005);
+    mixInto(x, envExp(sine(0.05, f * 0.5), 0.01, 0.0005), 0.3);
+    o.dry.add(t, x, g, k % 2 ? 0.25 : -0.25);
+  }
+};
+/** Sad trombone: four falling notes, the last one wobbling. */
+export const sadTrombone = (o: Out, t: number, g: number) => {
+  const notes: [number, number][] = [[nf("D4"), 0.42], [nf("C#4"), 0.42], [nf("C4"), 0.42], [nf("B3"), 1.4]];
+  let tt = t;
+  notes.forEach(([f, d], k) => {
+    const n = S(d), x = new Float32Array(n);
+    let p = 0;
+    for (let i = 0; i < n; i++) {
+      const u = i / SR;
+      const vib = k === 3 ? 1 + 0.03 * Math.sin(2 * Math.PI * 6 * u) * Math.min(1, u * 2) : 1;
+      p += (2 * Math.PI * f * vib * (1 - 0.01 * Math.exp(-u * 20))) / SR;
+      const ph = (p / (2 * Math.PI)) % 1;
+      x[i] = 2 * ph - 1;
+    }
+    biquad(x, "lp", 1400, 1.5);
+    biquad(x, "peak", 600, 1, 6);
+    envAR(x, 0.03, k === 3 ? 0.5 : 0.06);
+    o.dry.add(tt, x, g * 0.35, 0.1);
+    o.verb.add(tt, x, g * 0.2, 0.1);
+    tt += d;
+  });
+};
+/** Tape rewind: a high, warbling whirr that speeds up. */
+export const rewindTape = (o: Out, t: number, dur: number, g: number) => {
+  const n = S(dur), x = new Float32Array(n);
+  let p = 0;
+  for (let i = 0; i < n; i++) {
+    const u = i / n;
+    const f = 600 + 2400 * u * u + 300 * Math.sin(i / SR * 2 * Math.PI * 11);
+    p += (2 * Math.PI * f) / SR;
+    x[i] = Math.sin(p) * 0.4 + Math.sin(p * 1.5) * 0.2;
+  }
+  mixInto(x, biquad(noise(n, 31), "bp", (i) => 1500 + 3000 * (i / n), 1), 0.5);
+  envAR(x, 0.05, 0.12);
+  o.dry.add(t, x, g, 0);
+};
+/** Hand clap / high five: sharp noise burst with a body thump. */
+export const clap = (o: Out, t: number, g: number, pan = 0) => {
+  const x = envExp(biquad(noise(S(0.25), Math.round(t * 333)), "bp", 1800, 0.9), 0.035, 0.0008);
+  mixInto(x, envExp(sine(0.25, 190), 0.03, 0.001), 0.4);
+  o.dry.add(t, x, g, pan);
+  o.verb.add(t, x, g * 0.4, pan);
+};
+/** Sneaker step on pavers. */
+export const sneakerStep = (o: Out, t: number, g: number, pan = 0, seed = 1) => {
+  const r = rng(Math.round(t * 1000) + seed);
+  const x = envExp(biquad(noise(S(0.12), Math.round(t * 1000) + seed), "bp", 1100 + 500 * r(), 1.2), 0.018, 0.001);
+  mixInto(x, envExp(sine(0.12, 85 + 20 * r()), 0.03, 0.002), 0.5);
+  mixInto(x, envExp(biquad(noise(S(0.12), seed + 7), "hp", 5000), 0.006, 0.003), 0.15);
+  o.dry.add(t, x, g, pan);
+};
+
+// ── CINÉSTORY kit: cinematic drones, hits, doors, weather beds ─────────────
+
+/** Sustained drone: detuned saws per note, a moving low-pass and a gain curve (both functions of time in the drone). */
+export const drone = (o: Out, t0: number, t1: number, notes: [string, number][], gain: (t: number) => number, cut: (t: number) => number) => {
+  const n = S(t1 - t0), L = new Float32Array(n), R = new Float32Array(n);
+  notes.forEach(([nn, g], k) => {
+    const f = nf(nn);
+    for (const [d, p] of [[-0.004, -0.5], [0.005, 0.5]] as const) {
+      const s = saw(t1 - t0, f * (1 + d), k * 11 + (p > 0 ? 3 : 0));
+      for (let i = 0; i < n; i++) { L[i] += s[i] * g * (p < 0 ? 1 : 0.6); R[i] += s[i] * g * (p > 0 ? 1 : 0.6); }
+    }
+  });
+  biquad(L, "lp", (i) => cut(i / SR), 0.7); biquad(R, "lp", (i) => cut(i / SR), 0.7);
+  for (let i = 0; i < n; i++) { const g = gain(i / SR) * smooth(0, 1.2, i / SR) * (1 - smooth(t1 - t0 - 1.2, t1 - t0, i / SR)); L[i] *= g; R[i] *= g; }
+  o.dry.addSt(t0, L, R, 0.5);
+  o.verb.addSt(t0, L, R, 0.35);
+};
+/** Low cinematic boom (sub drop + noise body). */
+export const boom = (o: Out, t: number, g: number, f = 48) => {
+  const x = envExp(sine(2.2, (u) => f + 30 * Math.exp(-u * 6)), 0.7, 0.003);
+  const body = envExp(biquad(noise(S(1.2), 91), "lp", 300), 0.25, 0.002);
+  o.dry.add(t, x, g); o.dry.add(t, body, g * 0.5); o.verb.add(t, body, g * 0.6);
+};
+/** Rising swell into a moment (filtered noise + a glide). */
+export const riser = (o: Out, t: number, dur: number, g: number) => {
+  const n = S(dur), x = pink(n, 61);
+  biquad(x, "bp", (i) => 300 + 5000 * (i / n) ** 2, 0.9);
+  for (let i = 0; i < n; i++) x[i] *= (i / n) ** 2.2;
+  const tone = sine(dur, (u) => 110 * 2 ** (2 * (u / dur)));
+  for (let i = 0; i < n; i++) tone[i] *= 0.15 * (i / n) ** 3;
+  o.dry.add(t, x, g); o.dry.add(t, tone, g); o.verb.add(t, x, g * 0.5);
+};
+/** Three knuckle knocks on wood. */
+export const knock = (o: Out, t: number, g: number, n = 3, gap = 0.3) => {
+  for (let k = 0; k < n; k++) {
+    const x = envExp(biquad(noise(S(0.12), 33 + k), "bp", 420, 1.2), 0.035, 0.001);
+    const b = envExp(sine(0.15, 150), 0.03, 0.001);
+    o.dry.add(t + k * gap, x, g * 2.2); o.dry.add(t + k * gap, b, g * 0.6); o.verb.add(t + k * gap, x, g * 0.8);
+  }
+};
+/** Wooden creak: a slowly gliding rough resonance. */
+export const creak = (o: Out, t: number, dur: number, g: number, base = 180, pan = 0) => {
+  const n = S(dur), r = rng(7 + Math.round(base));
+  const x = new Float32Array(n);
+  let ph = 0;
+  for (let i = 0; i < n; i++) { const u = i / n; const f = base * (1 + 0.6 * Math.sin(u * Math.PI) + 0.1 * (r() - 0.5)); ph += f / SR; x[i] = (ph % 1 < 0.12 ? 1 : 0) * (0.6 + 0.4 * r()); }
+  biquad(x, "bp", base * 4, 3); envAR(x, 0.05, 0.1);
+  o.dry.add(t, x, g, pan); o.verb.add(t, x, g * 0.4, pan);
+};
+export const doorOpen = (o: Out, t: number, g: number) => { click(o, t, 1800, g * 0.5, 0.2); creak(o, t + 0.08, 0.9, g * 0.8, 210, 0.2); };
+export const doorClose = (o: Out, t: number, g: number) => { creak(o, t, 0.35, g * 0.4, 260, 0.2); thud(o, t + 0.32, g * 1.4, 70, 0.16, 0.2); click(o, t + 0.34, 2400, g * 0.4, 0.2); };
+/** Ship's / foghorn blast. */
+export const foghorn = (o: Out, t: number, g: number, dur = 2.6) => {
+  const x = saw(dur, 92, 5), y = saw(dur, 92 * 1.498, 9);
+  for (let i = 0; i < x.length; i++) x[i] = x[i] * 0.6 + y[i] * 0.4;
+  biquad(x, "lp", 700, 0.8); envAR(x, 0.25, 0.6);
+  o.dry.add(t, x, g); o.verb.add(t, x, g * 1.2);
+};
+/** Radio static burst with a faint tone underneath. */
+export const radio = (o: Out, t: number, dur: number, g: number) => {
+  const x = biquad(biquad(noise(S(dur), 71), "bp", 2200, 0.6), "hp", 500);
+  const r = rng(72);
+  for (let i = 0; i < x.length; i++) x[i] *= 0.5 + 0.5 * (Math.sin(i / SR * 37 + r() * 0.3) > -0.2 ? 1 : 0.2);
+  envAR(x, 0.03, 0.15);
+  o.dry.add(t, x, g, 0.3);
+};
+/** A gull's cry. */
+export const gull = (o: Out, t: number, g: number, pan = 0) => {
+  for (let k = 0; k < 3; k++) {
+    const d = 0.22 + 0.05 * k, x = sine(d, (u) => 1700 + 900 * Math.sin((u / d) * Math.PI) - 300 * k);
+    for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * 3) * Math.sin((Math.PI * i) / x.length);
+    biquad(x, "bp", 2000, 1.2);
+    o.dry.add(t + k * 0.28, x, g, pan); o.verb.add(t + k * 0.28, x, g * 0.7, pan);
+  }
+};
+/** One wave breaking on rocks (noise burst with a long hiss tail). */
+export const waveCrash = (o: Out, t: number, g: number, pan = 0, dist = 0) => {
+  const n = S(3.5), x = pink(n, 300 + Math.round(t * 10));
+  biquad(x, "lp", 2600 - 1800 * dist, 0.7);
+  for (let i = 0; i < n; i++) { const u = i / SR; x[i] *= smooth(0, 0.35, u) * Math.exp(-Math.max(0, u - 0.35) * 1.1); }
+  o.dry.add(t, x, g, pan); o.verb.add(t, x, g * 0.5, pan);
+};
+
+==== 5834 project/scripts/transcribe.mjs
+// Word timings for a voice-over → JSON [[word, start, end], …] (VO seconds).
+//   node scripts/transcribe.mjs <vo.mp3> --out=stories/<id>/words.json [--script=script.txt] [--lang=id]
+//   node scripts/transcribe.mjs <any/path/vo.mp3> --id=<id> [--script=…]   copies the VO to public/audio/<id>.<ext>
+//                                                                          and writes stories/<id>/words.json
+//
+// 1. whisper.cpp when available (WHISPER_CLI + WHISPER_MODEL, or `whisper-cli` on PATH with a model in
+//    ~/.cache/whisper.cpp or ./models) — real word timings; with --script the script's words are kept
+//    (names and numbers spelled as written) and timed by whisper.
+// 2. otherwise, with the script text: every speech segment of the VO (silence detection) is given its run of
+//    script words by a global alignment (scripts/align.mjs) — sentence starts land on the right pause from
+//    the first to the last line (no drift), word timing inside a phrase ≈ ±0.3 s.
+// --method=script forces 2 even when whisper.cpp is installed.
+// Without whisper and without a script there is nothing to align: the script text must be provided.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { alignScript, scriptOnWhisper, speechSegments } from "./align.mjs";
+
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const id = opt("id");
+if (id && !/^[a-z0-9-]+$/.test(id)) { console.error(`--id "${id}" must use only a-z, 0-9 and "-"`); process.exit(1); }
+const out = opt("out") || (id ? `stories/${id}/words.json` : "");
+if (file && fs.existsSync(file) && id) {
+  const dst = path.join("public", "audio", `${id}${path.extname(file).toLowerCase() || ".mp3"}`);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  if (path.resolve(dst) !== path.resolve(file)) fs.copyFileSync(file, dst);
+  console.log(`vo: ${dst}  →  story.json "vo": { "file": "${path.relative("public", dst)}", "offset": 1.5 }`);
+}
+if (!file || !fs.existsSync(file) || !out) {
+  console.error("usage: node scripts/transcribe.mjs <vo.mp3> (--id=<id> | --out=stories/<id>/words.json) [--script=script.txt] [--lang=id] [--method=script]");
+  process.exit(1);
+}
+const run = (cmd, a) => spawnSync(cmd, a, { encoding: "utf8", maxBuffer: 1 << 28 });
+const duration = Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).stdout.trim());
+
+const findWhisper = () => {
+  const home = os.homedir();
+  const cands = [process.env.WHISPER_CLI, run("sh", ["-c", "command -v whisper-cli"]).stdout.trim(), "/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"].filter(Boolean);
+  const cli = cands.find((c) => fs.existsSync(c));
+  const modelDirs = [path.join(home, ".cache/whisper.cpp"), path.resolve("models"), "/opt/homebrew/share/whisper-cpp"];
+  let model = process.env.WHISPER_MODEL && fs.existsSync(process.env.WHISPER_MODEL) ? process.env.WHISPER_MODEL : null;
+  if (!model) for (const d of modelDirs) { if (!fs.existsSync(d)) continue; const m = fs.readdirSync(d).filter((f) => f.endsWith(".bin")).sort((a, b) => (b.includes("large") ? 1 : 0) - (a.includes("large") ? 1 : 0))[0]; if (m) { model = path.join(d, m); break; } }
+  return cli && model ? { cli, model } : null;
+};
+
+let words = null, method = "";
+const method0 = opt("method", "auto");
+const W = method0 === "script" ? null : findWhisper();
+if (W) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cf-vo-"));
+  const wav = path.join(tmp, "vo16k.wav");
+  run("ffmpeg", ["-v", "error", "-y", "-i", file, "-ar", "16000", "-ac", "1", wav]);
+  run(W.cli, ["-m", W.model, "-f", wav, "-l", opt("lang", "id"), "-ml", "1", "-sow", "-ojf", "-of", path.join(tmp, "w")]);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(tmp, "w.json"), "utf8"));
+    words = j.transcription.map((s) => [s.text.trim(), s.offsets.from / 1000, s.offsets.to / 1000]).filter((w) => w[0]);
+    method = `whisper.cpp (${path.basename(W.model)})`;
+    const sf = opt("script");
+    if (sf && fs.existsSync(sf) && words.length) {
+      const m = scriptOnWhisper(fs.readFileSync(sf, "utf8"), words);
+      if (m.matched >= 0.6) { words = m.words; method += `, script words timed by whisper (${Math.round(m.matched * 100)} % matched)`; }
+      else method += ` — the script matches only ${Math.round(m.matched * 100)} % of what was heard: whisper's own words kept (is it the right script?)`;
+    }
+  } catch { words = null; }
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+if (!words) {
+  const scriptFile = opt("script");
+  if (!scriptFile || !fs.existsSync(scriptFile)) {
+    console.error("No whisper.cpp found and no --script given. Provide the narration text (e.g. --script=stories/<id>/script.txt) or install whisper.cpp (see the skill's references/cinestory/setup.md).");
+    process.exit(2);
+  }
+  const segs = speechSegments(file, duration);
+  const r = alignScript(fs.readFileSync(scriptFile, "utf8"), segs);
+  if (!r) { console.error("Could not align: no speech found in the VO, or the script is empty."); process.exit(3); }
+  words = r.words;
+  method = `script aligned to ${r.segments} speech segments (${r.clauses} script phrases, ${r.rate.toFixed(1)} syllables/s); word timing inside a phrase ≈ ±0.3 s`;
+  for (const w of r.warnings) console.log(`  ⚠ ${w}`);
+}
+
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, JSON.stringify(words.map(([w, a, b]) => [w, +a.toFixed(2), +b.toFixed(2)])));
+console.log(`words: ${out} — ${words.length} words, ${duration.toFixed(2)} s, via ${method}`);
+console.log(words.map(([w, a]) => `${a.toFixed(2)} ${w}`).join("  "));
+
+==== 2032 project/scripts/tts.mjs
+// Offline narration with the operating system's voice (only with the user's approval — it is a
+// stand-in for a real voice-over). macOS: `say` (Indonesian voice "Damayanti"). Writes an MP3 and,
+// because the text is known, the word timings too.
+//   node scripts/tts.mjs <script.txt> <public/audio/<id>.mp3> --words=stories/<id>/words.json [--voice=Damayanti] [--rate=170]
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const [scriptFile, outMp3] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const opt = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+if (!scriptFile || !outMp3) {
+  console.error("usage: node scripts/tts.mjs <script.txt> <out.mp3> --words=stories/<id>/words.json [--voice=Damayanti] [--rate=170]");
+  process.exit(1);
+}
+if (process.platform !== "darwin") {
+  console.error("Built-in TTS is only wired for macOS (`say`). On other systems record or generate the voice-over elsewhere and use scripts/transcribe.mjs.");
+  process.exit(2);
+}
+const voice = opt("voice", "Damayanti"), rate = opt("rate", "170");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cf-tts-"));
+const aiff = path.join(tmp, "vo.aiff");
+const r = spawnSync("say", ["-v", voice, "-r", rate, "-o", aiff, "-f", scriptFile], { encoding: "utf8" });
+if (r.status !== 0) { console.error(r.stderr || `say failed (voice "${voice}" installed?)`); process.exit(3); }
+fs.mkdirSync(path.dirname(outMp3), { recursive: true });
+spawnSync("ffmpeg", ["-v", "error", "-y", "-i", aiff, "-af", "apad=pad_dur=0.2", "-ar", "44100", "-ac", "1", "-b:a", "160k", outMp3]);
+fs.rmSync(tmp, { recursive: true, force: true });
+console.log(`tts: ${outMp3} (${voice}, rate ${rate})`);
+const words = opt("words");
+if (words) {
+  const t = spawnSync("node", [path.join("scripts", "transcribe.mjs"), outMp3, `--out=${words}`, `--script=${scriptFile}`], { stdio: "inherit" });
+  process.exit(t.status ?? 0);
+}
+
+==== 3047 project/scripts/vo-analyze.mjs
+// Read the real timing of a voice-over: duration, pauses and phrases (stretches of speech between
+// pauses). Optional word timings when whisper.cpp is available (set WHISPER_CLI and WHISPER_MODEL).
+// Write cuts in VO seconds from this output — never from a guessed script length.
+//   node scripts/vo-analyze.mjs public/audio/vo.mp3 [--noise=-38] [--pause=0.25] [--lang=id]
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split("=")[1];
+if (!file || !fs.existsSync(file)) {
+  console.error("usage: node scripts/vo-analyze.mjs <audio.mp3|wav> [--noise=-38] [--pause=0.25] [--lang=id]");
+  process.exit(1);
+}
+const run = (cmd, a) => spawnSync(cmd, a, { encoding: "utf8" });
+const duration = Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).stdout.trim());
+const log = run("ffmpeg", ["-v", "info", "-i", file, "-af", `silencedetect=n=${opt("noise", -38)}dB:d=${opt("pause", 0.25)}`, "-f", "null", "-"]).stderr;
+const starts = [...log.matchAll(/silence_start: ([\d.]+)/g)].map((m) => Number(m[1]));
+const ends = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((m) => Number(m[1]));
+const pauses = starts.map((s, i) => ({ start: s, end: ends[i] ?? duration }));
+// phrases = speech between pauses
+const phrases = [];
+let cur = 0;
+for (const p of pauses) {
+  if (p.start - cur > 0.15) phrases.push({ start: +cur.toFixed(2), end: +p.start.toFixed(2) });
+  cur = p.end;
+}
+if (duration - cur > 0.15) phrases.push({ start: +cur.toFixed(2), end: +duration.toFixed(2) });
+
+let words = null;
+const cli = process.env.WHISPER_CLI, model = process.env.WHISPER_MODEL;
+if (cli && model && fs.existsSync(cli) && fs.existsSync(model)) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vo-"));
+  const wav = path.join(tmp, "vo16k.wav");
+  run("ffmpeg", ["-v", "error", "-y", "-i", file, "-ar", "16000", "-ac", "1", wav]);
+  run(cli, ["-m", model, "-f", wav, "-l", opt("lang", "id"), "-ml", "1", "-sow", "-ojf", "-of", path.join(tmp, "w")]);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(tmp, "w.json"), "utf8"));
+    words = j.transcription.map((s) => ({ t: s.offsets.from / 1000, w: s.text.trim() })).filter((x) => x.w);
+  } catch {}
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+const out = { file, duration: +duration.toFixed(3), firstSpeech: phrases[0]?.start ?? 0, pauses, phrases, words };
+const json = file.replace(/\.[^.]+$/, "") + ".timing.json";
+fs.writeFileSync(json, JSON.stringify(out, null, 2));
+console.log(`duration ${out.duration} s · speech starts ${out.firstSpeech} s · ${phrases.length} phrases · ${pauses.length} pauses${words ? ` · ${words.length} words` : ""}`);
+for (const p of phrases) console.log(`  ${p.start.toFixed(2).padStart(7)} – ${p.end.toFixed(2).padStart(7)} s`);
+console.log(`timing: ${json}`);
+
+==== 4209 project/scripts/worlds.mjs
+// The world catalog: every reusable world in this project, so a film starts from a finished set instead of a
+// new one. Without an id it lists them; with an id it prints what a story can name in that world.
+//   node scripts/worlds.mjs            → id, times, places and a one-line description of every world
+//   node scripts/worlds.mjs rumah      → its places with marks, seats / beds, POIs and set props
+
+import fs from "node:fs";
+import path from "node:path";
+
+const ls = (dir, ext) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(ext)).map((f) => path.join(dir, f)) : []);
+const files = [...ls("worlds", ".world.json"), ...(fs.existsSync("stories") ? fs.readdirSync("stories", { withFileTypes: true }).filter((e) => e.isDirectory()).flatMap((e) => ls(path.join("stories", e.name), ".world.json")) : [])];
+const worlds = files.map((f) => { try { return { file: f, ...JSON.parse(fs.readFileSync(f, "utf8")) }; } catch (e) { console.error(`✗ ${f}: ${e.message}`); return null; } }).filter(Boolean);
+// object anchors decide the automatic marks (<id>:seat, <id>:bed, <id>:behind …)
+const anchors = {};
+for (const f of [...ls("library/objects", ".json"), ...ls("assets/objects", ".json")]) { try { const o = JSON.parse(fs.readFileSync(f, "utf8")); anchors[o.id] = Object.keys(o.anchors ?? {}); } catch { /* not an object file */ } }
+const BUILTIN = { kos: "boarding house (kos): room, long hallway, front yard — see references/cinestory/worlds.md", coast: "rocky headland with a lighthouse, the keeper's cottage and the sea — see references/cinestory/worlds.md" };
+
+const id = process.argv[2];
+if (!id) {
+  console.log("Built-in worlds:");
+  for (const [k, v] of Object.entries(BUILTIN)) console.log(`  ${k.padEnd(14)} ${v}`);
+  console.log("\nReady-made worlds (world.json):");
+  for (const w of worlds) console.log(`  ${String(w.id).padEnd(14)} [${(w.times ?? []).join(", ")}] places: ${Object.keys(w.places ?? {}).join(", ")}\n  ${"".padEnd(14)} ${w.doc ?? ""}\n  ${"".padEnd(14)} ${w.file}`);
+  console.log("\nDetails: node scripts/worlds.mjs <id>   ·   use it in story.json: \"world\": \"<id>\"");
+  process.exit(0);
+}
+if (BUILTIN[id]) { console.log(`${id}: ${BUILTIN[id]}`); process.exit(0); }
+const w = worlds.find((x) => x.id === id);
+if (!w) { console.error(`✗ no world "${id}" — available: ${[...Object.keys(BUILTIN), ...worlds.map((x) => x.id)].join(", ")}`); process.exit(1); }
+
+const inRect = (p, r) => p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3];
+const rooms = Object.fromEntries((w.rooms ?? []).map((r) => [r.id, r.rect]));
+const where = (pl, at) => (pl.kind === "interior" ? (pl.rooms ?? []).some((r) => rooms[r] && inRect(at, rooms[r])) : pl.area ? inRect(at, pl.area) : false);
+const xz = (o) => (o.at.length === 3 ? [o.at[0], o.at[2]] : o.at);
+console.log(`# ${w.id} — ${w.doc}\n\nfile: ${w.file}\ntimes: ${(w.times ?? []).join(", ")}\n`);
+for (const [pid, pl] of Object.entries(w.places ?? {})) {
+  console.log(`## place "${pid}" (${pl.kind}) — ${pl.doc ?? ""}`);
+  for (const [m, v] of Object.entries(pl.marks ?? {})) console.log(`  mark   ${m.padEnd(22)} ${v.doc ?? ""}`);
+  const here = (w.objects ?? []).filter((o) => o.id && where(pl, xz(o)));
+  const auto = here.flatMap((o) => (anchors[o.use] ?? []).filter((a) => ["seat", "bed", "behind", "push"].includes(a)).map((a) => `${o.id}:${a}`));
+  if (auto.length) console.log(`  seats / beds / sides: ${auto.join(", ")}`);
+  if (here.length) console.log(`  objects (targets, <id>:front): ${here.map((o) => `${o.id} (${o.use})`).join(", ")}`);
+  const doors = (pl.rooms ?? []).flatMap((r) => ((w.rooms ?? []).find((x) => x.id === r)?.openings ?? []).filter((o) => o.id && o.type !== "arch" && o.type !== "window").map((o) => o.id));
+  if (doors.length) console.log(`  doors (set "<id>": 1 opens): ${[...new Set(doors)].join(", ")}`);
+  console.log(`  ambience ${pl.ambience ?? "room"} · footsteps ${pl.surface ?? "-"} · view ${pl.view ?? "-"}\n`);
+}
+if (w.props && Object.keys(w.props).length) {
+  console.log("## set props (scene / beat \"set\")");
+  for (const [k, v] of Object.entries(w.props)) console.log(`  ${k.padEnd(18)} default ${v.default} — ${v.doc ?? ""}`);
+}
+
+==== 31318 project/src/cine/character/Character.tsx
+// CINÉSTORY character: one procedural rig, many people. A CharSpec (the character bible as data) sets
+// skin, hair style, face shape, wardrobe and proportions; the rig is posed per frame from a Pose
+// (pose.ts). Head = one sculpted sphere (brow ridge, sockets, nose, cheekbones, lips, chin), eyes with
+// lids + lash lines; arms FK or 2-bone IK toward a target in chest space (door handle, key, phone).
+
+import React, { useMemo } from "react";
+import { CapsuleGeometry, DoubleSide, SphereGeometry, Euler, type Material, Matrix4, MeshPhysicalMaterial, Quaternion, Vector3 } from "three";
+import { cached, lathe, sphere, torus, box, cyl } from "../../kits/worldforge/geo.ts";
+import { mulberry32 } from "../../kits/worldforge/noise.ts";
+import { batikTex, eyeTex, phys, weaveTex } from "../mats.ts";
+import type { Arm, Hand, Hold, Leg, Pose } from "./pose.ts";
+
+export type CharSpec = {
+  key: string;
+  skin: string; hair: string; iris: string; lip: string; brow: string;
+  /** whole-body scale (1 = 1.80 m) and head scale */
+  scale: number; headScale: number;
+  top: "hoodie" | "tee" | "jacket"; topColor: string; trim: string;
+  legs: string; feet: "sandal" | "shoe"; sandal: string;
+  hairStyle: "crop" | "messy" | "long" | "bald";
+  /** face shape: jaw width, cheek fullness, nose length, brow thickness, chin (all ~0..1, 0.5 neutral) */
+  face: { jaw: number; cheek: number; nose: number; brow: number; chin: number };
+  /** batik shirt pattern (ink colour on topColor) and glasses */
+  batik?: string; glasses?: boolean;
+  /** knit cap colour, hijab colour (covers hair + neck), beard colour (chin, cheeks, moustache) */
+  cap?: string; hijab?: string; beard?: string;
+};
+
+const skinMat = (c: string) => phys(`skin${c}`, { color: c, roughness: 0.5, sheen: 0.4, sheenColor: "#ff9f80", sheenRoughness: 0.45, clearcoat: 0.08, clearcoatRoughness: 0.5 });
+const fabric = (key: string, c: string, o: Partial<ConstructorParameters<typeof MeshPhysicalMaterial>[0]> = {}) =>
+  phys(`fab${key}`, { color: c, roughness: 0.88, sheen: 0.45, sheenColor: "#9aa8c8", sheenRoughness: 0.55, ...o });
+
+const clothes = (c: CharSpec) => {
+  const top = c.batik
+    ? fabric(`top${c.key}`, "#ffffff", { map: batikTex(`top${c.key}`, c.topColor, c.batik, [3, 3]) })
+    : fabric(`top${c.key}`, "#ffffff", { map: weaveTex(`top${c.key}`, c.topColor, [7, 7]) });
+  return {
+    top,
+    sleeve: top,
+    pocket: fabric(`pocket${c.key}`, "#e4e6ea", { map: weaveTex(`top${c.key}`, c.topColor, [7, 7]) }),
+    legs: fabric(`legs${c.key}`, c.legs, { sheen: 0.5, sheenColor: "#8f97a8" }),
+    trim: fabric(`trim${c.key}`, c.trim, { sheen: 0.2 }),
+    sole: phys(`sole${c.sandal}`, { color: c.sandal, roughness: 0.7 }),
+  };
+};
+
+// ── geometry ────────────────────────────────────────────────────────────────
+
+/** Tapered limb along −Y from 0 to −len with round caps. */
+const limb = (len: number, r0: number, r1: number, mid = 0) =>
+  cached(`limb${len},${r0},${r1},${mid}`, () => {
+    const pts: [number, number][] = [];
+    const n = 8;
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * (Math.PI / 2);
+      pts.push([Math.sin(a) * r1, -len - Math.cos(a) * r1]);
+    }
+    for (let i = 1; i < 10; i++) {
+      const k = i / 10;
+      const bulge = Math.sin(k * Math.PI) * mid;
+      pts.push([r1 + (r0 - r1) * k + bulge, -len + len * k]);
+    }
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * (Math.PI / 2);
+      pts.push([Math.cos(a) * r0, Math.sin(a) * r0]);
+    }
+    return lathe(`limbL${len},${r0},${r1},${mid}`, pts, 28);
+  });
+
+const TORSO: [number, number][] = [
+  [0.0, -0.36], [0.172, -0.356], [0.19, -0.336], [0.188, -0.3], [0.191, -0.2], [0.2, -0.06], [0.21, 0.07], [0.216, 0.15],
+  [0.207, 0.205], [0.18, 0.238], [0.13, 0.262], [0.08, 0.274], [0.0, 0.279],
+];
+const PELVIS: [number, number][] = [[0, -0.13], [0.115, -0.125], [0.155, -0.08], [0.162, 0.0], [0.158, 0.09], [0.0, 0.1]];
+const capsule = (r: number, l: number) => cached(`cap${r},${l}`, () => new CapsuleGeometry(r, l, 6, 14));
+
+const g2 = (x: number, y: number, sx: number, sy: number) => Math.exp(-(x * x) / (sx * sx) - (y * y) / (sy * sy));
+
+/** Sculpt a unit-sphere point into the head surface (+Z = face), in head units. Shape knobs from the spec. */
+const sculpt = (x: number, y: number, z: number, f: CharSpec["face"]): [number, number, number] => {
+  const front = Math.max(0, z);
+  const ax = Math.abs(x);
+  // displacement along the normal (unit sphere: normal = position)
+  let d = 0;
+  d += 0.035 * (0.6 + f.brow) * g2(ax - 0.3, y - 0.27, 0.32, 0.075) * Math.pow(front, 2); // brow ridge
+  d -= 0.06 * g2(ax - 0.375, y - 0.07, 0.17, 0.12) * front; // eye sockets
+  const ridge = g2(x, 0, 0.075, 1) * (y < 0.18 && y > -0.33 ? Math.pow((0.18 - y) / 0.51, 1.3) : 0);
+  d += (0.2 + 0.08 * f.nose) * ridge * Math.pow(front, 4); // nose bridge → tip
+  d += 0.1 * g2(x, y + 0.27, 0.075, 0.065) * front; // tip
+  d += 0.06 * g2(ax - 0.12, y + 0.3, 0.06, 0.05) * front; // nostril wings
+  d -= 0.025 * g2(ax - 0.2, y + 0.38, 0.05, 0.06) * front; // nasolabial
+  d += 0.035 * (0.5 + f.cheek) * g2(ax - 0.55, y + 0.05, 0.2, 0.16) * front; // cheekbones
+  d += 0.022 * g2(x, y + 0.5, 0.17, 0.035) * front; // upper lip
+  d += 0.026 * g2(x, y + 0.6, 0.15, 0.04) * front; // lower lip
+  d -= 0.018 * g2(x, y + 0.69, 0.18, 0.03) * front; // under-lip groove
+  d += (0.03 + 0.04 * f.chin) * g2(x, y + 0.82, 0.2, 0.08) * front; // chin
+  x *= 1 + d; y *= 1 + d; z *= 1 + d;
+  // jaw taper (narrower lower face), forward chin, fuller lower cheeks
+  const low = Math.max(0, -y);
+  x *= 1 - (0.24 - 0.12 * f.jaw) * Math.pow(low, 1.5);
+  z += 0.14 * low * Math.max(0, z) * Math.max(0, z);
+  y *= 1 + 0.12 * low;
+  return [x * 0.102, y * 0.118, z * 0.112];
+};
+
+/** Sculpted head on a unit sphere, then scaled to head size. */
+const headGeo = (f: CharSpec["face"]) =>
+  cached(`head${f.jaw},${f.cheek},${f.nose},${f.brow},${f.chin}`, () => {
+    const g = new SphereGeometry(1, 96, 72);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) a.setXYZ(i, ...sculpt(a.getX(i), a.getY(i), a.getZ(i), f));
+    g.computeVertexNormals();
+    return g;
+  });
+
+/** A shell that follows the sculpted head: `lift(ux, uy, uz)` (relative, on the unit sphere) > 0 stands off the
+ *  skin, < 0 dives under it. The skin hides the dived part, so edges are smooth curves (no cut triangles). */
+const skinShell = (key: string, f: CharSpec["face"], lift: (x: number, y: number, z: number) => number) =>
+  cached(`shell${key}${f.jaw},${f.cheek},${f.nose},${f.brow},${f.chin}`, () => {
+    const g = new SphereGeometry(1, 96, 72);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      const ux = a.getX(i), uy = a.getY(i), uz = a.getZ(i);
+      const [x, y, z] = sculpt(ux, uy, uz, f);
+      const k = 1 + lift(ux, uy, uz);
+      a.setXYZ(i, x * k, y * k, z * k);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/** Hijab: lifted head surface with an oval face opening; extra volume behind and wrapping under the chin. */
+const hijabGeo = (f: CharSpec["face"]) =>
+  skinShell("hijab", f, (x, y, z) => {
+    const o = (x / 0.6) ** 2 + ((y + 0.04) / 0.8) ** 2;
+    const open = sstep(1.12, 0.9, o) * sstep(0.0, 0.25, z);
+    const lift = 0.09 + 0.06 * Math.max(0, -z) + 0.1 * Math.max(0, y - 0.6) + 0.3 * Math.max(0, -y - 0.6) * (1 - 0.6 * Math.max(0, z));
+    return lift * (1 - open) - 0.06 * open;
+  });
+
+/** Beard: jaw, chin and cheeks below the cheekbones, a gap for the mouth; dives under the skin elsewhere. */
+const beardGeo = (f: CharSpec["face"]) =>
+  skinShell("beard", f, (x, y, z) => {
+    const jaw = sstep(-0.4, -0.58, y) * sstep(-0.35, 0.05, z);
+    const mouth = Math.exp(-(x * x) / (0.2 * 0.2) - ((y + 0.55) ** 2) / (0.09 * 0.09));
+    const m = jaw * (1 - 0.95 * mouth);
+    return 0.05 * m - 0.04 * (1 - m);
+  });
+
+/** Open sphere shell (phi start/length around Y, theta from the top), for caps, hijab and long hair. */
+const shell = (phi0: number, phiL: number, th0: number, thL: number) =>
+  cached(`shell${phi0},${phiL},${th0},${thL}`, () => new SphereGeometry(1, 48, 24, phi0, phiL, th0, thL));
+
+// ── IK ──────────────────────────────────────────────────────────────────────
+
+const UA = 0.28, FA = 0.25;
+const _q = new Quaternion();
+const ikArm = (S: Vector3, T: Vector3, pole: Vector3) => {
+  const d0 = new Vector3().subVectors(T, S);
+  const d = Math.min(Math.max(d0.length(), Math.abs(UA - FA) + 1e-3), UA + FA - 1e-3);
+  const u = d0.normalize();
+  const cosA = (UA * UA + d * d - FA * FA) / (2 * UA * d);
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+  const w = pole.clone().addScaledVector(u, -pole.dot(u));
+  if (w.lengthSq() < 1e-8) w.set(0, 0, -1).addScaledVector(u, -u.z);
+  w.normalize();
+  const upper = u.clone().multiplyScalar(cosA).addScaledVector(w, sinA).normalize();
+  const E = S.clone().addScaledVector(upper, UA);
+  const fore = new Vector3().subVectors(S.clone().addScaledVector(u, d), E).normalize();
+  const cosB = Math.min(1, Math.max(-1, upper.dot(fore)));
+  const bend = Math.acos(cosB);
+  const Y = upper.clone().negate();
+  let Z = fore.clone().addScaledVector(upper, -fore.dot(upper));
+  if (Z.lengthSq() < 1e-8) Z = w.clone().negate();
+  Z.normalize();
+  const X = new Vector3().crossVectors(Y, Z).normalize();
+  Z.crossVectors(X, Y).normalize();
+  const m = new Matrix4().makeBasis(X, Y, Z);
+  return { q: new Quaternion().setFromRotationMatrix(m), bend };
+};
+
+// ── parts ───────────────────────────────────────────────────────────────────
+
+const HandMesh: React.FC<{ s: number; h: Hand; skin: Material; t: number; tremble: number }> = ({ s, h, skin, t, tremble }) => {
+  const fingers = [0.026, 0.009, -0.008, -0.025];
+  const tr = tremble * 0.09;
+  return (
+    <group>
+      <mesh geometry={box(0.03, 0.085, 0.074, 0.013)} material={skin} position={[0, -0.05, 0.002]} castShadow receiveShadow />
+      {fingers.map((fz, i) => {
+        const c = i === 0 ? h.index : h.curl;
+        const jit = tr * Math.sin(t * 41 + i * 1.7);
+        const a = -s * (c * 1.4 + jit);
+        return (
+          <group key={i} position={[0, -0.09, fz]} rotation={[0, 0, a]}>
+            <mesh geometry={capsule(0.0088, 0.03)} material={skin} position={[0, -0.022, 0]} castShadow />
+            <group position={[0, -0.045, 0]} rotation={[0, 0, a * 0.9]}>
+              <mesh geometry={capsule(0.0082, 0.022)} material={skin} position={[0, -0.017, 0]} castShadow />
+            </group>
+          </group>
+        );
+      })}
+      <group position={[-s * 0.006, -0.025, 0.036]} rotation={new Euler(0.5, 0, -s * (0.35 + h.thumb * 0.8))}>
+        <mesh geometry={capsule(0.0105, 0.035)} material={skin} position={[0, -0.025, 0]} castShadow />
+      </group>
+    </group>
+  );
+};
+
+const Phone: React.FC<{ screen: Material; s: number }> = ({ screen, s }) => (
+  <group position={[-s * 0.024, -0.075, 0.012]}>
+    <mesh geometry={box(0.009, 0.152, 0.074, 0.004)} material={phys("phoneBody", { color: "#16181c", roughness: 0.3, metalness: 0.6 })} castShadow />
+    <mesh geometry={box(0.001, 0.146, 0.068, 0.0005)} material={screen} position={[-s * 0.0048, 0, 0]} rotation={[Math.PI, s > 0 ? Math.PI : 0, 0]} />
+  </group>
+);
+
+/** Props held in one hand (hand space: fingers along −Y, forward +Z). Binoculars are drawn at the eyes by Head. */
+const metal = () => phys("propMetal", { color: "#2a2c30", roughness: 0.35, metalness: 0.7 });
+const HeldProp: React.FC<{ h: Hold; s: number }> = ({ h, s }) => {
+  if (h.kind === "lantern") {
+    const glow = phys(`lanternGlass${Math.round(h.on * 20)}`, { color: "#ffe2b0", emissive: "#ffb45e", emissiveIntensity: 0.2 + 2.6 * h.on, roughness: 0.2, transmission: 0.2 });
+    return (
+      <group position={[0, -0.13, 0.02]}>
+        <mesh geometry={torus(0.035, 0.004, 6, 20, Math.PI)} material={metal()} position={[0, 0.05, 0]} />
+        <mesh geometry={cyl(0.045, 0.05, 0.02, 16)} material={metal()} position={[0, 0.0, 0]} castShadow />
+        <mesh geometry={cyl(0.04, 0.04, 0.11, 16)} material={glow} position={[0, -0.065, 0]} />
+        <mesh geometry={cyl(0.05, 0.055, 0.02, 16)} material={metal()} position={[0, -0.13, 0]} castShadow />
+      </group>
+    );
+  }
+  if (h.kind === "flashlight") {
+    const lens = phys(`torchLens${Math.round(h.on * 20)}`, { color: "#fff6e0", emissive: "#fff2d0", emissiveIntensity: 3 * h.on, roughness: 0.1 });
+    return (
+      <group position={[0, -0.06, 0.03]} rotation={[Math.PI / 2, 0, 0]}>
+        <mesh geometry={cyl(0.017, 0.017, 0.17, 16)} material={metal()} castShadow />
+        <mesh geometry={cyl(0.026, 0.018, 0.05, 16)} material={metal()} position={[0, 0.1, 0]} castShadow />
+        <mesh geometry={cyl(0.023, 0.023, 0.004, 16)} material={lens} position={[0, 0.126, 0]} />
+      </group>
+    );
+  }
+  if (h.kind === "mug") return <mesh geometry={cyl(0.04, 0.036, 0.1, 18)} material={phys("mug", { color: "#d8d2c4", roughness: 0.4, clearcoat: 0.5 })} position={[-s * 0.045, -0.075, 0.03]} castShadow />;
+  if (h.kind === "book") return <mesh geometry={box(0.035, 0.22, 0.16, 0.008)} material={phys("book", { color: "#5a3b2a", roughness: 0.8 })} position={[-s * 0.03, -0.1, 0.0]} castShadow />;
+  if (h.kind === "pen") return <mesh geometry={cyl(0.004, 0.004, 0.13, 6)} material={phys("pen", { color: "#1d2b4a", roughness: 0.4 })} position={[0, -0.09, 0.03]} rotation={[0.9, 0, 0]} />;
+  if (h.kind === "binoculars") return <Binoculars />;
+  return null;
+};
+const Binoculars: React.FC = () => (
+  <group rotation={[Math.PI / 2, 0, 0]}>
+    {[1, -1].map((k) => (
+      <group key={k} position={[k * 0.034, 0, 0]}>
+        <mesh geometry={cyl(0.021, 0.024, 0.12, 16)} material={metal()} castShadow />
+        <mesh geometry={cyl(0.026, 0.026, 0.02, 16)} material={phys("binoRub", { color: "#121315", roughness: 0.9 })} position={[0, 0.07, 0]} />
+      </group>
+    ))}
+    <mesh geometry={box(0.05, 0.05, 0.024, 0.008)} material={metal()} />
+  </group>
+);
+
+const ArmSide: React.FC<{ s: number; a: Arm; hand: Hand; c: CharSpec; t: number; tremble: number; phone?: Material; hold?: Hold | null }> = ({ s, a, hand, c, t, tremble, phone, hold }) => {
+  const S = new Vector3(s * 0.19, 0.2, -0.01);
+  const cl = clothes(c);
+  let q: Quaternion;
+  let el = a.el;
+  const fk = new Quaternion().setFromEuler(new Euler(-a.sw, s * a.tw, s * a.ab, "XZY"));
+  if (a.ik && a.ik.w > 0) {
+    const T = new Vector3(a.ik.t[0] * s, a.ik.t[1], a.ik.t[2]);
+    const pole = new Vector3(a.ik.pole[0] * s, a.ik.pole[1], a.ik.pole[2]);
+    const r = ikArm(S, T, pole);
+    q = fk.clone().slerp(r.q, a.ik.w);
+    el = el + (r.bend - el) * a.ik.w;
+  } else q = fk;
+  const jit = tremble * 0.06;
+  const wr = new Euler(a.wr[0] + jit * Math.sin(t * 37), s * a.wr[1], s * a.wr[2] + jit * Math.sin(t * 29 + 1), "XYZ");
+  const skin = skinMat(c.skin);
+  const short = c.top === "tee";
+  return (
+    <group position={S} quaternion={q}>
+      {short ? (
+        <>
+          <mesh geometry={limb(0.14, 0.064, 0.058)} material={cl.sleeve} castShadow receiveShadow />
+          <mesh geometry={limb(0.28, 0.044, 0.037)} material={skin} castShadow receiveShadow />
+        </>
+      ) : (
+        <mesh geometry={limb(0.28, 0.064, 0.054, 0.007)} material={cl.sleeve} castShadow receiveShadow />
+      )}
+      <group position={[0, -UA, 0]} rotation={[-el, 0, 0]}>
+        {short ? (
+          <mesh geometry={limb(0.25, 0.037, 0.03, 0.004)} material={skin} castShadow receiveShadow />
+        ) : (
+          <>
+            <mesh geometry={limb(0.225, 0.054, 0.047, 0.005)} material={cl.sleeve} castShadow receiveShadow />
+            <mesh geometry={cyl(0.042, 0.04, 0.045, 20)} material={cl.sleeve} position={[0, -0.222, 0]} castShadow />
+          </>
+        )}
+        <group position={[0, -FA, 0]} quaternion={_q.setFromEuler(wr).clone()}>
+          <HandMesh s={s} h={hand} skin={skin} t={t} tremble={tremble} />
+          {phone ? <Phone screen={phone} s={s} /> : null}
+          {hold && !(hold.kind === "binoculars" && hold.on > 0.6) ? <HeldProp h={hold} s={s} /> : null}
+        </group>
+      </group>
+    </group>
+  );
+};
+
+const LegSide: React.FC<{ s: number; l: Leg; c: CharSpec }> = ({ s, l, c }) => {
+  const cl = clothes(c);
+  const skin = skinMat(c.skin);
+  return (
+    <group position={[s * 0.095, -0.05, 0]} rotation={new Euler(-l.sw, s * l.tw, s * l.ab, "XZY")}>
+      <mesh geometry={limb(0.43, 0.09, 0.07, 0.005)} material={cl.legs} castShadow receiveShadow />
+      <group position={[0, -0.43, 0]} rotation={[l.kn, 0, 0]}>
+        <mesh geometry={limb(0.38, 0.066, 0.052, 0.012)} material={cl.legs} castShadow receiveShadow />
+        {/* jogger cuff */}
+        <mesh geometry={cyl(0.05, 0.048, 0.05, 20)} material={cl.legs} position={[0, -0.37, 0]} castShadow />
+        <group position={[0, -0.42, 0]} rotation={[-l.an, 0, 0]}>
+          <mesh geometry={cyl(0.034, 0.036, 0.06, 16)} material={skin} position={[0, -0.01, 0]} castShadow />
+          {c.feet === "sandal" ? (
+            <>
+              <mesh geometry={box(0.078, 0.042, 0.215, 0.02)} material={skin} position={[0, -0.05, 0.05]} castShadow receiveShadow />
+              <mesh geometry={box(0.098, 0.016, 0.265, 0.007)} material={cl.sole} position={[0, -0.077, 0.052]} castShadow receiveShadow />
+              {[1, -1].map((k) => (
+                <mesh key={k} geometry={box(0.009, 0.012, 0.11, 0.004)} material={cl.sole} position={[k * 0.03, -0.05, 0.1]} rotation={[0.25, k * 0.42, 0]} castShadow />
+              ))}
+            </>
+          ) : (
+            <>
+              <mesh geometry={box(0.104, 0.034, 0.28, 0.014)} material={phys("soleShoe", { color: "#3b3c40", roughness: 0.8 })} position={[0, -0.068, 0.055]} castShadow receiveShadow />
+              <mesh geometry={box(0.096, 0.08, 0.235, 0.035)} material={cl.sole} position={[0, -0.032, 0.045]} castShadow receiveShadow />
+            </>
+          )}
+        </group>
+      </group>
+    </group>
+  );
+};
+
+/** Hair clumps on the cap surface: local y = surface normal, local z = sweep direction. */
+const hairClumps = (style: CharSpec["hairStyle"]) => {
+  const out: { p: [number, number, number]; q: Quaternion; s: [number, number, number] }[] = [];
+  const C = new Vector3(0, 0.016, -0.004);
+  const r = mulberry32(style === "crop" ? 5 : 9);
+  const put = (az: number, el: number, rad: number, sweep: number, sc: [number, number, number]) => {
+    const n = new Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+    const pos = C.clone().addScaledVector(n, rad);
+    const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), n);
+    q.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), sweep));
+    out.push({ p: [pos.x, pos.y, pos.z], q, s: sc });
+  };
+  if (style === "crop") {
+    // soft fringe swept to his right, short textured top, tidy sides
+    for (let i = 0; i < 12; i++) put(-0.72 + i * 0.13 + (r() - 0.5) * 0.04, 0.56 + 0.05 * r(), 0.116, 2.7 + 0.08 * i + (r() - 0.5) * 0.3, [0.42, 0.2, 1.25 + 0.3 * r()]);
+    for (let i = 0; i < 30; i++) put(r() * Math.PI * 2, 0.75 + 0.6 * r(), 0.119, Math.PI + (r() - 0.5) * 1.2, [0.45 + 0.15 * r(), 0.2, 1.2 + 0.3 * r()]);
+  } else {
+    // longer, messier top with a side part
+    for (let i = 0; i < 12; i++) put(-0.8 + i * 0.14 + (r() - 0.5) * 0.05, 0.52 + 0.08 * r(), 0.12, 2.4 + 0.15 * i + 0.4 * r(), [0.5, 0.3, 1.5 + 0.4 * r()]);
+    for (let i = 0; i < 34; i++) put(r() * Math.PI * 2, 0.7 + 0.7 * r(), 0.124, Math.PI + (r() - 0.5) * 2.0, [0.55 + 0.2 * r(), 0.3, 1.4 + 0.5 * r()]);
+  }
+  return out;
+};
+
+const Head: React.FC<{ pose: Pose; c: CharSpec }> = ({ pose, c }) => {
+  const f = pose.face;
+  const skin = skinMat(c.skin);
+  const hair = phys(`hair${c.hair}`, { color: c.hair, roughness: 0.62, sheen: 0.7, sheenColor: "#4a3a30", sheenRoughness: 0.45 });
+  const eye = phys(`eye${c.key}`, { map: eyeTex(c.key, c.iris), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02 });
+  const brow = phys(`brow${c.brow}`, { color: c.brow, roughness: 0.75 });
+  const lash = phys("lash", { color: "#0b0806", roughness: 0.7 });
+  const lip = phys(`lip${c.lip}`, { color: c.lip, roughness: 0.42, clearcoat: 0.2 });
+  // upper lid edge sits ~30° above the eye centre when open (lid = 1), closes at 0, wide above 1
+  const lidA = Math.min(Math.PI / 2, Math.max(-1.2, Math.PI / 2 - 2.09 * f.lid));
+  const browY = 0.03 + 0.008 * f.browUp;
+  const clumps = useMemo(() => hairClumps(c.hairStyle === "long" ? "messy" : c.hairStyle === "bald" ? "crop" : c.hairStyle), [c.hairStyle]);
+  const open = Math.min(1, f.open + pose.talk);
+  const showHair = !c.hijab && c.hairStyle !== "bald";
+  const scarf = c.hijab ? phys(`hijab${c.hijab}`, { color: c.hijab, roughness: 0.85, sheen: 0.5, sheenColor: "#ffffff", sheenRoughness: 0.6, side: DoubleSide }) : null;
+  const knit = c.cap ? phys(`cap${c.cap}`, { color: c.cap, roughness: 0.95, sheen: 0.6, sheenColor: "#ffffff", sheenRoughness: 0.7 }) : null;
+  const beard = c.beard ? phys(`beard${c.beard}`, { color: c.beard, roughness: 0.9, sheen: 0.6, sheenColor: "#ffffff", sheenRoughness: 0.5 }) : null;
+  const H = Math.PI / 2;
+  const ER = 0.0178;
+  return (
+    <group position={[0, 0.09, 0.01]} scale={c.headScale}>
+      <mesh geometry={headGeo(c.face)} material={skin} castShadow receiveShadow />
+      {[1, -1].map((s) => (
+        <group key={`ear${s}`} position={[s * 0.1, -0.008, -0.008]} rotation={[0, s * 0.35, 0]}>
+          <mesh geometry={sphere(0.032, 20, 14)} material={skin} scale={[0.32, 0.95, 0.66]} castShadow />
+          <mesh geometry={torus(0.019, 0.005, 8, 20, Math.PI * 1.4)} material={skin} position={[s * 0.004, 0.002, 0.003]} rotation={[0, s * Math.PI / 2, 1.2]} />
+        </group>
+      ))}
+      {[1, -1].map((s) => (
+        <group key={`eye${s}`} position={[s * 0.0375, 0.009, 0.0905]}>
+          <mesh geometry={sphere(ER, 40, 24)} material={eye} rotation={[-f.eyeY, f.eyeX, 0]} />
+          <group rotation={[lidA, 0, 0]}>
+            <mesh geometry={sphere(ER + 0.0017, 32, 12, Math.PI * 2, Math.PI / 2)} material={skin} />
+            <mesh geometry={torus(ER + 0.0017, 0.0011, 6, 28, Math.PI)} material={lash} rotation={[Math.PI / 2, 0, 0]} />
+          </group>
+          <group rotation={[Math.PI + 0.98, 0, 0]}>
+            <mesh geometry={sphere(ER + 0.0013, 32, 12, Math.PI * 2, Math.PI / 2)} material={skin} />
+          </group>
+          <mesh geometry={capsule(0.0045 + 0.0025 * c.face.brow, 0.026)} material={brow} position={[s * 0.003, browY, 0.011]} rotation={[0.25, s * 0.25, Math.PI / 2 + s * (0.06 - 0.38 * f.browIn + 0.1 * f.browUp)]} scale={[1, 1, 0.6]} />
+        </group>
+      ))}
+      <group position={[0, -0.0655, 0.1028]}>
+        <mesh geometry={sphere(0.0125, 16, 10)} material={phys("mouthIn", { color: "#1a0a09", roughness: 0.95 })} position={[0, -0.002 - open * 0.002, -0.006]} scale={[1, 0.05 + open * 0.7, 0.45]} />
+        <mesh geometry={capsule(0.0036, 0.026)} material={lip} position={[0, 0.0016, -0.0025]} rotation={[0, 0, Math.PI / 2 + f.mouth * 0.06]} scale={[1, 1, 0.6]} />
+        <mesh geometry={capsule(0.0042, 0.022)} material={lip} position={[0, -0.0048 - open * 0.006, -0.003]} rotation={[0, 0, Math.PI / 2]} scale={[1, 1, 0.62]} />
+        <mesh geometry={box(0.03, 0.0012, 0.004, 0.0005)} material={phys("mouthLine", { color: "#3a1c18", roughness: 0.9 })} position={[0, -0.0014 - open * 0.003, 0.0]} />
+      </group>
+      {/* hair */}
+      {showHair ? <mesh geometry={sphere(0.122, 48, 24, Math.PI * 2, Math.PI * 0.56)} material={hair} position={[0, 0.014, -0.008]} rotation={[-0.44, 0, 0]} scale={[0.9, 1.04, 0.98]} castShadow /> : null}
+      {showHair && c.hairStyle === "long" ? (
+        <>
+          <mesh geometry={shell(H + 0.85, Math.PI * 2 - 1.7, 0.2, 1.95)} material={phys(`hairL${c.hair}`, { color: c.hair, roughness: 0.62, sheen: 0.7, sheenColor: "#4a3a30", sheenRoughness: 0.45, side: DoubleSide })} position={[0, -0.035, -0.014]} scale={[0.132, 0.25, 0.132]} castShadow />
+          {[1, -1].map((k) => <mesh key={k} geometry={capsule(0.022, 0.1)} material={hair} position={[k * 0.098, -0.045, 0.02]} rotation={[0.1, 0, k * 0.08]} scale={[0.7, 1, 0.9]} castShadow />)}
+        </>
+      ) : null}
+      {beard ? (
+        <>
+          <mesh geometry={beardGeo(c.face)} material={beard} castShadow />
+          <mesh geometry={capsule(0.0042, 0.026)} material={beard} position={[0, -0.0585, 0.1085]} rotation={[0.25, 0, Math.PI / 2]} scale={[1, 1, 0.7]} />
+        </>
+      ) : null}
+      {knit ? (
+        <group position={[0, 0.018, -0.006]} rotation={[-0.15, 0, 0]}>
+          <mesh geometry={shell(0, Math.PI * 2, 0, 1.3)} material={knit} scale={[0.128, 0.138, 0.131]} castShadow />
+          <mesh geometry={torus(1, 0.13, 10, 40)} material={knit} position={[0, 0.138 * Math.cos(1.3), 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.128 * Math.sin(1.3), 0.131 * Math.sin(1.3), 0.13]} castShadow />
+        </group>
+      ) : null}
+      {scarf ? <mesh geometry={hijabGeo(c.face)} material={scarf} castShadow /> : null}
+      {pose.hold?.kind === "binoculars" && pose.hold.on > 0.6 ? <group position={[0, 0.009, 0.165]}><Binoculars /></group> : null}
+      {c.glasses
+        ? [1, -1].map((s) => (
+            <group key={`gl${s}`}>
+              <mesh geometry={torus(0.022, 0.0022, 6, 28)} material={phys("glassFrame", { color: "#3a2a1e", roughness: 0.4 })} position={[s * 0.038, 0.01, 0.112]} scale={[1.15, 0.9, 1]} />
+              <mesh geometry={cyl(0.0018, 0.0018, 0.1, 6)} material={phys("glassFrame", { color: "#3a2a1e", roughness: 0.4 })} position={[s * 0.064, 0.012, 0.062]} rotation={[Math.PI / 2, 0, 0]} />
+            </group>
+          ))
+        : null}
+      {c.glasses ? <mesh geometry={cyl(0.0018, 0.0018, 0.026, 6)} material={phys("glassFrame", { color: "#3a2a1e", roughness: 0.4 })} position={[0, 0.016, 0.114]} rotation={[0, 0, Math.PI / 2]} /> : null}
+      {(showHair && !knit ? clumps : []).map((k, i) => (
+        <mesh key={i} geometry={sphere(0.036, 18, 12)} material={hair} position={k.p} quaternion={k.q} scale={k.s} castShadow />
+      ))}
+    </group>
+  );
+};
+
+export const Character: React.FC<{ pose: Pose; spec: CharSpec; t: number; visible?: boolean; phoneScreen?: Material }> = ({ pose, spec: c, t, visible = true, phoneScreen }) => {
+  const b = pose.breath * Math.sin((t / (pose.breath > 1.5 ? 1.4 : 3.6)) * Math.PI * 2);
+  const skin = skinMat(c.skin);
+  const cl = clothes(c);
+  return (
+    <group position={[pose.x, pose.y, pose.z]} rotation={[0, pose.yaw, 0]} scale={c.scale} visible={visible}>
+      <group position={[0, 0.96 + pose.hipY, 0]} rotation={new Euler(pose.hips[0], pose.hips[1], -pose.hips[2], "YXZ")}>
+        <mesh geometry={lathe("pelvis", PELVIS, 40)} material={cl.legs} scale={[1, 1, 0.68]} castShadow receiveShadow />
+        <group position={[0, 0.1, 0]} rotation={new Euler(pose.spine[0], pose.spine[1], -pose.spine[2], "YXZ")}>
+          <group position={[0, 0.2, 0]} rotation={new Euler(pose.chest[0] + 0.014 * b, pose.chest[1], -pose.chest[2], "YXZ")} scale={[1 + 0.007 * b, 1, 1 + 0.014 * b]}>
+            <mesh geometry={lathe("torso", TORSO, 48)} material={cl.top} scale={[1, 1, 0.63]} castShadow receiveShadow />
+            {c.top === "hoodie" ? (
+              <>
+                <mesh geometry={torus(0.085, 0.038, 12, 36, Math.PI * 1.55)} material={cl.top} position={[0, 0.262, -0.02]} rotation={[Math.PI / 2, 0, Math.PI * 0.225 + Math.PI]} scale={[1.08, 1, 1.15]} castShadow />
+                <mesh geometry={sphere(0.115, 28, 18)} material={cl.top} position={[0, 0.17, -0.11]} scale={[0.95, 0.68, 0.32]} castShadow />
+                <mesh geometry={box(0.24, 0.13, 0.024, 0.01)} material={cl.pocket} position={[0, -0.21, 0.116]} rotation={[-0.04, 0, 0]} castShadow />
+                <mesh geometry={box(0.36, 0.045, 0.22, 0.02)} material={cl.top} position={[0, -0.335, 0]} scale={[1.05, 1, 0.98]} />
+                {[1, -1].map((s) => (
+                  <group key={s} position={[s * 0.034, 0.215, 0.118]} rotation={[0.12, 0, s * 0.06]}>
+                    <mesh geometry={cyl(0.0045, 0.0045, 0.14, 8)} material={cl.trim} position={[0, -0.07, 0]} castShadow />
+                    <mesh geometry={cyl(0.0058, 0.0058, 0.02, 8)} material={phys("aglet", { color: "#b9b2a6", metalness: 0.7, roughness: 0.3 })} position={[0, -0.145, 0]} />
+                  </group>
+                ))}
+              </>
+            ) : c.top === "jacket" ? (
+              <>
+                <mesh geometry={lathe("torso", TORSO, 48)} material={cl.top} scale={[1.035, 1.01, 0.67]} castShadow receiveShadow />
+                <mesh geometry={torus(0.078, 0.022, 10, 36)} material={cl.top} position={[0, 0.272, 0.0]} rotation={[Math.PI / 2 - 0.25, 0, 0]} scale={[1.05, 0.9, 1.6]} castShadow />
+                <mesh geometry={box(0.012, 0.5, 0.012, 0.004)} material={cl.trim} position={[0, -0.06, 0.142]} rotation={[-0.05, 0, 0]} />
+                {[1, -1].map((k) => <mesh key={k} geometry={box(0.09, 0.07, 0.02, 0.008)} material={cl.top} position={[k * 0.1, -0.2, 0.13]} rotation={[-0.06, k * 0.25, 0]} castShadow />)}
+                <mesh geometry={box(0.37, 0.04, 0.23, 0.02)} material={cl.trim} position={[0, -0.34, 0]} />
+              </>
+            ) : (
+              <mesh geometry={torus(0.072, 0.012, 8, 30)} material={cl.trim} position={[0, 0.266, 0.006]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.82, 1]} />
+            )}
+            {c.hijab ? (
+              <mesh geometry={lathe("hijabDrape", [[0.0, 0.36], [0.07, 0.355], [0.085, 0.3], [0.15, 0.22], [0.215, 0.15], [0.225, 0.11], [0.0, 0.11]], 40)} material={phys(`hijab${c.hijab}`, { color: c.hijab, roughness: 0.85, sheen: 0.5, sheenColor: "#ffffff", sheenRoughness: 0.6, side: DoubleSide })} scale={[1, 1, 0.72]} castShadow />
+            ) : null}
+            <group position={[0, 0.27, -0.01]} rotation={new Euler(pose.neck[0], pose.neck[1], -pose.neck[2], "YXZ")}>
+              <mesh geometry={cyl(0.052, 0.058, 0.12, 24)} material={skin} position={[0, 0.03, 0]} castShadow />
+              <group position={[0, 0.09, 0.01]} rotation={new Euler(pose.head[0], pose.head[1], -pose.head[2], "YXZ")}>
+                <Head pose={pose} c={c} />
+              </group>
+            </group>
+            <ArmSide s={1} a={pose.armL} hand={pose.handL} c={c} t={t} tremble={pose.tremble} phone={pose.phone === 2 && phoneScreen ? phoneScreen : undefined} hold={pose.hold?.side === 1 ? pose.hold : null} />
+            <ArmSide s={-1} a={pose.armR} hand={pose.handR} c={c} t={t + 3.1} tremble={pose.tremble} phone={pose.phone === 1 && phoneScreen ? phoneScreen : undefined} hold={pose.hold?.side === -1 ? pose.hold : null} />
+          </group>
+        </group>
+        <LegSide s={1} l={pose.legL} c={c} />
+        <LegSide s={-1} l={pose.legR} c={c} />
+      </group>
+    </group>
+  );
+};
+
+==== 6139 project/src/cine/character/looks.ts
+// Character looks library: ready-made people for any story. A story picks a `look` and may override
+// colours / features per person (story.cast[].custom); identity then never changes between shots.
+
+import type { CharSpec } from "./Character.tsx";
+
+type Look = Omit<CharSpec, "key">;
+
+export const LOOKS: Record<string, Look> = {
+  /** young man, dark blue hoodie, sandals */
+  pemuda: {
+    skin: "#c08a62", hair: "#120e0b", iris: "#6a4024", lip: "#7c4236", brow: "#120d0a",
+    scale: 0.92, headScale: 1.08,
+    top: "hoodie", topColor: "#2b3f66", trim: "#eceae4",
+    legs: "#3a3c43", feet: "sandal", sandal: "#1e2a44",
+    hairStyle: "crop",
+    face: { jaw: 0.35, cheek: 0.4, nose: 0.5, brow: 0.45, chin: 0.45 },
+  },
+  /** young man, mustard t-shirt, messy hair */
+  "pemuda-kaos": {
+    skin: "#a8744f", hair: "#0f0b09", iris: "#5a3420", lip: "#6e3a30", brow: "#0e0a08",
+    scale: 0.95, headScale: 1.1,
+    top: "tee", topColor: "#c8962e", trim: "#b5862a",
+    legs: "#2c3b55", feet: "sandal", sandal: "#151515",
+    hairStyle: "messy",
+    face: { jaw: 0.75, cheek: 0.75, nose: 0.35, brow: 0.8, chin: 0.3 },
+  },
+  /** young woman, long hair, sage jacket */
+  pemudi: {
+    skin: "#c99572", hair: "#160f0b", iris: "#5b3a22", lip: "#9a4a46", brow: "#1a120d",
+    scale: 0.86, headScale: 1.08,
+    top: "jacket", topColor: "#7d8f74", trim: "#e9e3d6",
+    legs: "#2d3240", feet: "shoe", sandal: "#e8e4dc",
+    hairStyle: "long",
+    face: { jaw: 0.15, cheek: 0.6, nose: 0.3, brow: 0.25, chin: 0.35 },
+  },
+  /** young woman, hijab, long-sleeved top */
+  "pemudi-hijab": {
+    skin: "#c48f68", hair: "#160f0b", iris: "#4d3020", lip: "#94473f", brow: "#1a120d",
+    scale: 0.85, headScale: 1.08,
+    top: "jacket", topColor: "#b4677a", trim: "#f0e8e2",
+    legs: "#33384a", feet: "shoe", sandal: "#2c2c30",
+    hairStyle: "crop", hijab: "#e6dccd",
+    face: { jaw: 0.2, cheek: 0.65, nose: 0.3, brow: 0.3, chin: 0.35 },
+  },
+  /** middle-aged man, batik shirt, glasses */
+  bapak: {
+    skin: "#a7704c", hair: "#3a3632", iris: "#3a2416", lip: "#6a3a30", brow: "#2d2824",
+    scale: 0.9, headScale: 1.08,
+    top: "tee", topColor: "#7a4a2a", trim: "#5e3820", batik: "#e0b56a", glasses: true,
+    legs: "#4a3f35", feet: "sandal", sandal: "#3a2c22",
+    hairStyle: "crop",
+    face: { jaw: 0.6, cheek: 0.35, nose: 0.6, brow: 0.5, chin: 0.55 },
+  },
+  /** middle-aged woman, hijab, batik top */
+  ibu: {
+    skin: "#b98260", hair: "#1a1410", iris: "#4a2e1c", lip: "#8a4440", brow: "#2a2018",
+    scale: 0.84, headScale: 1.08,
+    top: "jacket", topColor: "#5c3a5e", trim: "#d9c7a8", batik: "#d9b46a",
+    legs: "#2f2a33", feet: "sandal", sandal: "#3a2c22",
+    hairStyle: "crop", hijab: "#3b4a6b",
+    face: { jaw: 0.4, cheek: 0.75, nose: 0.4, brow: 0.35, chin: 0.45 },
+  },
+  /** old man, grey hair, white beard, cardigan */
+  kakek: {
+    skin: "#a06e4e", hair: "#c9c6c0", iris: "#3a2a1e", lip: "#6a3c34", brow: "#b8b4ae",
+    scale: 0.87, headScale: 1.07,
+    top: "jacket", topColor: "#6b5a48", trim: "#d8cdb8",
+    legs: "#3d3a36", feet: "sandal", sandal: "#2a2522",
+    hairStyle: "crop", beard: "#bdb8b0", glasses: true,
+    face: { jaw: 0.55, cheek: 0.3, nose: 0.65, brow: 0.6, chin: 0.5 },
+  },
+  /** child (about 9), striped tee */
+  anak: {
+    skin: "#c28c64", hair: "#120e0b", iris: "#5a3a22", lip: "#9a5048", brow: "#16100c",
+    scale: 0.66, headScale: 1.22,
+    top: "tee", topColor: "#d0573f", trim: "#f2eee6",
+    legs: "#2f3f63", feet: "shoe", sandal: "#e8e6e0",
+    hairStyle: "messy",
+    face: { jaw: 0.1, cheek: 0.85, nose: 0.15, brow: 0.2, chin: 0.2 },
+  },
+  /** nurse: white hijab, teal scrubs, white shoes */
+  perawat: {
+    skin: "#c08b66", hair: "#160f0b", iris: "#4d3020", lip: "#9a4a46", brow: "#1a120d",
+    scale: 0.85, headScale: 1.08,
+    top: "jacket", topColor: "#8fcac6", trim: "#eef6f5",
+    legs: "#8fcac6", feet: "shoe", sandal: "#f2f2ee",
+    hairStyle: "crop", hijab: "#d6dfe0",
+    face: { jaw: 0.25, cheek: 0.6, nose: 0.3, brow: 0.3, chin: 0.35 },
+  },
+  /** doctor: white coat, glasses, short hair */
+  dokter: {
+    skin: "#b98262", hair: "#1a1410", iris: "#3a2416", lip: "#7a4036", brow: "#1a1410",
+    scale: 0.92, headScale: 1.07,
+    top: "jacket", topColor: "#f2f3f0", trim: "#cfd6dc",
+    legs: "#2d3240", feet: "shoe", sandal: "#2a2522",
+    hairStyle: "crop", glasses: true,
+    face: { jaw: 0.55, cheek: 0.4, nose: 0.55, brow: 0.5, chin: 0.5 },
+  },
+  /** market seller: patterned top, apron-coloured jacket, hijab */
+  pedagang: {
+    skin: "#a8724e", hair: "#1a1410", iris: "#4a2e1c", lip: "#8a4440", brow: "#2a2018",
+    scale: 0.84, headScale: 1.09,
+    top: "jacket", topColor: "#2f6f6a", trim: "#e8d7b0",
+    legs: "#3a3340", feet: "sandal", sandal: "#2a2522",
+    hairStyle: "crop", hijab: "#c98a3a",
+    face: { jaw: 0.5, cheek: 0.8, nose: 0.45, brow: 0.35, chin: 0.45 },
+  },
+  /** hiker / camper: orange jacket, knit cap */
+  pendaki: {
+    skin: "#b98260", hair: "#120e0b", iris: "#5a3a22", lip: "#8a4a40", brow: "#16100c",
+    scale: 0.92, headScale: 1.08,
+    top: "jacket", topColor: "#d0662a", trim: "#2b2f36",
+    legs: "#3a4250", feet: "shoe", sandal: "#3a3028",
+    hairStyle: "crop", cap: "#2f4a6a",
+    face: { jaw: 0.45, cheek: 0.45, nose: 0.5, brow: 0.5, chin: 0.45 },
+  },
+  /** lighthouse keeper / fisherman: knit cap, grey beard, navy jacket */
+  "penjaga-mercusuar": {
+    skin: "#9c6646", hair: "#8f8b85", iris: "#3a2a1e", lip: "#6a3a30", brow: "#77736d",
+    scale: 0.92, headScale: 1.07,
+    top: "jacket", topColor: "#26354d", trim: "#c9b48a",
+    legs: "#3b3a38", feet: "shoe", sandal: "#2b2420",
+    hairStyle: "crop", cap: "#8a3a2c", beard: "#77726c",
+    face: { jaw: 0.7, cheek: 0.35, nose: 0.65, brow: 0.7, chin: 0.55 },
+  },
+};
+
+export type CustomLook = Partial<Omit<CharSpec, "key" | "face">> & { face?: Partial<CharSpec["face"]> };
+
+export const lookSpec = (key: string, look: string, custom?: CustomLook): CharSpec => {
+  const base = LOOKS[look];
+  if (!base) throw new Error(`unknown look "${look}" (use one of: ${Object.keys(LOOKS).join(", ")})`);
+  return { ...base, ...custom, face: { ...base.face, ...(custom?.face ?? {}) }, key };
+};
+
+==== 8099 project/src/cine/character/pose.ts
+// Character pose (CINÉSTORY rig): a plain number tree, computed per frame from film time (no state, no clocks).
+// Angles in radians. Conventions (character faces +Z, his left is +X):
+//   spine/chest/neck/head [pitch fwd +, yaw to his left +, roll to his left +]
+//   legs [swing fwd +, abduct out +, twist], knee bend +, ankle toes-up +
+//   arms: either FK [swing fwd +, abduct out +, twist] + elbow bend, or an IK target in chest space.
+
+export type E3 = [number, number, number];
+export type Face = {
+  browUp: number; // 0 neutral, 1 raised
+  browIn: number; // 1 = inner ends up (worry)
+  lid: number; // 1 open, 0 closed, >1 wide
+  mouth: number; // −1 frown … 1 smile
+  open: number; // 0 closed … 1 open
+  eyeX: number; // gaze yaw (rad, to his left +)
+  eyeY: number; // gaze pitch (rad, up +)
+};
+export type Hand = { curl: number; index: number; thumb: number };
+export type Arm = { sw: number; ab: number; tw: number; el: number; wr: E3; ik?: { t: [number, number, number]; pole: [number, number, number]; w: number } };
+export type Leg = { sw: number; ab: number; tw: number; kn: number; an: number };
+
+export type Pose = {
+  x: number; y: number; z: number; yaw: number;
+  hipY: number; hips: E3;
+  spine: E3; chest: E3; neck: E3; head: E3;
+  armL: Arm; armR: Arm;
+  legL: Leg; legR: Leg;
+  handL: Hand; handR: Hand;
+  face: Face;
+  /** 0 none, 1 in the right hand, 2 in the left hand; screen brightness. */
+  phone: number; phoneOn: number;
+  /** breathing amplitude (0..1) and tremble (0..1) of the hands */
+  breath: number; tremble: number;
+  /** a held prop other than the phone (binoculars sit at the eyes; the rest in one hand, side 1 = left) */
+  hold: Hold | null;
+  /** mouth flap 0..1 added on top of face.open (dialogue) */
+  talk: number;
+  /** where a held light points (flashlight / lantern raised toward a target) */
+  aim?: [number, number, number];
+};
+export type HoldKind = "binoculars" | "lantern" | "flashlight" | "mug" | "book" | "pen";
+export type Hold = { kind: HoldKind; side: 1 | -1; on: number };
+
+const arm = (): Arm => ({ sw: 0.04, ab: 0.09, tw: 0, el: 0.18, wr: [0, 0, 0] });
+const leg = (): Leg => ({ sw: 0, ab: 0.02, tw: 0, kn: 0.04, an: 0 });
+export const FACE0: Face = { browUp: 0, browIn: 0, lid: 0.88, mouth: 0.05, open: 0, eyeX: 0, eyeY: 0 };
+
+export const restPose = (): Pose => ({
+  x: 0, y: 0, z: 0, yaw: 0,
+  hipY: 0, hips: [0, 0, 0],
+  spine: [0, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+  armL: arm(), armR: arm(),
+  legL: leg(), legR: leg(),
+  handL: { curl: 0.35, index: 0.3, thumb: 0.2 }, handR: { curl: 0.35, index: 0.3, thumb: 0.2 },
+  face: { ...FACE0 },
+  phone: 0, phoneOn: 0,
+  breath: 1, tremble: 0,
+  hold: null, talk: 0,
+});
+
+export const lerpN = (a: number, b: number, k: number) => a + (b - a) * k;
+const lerp3 = (a: E3, b: E3, k: number): E3 => [lerpN(a[0], b[0], k), lerpN(a[1], b[1], k), lerpN(a[2], b[2], k)];
+const lerpArm = (a: Arm, b: Arm, k: number): Arm => ({
+  sw: lerpN(a.sw, b.sw, k), ab: lerpN(a.ab, b.ab, k), tw: lerpN(a.tw, b.tw, k), el: lerpN(a.el, b.el, k), wr: lerp3(a.wr, b.wr, k),
+  ik: a.ik || b.ik ? {
+    t: lerp3((a.ik ?? b.ik)!.t, (b.ik ?? a.ik)!.t, k),
+    pole: lerp3((a.ik ?? b.ik)!.pole, (b.ik ?? a.ik)!.pole, k),
+    w: lerpN(a.ik?.w ?? 0, b.ik?.w ?? 0, k),
+  } : undefined,
+});
+const lerpLeg = (a: Leg, b: Leg, k: number): Leg => ({ sw: lerpN(a.sw, b.sw, k), ab: lerpN(a.ab, b.ab, k), tw: lerpN(a.tw, b.tw, k), kn: lerpN(a.kn, b.kn, k), an: lerpN(a.an, b.an, k) });
+const lerpHand = (a: Hand, b: Hand, k: number): Hand => ({ curl: lerpN(a.curl, b.curl, k), index: lerpN(a.index, b.index, k), thumb: lerpN(a.thumb, b.thumb, k) });
+const lerpFace = (a: Face, b: Face, k: number): Face => {
+  const o = { ...a };
+  for (const key of Object.keys(a) as (keyof Face)[]) o[key] = lerpN(a[key], b[key], k);
+  return o;
+};
+
+/** Blend two whole poses (yaw shortest way). */
+export const blend = (a: Pose, b: Pose, k: number): Pose => {
+  if (k <= 0) return a;
+  if (k >= 1) return b;
+  let dy = b.yaw - a.yaw;
+  while (dy > Math.PI) dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  return {
+    x: lerpN(a.x, b.x, k), y: lerpN(a.y, b.y, k), z: lerpN(a.z, b.z, k), yaw: a.yaw + dy * k,
+    hipY: lerpN(a.hipY, b.hipY, k), hips: lerp3(a.hips, b.hips, k),
+    spine: lerp3(a.spine, b.spine, k), chest: lerp3(a.chest, b.chest, k), neck: lerp3(a.neck, b.neck, k), head: lerp3(a.head, b.head, k),
+    armL: lerpArm(a.armL, b.armL, k), armR: lerpArm(a.armR, b.armR, k),
+    legL: lerpLeg(a.legL, b.legL, k), legR: lerpLeg(a.legR, b.legR, k),
+    handL: lerpHand(a.handL, b.handL, k), handR: lerpHand(a.handR, b.handR, k),
+    face: lerpFace(a.face, b.face, k),
+    phone: k < 0.5 ? a.phone : b.phone, phoneOn: lerpN(a.phoneOn, b.phoneOn, k),
+    breath: lerpN(a.breath, b.breath, k), tremble: lerpN(a.tremble, b.tremble, k),
+    hold: a.hold && b.hold && a.hold.kind === b.hold.kind ? { ...b.hold, on: lerpN(a.hold.on, b.hold.on, k) } : k < 0.5 ? a.hold : b.hold,
+    talk: lerpN(a.talk, b.talk, k),
+  };
+};
+
+const TAU = Math.PI * 2;
+const D = Math.PI / 180;
+
+/**
+ * Walk cycle at gait phase `p` (cycles; left heel strike near p = 0.25). `amt` scales the stride
+ * (1 = normal walk, 0.6 = careful), `climb` adds stair knee lift.
+ */
+export const walkCycle = (pose: Pose, p: number, amt = 1, climb = 0): Pose => {
+  const o = { ...pose, legL: { ...pose.legL }, legR: { ...pose.legR }, armL: { ...pose.armL }, armR: { ...pose.armR } };
+  const legAt = (ph: number, l: Leg) => {
+    const s = Math.sin(TAU * ph), c = Math.cos(TAU * ph);
+    l.sw = (22 * D * s + climb * 26 * D * Math.max(0, c) + climb * 10 * D) * amt;
+    l.kn = (6 * D + 52 * D * Math.pow(Math.max(0, c), 1.4) + climb * 40 * D * Math.max(0, c)) * (0.55 + 0.45 * amt) + climb * 12 * D;
+    l.an = (10 * D * Math.max(0, c) - 14 * D * Math.max(0, -Math.sin(TAU * ph + 0.9))) * amt;
+  };
+  legAt(p, o.legL);
+  legAt(p + 0.5, o.legR);
+  o.hipY = pose.hipY - (0.012 + 0.012 * amt) * (0.5 - 0.5 * Math.cos(TAU * 2 * p - Math.PI)) - climb * 0.04;
+  const sway = Math.sin(TAU * p);
+  o.hips = [pose.hips[0] + climb * 8 * D, pose.hips[1] + 5 * D * sway * amt, pose.hips[2] + 2 * D * Math.cos(TAU * p) * amt];
+  o.chest = [pose.chest[0] + climb * 5 * D, pose.chest[1] - 7 * D * sway * amt, pose.chest[2]];
+  if (!o.armL.ik) { o.armL.sw = pose.armL.sw - 0.32 * sway * amt; o.armL.el = pose.armL.el + 0.12 * amt + 0.1 * Math.max(0, -sway) * amt; }
+  if (!o.armR.ik && !o.phone) { o.armR.sw = pose.armR.sw + 0.32 * sway * amt; o.armR.el = pose.armR.el + 0.12 * amt + 0.1 * Math.max(0, sway) * amt; }
+  return o;
+};
+
+/** Run cycle at gait phase `p`: long stride, flight phase, forward lean, pumping arms (elbows ~90°). */
+export const runCycle = (pose: Pose, p: number, amt = 1): Pose => {
+  const o = { ...pose, legL: { ...pose.legL }, legR: { ...pose.legR }, armL: { ...pose.armL }, armR: { ...pose.armR } };
+  const legAt = (ph: number, l: Leg) => {
+    const s = Math.sin(TAU * ph), c = Math.cos(TAU * ph);
+    l.sw = (34 * D * s + 12 * D) * amt;
+    l.kn = (14 * D + 95 * D * Math.pow(Math.max(0, c), 1.2) + 20 * D * Math.max(0, s)) * amt;
+    l.an = (16 * D * Math.max(0, c) - 22 * D * Math.max(0, -Math.sin(TAU * ph + 0.9))) * amt;
+  };
+  legAt(p, o.legL);
+  legAt(p + 0.5, o.legR);
+  o.hipY = pose.hipY - 0.05 * amt + 0.035 * amt * Math.abs(Math.sin(TAU * p));
+  const sway = Math.sin(TAU * p);
+  o.hips = [pose.hips[0] + 0.1 * amt, pose.hips[1] + 8 * D * sway * amt, pose.hips[2]];
+  o.spine = [pose.spine[0] + 0.12 * amt, pose.spine[1], pose.spine[2]];
+  o.chest = [pose.chest[0], pose.chest[1] - 12 * D * sway * amt, pose.chest[2]];
+  if (!o.armL.ik) { o.armL.sw = pose.armL.sw - 0.75 * sway * amt; o.armL.el = 1.45 * amt + 0.2; o.armL.ab = 0.16; }
+  if (!o.armR.ik) { o.armR.sw = pose.armR.sw + 0.75 * sway * amt; o.armR.el = 1.45 * amt + 0.2; o.armR.ab = 0.16; }
+  return o;
+};
+
+/** Holding the phone in front of the chest, screen toward the face. */
+export const phoneArm = (): Arm => ({ sw: 0.25, ab: 0.12, tw: 0, el: 1.7, wr: [0.2, 0, 0], ik: { t: [-0.05, 0.1, 0.33], pole: [-0.6, -0.7, -0.2], w: 1 } });
+
+==== 5875 project/src/cine/character/rig.ts
+// Performance helpers shared by every character: walking along plan paths with exact arrival times,
+// world → chest space for arm IK, aiming the head, and the exact eye position (mirrors Character.tsx's
+// transform chain) for POV cameras and eye close-ups. All pure functions of time.
+
+import { Euler, Object3D, Vector3 } from "three";
+import { planPath, type P2, type PlanPath } from "../../kits/worldforge/path.ts";
+import { lerpN, type Pose } from "./pose.ts";
+import type { CharSpec } from "./Character.tsx";
+import type { V3 } from "../Lights.tsx";
+
+export { planPath, type P2, type PlanPath };
+
+/** Distance along a path with a trapezoid speed profile that ends exactly at the path end at t1. */
+export const along = (path: PlanPath, t: number, t0: number, t1: number, acc: number, dec: number, v0 = 0) => {
+  const T = t1 - t0, L = path.length;
+  const v = (L - (v0 * acc) / 2) / (T - acc / 2 - dec / 2);
+  const u = Math.min(Math.max(t - t0, 0), T);
+  let s: number;
+  if (u < acc) s = v0 * u + ((v - v0) * u * u) / (2 * acc);
+  else if (u < T - dec) s = (v0 + v) * acc / 2 + v * (u - acc);
+  else {
+    const w = u - (T - dec);
+    s = (v0 + v) * acc / 2 + v * (T - dec - acc) + v * w - (v * w * w) / (2 * dec);
+  }
+  return { s: Math.min(s, L), speed: u < acc ? v0 + ((v - v0) * u) / acc : u < T - dec ? v : v * (1 - (u - (T - dec)) / dec) };
+};
+
+export const yawOf = (d: P2) => Math.atan2(d[0], d[1]);
+
+export const walkState = (path: PlanPath, t: number, t0: number, t1: number, acc: number, dec: number, stride: number, amt: number, v0 = 0) => {
+  const { s, speed } = along(path, t, t0, t1, acc, dec, v0);
+  const { p, dir } = path.at(s);
+  return { p, yaw: yawOf(dir), phase: s / stride, moving: Math.min(1, speed / 0.5) * amt, speed };
+};
+
+const headH = (c: CharSpec) => (0.96 + 0.1 + 0.2 + 0.27 + 0.09 + 0.09) * c.scale;
+
+/** World point → the character's chest space (unscaled rig units), for arm IK. Right arm: negate x. */
+export const toChest = (p: Pose, w: V3, c: CharSpec): [number, number, number] => {
+  // through the real hips → spine → chest rotations (a leaning or seated body moves its shoulders)
+  trunk(p, c);
+  const v = chain.chest.worldToLocal(new Vector3(w[0], w[1], w[2]));
+  return [v.x, v.y, v.z];
+};
+
+/** Aim neck+head at a world point (k blends from the current pose). */
+export const lookAt = (p: Pose, w: V3, c: CharSpec, k = 1) => {
+  const dx = w[0] - p.x, dy = w[1] - (p.y + headH(c) + p.hipY * c.scale), dz = w[2] - p.z;
+  const co = Math.cos(-p.yaw), s = Math.sin(-p.yaw);
+  const lx = dx * co + dz * s, lz = -dx * s + dz * co;
+  let yaw = Math.atan2(lx, lz);
+  yaw = Math.max(-1.4, Math.min(1.4, yaw));
+  const pitch = Math.max(-0.7, Math.min(0.7, Math.atan2(-dy, Math.hypot(lx, lz))));
+  p.neck = [lerpN(p.neck[0], pitch * 0.4, k), lerpN(p.neck[1], yaw * 0.35, k), p.neck[2]];
+  p.head = [lerpN(p.head[0], pitch * 0.6, k), lerpN(p.head[1], yaw * 0.65, k), p.head[2]];
+};
+
+const chain = (() => {
+  const root = new Object3D(), hips = new Object3D(), spine = new Object3D(), chest = new Object3D(), neck = new Object3D(), head = new Object3D(), content = new Object3D(), eye = new Object3D();
+  root.add(hips); hips.add(spine); spine.add(chest); chest.add(neck); neck.add(head); head.add(content); content.add(eye);
+  return { root, hips, spine, chest, neck, head, content, eye };
+})();
+
+/** Pose the root → hips → spine → chest part of the chain exactly like Character.tsx does. */
+const trunk = (p: Pose, c: CharSpec) => {
+  const k = chain;
+  k.root.position.set(p.x, p.y, p.z);
+  k.root.rotation.set(0, p.yaw, 0);
+  k.root.scale.setScalar(c.scale);
+  k.hips.position.set(0, 0.96 + p.hipY, 0);
+  k.hips.rotation.copy(new Euler(p.hips[0], p.hips[1], -p.hips[2], "YXZ"));
+  k.spine.position.set(0, 0.1, 0);
+  k.spine.rotation.copy(new Euler(p.spine[0], p.spine[1], -p.spine[2], "YXZ"));
+  k.chest.position.set(0, 0.2, 0);
+  k.chest.rotation.copy(new Euler(p.chest[0], p.chest[1], -p.chest[2], "YXZ"));
+  k.root.updateMatrixWorld(true);
+};
+
+/** World position of the character's left eye (or any head-local point) and the head's forward direction. */
+export const eyeExact = (p: Pose, c: CharSpec, local: V3 = [0.0375, 0.009, 0.0905]): { pos: V3; dir: V3; head: V3 } => {
+  const k = chain;
+  k.root.position.set(p.x, p.y, p.z);
+  k.root.rotation.set(0, p.yaw, 0);
+  k.root.scale.setScalar(c.scale);
+  k.hips.position.set(0, 0.96 + p.hipY, 0);
+  k.hips.rotation.copy(new Euler(p.hips[0], p.hips[1], -p.hips[2], "YXZ"));
+  k.spine.position.set(0, 0.1, 0);
+  k.spine.rotation.copy(new Euler(p.spine[0], p.spine[1], -p.spine[2], "YXZ"));
+  k.chest.position.set(0, 0.2, 0);
+  k.chest.rotation.copy(new Euler(p.chest[0], p.chest[1], -p.chest[2], "YXZ"));
+  k.neck.position.set(0, 0.27, -0.01);
+  k.neck.rotation.copy(new Euler(p.neck[0], p.neck[1], -p.neck[2], "YXZ"));
+  k.head.position.set(0, 0.09, 0.01);
+  k.head.rotation.copy(new Euler(p.head[0], p.head[1], -p.head[2], "YXZ"));
+  k.content.position.set(0, 0.09, 0.01);
+  k.content.scale.setScalar(c.headScale);
+  k.eye.position.set(...local);
+  k.root.updateMatrixWorld(true);
+  const pos = new Vector3().setFromMatrixPosition(k.eye.matrixWorld);
+  const ahead = new Vector3(local[0], local[1], local[2] + 0.2).applyMatrix4(k.content.matrixWorld);
+  const dir = ahead.sub(pos).normalize();
+  const hc = new Vector3(0, 0, 0).applyMatrix4(k.content.matrixWorld);
+  return { pos: [pos.x, pos.y, pos.z], dir: [dir.x, dir.y, dir.z], head: [hc.x, hc.y, hc.z] };
+};
+
+/** Chest space (rig units, as used by IK targets) → world. Inverse of toChest. */
+export const fromChest = (p: Pose, l: [number, number, number], c: CharSpec): V3 => {
+  trunk(p, c);
+  const v = new Vector3(l[0], l[1], l[2]).applyMatrix4(chain.chest.matrixWorld);
+  return [v.x, v.y, v.z];
+};
+
+export const add3 = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+
+==== 6214 project/src/cine/env/Ocean.tsx
+// Open sea: a graded grid (dense near `center`, coarse to the horizon) displaced every frame by a sum of
+// Gerstner waves — a pure function of time, so any frame renders the same. Fine ripples come from a
+// scrolling procedural normal map, which also makes the moon/sun glitter path. `waveHeight` exposes the
+// same surface for boats, floating lights and sound.
+
+import React, { useMemo } from "react";
+import { BufferAttribute, BufferGeometry, CanvasTexture, RepeatWrapping, Sphere, Vector2, Vector3 } from "three";
+import { expAxis } from "../../kits/worldforge/heightfield.ts";
+import { mulberry32 } from "../../kits/worldforge/noise.ts";
+import { phys } from "../mats.ts";
+
+const G = 9.81;
+type Wave = { dx: number; dz: number; k: number; w: number; A: number; ph: number };
+const WAVES: Wave[] = [
+  [0.3, 62, 0.42, 0.0], [-0.5, 33, 0.24, 1.3], [0.9, 18, 0.13, 2.1], [-1.2, 9.5, 0.07, 0.4], [0.1, 5.2, 0.035, 3.3], [1.7, 2.7, 0.016, 5.1],
+].map(([a, L, A, ph]) => {
+  const k = (Math.PI * 2) / L;
+  return { dx: Math.sin(a - Math.PI), dz: Math.cos(a - Math.PI), k, w: Math.sqrt(G * k), A, ph };
+});
+const Q = 0.55; // crest sharpness
+
+/** Height of the sea surface at (x, z) and time t (amp scales every wave). */
+export const waveHeight = (x: number, z: number, t: number, amp = 1) => {
+  let y = 0;
+  for (const v of WAVES) y += amp * v.A * Math.sin(v.k * (v.dx * x + v.dz * z) - v.w * t + v.ph);
+  return y;
+};
+/** Surface slope (for boats to pitch/roll with the swell). */
+export const waveSlope = (x: number, z: number, t: number, amp = 1): [number, number] => {
+  let sx = 0, sz = 0;
+  for (const v of WAVES) {
+    const c = amp * v.A * v.k * Math.cos(v.k * (v.dx * x + v.dz * z) - v.w * t + v.ph);
+    sx += c * v.dx; sz += c * v.dz;
+  }
+  return [sx, sz];
+};
+
+const rippleTex = () => {
+  const n = 256, c = document.createElement("canvas");
+  c.width = c.height = n;
+  const g = c.getContext("2d")!;
+  const r = mulberry32(17);
+  const h = new Float32Array(n * n);
+  for (let o = 0; o < 4; o++) {
+    const cells = 4 << o, amp = 1 / (1 + o * 1.4), grid = Array.from({ length: cells * cells }, () => r());
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const fx = (x / n) * cells, fy = (y / n) * cells, ix = Math.floor(fx), iy = Math.floor(fy);
+      const ux = fx - ix, uy = fy - iy, sx = ux * ux * (3 - 2 * ux), sy = uy * uy * (3 - 2 * uy);
+      const at = (i: number, j: number) => grid[((j % cells) * cells + (i % cells))];
+      h[y * n + x] += amp * ((at(ix, iy) * (1 - sx) + at(ix + 1, iy) * sx) * (1 - sy) + (at(ix, iy + 1) * (1 - sx) + at(ix + 1, iy + 1) * sx) * sy);
+    }
+  }
+  const img = g.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const hx = h[y * n + ((x + 1) % n)] - h[y * n + ((x + n - 1) % n)], hy = h[((y + 1) % n) * n + x] - h[((y + n - 1) % n) * n + x];
+    const v = new Vector3(-hx * 6, -hy * 6, 1).normalize(), i = (y * n + x) * 4;
+    img.data[i] = (v.x * 0.5 + 0.5) * 255; img.data[i + 1] = (v.y * 0.5 + 0.5) * 255; img.data[i + 2] = (v.z * 0.5 + 0.5) * 255; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new CanvasTexture(c);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.repeat.set(220, 220);
+  return t;
+};
+
+let ripple: CanvasTexture | null = null;
+
+export const Ocean: React.FC<{ t: number; amp?: number; color?: string; size?: number; level?: number }> = ({ t, amp = 1, color = "#0a1824", size = 900, level = 0 }) => {
+  const geo = useMemo(() => {
+    const ax = expAxis(-size, size, 0.7, 0.032), az = expAxis(-size, size, 0.7, 0.032);
+    const nx = ax.n, nz = az.n;
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(new Float32Array(nx * nz * 3), 3));
+    g.setAttribute("normal", new BufferAttribute(new Float32Array(nx * nz * 3), 3));
+    const uv = new Float32Array(nx * nz * 2);
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { uv[(j * nx + i) * 2] = (ax.coord[i] + size) / (2 * size); uv[(j * nx + i) * 2 + 1] = (az.coord[j] + size) / (2 * size); }
+    g.setAttribute("uv", new BufferAttribute(uv, 2));
+    const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
+    let n = 0;
+    for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+      idx[n++] = a; idx[n++] = c; idx[n++] = b; idx[n++] = b; idx[n++] = c; idx[n++] = d;
+    }
+    g.setIndex(new BufferAttribute(idx, 1));
+    g.boundingSphere = new Sphere(new Vector3(0, 0, 0), size * 1.5);
+    return { g, ax, az };
+  }, [size]);
+  useMemo(() => {
+    const { g, ax, az } = geo;
+    const P = g.attributes.position.array as Float32Array, N = g.attributes.normal.array as Float32Array;
+    const nx = ax.n;
+    for (let j = 0; j < az.n; j++) {
+      const z0 = az.coord[j];
+      for (let i = 0; i < nx; i++) {
+        const x0 = ax.coord[i];
+        // waves shorter than ~3 grid cells alias at the horizon: fade them with distance
+        const cell = 0.7 + 0.032 * Math.max(Math.abs(x0), Math.abs(z0));
+        let x = x0, y = 0, z = z0, nX = 0, nY = 1, nZ = 0;
+        for (const v of WAVES) {
+          const keep = Math.min(1, Math.max(0, ((2 * Math.PI) / v.k / cell - 3) / 3));
+          if (keep <= 0) continue;
+          const A = amp * v.A * keep, th = v.k * (v.dx * x0 + v.dz * z0) - v.w * t + v.ph, s = Math.sin(th), c = Math.cos(th);
+          x += Q * A * v.dx * c; z += Q * A * v.dz * c; y += A * s;
+          nX -= v.dx * v.k * A * c; nZ -= v.dz * v.k * A * c; nY -= Q * v.k * A * s;
+        }
+        const k = (j * nx + i) * 3, l = Math.hypot(nX, nY, nZ);
+        P[k] = x; P[k + 1] = level + y; P[k + 2] = z;
+        N[k] = nX / l; N[k + 1] = nY / l; N[k + 2] = nZ / l;
+      }
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.normal.needsUpdate = true;
+  }, [geo, t, amp, level]);
+  if (!ripple) ripple = rippleTex();
+  ripple.offset.set((t * 0.011) % 1, (t * 0.0067) % 1);
+  const m = phys(`ocean${color}`, { color, roughness: 0.3, metalness: 0, ior: 1.33, specularIntensity: 0.32, normalMap: ripple, normalScale: new Vector2(0.5, 0.5), envMapIntensity: 0.6 });
+  return <mesh geometry={geo.g} material={m} receiveShadow frustumCulled={false} />;
+};
+
+==== 4790 project/src/cine/env/Sky.tsx
+// Sky dome for exterior worlds: elevation gradient, glow around the moon/sun, the disk itself, a seeded
+// star field and soft cloud bands, all in one fog-free shader on a sphere that follows the camera.
+
+import React, { useMemo } from "react";
+import { BackSide, Color, ShaderMaterial, SphereGeometry, Vector3 } from "three";
+import type { V3 } from "../Lights.tsx";
+
+export type SkyLook = { zenith: string; horizon: string; glow: string; disk: string; diskSize: number; stars: number; clouds: number; cloud: string };
+
+export const SKIES: Record<string, SkyLook> = {
+  night: { zenith: "#03060f", horizon: "#16233d", glow: "#5c7ab8", disk: "#f2f0e6", diskSize: 0.018, stars: 1, clouds: 0.45, cloud: "#2a3550" },
+  dusk: { zenith: "#1a2240", horizon: "#e0875a", glow: "#ffb36e", disk: "#fff1d0", diskSize: 0.02, stars: 0.15, clouds: 0.55, cloud: "#7a5a6a" },
+  dawn: { zenith: "#2b3f66", horizon: "#e8b48c", glow: "#ffd9a8", disk: "#fff6e0", diskSize: 0.02, stars: 0.05, clouds: 0.5, cloud: "#a8909a" },
+  day: { zenith: "#4f86c6", horizon: "#cfe0ee", glow: "#ffffff", disk: "#fffaf0", diskSize: 0.016, stars: 0, clouds: 0.55, cloud: "#f2f4f6" },
+  storm: { zenith: "#0a0d12", horizon: "#2a3038", glow: "#4a5566", disk: "#c8ccd4", diskSize: 0.0, stars: 0, clouds: 1, cloud: "#1c2028" },
+};
+
+const geo = new SphereGeometry(800, 64, 32);
+
+export const SkyDome: React.FC<{ look: SkyLook; dir: V3; cam: V3; t: number }> = ({ look, dir, cam, t }) => {
+  const mat = useMemo(
+    () =>
+      new ShaderMaterial({
+        side: BackSide,
+        depthWrite: false,
+        fog: false,
+        uniforms: {
+          uDir: { value: new Vector3() }, uZen: { value: new Color() }, uHor: { value: new Color() }, uGlow: { value: new Color() },
+          uDisk: { value: new Color() }, uSize: { value: 0 }, uStars: { value: 0 }, uClouds: { value: 0 }, uCloud: { value: new Color() }, uT: { value: 0 },
+        },
+        vertexShader: /* glsl */ `varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: /* glsl */ `
+          uniform vec3 uDir, uZen, uHor, uGlow, uDisk, uCloud; uniform float uSize, uStars, uClouds, uT;
+          varying vec3 vDir;
+          float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+          float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(h21(i), h21(i + vec2(1,0)), f.x), mix(h21(i + vec2(0,1)), h21(i + vec2(1,1)), f.x), f.y); }
+          float fbm(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ s += a * vn(p); p *= 2.03; a *= 0.5; } return s; }
+          void main(){
+            vec3 d = normalize(vDir);
+            float e = clamp(d.y, -1.0, 1.0);
+            vec3 col = mix(uHor, uZen, pow(max(e, 0.0), 0.5));
+            if (e < 0.0) col = uHor * 0.55;
+            float c = max(dot(d, normalize(uDir)), 0.0);
+            col += uGlow * (pow(c, 8.0) * 0.35 + pow(c, 64.0) * 0.5) * smoothstep(-0.05, 0.1, e);
+            // stars: one jittered point per cell in (azimuth, elevation)
+            if (uStars > 0.0 && e > 0.0) {
+              vec2 g = vec2(atan(d.z, d.x) * 90.0, e * 140.0);
+              vec2 id = floor(g), f = fract(g);
+              float r = h21(id);
+              vec2 p = vec2(h21(id + 7.1), h21(id + 3.7));
+              float s = smoothstep(0.09, 0.0, length(f - p)) * step(0.82, r) * (0.5 + 0.5 * sin(uT * (1.0 + r * 3.0) + r * 40.0));
+              col += vec3(0.85, 0.9, 1.0) * s * uStars * smoothstep(0.02, 0.25, e) * (0.6 + 1.6 * fract(r * 13.0));
+            }
+            // clouds: stretched fbm bands, lit toward the moon/sun
+            if (uClouds > 0.0 && e > -0.02) {
+              vec2 q = d.xz / (e + 0.18) * 1.6 + vec2(uT * 0.004, 0.0);
+              float n = fbm(q * vec2(1.0, 2.6));
+              float cl = smoothstep(0.52, 0.85, n) * uClouds * smoothstep(-0.02, 0.12, e);
+              vec3 cc = uCloud + uGlow * pow(c, 6.0) * 0.6;
+              col = mix(col, cc, cl * 0.85);
+            }
+            // the disk
+            float disk = smoothstep(cos(uSize), cos(uSize * 0.9), dot(d, normalize(uDir)));
+            col = mix(col, uDisk * 2.2, disk * step(0.0001, uSize));
+            gl_FragColor = vec4(col, 1.0);
+          }`,
+      }),
+    [],
+  );
+  const u = mat.uniforms;
+  u.uDir.value.set(...dir);
+  u.uZen.value.set(look.zenith);
+  u.uHor.value.set(look.horizon);
+  u.uGlow.value.set(look.glow);
+  u.uDisk.value.set(look.disk);
+  u.uSize.value = look.diskSize;
+  u.uStars.value = look.stars;
+  u.uClouds.value = look.clouds;
+  u.uCloud.value.set(look.cloud);
+  u.uT.value = t;
+  return <mesh geometry={geo} material={mat} position={cam} renderOrder={-10} frustumCulled={false} />;
+};
+
+==== 7304 project/src/cine/FX.tsx
+// Atmosphere: fake volumetric light shafts (additive prisms from an opening along a light direction)
+// and floating dust motes. Both live on FX_LAYER only, so GTAO/DOF never see them (large transparent
+// volumes on the default layer corrupt those passes and can blank a frame).
+
+import React, { useMemo } from "react";
+import { AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, ConeGeometry, DoubleSide, type Object3D, ShaderMaterial, Vector3 } from "three";
+import { FX_LAYER } from "../core/render/Post.tsx";
+import { mulberry32 } from "../kits/worldforge/noise.ts";
+import type { V3 } from "./Lights.tsx";
+
+const fxLayer = (o: Object3D | null) => {
+  if (o) o.layers.set(FX_LAYER);
+};
+
+const shaftGeo = (corners: V3[], dir: V3, len: number, spread: number) => {
+  const d = new Vector3(...dir).normalize();
+  const c0 = corners.map((c) => new Vector3(...c));
+  const ctr = c0.reduce((a, b) => a.add(b.clone()), new Vector3()).multiplyScalar(1 / c0.length);
+  const c1 = c0.map((c) => c.clone().sub(ctr).multiplyScalar(1 + spread).add(ctr).addScaledVector(d, len));
+  const pos: number[] = [], uv: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a0 = c0[i], b0 = c0[(i + 1) % 4], a1 = c1[i], b1 = c1[(i + 1) % 4];
+    pos.push(...a0.toArray(), ...b0.toArray(), ...b1.toArray(), ...a0.toArray(), ...b1.toArray(), ...a1.toArray());
+    uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+  }
+  const g = new BufferGeometry();
+  g.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute("uv", new BufferAttribute(new Float32Array(uv), 2));
+  return g;
+};
+
+const shaftMat = () =>
+  new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: DoubleSide,
+    fog: false,
+    uniforms: { uColor: { value: new Color("#9fb8ff") }, uI: { value: 0.1 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uI; varying vec2 vUv;
+      void main(){
+        float edge = pow(sin(3.14159 * clamp(vUv.x, 0.0, 1.0)), 1.6);
+        float along = smoothstep(0.0, 0.08, vUv.y) * pow(1.0 - clamp(vUv.y, 0.0, 1.0), 1.4);
+        float a = clamp(edge * along * uI, 0.0, 1.0);
+        gl_FragColor = vec4(uColor * a, 1.0);
+      }`,
+  });
+
+/** A light shaft from an opening (4 corners, in order around the rectangle) along `dir`. */
+export const Shaft: React.FC<{ corners: V3[]; dir: V3; len: number; spread?: number; color: string; i: number }> = ({ corners, dir, len, spread = 0.15, color, i }) => {
+  const key = JSON.stringify([corners, dir, len, spread]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const geo = useMemo(() => shaftGeo(corners, dir, len, spread), [key]);
+  const mat = useMemo(() => shaftMat(), []);
+  mat.uniforms.uColor.value.set(color);
+  mat.uniforms.uI.value = i;
+  return <mesh ref={fxLayer} geometry={geo} material={mat} visible={i > 0.001} renderOrder={5} />;
+};
+
+let dotTex: CanvasTexture | null = null;
+const dot = () => {
+  if (dotTex) return dotTex;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, "rgba(255,255,255,1)");
+  gr.addColorStop(0.35, "rgba(255,255,255,0.45)");
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  dotTex = new CanvasTexture(c);
+  return dotTex;
+};
+
+/** Dust motes drifting inside a box (deterministic in t). */
+export const Dust: React.FC<{ min: V3; max: V3; n?: number; t: number; color?: string; i?: number; size?: number; seed?: number }> = ({ min, max, n = 220, t, color = "#c8d6ff", i = 0.5, size = 0.012, seed = 3 }) => {
+  const base = useMemo(() => {
+    const r = mulberry32(seed);
+    return Array.from({ length: n }, () => [r(), r(), r(), r() * 6.28, 0.3 + r() * 0.7] as const);
+  }, [n, seed]);
+  const geo = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(new Float32Array(n * 3), 3));
+    return g;
+  }, [n]);
+  const a = geo.attributes.position as BufferAttribute;
+  base.forEach(([u, v, w, ph, sp], k) => {
+    const x = min[0] + (max[0] - min[0]) * ((u + 0.03 * Math.sin(t * 0.21 * sp + ph)) % 1);
+    const y = min[1] + (max[1] - min[1]) * ((((v - 0.012 * t * sp) % 1) + 1) % 1);
+    const z = min[2] + (max[2] - min[2]) * ((w + 0.03 * Math.cos(t * 0.17 * sp + ph * 1.3)) % 1);
+    a.setXYZ(k, x, y, z);
+  });
+  a.needsUpdate = true;
+  geo.computeBoundingSphere();
+  return (
+    <points ref={fxLayer} geometry={geo} renderOrder={6}>
+      <pointsMaterial map={dot()} color={color} size={size} sizeAttenuation transparent opacity={i} depthWrite={false} blending={AdditiveBlending} fog={false} />
+    </points>
+  );
+};
+
+export { fxLayer };
+
+/** Soft additive glow (camera-facing) — lamps, distant lights, halos in fog. Size in metres. */
+export const Glow: React.FC<{ pos: V3; size: number; color: string; i: number; stretch?: number }> = ({ pos, size, color, i, stretch = 1 }) => (
+  <sprite ref={fxLayer} position={pos} scale={[size, size * stretch, 1]} renderOrder={7} visible={i > 0.002}>
+    <spriteMaterial map={dot()} color={color} opacity={Math.min(1, i)} transparent depthWrite={false} blending={AdditiveBlending} fog={false} />
+  </sprite>
+);
+
+const beamMat = () =>
+  new ShaderMaterial({
+    transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, fog: false,
+    uniforms: { uColor: { value: new Color("#fff2d8") }, uI: { value: 0.1 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uI; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){
+        float along = pow(clamp(vUv.y, 0.0, 1.0), 2.2) * smoothstep(1.0, 0.95, vUv.y);
+        float edge = pow(abs(dot(normalize(vN), normalize(vV))), 1.5);
+        float a = clamp(along * edge * uI, 0.0, 1.0);
+        gl_FragColor = vec4(uColor * a, 1.0);
+      }`,
+  });
+
+/** A light beam (open cone) from `pos` toward (−sin yaw, 0, −cos yaw), tilted up by `pitch` (rad). */
+export const Beam: React.FC<{ pos: V3; yaw: number; pitch?: number; len: number; radius: number; color: string; i: number }> = ({ pos, yaw, pitch = 0, len, radius, color, i }) => {
+  const mat = useMemo(() => beamMat(), []);
+  mat.uniforms.uColor.value.set(color);
+  mat.uniforms.uI.value = i;
+  return (
+    <group position={pos} rotation={[0, yaw, 0]} visible={i > 0.002}>
+      <group rotation={[Math.PI / 2 + pitch, 0, 0]}>
+        <mesh ref={fxLayer} geometry={beamGeo(len, radius)} material={mat} position={[0, -len / 2, 0]} renderOrder={6} frustumCulled={false} />
+      </group>
+    </group>
+  );
+};
+const beamCache = new Map<string, ConeGeometry>();
+const beamGeo = (len: number, r: number) => {
+  const k = `${len},${r}`;
+  let g = beamCache.get(k);
+  if (!g) { g = new ConeGeometry(r, len, 32, 1, true); beamCache.set(k, g); }
+  return g;
+};
+
+==== 6573 project/src/cine/Lights.tsx
+// Fixed light rig for a whole film. The set of lights never changes (three.js never recompiles a shader
+// mid-film); shots only move them and change colour/intensity. Three lights cast shadows: the moon
+// (directional, frustum fitted to the shot's box) and two spots (practical lamp, moving headlight…).
+// Six unshadowed points carry practicals, bounce and fill.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import { Color, DirectionalLight, FogExp2, HemisphereLight, Matrix4, Object3D, PMREMGenerator, PointLight, SpotLight, Vector3 } from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+
+import { P_OFF, S_OFF, type LightState, type PointL, type SpotL, type V3 } from "./types.ts";
+export { P_OFF, S_OFF, type LightState, type PointL, type SpotL, type V3 };
+
+const makeSpot = (map: number) => {
+  const s = new SpotLight("#ffd9a8", 0);
+  s.castShadow = true;
+  s.shadow.mapSize.set(map, map);
+  s.shadow.bias = -0.0005;
+  s.shadow.normalBias = 0.02;
+  s.shadow.radius = 4;
+  s.shadow.camera.near = 0.05;
+  const t = new Object3D();
+  s.target = t;
+  return { s, t };
+};
+
+export const Lights: React.FC<{ s: LightState }> = ({ s }) => {
+  const { scene, gl } = useThree();
+  const rig = useMemo(() => {
+    const hemi = new HemisphereLight("#8899bb", "#221a14", 0.5);
+    const moon = new DirectionalLight("#9fb8ff", 1);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.bias = -0.0004;
+    moon.shadow.normalBias = 0.025;
+    moon.shadow.radius = 3;
+    const mt = new Object3D();
+    moon.target = mt;
+    const spots = [makeSpot(2048), makeSpot(1024)];
+    const pts = [0, 1, 2, 3, 4, 5].map(() => new PointLight("#fff", 0, 1, 2));
+    const pm = new PMREMGenerator(gl);
+    const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    return { hemi, moon, mt, spots, pts, env };
+  }, [gl]);
+
+  useLayoutEffect(() => {
+    scene.environment = rig.env;
+    scene.background = new Color(s.bg);
+    if (!(scene.fog instanceof FogExp2)) scene.fog = new FogExp2(s.fog.color, s.fog.density);
+    (scene.fog as FogExp2).color.set(s.fog.color);
+    (scene.fog as FogExp2).density = s.fog.density;
+    scene.environmentIntensity = s.env;
+
+    rig.hemi.color.set(s.hemi.sky);
+    rig.hemi.groundColor.set(s.hemi.ground);
+    rig.hemi.intensity = s.hemi.i;
+
+    // moon: fixed frustum fitted around the shot box in light space
+    const { min, max } = s.moon.box;
+    const L = new Vector3(...s.moon.dir).normalize();
+    const c = new Vector3(...min).add(new Vector3(...max)).multiplyScalar(0.5);
+    rig.mt.position.copy(c);
+    rig.mt.updateMatrixWorld();
+    rig.moon.position.copy(c).addScaledVector(L, 60);
+    const view = new Matrix4().lookAt(rig.moon.position, c, Math.abs(L.y) > 0.98 ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0));
+    const inv = new Matrix4().makeTranslation(rig.moon.position.x, rig.moon.position.y, rig.moon.position.z).multiply(view).invert();
+    const lo = new Vector3(Infinity, Infinity, Infinity), hi = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (let k = 0; k < 8; k++) {
+      const p = new Vector3(k & 1 ? max[0] : min[0], k & 2 ? max[1] : min[1], k & 4 ? max[2] : min[2]).applyMatrix4(inv);
+      lo.min(p);
+      hi.max(p);
+    }
+    const sc = rig.moon.shadow.camera;
+    sc.left = lo.x; sc.right = hi.x; sc.bottom = lo.y; sc.top = hi.y;
+    sc.near = Math.max(0.5, -hi.z - 5);
+    sc.far = -lo.z + 5;
+    sc.updateProjectionMatrix();
+    rig.moon.color.set(s.moon.color);
+    rig.moon.intensity = s.moon.i;
+    // shadow maps render every frame even for a dark light: an unrendered shadow map makes WebGL
+    // reject every draw call ("mismatch between texture format and sampler type")
+    rig.moon.shadow.autoUpdate = true;
+
+    s.spots.forEach((sp, i) => {
+      const { s: l, t } = rig.spots[i];
+      l.position.set(...sp.pos);
+      t.position.set(...sp.target);
+      t.updateMatrixWorld();
+      l.color.set(sp.color);
+      l.intensity = sp.i;
+      l.angle = sp.angle;
+      l.penumbra = sp.penumbra;
+      l.distance = sp.dist;
+      l.decay = 2;
+      l.shadow.camera.far = sp.dist;
+      l.shadow.autoUpdate = true;
+    });
+
+    s.pts.forEach((p, i) => {
+      const l = rig.pts[i];
+      l.position.set(...p.pos);
+      l.color.set(p.color);
+      l.intensity = p.i;
+      l.distance = p.dist;
+      l.decay = 2;
+    });
+  }, [s, rig, scene]);
+
+  return (
+    <>
+      <primitive object={rig.hemi} />
+      <primitive object={rig.moon} />
+      <primitive object={rig.mt} />
+      {rig.spots.map(({ s: l, t }, i) => (
+        <React.Fragment key={i}>
+          <primitive object={l} />
+          <primitive object={t} />
+        </React.Fragment>
+      ))}
+      {rig.pts.map((p, i) => (
+        <primitive key={i} object={p} />
+      ))}
+    </>
+  );
+};
+
+// ── blending (lamp switching on, set changes, light passing) ─────────────────
+
+const mixN = (a: number, b: number, k: number) => a + (b - a) * k;
+const mix3 = (a: V3, b: V3, k: number): V3 => [mixN(a[0], b[0], k), mixN(a[1], b[1], k), mixN(a[2], b[2], k)];
+const _a = new Color(), _b = new Color();
+export const mixC = (a: string, b: string, k: number) => `#${_a.set(a).lerp(_b.set(b), k).getHexString()}`;
+const mixP = (a: PointL, b: PointL, k: number): PointL => {
+  // a light fading out keeps its position (no sliding across the room)
+  const pos = a.i === 0 ? b.pos : b.i === 0 ? a.pos : mix3(a.pos, b.pos, k);
+  return { pos, color: mixC(a.color, b.color, k), i: mixN(a.i, b.i, k), dist: mixN(a.dist, b.dist, k) };
+};
+const mixS = (a: SpotL, b: SpotL, k: number): SpotL =>
+  a.i === 0 ? { ...b, i: b.i * k } : b.i === 0 ? { ...a, i: a.i * (1 - k) } : { ...b, color: mixC(a.color, b.color, k), i: mixN(a.i, b.i, k) };
+
+export const mixLight = (a: LightState, b: LightState, k: number): LightState => {
+  if (k <= 0) return a;
+  if (k >= 1) return b;
+  return {
+    bg: mixC(a.bg, b.bg, k),
+    fog: { color: mixC(a.fog.color, b.fog.color, k), density: mixN(a.fog.density, b.fog.density, k) },
+    env: mixN(a.env, b.env, k),
+    hemi: { sky: mixC(a.hemi.sky, b.hemi.sky, k), ground: mixC(a.hemi.ground, b.hemi.ground, k), i: mixN(a.hemi.i, b.hemi.i, k) },
+    moon: { dir: a.moon.dir, box: a.moon.box, color: mixC(a.moon.color, b.moon.color, k), i: mixN(a.moon.i, b.moon.i, k) },
+    spots: [mixS(a.spots[0], b.spots[0], k), mixS(a.spots[1], b.spots[1], k)],
+    pts: [0, 1, 2, 3, 4, 5].map((i) => mixP(a.pts[i], b.pts[i], k)) as LightState["pts"],
+  };
+};
+
+==== 13456 project/src/cine/mats.ts
+// Materials and procedural canvas textures for the film. Every material is built once per key and
+// shared; textures are drawn deterministically (seeded) on canvases, so nothing depends on files.
+
+import {
+  CanvasTexture,
+  Color,
+  type Material,
+  MeshBasicMaterial,
+  MeshPhysicalMaterial,
+  type MeshPhysicalMaterialParameters,
+  RepeatWrapping,
+  SRGBColorSpace,
+  type Texture,
+} from "three";
+import { mulberry32 } from "../kits/worldforge/noise.ts";
+
+const cache = new Map<string, Material>();
+
+export const phys = (key: string, p: MeshPhysicalMaterialParameters): MeshPhysicalMaterial => {
+  let m = cache.get(key) as MeshPhysicalMaterial | undefined;
+  if (!m) {
+    m = new MeshPhysicalMaterial(p);
+    cache.set(key, m);
+  }
+  return m;
+};
+
+export const basic = (key: string, p: ConstructorParameters<typeof MeshBasicMaterial>[0]): MeshBasicMaterial => {
+  let m = cache.get(key) as MeshBasicMaterial | undefined;
+  if (!m) {
+    m = new MeshBasicMaterial(p);
+    cache.set(key, m);
+  }
+  return m;
+};
+
+// ── canvas textures ─────────────────────────────────────────────────────────
+
+const texCache = new Map<string, Texture>();
+export const canvasTex = (key: string, w: number, h: number, draw: (g: CanvasRenderingContext2D, w: number, h: number) => void, repeat?: [number, number], srgb = true) => {
+  let t = texCache.get(key);
+  if (!t) {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d")!;
+    draw(g, w, h);
+    t = new CanvasTexture(c);
+    if (srgb) t.colorSpace = SRGBColorSpace;
+    t.anisotropy = 8;
+    if (repeat) {
+      t.wrapS = t.wrapT = RepeatWrapping;
+      t.repeat.set(...repeat);
+    }
+    texCache.set(key, t);
+  }
+  return t;
+};
+
+const shade = (hex: string, k: number) => {
+  const c = new Color(hex);
+  c.multiplyScalar(k);
+  return `#${c.getHexString()}`;
+};
+
+/** Large-format ceramic floor tiles with thin grout. */
+export const tileTex = (rep: [number, number]) =>
+  canvasTex(`tile${rep}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(7);
+    g.fillStyle = "#b9b4ab";
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2; i++)
+      for (let j = 0; j < 2; j++) {
+        const v = 0.94 + r() * 0.1;
+        g.fillStyle = shade("#d2cdc4", v);
+        g.fillRect(i * 256 + 3, j * 256 + 3, 250, 250);
+        for (let k = 0; k < 140; k++) {
+          g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "120,110,100"},${0.03 + r() * 0.04})`;
+          const x = i * 256 + 3 + r() * 250, y = j * 256 + 3 + r() * 250;
+          g.beginPath();
+          g.ellipse(x, y, 4 + r() * 22, 2 + r() * 8, r() * 3, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+  }, rep);
+
+/** Oak plank floor. */
+export const plankTex = (rep: [number, number]) =>
+  canvasTex(`plank${rep}`, 512, 1024, (g, w, h) => {
+    const r = mulberry32(11);
+    const pw = w / 4;
+    for (let i = 0; i < 4; i++) {
+      let y = -r() * 300;
+      while (y < h) {
+        const len = 380 + r() * 320;
+        const base = shade("#9a7352", 0.82 + r() * 0.3);
+        g.fillStyle = base;
+        g.fillRect(i * pw, y, pw, len);
+        for (let k = 0; k < 26; k++) {
+          g.strokeStyle = `rgba(60,36,20,${0.06 + r() * 0.1})`;
+          g.lineWidth = 0.6 + r() * 1.6;
+          const x = i * pw + r() * pw;
+          g.beginPath();
+          g.moveTo(x, y);
+          g.bezierCurveTo(x + (r() - 0.5) * 12, y + len * 0.3, x + (r() - 0.5) * 12, y + len * 0.7, x + (r() - 0.5) * 8, y + len);
+          g.stroke();
+        }
+        g.fillStyle = "rgba(40,24,14,0.55)";
+        g.fillRect(i * pw, y, pw, 2);
+        y += len;
+      }
+      g.fillStyle = "rgba(40,24,14,0.5)";
+      g.fillRect(i * pw, 0, 2, h);
+    }
+  }, rep);
+
+/** Soft woven fabric (sofa, rug). */
+export const weaveTex = (key: string, color: string, rep: [number, number], stripe?: string) =>
+  canvasTex(`weave${key}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(3);
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 4)
+      for (let x = 0; x < w; x += 4) {
+        g.fillStyle = `rgba(${(x + y) % 8 ? "255,255,255" : "0,0,0"},${0.025 + r() * 0.035})`;
+        g.fillRect(x, y, 4, 2);
+      }
+    if (stripe) {
+      g.fillStyle = stripe;
+      for (let y = 0; y < h; y += 64) g.fillRect(0, y + 20, w, 10);
+    }
+  }, rep);
+
+/** Rough render on exterior walls. */
+export const renderTex = (key: string, color: string, rep: [number, number]) =>
+  canvasTex(`render${key}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(5);
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 1600; k++) {
+      g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "0,0,0"},${0.02 + r() * 0.03})`;
+      g.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 3);
+    }
+  }, rep);
+
+/** Wooden wall planks (memory room). */
+export const boardTex = (rep: [number, number]) =>
+  canvasTex(`board${rep}`, 512, 512, (g, w, h) => {
+    const r = mulberry32(21);
+    const bw = w / 5;
+    for (let i = 0; i < 5; i++) {
+      g.fillStyle = shade("#7a5534", 0.78 + r() * 0.35);
+      g.fillRect(i * bw, 0, bw, h);
+      for (let k = 0; k < 30; k++) {
+        g.strokeStyle = `rgba(40,22,10,${0.08 + r() * 0.12})`;
+        g.lineWidth = 0.5 + r() * 1.5;
+        const x = i * bw + r() * bw;
+        g.beginPath();
+        g.moveTo(x, 0);
+        g.bezierCurveTo(x + (r() - 0.5) * 20, h * 0.3, x + (r() - 0.5) * 20, h * 0.7, x + (r() - 0.5) * 10, h);
+        g.stroke();
+      }
+      g.fillStyle = "rgba(25,14,6,0.8)";
+      g.fillRect(i * bw, 0, 3, h);
+    }
+  }, rep);
+
+/** Woven pandan mat (tikar). */
+export const matTex = (rep: [number, number]) =>
+  canvasTex(`tikar${rep}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(9);
+    g.fillStyle = "#c9a56b";
+    g.fillRect(0, 0, w, h);
+    const s = 16;
+    for (let y = 0; y < h; y += s)
+      for (let x = 0; x < w; x += s) {
+        const hor = ((x + y) / s) % 2 === 0;
+        g.fillStyle = shade(hor ? "#d6b57c" : "#b58f58", 0.92 + r() * 0.14);
+        g.fillRect(x + 1, y + 1, s - 2, s - 2);
+        g.strokeStyle = "rgba(90,60,25,0.35)";
+        g.lineWidth = 1;
+        for (let k = 3; k < s - 2; k += 4) {
+          g.beginPath();
+          if (hor) { g.moveTo(x + 2, y + k); g.lineTo(x + s - 2, y + k); } else { g.moveTo(x + k, y + 2); g.lineTo(x + k, y + s - 2); }
+          g.stroke();
+        }
+      }
+    g.strokeStyle = "rgba(160,40,40,0.55)";
+    g.lineWidth = 6;
+    g.strokeRect(10, 10, w - 20, h - 20);
+  }, rep);
+
+/** Batik-like repeat for the grandmother's kebaya and sarong. */
+export const batikTex = (key: string, base: string, ink: string, rep: [number, number]) =>
+  canvasTex(`batik${key}`, 256, 256, (g, w, h) => {
+    g.fillStyle = base;
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = ink;
+    g.fillStyle = ink;
+    g.lineWidth = 3;
+    for (let y = 0; y <= h; y += 64)
+      for (let x = 0; x <= w; x += 64) {
+        const ox = (y / 64) % 2 ? 32 : 0;
+        g.beginPath();
+        g.arc(x + ox, y, 18, 0, Math.PI * 2);
+        g.stroke();
+        for (let k = 0; k < 4; k++) {
+          const a = (k * Math.PI) / 2 + Math.PI / 4;
+          g.beginPath();
+          g.ellipse(x + ox + Math.cos(a) * 18, y + Math.sin(a) * 18, 9, 4, a, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.beginPath();
+        g.arc(x + ox, y, 5, 0, Math.PI * 2);
+        g.fill();
+      }
+  }, rep);
+
+/** Stripes for the child's t-shirt. */
+export const stripeTex = (rep: [number, number]) =>
+  canvasTex(`stripe${rep}`, 64, 64, (g, w, h) => {
+    g.fillStyle = "#e9e2d2";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#3f6f8f";
+    g.fillRect(0, 0, w, 22);
+  }, rep);
+
+/** Eye: equirectangular sphere texture with the iris centred on +Z (u = 0.25, v = 0.5). Limbal ring,
+ *  radial fibres and crypts, a soft collarette, sclera that greys toward the back with faint veins. */
+export const eyeTex = (key: string, iris: string) =>
+  canvasTex(`eye${key}`, 1024, 512, (g, w, h) => {
+    const r = mulberry32(17);
+    const sc = g.createLinearGradient(0, 0, w, 0);
+    sc.addColorStop(0, "#b8ada3");
+    sc.addColorStop(0.25, "#d9d0c6");
+    sc.addColorStop(0.5, "#b2a79c");
+    sc.addColorStop(0.75, "#9e9389");
+    sc.addColorStop(1, "#b8ada3");
+    g.fillStyle = sc;
+    g.fillRect(0, 0, w, h);
+    const cx = w * 0.25, cy = h * 0.5;
+    const rx = w * 0.088, ry = h * 0.178;
+    // veins toward the corners
+    g.strokeStyle = "rgba(170,70,60,0.10)";
+    for (let k = 0; k < 22; k++) {
+      g.lineWidth = 0.6 + r() * 1.1;
+      const a = r() * Math.PI * 2;
+      let x = cx + Math.cos(a) * rx * 3.2, y = cy + Math.sin(a) * ry * 2.4;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let s2 = 0; s2 < 6; s2++) {
+        x += (cx - x) * 0.12 + (r() - 0.5) * 14;
+        y += (cy - y) * 0.12 + (r() - 0.5) * 10;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    const gr = g.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    gr.addColorStop(0, shade(iris, 1.25));
+    gr.addColorStop(0.42, shade(iris, 1.55));
+    gr.addColorStop(0.62, iris);
+    gr.addColorStop(0.88, shade(iris, 0.62));
+    gr.addColorStop(1, "#140d08");
+    g.fillStyle = gr;
+    g.beginPath();
+    g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    g.fill();
+    // fibres and crypts
+    for (let k = 0; k < 220; k++) {
+      const a = r() * Math.PI * 2, r0 = 0.36 + r() * 0.1, r1 = 0.7 + r() * 0.25;
+      g.strokeStyle = r() > 0.5 ? `rgba(255,214,160,${0.06 + r() * 0.1})` : `rgba(20,10,4,${0.08 + r() * 0.12})`;
+      g.lineWidth = 0.7 + r() * 1.3;
+      g.beginPath();
+      g.moveTo(cx + Math.cos(a) * rx * r0, cy + Math.sin(a) * ry * r0);
+      g.lineTo(cx + Math.cos(a + (r() - 0.5) * 0.08) * rx * r1, cy + Math.sin(a + (r() - 0.5) * 0.08) * ry * r1);
+      g.stroke();
+    }
+    g.strokeStyle = "rgba(255,200,140,0.18)";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.ellipse(cx, cy, rx * 0.5, ry * 0.5, 0, 0, Math.PI * 2);
+    g.stroke();
+    g.fillStyle = "#050302";
+    g.beginPath();
+    g.ellipse(cx, cy, rx * 0.36, ry * 0.36, 0, 0, Math.PI * 2);
+    g.fill();
+  });
+
+/** Phone lock screen: 02:00. */
+export const phoneTex = () =>
+  canvasTex("phone", 256, 512, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, "#1b3a5c");
+    gr.addColorStop(0.6, "#0f2238");
+    gr.addColorStop(1, "#2a1f3d");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#eaf4ff";
+    g.textAlign = "center";
+    g.font = "500 22px Manrope, sans-serif";
+    g.fillText("Sabtu, 1 November", w / 2, 92);
+    g.font = "300 92px Manrope, sans-serif";
+    g.fillText("02:00", w / 2, 180);
+    g.fillStyle = "rgba(255,255,255,0.16)";
+    g.beginPath();
+    g.roundRect(28, 380, w - 56, 54, 14);
+    g.fill();
+    g.fillStyle = "#eaf4ff";
+    g.font = "500 15px Manrope, sans-serif";
+    g.textAlign = "left";
+    g.fillText("Baterai 9% · Sambungkan pengisi daya", 44, 412);
+  });
+
+/** Wall clock face. */
+export const clockTex = () =>
+  canvasTex("clock", 256, 256, (g, w, h) => {
+    g.fillStyle = "#f1ede4";
+    g.fillRect(0, 0, w, h);
+    g.translate(w / 2, h / 2);
+    g.fillStyle = "#2a2a2a";
+    for (let i = 0; i < 12; i++) {
+      g.save();
+      g.rotate((i / 12) * Math.PI * 2);
+      g.fillRect(-3, -112, 6, i % 3 ? 14 : 26);
+      g.restore();
+    }
+  });
+
+/** Woven bamboo wall (gedek / anyaman bambu). */
+export const bambooTex = (rep: [number, number]) =>
+  canvasTex(`bamboo${rep}`, 256, 256, (g, w, h) => {
+    const r = mulberry32(13);
+    g.fillStyle = "#cdb38a";
+    g.fillRect(0, 0, w, h);
+    const s = 32;
+    for (let y = 0; y < h; y += s)
+      for (let x = 0; x < w; x += s) {
+        const diag = ((x + y) / s) % 2 === 0;
+        g.fillStyle = shade(diag ? "#d2b98f" : "#c6aa7f", 0.95 + r() * 0.08);
+        g.fillRect(x + 1, y + 1, s - 2, s - 2);
+        g.strokeStyle = "rgba(110,80,40,0.22)";
+        g.lineWidth = 1.2;
+        for (let k = 5; k < s - 3; k += 6) {
+          g.beginPath();
+          if (diag) { g.moveTo(x + 2, y + k); g.lineTo(x + s - 2, y + k); } else { g.moveTo(x + k, y + 2); g.lineTo(x + k, y + s - 2); }
+          g.stroke();
+        }
+      }
+  }, rep);
+
+/** Wall calendar page. */
+export const calendarTex = () =>
+  canvasTex("calendar", 256, 360, (g, w, h) => {
+    g.fillStyle = "#f2ece0";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#b8463a";
+    g.fillRect(0, 0, w, 120);
+    g.fillStyle = "#f8efe0";
+    g.font = "600 34px Manrope, sans-serif";
+    g.textAlign = "center";
+    g.fillText("2009", w / 2, 75);
+    g.fillStyle = "#3a3330";
+    g.font = "500 15px Manrope, sans-serif";
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 7; c++) g.fillText(String(r * 7 + c + 1), 22 + c * 35, 160 + r * 40);
+  });
+
+/** Sheer curtain with soft vertical folds (alpha + brightness), lit from behind by the moon. */
+export const sheerTex = () =>
+  canvasTex("sheer", 256, 256, (g, w, h) => {
+    for (let x = 0; x < w; x++) {
+      const f = 0.62 + 0.22 * Math.sin(x * 0.11) + 0.12 * Math.sin(x * 0.37 + 1) + 0.05 * Math.sin(x * 0.9);
+      const v = Math.round(255 * Math.min(1, f));
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(x, 0, 1, h);
+    }
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, "rgba(0,0,0,0.25)");
+    gr.addColorStop(0.5, "rgba(0,0,0,0)");
+    gr.addColorStop(1, "rgba(0,0,0,0.35)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  });

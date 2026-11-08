@@ -1,0 +1,5397 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 2394 project/src/worlds/kos/Kos.tsx
+// Kos world, picture side: the EP01 boarding-house set driven by the story's set state, plus the moonlit
+// atmosphere (shafts through the small window and the bedroom window, dust).
+
+import React from "react";
+import { Dust, Shaft } from "../../cine/FX.tsx";
+import type { Cam } from "../../cine/types.ts";
+import type { SetState, V3 } from "../types.ts";
+import { Kos, type KosState } from "./set/Kos.tsx";
+import { Exterior } from "./set/Exterior.tsx";
+import { MOON } from "./looks.ts";
+import { ROOM, ROOM_WIN, SMALL_WIN, WALL } from "./layout.ts";
+
+const into: V3 = [-MOON[0], -MOON[1], -MOON[2]];
+const SMALL_CORNERS: V3[] = [[SMALL_WIN.x - 0.1, SMALL_WIN.y0, SMALL_WIN.z0], [SMALL_WIN.x - 0.1, SMALL_WIN.y0, SMALL_WIN.z1], [SMALL_WIN.x - 0.1, SMALL_WIN.y1, SMALL_WIN.z1], [SMALL_WIN.x - 0.1, SMALL_WIN.y1, SMALL_WIN.z0]];
+const RX = ROOM.x0 - WALL / 2;
+const ROOM_CORNERS: V3[] = [[RX, ROOM_WIN.y0, ROOM_WIN.z0], [RX, ROOM_WIN.y0, ROOM_WIN.z1], [RX, ROOM_WIN.y1, ROOM_WIN.z1], [RX, ROOM_WIN.y1, ROOM_WIN.z0]];
+
+export const KosSet: React.FC<{ place: string; time: string; s: SetState; t: number; cam: Cam }> = ({ place, time, s, t }) => {
+  const day = time === "day";
+  const vent = s.vent ?? 0;
+  const k: KosState = {
+    roomDoor: (s.door ?? 0) * 1.55, key: 0, lever: 0,
+    vent: 0.004 * Math.sin(t * 3.1) + vent * 0.22 * Math.max(0, Math.sin(t * 9.4)) ** 6,
+    tubes: s.tubes ?? 0, led: Math.floor(t) % 2 === 0 ? 1 : 0.2, colon: Math.floor(t * 2) % 2 === 0,
+    fan: t * Math.PI * 2 * 3.3 * (s.fan ?? 1), coat: 0.012 * Math.sin(t * 0.9), coatOn: (s.coat ?? 1) > 0.5,
+    room: true, hall: true, roof: true, gudang: s.gudang ?? 0, pile: (s.pile ?? 0) > 0.5, day,
+  };
+  const hall = place === "hall";
+  return (
+    <group>
+      <Kos s={k} />
+      <Exterior visible={place === "yard" || day} lamp={day ? 0 : 1} day={day} roof />
+      <Shaft corners={SMALL_CORNERS} dir={into} len={2.6} spread={0.3} color="#9fb8ff" i={hall && !day && (s.tubes ?? 0) < 0.5 ? 0.05 : 0} />
+      <Shaft corners={ROOM_CORNERS} dir={into} len={2.8} spread={0.2} color={day ? "#fff2d8" : "#9fb8ff"} i={place === "room" ? 0.07 : 0} />
+      <Dust min={[-0.78, 0.15, -15.0]} max={[0.78, 2.7, -11.5]} n={260} t={t} i={hall ? 0.32 : 0} size={0.01} />
+      <Dust min={[-4.2, 0.2, -6.6]} max={[-2.0, 2.6, -4.4]} n={160} t={t} i={place === "room" ? 0.28 : 0} size={0.009} seed={9} />
+    </group>
+  );
+};
+
+==== 4198 project/src/worlds/kos/layout.ts
+// Kos world (from Dunia Nabel EP01): one coordinate module for the boarding house — the kos plan, every story-critical prop, character marks.
+// Geometry, performances, cameras and the Act 5 reveal all read these numbers, so the building never
+// changes between the mystery and the reveal. Units metres, y up. The hallway runs along −Z from the
+// entrance (z = ENTRANCE_Z) to the end wall (z = END_Z); the hallway centre line is x = 0.
+
+export type V3 = [number, number, number];
+
+
+export const CEIL = 2.8;
+export const HALL = { x0: -0.8, x1: 0.8, z0: 1.0, z1: -15.0 };
+export const ENTRANCE_Z = HALL.z0;
+export const END_Z = HALL.z1;
+export const WALL = 0.15;
+
+export type Door = { id: string; side: -1 | 1; z: number; w: number; h: number; label: string; hinge: -1 | 1 };
+/** Room doors on the hallway walls (side −1 = left wall x = −0.8, +1 = right wall). `hinge` = which z end. */
+export const DOORS: Door[] = [
+  { id: "K1", side: -1, z: -2.0, w: 0.82, h: 2.05, label: "1", hinge: 1 },
+  { id: "K2", side: -1, z: -5.5, w: 0.82, h: 2.05, label: "2", hinge: 1 },
+  { id: "K3", side: -1, z: -9.0, w: 0.82, h: 2.05, label: "3", hinge: 1 },
+  { id: "K5", side: 1, z: -3.5, w: 0.82, h: 2.05, label: "5", hinge: 1 },
+  { id: "K6", side: 1, z: -7.0, w: 0.82, h: 2.05, label: "6", hinge: 1 },
+  { id: "K7", side: 1, z: -10.5, w: 0.82, h: 2.05, label: "7", hinge: 1 },
+  { id: "K8", side: 1, z: -13.6, w: 0.82, h: 2.05, label: "8", hinge: 1 },
+];
+export const ROOM_DOOR = DOORS[1];
+export const EMPTY_ROOM_DOOR = DOORS[6];
+
+/** the bedroom (K2) interior box. Door on its +X wall (the hallway wall). */
+export const ROOM = { x0: -4.3, x1: HALL.x0, z0: -7.2, z1: -3.8 };
+export const ROOM_WIN = { z0: -6.2, z1: -4.8, y0: 0.95, y1: 2.15 }; // on the outer wall x = ROOM.x0
+export const BED = { x0: -4.25, x1: -2.25, z0: -7.15, z1: -6.2, top: 0.46 };
+export const DESK = { x0: -3.75, x1: -2.55, z: -3.85, d: 0.55, top: 0.74 };
+export const CLOCK: V3 = [-2.68, DESK.top, -4.17];
+export const CLOCK_YAW = 0.42;
+export const BOTTLE: V3 = [-3.08, DESK.top, -4.24];
+export const FAN: V3 = [-3.95, 0, -5.3];
+export const WARDROBE = { x0: -1.95, x1: -0.95, z: -7.15, d: 0.55, h: 1.95 };
+export const SOCKET: V3 = [-4.3 + 0.012, 0.32, -4.25];
+/** Key in the lock on the room side of the bedroom door (door closed). */
+export const KEY: V3 = [HALL.x0 - WALL - 0.035, 0.955, ROOM_DOOR.z - ROOM_DOOR.w / 2 + 0.1];
+/** Door handle (latch side), hallway face. */
+export const HANDLE_Z = ROOM_DOOR.z - ROOM_DOOR.w / 2 + 0.085;
+
+/** The end of the hallway: gudang door in the end wall, the vent above it, the raincoat on its hook. */
+export const GUDANG = { x: 0.22, w: 0.8, h: 2.0 };
+export const VENT = { x: GUDANG.x, y0: 2.18, y1: 2.5, w: 0.56 };
+/** Hook position on the end wall; the raincoat hangs from here (hood up). */
+export const RAINCOAT_HOOK: V3 = [-0.5, 2.0, END_Z + 0.02];
+/** Small high window on the left wall near the end, opening onto the side passage (motorbike light enters here). */
+export const SMALL_WIN = { x: HALL.x0, z0: -14.45, z1: -13.95, y0: 1.72, y1: 2.22 };
+/** Water dispenser against the right wall between K7 and K8. */
+export const DISPENSER: V3 = [HALL.x1 - 0.22, 0, -12.05];
+/** Left rooms K1–K3 end here; beyond it, outside the left wall, an open side passage (gang samping). */
+export const LEFT_ROOMS_END = -10.8;
+export const PASSAGE = { x0: -3.4, x1: HALL.x0 - WALL, z0: LEFT_ROOMS_END, z1: END_Z - 1.2 };
+
+/** Ceiling tube lamps (off at night) and the CCTV camera at the entrance. */
+export const TUBES: V3[] = [[0, CEIL - 0.03, -4.0], [0, CEIL - 0.03, -10.0]];
+export const CCTV: V3 = [0.6, 2.42, 0.25];
+export const CCTV_LOOK: V3 = [-0.1, 0.6, -13.5];
+
+/** Outside. Terrace + yard at the entrance side, gate further out; side alley along the left. */
+export const TERRACE_LAMP: V3 = [0.95, 2.55, 1.6];
+export const YARD = { z0: 1.0, z1: 6.5, x0: -4.6, x1: 4.6 };
+export const GATE = { z: 6.5, x0: -1.4, x1: 1.4, h: 1.75 };
+export const ALLEY_X = -6.2;
+export const STREET_LAMP: V3 = [5.6, 4.2, 8.4];
+
+/** Character marks in the hallway (Act 1). */
+export const MARK_STOP: [number, number] = [0.08, -7.6];
+export const MARK_CREEP: [number, number] = [0.04, -8.6];
+
+==== 10920 project/src/worlds/kos/looks.ts
+// Light + grade presets per location/mood for episode 01. Mystery = deep blue ambient, warm practical
+// from the terrace behind the hero, cold moon from ahead; never crushed (lifted blue shadows).
+
+import { GRADE0, type Grade } from "../../cine/types.ts";
+import { P_OFF, S_OFF, type LightState, type PointL, type SpotL } from "../../cine/types.ts";
+import { CLOCK, END_Z, GUDANG, ENTRANCE_Z, HALL, ROOM_DOOR, ROOM, SMALL_WIN, STREET_LAMP, TERRACE_LAMP, type V3 } from "./layout.ts";
+
+const box = (min: V3, max: V3) => ({ min, max });
+
+/** Moon direction (toward the moon): from the left (−x), high, slightly in front (+z). */
+export const MOON: V3 = [-0.37, 0.61, 0.69];
+
+/** Terrace lamp as a shadow spot pointing down the hallway (warm, from behind the hero). */
+export const TERRACE_SPOT: SpotL = {
+  pos: [TERRACE_LAMP[0] - 0.6, TERRACE_LAMP[1] - 0.15, TERRACE_LAMP[2] - 0.1], target: [0, 0.2, -9], color: "#ffb36a", i: 22, angle: 0.62, penumbra: 0.8, dist: 24,
+};
+
+const clockGlow: PointL = { pos: [CLOCK[0] + 0.03, CLOCK[1] + 0.06, CLOCK[2] - 0.08], color: "#ff3b2a", i: 0.035, dist: 0.7 };
+
+export const L_ROOM: LightState = {
+  bg: "#04070d", fog: { color: "#0a1222", density: 0.02 }, env: 0.06,
+  hemi: { sky: "#3d5585", ground: "#120e0c", i: 0.32 },
+  moon: { dir: MOON, color: "#8fb0ff", i: 4.2, box: box([ROOM.x0 - 0.3, -0.1, ROOM.z0 - 0.2], [ROOM.x1 + 0.2, 2.9, ROOM.z1 + 0.2]) },
+  spots: [S_OFF, S_OFF],
+  pts: [
+    clockGlow,
+    { pos: [-2.9, 1.4, -6.1], color: "#5c78b6", i: 0.9, dist: 4 }, // bounce off the moonlit floor
+    { pos: [HALL.x0 - 0.3, 0.12, ROOM_DOOR.z], color: "#ffb36a", i: 0.25, dist: 1.6 }, // warm sliver under the door
+    { pos: [-1.6, 2.2, -4.4], color: "#3a4d78", i: 0.5, dist: 4 },
+    P_OFF, P_OFF,
+  ],
+};
+
+export const L_HALL: LightState = {
+  bg: "#04070d", fog: { color: "#0b1426", density: 0.045 }, env: 0.05,
+  hemi: { sky: "#3b5384", ground: "#15110e", i: 0.34 },
+  moon: { dir: MOON, color: "#8fb0ff", i: 5.0, box: box([HALL.x0 - 0.3, -0.1, END_Z - 0.4], [HALL.x1 + 0.3, 2.95, ENTRANCE_Z + 0.2]) },
+  spots: [TERRACE_SPOT, S_OFF],
+  pts: [
+    { pos: [0, 2.0, ENTRANCE_Z - 0.6], color: "#ffb36a", i: 1.6, dist: 5 }, // terrace spill near the entrance
+    { pos: [0.25, 1.7, END_Z + 1.6], color: "#4766a8", i: 0.8, dist: 5 }, // cold fill at the end (moonlit window bounce)
+    { pos: [0.0, 2.3, -9.5], color: "#2c3f6a", i: 0.6, dist: 6 },
+    { pos: [GUDANG.x, 2.34, END_Z - 0.3], color: "#5774b0", i: 0.25, dist: 1.0 }, // moon in the gudang behind the vent
+    P_OFF, P_OFF,
+  ],
+};
+
+/** Exterior establishing: moon, terrace lamp, street sodium lamp. */
+export const L_EXT: LightState = {
+  bg: "#060b18", fog: { color: "#16233e", density: 0.018 }, env: 0.12,
+  hemi: { sky: "#4b5f8e", ground: "#1a1714", i: 0.34 },
+  moon: { dir: MOON, color: "#a9c2ff", i: 0.9, box: box([-6, -0.3, -2], [6, 6, 9]) },
+  spots: [{ ...TERRACE_SPOT, pos: [TERRACE_LAMP[0], TERRACE_LAMP[1] - 0.05, TERRACE_LAMP[2]], target: [TERRACE_LAMP[0], 0, TERRACE_LAMP[2] + 1.6], angle: 1.15, i: 9, dist: 9 }, S_OFF],
+  pts: [
+    { pos: [STREET_LAMP[0] - 0.35, STREET_LAMP[1] - 0.25, STREET_LAMP[2]], color: "#ffad5c", i: 14, dist: 14 },
+    { pos: [0, 1.8, ENTRANCE_Z - 1.5], color: "#ffb36a", i: 0.8, dist: 4 },
+    { pos: [-3, 2.5, 4], color: "#5a6fa0", i: 1.2, dist: 7 },
+    P_OFF, P_OFF, P_OFF,
+  ],
+};
+
+/** Motorbike headlight passing in the side passage, beam through the small window (u: 0..1 pass). */
+export const bikeLight = (u: number): SpotL => {
+  const k = Math.max(0, Math.min(1, u));
+  const env = Math.sin(Math.PI * k);
+  const zc = (SMALL_WIN.z0 + SMALL_WIN.z1) / 2;
+  // through the window toward the end wall behind the raincoat: the patch (and the coat's shadow) slide
+  return {
+    pos: [-2.7, 2.5, zc + 2.4 - 2.2 * k],
+    target: [-0.3, 1.45, END_Z],
+    color: "#f4f1ff", i: 70 * env, angle: 0.3, penumbra: 0.45, dist: 9,
+  };
+};
+
+export const G_NIGHT: Grade = {
+  ...GRADE0, exposure: 1.5, lift: [0.02, 0.03, 0.058], gain: [0.96, 1.0, 1.07], sat: 0.9, contrast: 1.05,
+  vignette: 0.36, grain: 0.024, bloom: 0.32, bloomRadius: 0.55, bloomThreshold: 0.92, ca: 0.0016,
+};
+export const G_EXT: Grade = { ...G_NIGHT, exposure: 1.0, sat: 0.9, vignette: 0.34 };
+
+// ── Acts 2–6 ────────────────────────────────────────────────────────────────
+
+/** Far-away sets for the science passages (never share a frame with the kos). */
+export const MIND_O: V3 = [0, 0, 500];
+export const LAB_O: V3 = [0, 0, -500];
+const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+const tubePt = (p: V3, i = 2.2): PointL => ({ pos: [p[0], p[1] - 0.6, p[2]], color: "#eaf2ff", i, dist: 7.5 });
+/** Hallway at night with the ceiling tubes on (one hour earlier; the ending). */
+export const L_HALL_LIT: LightState = {
+  bg: "#0a0c10", fog: { color: "#20242c", density: 0.012 }, env: 0.07,
+  hemi: { sky: "#d9e2ee", ground: "#4a4036", i: 0.55 },
+  moon: { ...L_HALL.moon, i: 0.35 },
+  spots: [{ ...TERRACE_SPOT, i: 1.5 }, S_OFF],
+  pts: [tubePt([0, 2.77, -4.0]), tubePt([0, 2.77, -10.0]), { pos: [0, 1.4, -7.0], color: "#f2e6d4", i: 0.8, dist: 6 }, { pos: [0.2, 1.8, END_Z + 1.2], color: "#dfe6f0", i: 0.7, dist: 4 }, P_OFF, P_OFF],
+};
+
+/** Morning outside (Act 5): low warm sun, blue sky fill. */
+export const L_DAY_EXT: LightState = {
+  bg: "#cfe0ef", fog: { color: "#dfe8f0", density: 0.006 }, env: 0.7,
+  hemi: { sky: "#c4daf2", ground: "#7a6a58", i: 1.1 },
+  moon: { dir: [0.55, 0.62, 0.56], color: "#fff0d8", i: 3.4, box: box([-6, -0.3, -4], [6, 6, 9]) },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: [0, 2.0, ENTRANCE_Z - 1.0], color: "#fff4e4", i: 1.5, dist: 5 }, P_OFF, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+
+/** The hallway in clear light (Act 5 reveal, recreated angles): everything visible. */
+export const L_HALL_CLEAR: LightState = {
+  bg: "#d9e0e8", fog: { color: "#cfd6de", density: 0.004 }, env: 0.18,
+  hemi: { sky: "#eef2f6", ground: "#6f655a", i: 0.95 },
+  moon: { dir: [0.25, 0.55, 0.8], color: "#fff4e4", i: 2.4, box: L_HALL.moon.box },
+  spots: [S_OFF, S_OFF],
+  pts: [tubePt([0, 2.77, -4.0], 2.2), tubePt([0, 2.77, -10.0], 2.2), { pos: [0, 1.6, -13.2], color: "#f6f2ea", i: 1.6, dist: 5 }, { pos: [-0.3, 2.0, ENTRANCE_Z - 0.5], color: "#fff6e8", i: 2.5, dist: 6 }, P_OFF, P_OFF],
+};
+
+/** CCTV playback: flat, high-key monochrome (graded to grey in G_CCTV). */
+export const L_CCTV: LightState = {
+  bg: "#101010", fog: { color: "#202020", density: 0.01 }, env: 0.5,
+  hemi: { sky: "#ffffff", ground: "#5a5a5a", i: 1.25 },
+  moon: { ...L_HALL.moon, i: 1.4 },
+  spots: [{ ...TERRACE_SPOT, i: 8 }, S_OFF],
+  pts: [{ pos: [0.4, 2.4, 0.6], color: "#ffffff", i: 3.5, dist: 9 }, { pos: [0, 2.2, -7], color: "#ffffff", i: 2.2, dist: 7 }, { pos: [0, 2.0, -12.5], color: "#ffffff", i: 1.8, dist: 6 }, P_OFF, P_OFF, P_OFF],
+};
+
+/** Neural space (inside the head): emissive content on a deep teal backdrop. */
+export const L_MIND: LightState = {
+  bg: "#061426", fog: { color: "#061426", density: 0.0 }, env: 0.25,
+  hemi: { sky: "#6fa8d8", ground: "#0b1a2c", i: 0.5 },
+  moon: { dir: [0.3, 0.8, 0.5], color: "#cfe6ff", i: 1.6, box: box(add(MIND_O, [-4, -3, -4]), add(MIND_O, [4, 4, 4])) },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: add(MIND_O, [0, 1.5, 3]), color: "#8fdcff", i: 3, dist: 9 }, { pos: add(MIND_O, [-2.5, 0.5, 1]), color: "#ffbf73", i: 1.6, dist: 7 }, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+
+/** Clean science studio (cyclorama). */
+export const L_LAB: LightState = {
+  bg: "#aeb8c3", fog: { color: "#b4bdc7", density: 0.01 }, env: 0.32,
+  hemi: { sky: "#f2f6fa", ground: "#7d8794", i: 0.55 },
+  moon: { dir: [0.35, 0.85, 0.45], color: "#ffffff", i: 1.5, box: box(add(LAB_O, [-5, -0.2, -5]), add(LAB_O, [5, 4, 5])) },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: add(LAB_O, [-2.5, 2.5, 3]), color: "#e8f4ff", i: 1.6, dist: 10 }, { pos: add(LAB_O, [3, 2, 2]), color: "#fff1e0", i: 1.2, dist: 10 }, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+
+/** Overhead "dollhouse" view of the whole kos at night. */
+export const L_DIORAMA: LightState = {
+  ...L_HALL,
+  fog: { color: "#0b1426", density: 0.004 },
+  hemi: { sky: "#5b72a8", ground: "#1a1612", i: 0.75 },
+  moon: { dir: [-0.25, 0.92, 0.3], color: "#a9c2ff", i: 2.6, box: box([-5, -0.3, -19], [5, 3.2, 2]) },
+  spots: [{ ...TERRACE_SPOT, i: 14 }, S_OFF],
+};
+
+/** The gudang: moonlight from the back window + hallway spill; bulb on later. */
+export const L_GUDANG: LightState = {
+  bg: "#05070b", fog: { color: "#0b1220", density: 0.02 }, env: 0.12,
+  hemi: { sky: "#4a5f8c", ground: "#16120f", i: 0.45 },
+  moon: { dir: [0.2, 0.55, -0.8], color: "#8fb0ff", i: 3.2, box: box([-1.2, -0.1, -18.6], [2, 3, -14.8]) },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: [0.22, 1.4, END_Z + 0.4], color: "#ffd9b0", i: 1.6, dist: 4 }, { pos: [0.4, 2.3, -16.7], color: "#ffd9a0", i: 0, dist: 7 }, { pos: [0.5, 1.5, -17.5], color: "#4a64a0", i: 0.5, dist: 4 }, P_OFF, P_OFF, P_OFF],
+};
+
+export const G_LIT: Grade = { ...GRADE0, exposure: 1.0, lift: [0.012, 0.01, 0.008], gain: [1.03, 1.0, 0.96], sat: 0.95, contrast: 1.04, vignette: 0.26, grain: 0.018, bloom: 0.14, bloomRadius: 0.45, bloomThreshold: 1.35, ca: 0.001 };
+export const G_MEMORY: Grade = { ...G_LIT, lift: [0.03, 0.022, 0.012], gain: [1.05, 0.99, 0.9], sat: 0.82, contrast: 0.98, vignette: 0.34, grain: 0.03 };
+export const G_STORY: Grade = { ...G_NIGHT, exposure: 1.2, lift: [0.01, 0.03, 0.04], gain: [0.86, 0.98, 1.0], sat: 0.55, contrast: 1.12, vignette: 0.5, grain: 0.045 };
+export const G_DAY: Grade = { ...GRADE0, exposure: 0.95, lift: [0.01, 0.01, 0.012], gain: [1.02, 1.0, 0.98], sat: 1.0, contrast: 1.03, vignette: 0.18, grain: 0.012, bloom: 0.15, bloomThreshold: 1.1, ca: 0.0008 };
+export const G_CLEAR: Grade = { ...G_DAY, exposure: 1.0, vignette: 0.2 };
+export const G_CCTV: Grade = { ...GRADE0, exposure: 1.35, lift: [0.04, 0.05, 0.04], gain: [0.92, 1.0, 0.9], sat: 0.0, contrast: 1.18, vignette: 0.5, grain: 0.06, bloom: 0.1, bloomThreshold: 1.2, ca: 0.003 };
+export const G_MIND: Grade = { ...GRADE0, exposure: 1.1, lift: [0.0, 0.01, 0.02], sat: 1.05, contrast: 1.05, vignette: 0.3, grain: 0.014, bloom: 0.45, bloomRadius: 0.6, bloomThreshold: 0.75, ca: 0.0012, ao: 0 };
+export const G_LAB: Grade = { ...GRADE0, exposure: 1.0, sat: 0.95, contrast: 1.02, vignette: 0.14, grain: 0.008, bloom: 0.12, bloomThreshold: 1.1, ca: 0 };
+
+/** the bedroom in the morning: sun through the window, bright sky fill. */
+export const L_ROOM_DAY: LightState = {
+  bg: "#cfe0ef", fog: { color: "#c9d6e2", density: 0.004 }, env: 0.5,
+  hemi: { sky: "#e6eef6", ground: "#6f655a", i: 0.85 },
+  moon: { dir: [-0.6, 0.55, 0.3], color: "#fff0d8", i: 3.6, box: L_ROOM.moon.box },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: [-3.6, 1.6, -5.5], color: "#fff6ea", i: 1.6, dist: 5 }, { pos: [-1.6, 2.2, -4.6], color: "#eef3f8", i: 1.0, dist: 5 }, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+
+==== 13782 project/src/worlds/kos/set/End.tsx
+// The end of the hallway — every element of the mystery lives here from the first frame and is reused
+// unchanged in the Act 5 reveal: the end wall + gudang door, the vent with its loose flap (the three
+// knocks), the long black raincoat on its hook (the "figure"), the small window onto the side passage
+// (the motorbike light), the water dispenser, the empty room K8 (door in Kos.tsx).
+
+import React, { useMemo } from "react";
+import { BufferGeometry, DoubleSide, LatheGeometry, Vector2 } from "three";
+import { box, cached, cyl, sphere, torus } from "../../../kits/worldforge/geo.ts";
+import { basic, phys } from "../../../cine/mats.ts";
+import { mulberry32 } from "../../../kits/worldforge/noise.ts";
+import { CEIL, DISPENSER, END_Z, GUDANG, HALL, LEFT_ROOMS_END, PASSAGE, RAINCOAT_HOOK, SMALL_WIN, VENT, WALL } from "../layout.ts";
+import { HoledWall, MAT, Slab } from "./parts.tsx";
+import { plankDoorTex } from "../../../cine/set/tex.ts";
+import type { KosState } from "./Kos.tsx";
+
+const EW = END_Z - WALL / 2; // end wall centre
+
+export const coatMat = () => phys("raincoat", { color: "#0d0e12", roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.18, sheen: 0.2, sheenColor: "#4a5570" });
+
+/** Long raincoat body: lathe from shoulders to hem with vertical folds, flattened front-to-back. */
+export const coatBody = () =>
+  cached("coatBody", () => {
+    const pts: Vector2[] = [];
+    const prof: [number, number][] = [[0.0, -0.22], [0.13, -0.235], [0.215, -0.29], [0.235, -0.36], [0.24, -0.6], [0.255, -0.95], [0.285, -1.35], [0.33, -1.7], [0.335, -1.74], [0.31, -1.745]];
+    for (const [r, y] of prof) pts.push(new Vector2(r, y));
+    const g: BufferGeometry = new LatheGeometry(pts, 72);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      const x = a.getX(i), y = a.getY(i), z = a.getZ(i);
+      const ang = Math.atan2(z, x);
+      const k = Math.min(1, Math.max(0, (-y - 0.4) / 1.3));
+      const fold = 1 + k * (0.05 * Math.sin(ang * 7 + 0.6) + 0.03 * Math.sin(ang * 13 + 2.1));
+      // flatten the back against the wall
+      const zz = z < 0 ? z * 0.42 : z * 0.62;
+      a.setXYZ(i, x * fold, y, zz * fold);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+
+/** Hood: an ellipsoid shell, front opening facing +z. */
+export const hoodGeo = () =>
+  cached("hood", () => {
+    const g = new LatheGeometry(
+      [[0.0, -0.17], [0.07, -0.16], [0.115, -0.11], [0.135, -0.03], [0.13, 0.05], [0.1, 0.11], [0.05, 0.14], [0.0, 0.145]].map(([r, y]) => new Vector2(r, y)),
+      48,
+    );
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      const x = a.getX(i), y = a.getY(i), z = a.getZ(i);
+      // pointed peak at the back-top, deeper forward brim
+      a.setXYZ(i, x, y + (z < 0 ? -z * 0.25 : 0), z * 1.08 + (y > 0 ? 0.02 : 0));
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+
+/** The "figure": hood (dark void face), cords + flap strips hanging like hair, shoulders, sleeves. */
+const Raincoat: React.FC<{ sway: number }> = ({ sway }) => {
+  const m = coatMat();
+  const strands = useMemo(() => {
+    const r = mulberry32(19);
+    return Array.from({ length: 11 }, (_, i) => {
+      const x = -0.085 + (i / 10) * 0.17 + (r() - 0.5) * 0.02;
+      return { x, len: 0.26 + r() * 0.22, w: 0.012 + r() * 0.016, rz: (r() - 0.5) * 0.12, z: 0.11 + Math.cos((x / 0.09) * 1.2) * 0.035 };
+    });
+  }, []);
+  return (
+    <group position={RAINCOAT_HOOK}>
+      {/* hook + loop */}
+      <mesh geometry={cyl(0.006, 0.006, 0.07, 8)} material={MAT.steel()} position={[0, 0.0, 0.035]} rotation={[Math.PI / 2, 0, 0]} />
+      <mesh geometry={torus(0.018, 0.004, 6, 16)} material={m} position={[0, -0.005, 0.07]} />
+      <group position={[0, -0.02, 0.15]} rotation={[sway, 0, sway * 0.6]}>
+        {/* hood */}
+        <group position={[0, -0.13, 0]} rotation={[0.18, 0, 0]}>
+          <mesh geometry={hoodGeo()} material={m} castShadow receiveShadow />
+          <mesh geometry={sphere(0.1, 24, 16)} material={basic("void", { color: "#000000" })} position={[0, -0.03, 0.06]} scale={[0.82, 1.05, 0.55]} />
+          <mesh geometry={torus(0.1, 0.014, 8, 32, Math.PI * 1.25)} material={m} position={[0, -0.02, 0.085]} rotation={[0.1, 0, -Math.PI * 0.125 + Math.PI / 2 - Math.PI * 0.5]} scale={[0.86, 1.12, 1]} castShadow />
+          {/* flap strips + cords hanging over the opening: the "long hair" */}
+          {strands.map((s, i) => (
+            <mesh key={i} geometry={box(s.w, s.len, 0.004, 0.002)} material={m} position={[s.x, 0.06 - s.len / 2, s.z]} rotation={[0.06, 0, s.rz]} castShadow />
+          ))}
+          {[-0.045, 0.045].map((x) => (
+            <mesh key={x} geometry={cyl(0.003, 0.003, 0.42, 6)} material={phys("cord", { color: "#15161a", roughness: 0.6 })} position={[x, -0.25, 0.115]} castShadow />
+          ))}
+        </group>
+        {/* body */}
+        <mesh geometry={coatBody()} material={m} position={[0, 0.02, 0]} castShadow receiveShadow />
+        {/* placket with snaps */}
+        <mesh geometry={box(0.035, 1.38, 0.01, 0.004)} material={m} position={[0, -1.03, 0.155]} rotation={[-0.045, 0, 0]} castShadow />
+        {[0, 1, 2, 3, 4].map((k) => (
+          <mesh key={k} geometry={cyl(0.007, 0.007, 0.004, 10)} material={phys("snap", { color: "#3b3e44", metalness: 0.8, roughness: 0.4 })} position={[0, -0.45 - k * 0.27, 0.163 + k * 0.012]} rotation={[Math.PI / 2, 0, 0]} />
+        ))}
+        {/* sleeves hanging from the shoulders */}
+        {[1, -1].map((s) => (
+          <group key={s} position={[s * 0.215, -0.31, 0.02]} rotation={[0.05, 0, s * 0.07]}>
+            <mesh geometry={cyl(0.06, 0.074, 0.72, 20)} material={m} position={[0, -0.36, 0]} castShadow receiveShadow />
+            <mesh geometry={cyl(0.058, 0.058, 0.01, 20)} material={basic("void", { color: "#000000" })} position={[0, -0.72, 0]} />
+          </group>
+        ))}
+      </group>
+    </group>
+  );
+};
+
+/** Vent above the gudang door: fixed louvres, a hinged loose flap (rotates about its top edge). */
+const Vent: React.FC<{ flap: number }> = ({ flap }) => {
+  const w = VENT.w, h = VENT.y1 - VENT.y0, cy = (VENT.y0 + VENT.y1) / 2;
+  const fr = MAT.frame();
+  const panel = phys("ventPanel", { color: "#6c675c", roughness: 0.6, metalness: 0.3 });
+  return (
+    <group position={[VENT.x, cy, END_Z]}>
+      {/* frame */}
+      <Slab min={[-w / 2 - 0.03, -h / 2 - 0.03, -0.02]} max={[w / 2 + 0.03, -h / 2, 0.025]} m={fr} />
+      <Slab min={[-w / 2 - 0.03, h / 2, -0.02]} max={[w / 2 + 0.03, h / 2 + 0.03, 0.025]} m={fr} />
+      <Slab min={[-w / 2 - 0.03, -h / 2, -0.02]} max={[-w / 2, h / 2, 0.025]} m={fr} />
+      <Slab min={[w / 2, -h / 2, -0.02]} max={[w / 2 + 0.03, h / 2, 0.025]} m={fr} />
+      {/* fixed louvres, deeper in the wall */}
+      {[0, 1, 2, 3, 4, 5].map((k) => (
+        <mesh key={k} geometry={box(w, 0.006, 0.07, 0.002)} material={panel} position={[0, -h / 2 + 0.03 + k * 0.05, -0.08]} rotation={[0.7, 0, 0]} castShadow />
+      ))}
+      {/* moonlit gudang behind */}
+      <mesh geometry={box(w, h, 0.001, 0)} material={basic("ventGlow", { color: "#2e4466" })} position={[0, 0, -0.16]} />
+      {/* the loose flap: hinged at the top edge, swings toward the hallway */}
+      <group position={[0, h / 2, 0.03]} rotation={[-flap, 0, 0]}>
+        <mesh geometry={box(w - 0.02, h - 0.02, 0.008, 0.003)} material={panel} position={[0, -h / 2, 0]} castShadow receiveShadow />
+        {[0, 1, 2, 3].map((k) => (
+          <mesh key={k} geometry={box(w - 0.08, 0.026, 0.004, 0.001)} material={basic("slot", { color: "#05070b" })} position={[0, -h / 2 - 0.09 + k * 0.06, 0.005]} />
+        ))}
+        {[-1, 1].map((s) => (
+          <mesh key={s} geometry={cyl(0.007, 0.007, 0.05, 8)} material={MAT.steel()} position={[s * (w / 2 - 0.06), 0, 0]} rotation={[0, 0, Math.PI / 2]} />
+        ))}
+      </group>
+    </group>
+  );
+};
+
+const SmallWindow: React.FC = () => {
+  const zc = (SMALL_WIN.z0 + SMALL_WIN.z1) / 2, yc = (SMALL_WIN.y0 + SMALL_WIN.y1) / 2;
+  const w = SMALL_WIN.z1 - SMALL_WIN.z0, h = SMALL_WIN.y1 - SMALL_WIN.y0;
+  const fr = MAT.frame();
+  const x = HALL.x0 - WALL / 2;
+  return (
+    <group position={[x, yc, zc]}>
+      <Slab min={[-0.08, -h / 2 - 0.04, -w / 2 - 0.04]} max={[0.08, -h / 2, w / 2 + 0.04]} m={fr} />
+      <Slab min={[-0.08, h / 2, -w / 2 - 0.04]} max={[0.08, h / 2 + 0.04, w / 2 + 0.04]} m={fr} />
+      <Slab min={[-0.08, -h / 2, -w / 2 - 0.04]} max={[0.08, h / 2, -w / 2]} m={fr} />
+      <Slab min={[-0.08, -h / 2, w / 2]} max={[0.08, h / 2, w / 2 + 0.04]} m={fr} />
+      <mesh geometry={box(0.004, h, w, 0)} material={phys("glass", { color: "#9fb4c8", roughness: 0.08, transparent: true, opacity: 0.18, depthWrite: false })} position={[-0.04, 0, 0]} />
+      {[-0.15, 0, 0.15].map((z) => (
+        <mesh key={z} geometry={cyl(0.008, 0.008, h, 8)} material={MAT.steel()} position={[0.03, 0, z * (w / 0.5)]} castShadow />
+      ))}
+    </group>
+  );
+};
+
+const Dispenser: React.FC = () => (
+  <group position={DISPENSER} rotation={[0, -Math.PI / 2, 0]}>
+    <mesh geometry={box(0.32, 0.95, 0.32, 0.02)} material={MAT.plastic("#d9dbd9")} position={[0, 0.475, 0]} castShadow receiveShadow />
+    <mesh geometry={box(0.28, 0.06, 0.12, 0.01)} material={MAT.plastic("#9aa0a4")} position={[0, 0.5, 0.16]} castShadow />
+    {[-0.06, 0.06].map((x, i) => (
+      <mesh key={x} geometry={box(0.04, 0.05, 0.05, 0.01)} material={MAT.plastic(i ? "#c0392b" : "#2e6fb5")} position={[x, 0.62, 0.17]} castShadow />
+    ))}
+    <mesh geometry={cyl(0.135, 0.135, 0.44, 32)} material={phys("galon", { color: "#2f5f8f", roughness: 0.12, transparent: true, opacity: 0.6, clearcoat: 1 })} position={[0, 1.2, 0]} castShadow />
+    <mesh geometry={cyl(0.05, 0.13, 0.08, 24)} material={phys("galonNeck", { color: "#2f5f8f", roughness: 0.1, transparent: true, opacity: 0.6 })} position={[0, 0.95, 0]} />
+    <mesh geometry={cyl(0.04, 0.035, 0.08, 16)} material={MAT.plastic("#e8e4dc")} position={[0.09, 1.0 - 0.04, 0.12]} />
+  </group>
+);
+
+const GudangDoor: React.FC<{ open: number }> = ({ open }) => {
+  const x0 = GUDANG.x - GUDANG.w / 2, x1 = GUDANG.x + GUDANG.w / 2, fw = 0.06;
+  const fr = MAT.frame();
+  return (
+    <group>
+      <Slab min={[x0 - fw, 0, EW - 0.09]} max={[x0, GUDANG.h + fw, EW + 0.09]} m={fr} />
+      <Slab min={[x1, 0, EW - 0.09]} max={[x1 + fw, GUDANG.h + fw, EW + 0.09]} m={fr} />
+      <Slab min={[x0 - fw, GUDANG.h, EW - 0.09]} max={[x1 + fw, GUDANG.h + fw, EW + 0.09]} m={fr} />
+      {/* hinged on the right (x1), swings into the gudang */}
+      <group position={[x1, 0, EW]} rotation={[0, -open * 1.45, 0]}>
+        <Slab min={[x0 - x1, 0.01, -0.02]} max={[0, GUDANG.h, 0.02]} m={phys("gudangDoor", { color: "#ffffff", map: plankDoorTex(), roughness: 0.85 })} />
+        <mesh geometry={box(0.14, 0.03, 0.012, 0.004)} material={MAT.steel()} position={[x0 - x1 + 0.1, 1.05, 0.03]} />
+        <mesh geometry={box(0.035, 0.05, 0.025, 0.008)} material={phys("brass", { color: "#a98a3e", metalness: 1, roughness: 0.35 })} position={[x0 - x1 + 0.06, 1.0, 0.045]} castShadow />
+      </group>
+    </group>
+  );
+};
+
+export const End: React.FC<{ s: KosState }> = ({ s }) => (
+  <group visible={s.hall}>
+    <HoledWall
+      axis="x"
+      c={EW}
+      a0={HALL.x0 - WALL}
+      a1={HALL.x1 + WALL}
+      holes={[{ a0: GUDANG.x - GUDANG.w / 2 - 0.06, a1: GUDANG.x + GUDANG.w / 2 + 0.06, y0: 0, y1: CEIL }]}
+    />
+    {/* the vent shares its x-range with the door: wall around the vent above the door head */}
+    <Slab min={[GUDANG.x - GUDANG.w / 2 - 0.06, GUDANG.h + 0.06, EW - WALL / 2]} max={[VENT.x - VENT.w / 2, CEIL, EW + WALL / 2]} m={MAT.wall()} />
+    <Slab min={[VENT.x + VENT.w / 2, GUDANG.h + 0.06, EW - WALL / 2]} max={[GUDANG.x + GUDANG.w / 2 + 0.06, CEIL, EW + WALL / 2]} m={MAT.wall()} />
+    <Slab min={[VENT.x - VENT.w / 2, GUDANG.h + 0.06, EW - WALL / 2]} max={[VENT.x + VENT.w / 2, VENT.y0, EW + WALL / 2]} m={MAT.wall()} />
+    <Slab min={[VENT.x - VENT.w / 2, VENT.y1, EW - WALL / 2]} max={[VENT.x + VENT.w / 2, CEIL, EW + WALL / 2]} m={MAT.wall()} />
+    <GudangDoor open={Math.min(1, s.gudang ?? 0)} />
+    <Vent flap={s.vent} />
+    {s.coatOn !== false ? <Raincoat sway={s.coat} /> : null}
+    <SmallWindow />
+    <Dispenser />
+    {/* a broom leaning by the dispenser */}
+    <group position={[HALL.x1 - 0.08, 0, -12.55]} rotation={[0.0, 0, 0.12]}>
+      <mesh geometry={cyl(0.012, 0.012, 1.2, 8)} material={MAT.plastic("#2f5aa0")} position={[0, 0.72, 0]} />
+      <mesh geometry={cyl(0.03, 0.08, 0.16, 16)} material={MAT.matte("#c9a86a", 0.95)} position={[0, 0.08, 0]} castShadow />
+    </group>
+    {/* side passage seen through the small window: ground, neighbour wall, a potted plant */}
+    <Slab min={[PASSAGE.x0, -0.1, PASSAGE.z1]} max={[PASSAGE.x1, 0, PASSAGE.z0]} m={MAT.concrete([3, 6])} cast={false} />
+    <Slab min={[PASSAGE.x0 - 0.15, 0, PASSAGE.z1]} max={[PASSAGE.x0, 2.6, PASSAGE.z0]} m={MAT.matte("#7e7a70", 0.95)} />
+    <Slab min={[PASSAGE.x0, 0, END_Z - WALL - 0.15]} max={[PASSAGE.x1, 2.6, END_Z - WALL]} m={MAT.matte("#7e7a70", 0.95)} />
+    <group position={[PASSAGE.x0 + 0.4, 0, -12.6]}>
+      <mesh geometry={cyl(0.18, 0.14, 0.32, 16)} material={MAT.matte("#7a4a32", 0.8)} position={[0, 0.16, 0]} castShadow />
+      {[0, 1, 2, 3, 4, 5].map((k) => (
+        <mesh key={k} geometry={box(0.05, 0.7, 0.005, 0.002)} material={MAT.matte("#2f4a2a", 0.8)} position={[Math.sin(k) * 0.08, 0.6, Math.cos(k) * 0.08]} rotation={[Math.cos(k * 2) * 0.4, k, Math.sin(k * 2) * 0.4]} castShadow />
+      ))}
+    </group>
+    <mesh geometry={box(0.001, 2.0, 3.0, 0)} material={s.day ? basic("passageSkyDay", { color: "#dbe6ee", side: DoubleSide }) : basic("passageSky", { color: "#1b2a46", side: DoubleSide })} position={[PASSAGE.x0 - 0.3, 3.4, (LEFT_ROOMS_END + END_Z) / 2]} />
+  </group>
+);
+
+==== 11004 project/src/worlds/kos/set/Exterior.tsx
+// Outside the kos: night sky (gradient dome, stars, moon), the front facade with dark windows, terrace
+// with the one lamp still on, yard with parked scooters, the locked gate, the street, neighbours.
+
+import React, { useMemo } from "react";
+import { BackSide, BufferAttribute, BufferGeometry, Color, DoubleSide, ShaderMaterial } from "three";
+import { box, cached, cyl, sphere, torus } from "../../../kits/worldforge/geo.ts";
+import { basic, phys } from "../../../cine/mats.ts";
+import { mulberry32 } from "../../../kits/worldforge/noise.ts";
+import { CEIL, ENTRANCE_Z, GATE, HALL, ROOM, STREET_LAMP, TERRACE_LAMP, WALL, YARD, type V3 } from "../layout.ts";
+import { MAT, Slab } from "./parts.tsx";
+
+let skyM: ShaderMaterial | null = null;
+const skyMat = () =>
+  (skyM ??= new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: { top: { value: new Color("#060b18") }, horizon: { value: new Color("#1d2d4c") }, glow: { value: new Color("#3a4f78") } },
+    vertexShader: /* glsl */ `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `uniform vec3 top; uniform vec3 horizon; uniform vec3 glow; varying vec3 vP;
+      void main(){ float h = clamp(vP.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.55));
+        float m = max(0.0, dot(vP, normalize(vec3(-0.45, 0.42, 0.78))));
+        c += glow * pow(m, 18.0) * 0.6;
+        gl_FragColor = vec4(c, 1.0); }`,
+  }));
+
+let dayM: ShaderMaterial | null = null;
+const daySky = () =>
+  (dayM ??= new ShaderMaterial({
+    side: BackSide, depthWrite: false, fog: false,
+    uniforms: {},
+    vertexShader: /* glsl */ `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `varying vec3 vP; void main(){ float h = clamp(vP.y, 0.0, 1.0);
+      vec3 c = mix(vec3(0.93, 0.88, 0.80), vec3(0.47, 0.66, 0.88), pow(h, 0.5)); gl_FragColor = vec4(c, 1.0); }`,
+  }));
+
+export const Sky: React.FC<{ day?: boolean }> = ({ day = false }) => {
+  const stars = useMemo(
+    () =>
+      cached("stars", () => {
+        const r = mulberry32(5);
+        const n = 700, pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const a = r() * Math.PI * 2, e = 0.12 + Math.pow(r(), 0.7) * 1.3;
+          pos.set([Math.cos(a) * Math.cos(e) * 180, Math.sin(e) * 180, Math.sin(a) * Math.cos(e) * 180], i * 3);
+        }
+        const g = new BufferGeometry();
+        g.setAttribute("position", new BufferAttribute(pos, 3));
+        return g;
+      }),
+    [],
+  );
+  return (
+    <group>
+      <mesh geometry={sphere(200, 32, 16)} material={day ? daySky() : skyMat()} renderOrder={-10} />
+      <points geometry={stars} visible={!day}>
+        <pointsMaterial color="#cdd8ff" size={1.3} sizeAttenuation={false} fog={false} transparent opacity={0.8} depthWrite={false} />
+      </points>
+      <mesh geometry={sphere(3.2, 24, 16)} material={basic("moon", { color: "#e9eeff", fog: false })} position={[-0.45 * 170, 0.42 * 170, 0.78 * 170]} visible={!day} />
+    </group>
+  );
+};
+
+/** Scooter (parked), simplified but readable: wheels, body, seat, handlebar, mirror. */
+export const Scooter: React.FC<{ p: V3; yaw: number; c: string }> = ({ p, yaw, c }) => {
+  const body = phys(`scoot${c}`, { color: c, roughness: 0.3, clearcoat: 0.8, metalness: 0.1 });
+  const tyre = MAT.matte("#141414", 0.9);
+  return (
+    <group position={p} rotation={[0, yaw, 0.06]}>
+      {[0.62, -0.6].map((z) => (
+        <group key={z} position={[0, 0.25, z]}>
+          <mesh geometry={torus(0.19, 0.06, 10, 28)} material={tyre} rotation={[0, Math.PI / 2, 0]} castShadow />
+          <mesh geometry={cyl(0.12, 0.12, 0.06, 18)} material={MAT.steel()} rotation={[0, 0, Math.PI / 2]} />
+        </group>
+      ))}
+      <mesh geometry={box(0.32, 0.36, 0.9, 0.12)} material={body} position={[0, 0.52, -0.28]} castShadow receiveShadow />
+      <mesh geometry={box(0.28, 0.12, 0.62, 0.05)} material={MAT.matte("#1a1a1c", 0.6)} position={[0, 0.76, -0.3]} castShadow />
+      <mesh geometry={box(0.3, 0.12, 0.5, 0.04)} material={body} position={[0, 0.3, 0.2]} castShadow />
+      <mesh geometry={box(0.3, 0.75, 0.16, 0.08)} material={body} position={[0, 0.66, 0.52]} rotation={[-0.25, 0, 0]} castShadow />
+      <mesh geometry={cyl(0.016, 0.016, 0.7, 8)} material={MAT.matte("#222", 0.5)} position={[0, 1.08, 0.58]} rotation={[0, 0, Math.PI / 2]} castShadow />
+      <mesh geometry={box(0.2, 0.12, 0.08, 0.04)} material={phys("headlampGlass", { color: "#cfd8e0", roughness: 0.1, clearcoat: 1 })} position={[0, 0.98, 0.66]} />
+    </group>
+  );
+};
+
+const Gate: React.FC = () => {
+  const iron = phys("iron", { color: "#20252b", metalness: 0.6, roughness: 0.5 });
+  const n = 18;
+  return (
+    <group position={[0, 0, GATE.z]}>
+      {[GATE.x0 - 0.12, GATE.x1 + 0.12].map((x) => (
+        <Slab key={x} min={[x - 0.15, 0, -0.15]} max={[x + 0.15, GATE.h + 0.25, 0.15]} m={MAT.matte("#6b6a66", 0.95)} />
+      ))}
+      {/* fence walls left and right */}
+      <Slab min={[YARD.x0, 0, -0.1]} max={[GATE.x0 - 0.27, 1.6, 0.1]} m={MAT.matte("#6b6a66", 0.95)} />
+      <Slab min={[GATE.x1 + 0.27, 0, -0.1]} max={[YARD.x1, 1.6, 0.1]} m={MAT.matte("#6b6a66", 0.95)} />
+      {[0.12, 1.0, GATE.h - 0.05].map((y) => (
+        <mesh key={y} geometry={box(GATE.x1 - GATE.x0, 0.04, 0.04, 0.005)} material={iron} position={[(GATE.x0 + GATE.x1) / 2, y, 0]} castShadow />
+      ))}
+      {Array.from({ length: n }, (_, k) => (
+        <mesh key={k} geometry={cyl(0.012, 0.012, GATE.h - 0.05, 6)} material={iron} position={[GATE.x0 + ((k + 0.5) / n) * (GATE.x1 - GATE.x0), GATE.h / 2, 0]} castShadow />
+      ))}
+      {/* chain + padlock at the middle */}
+      <mesh geometry={torus(0.07, 0.008, 6, 20)} material={MAT.steel()} position={[0, 1.0, 0.03]} rotation={[0.3, 0, 0.6]} />
+      <mesh geometry={box(0.05, 0.06, 0.025, 0.01)} material={phys("brass", { color: "#a98a3e", metalness: 1, roughness: 0.35 })} position={[0.02, 0.93, 0.05]} castShadow />
+    </group>
+  );
+};
+
+export const Exterior: React.FC<{ visible: boolean; lamp: number; day?: boolean; roof?: boolean }> = ({ visible, lamp, day = false, roof = true }) => {
+  const fx0 = ROOM.x0 - WALL, fx1 = -ROOM.x0 + WALL;
+  return (
+    <group visible={visible}>
+      <Sky day={day} />
+      {/* the lot under the building (seen in the overhead views) */}
+      <Slab min={[YARD.x0 - 8, -0.16, -20]} max={[YARD.x1 + 8, -0.11, ENTRANCE_Z]} m={MAT.matte("#3b3934", 0.95)} cast={false} />
+      {/* yard + street */}
+      <Slab min={[YARD.x0 - 8, -0.12, ENTRANCE_Z]} max={[YARD.x1 + 8, -0.02, YARD.z1]} m={MAT.concrete([8, 4])} cast={false} />
+      <Slab min={[-40, -0.14, YARD.z1]} max={[40, -0.04, YARD.z1 + 9]} m={MAT.matte("#2b2c2e", 0.9)} cast={false} />
+      {/* terrace slab + roof + posts */}
+      <Slab min={[fx0, -0.02, ENTRANCE_Z]} max={[fx1, 0.08, ENTRANCE_Z + 1.6]} m={MAT.tile([10, 2])} cast={false} />
+      <Slab min={[fx0 - 0.2, CEIL + 0.1, ENTRANCE_Z]} max={[fx1 + 0.2, CEIL + 0.22, ENTRANCE_Z + 1.9]} m={MAT.matte("#9a978e", 0.9)} />
+      {[fx0 + 0.3, fx1 - 0.3].map((x) => (
+        <Slab key={x} min={[x - 0.1, 0, ENTRANCE_Z + 1.5]} max={[x + 0.1, CEIL + 0.1, ENTRANCE_Z + 1.7]} m={MAT.matte("#8d8a82", 0.9)} />
+      ))}
+      {/* front facade with two dark room windows */}
+      {[[fx0, HALL.x0 - WALL], [HALL.x1 + WALL, fx1]].map(([a, b], i) => (
+        <group key={i}>
+          <Slab min={[a, 0, ENTRANCE_Z - 0.15]} max={[b, 0.95, ENTRANCE_Z]} m={MAT.matte("#8f8c84", 0.9)} />
+          <Slab min={[a, 2.15, ENTRANCE_Z - 0.15]} max={[b, CEIL + 0.1, ENTRANCE_Z]} m={MAT.matte("#8f8c84", 0.9)} />
+          <Slab min={[a, 0.95, ENTRANCE_Z - 0.15]} max={[a + 0.9, 2.15, ENTRANCE_Z]} m={MAT.matte("#8f8c84", 0.9)} />
+          <Slab min={[b - 0.7, 0.95, ENTRANCE_Z - 0.15]} max={[b, 2.15, ENTRANCE_Z]} m={MAT.matte("#8f8c84", 0.9)} />
+          <mesh geometry={box(b - a - 1.6, 1.2, 0.02, 0)} material={phys("darkGlass", { color: "#0b1018", roughness: 0.1, clearcoat: 1, metalness: 0.2 })} position={[(a + 0.9 + b - 0.7) / 2, 1.55, ENTRANCE_Z - 0.08]} />
+        </group>
+      ))}
+      {/* roof: tiled pitch rising toward the back */}
+      <group visible={roof}>
+        <mesh geometry={box(fx1 - fx0 + 0.6, 0.12, 17.5, 0.01)} material={phys("roof", { color: "#5a3a2c", roughness: 0.8 })} position={[0, CEIL + 0.9, -7.0]} rotation={[0.1, 0, 0]} castShadow />
+        <Slab min={[fx0, CEIL + 0.08, -15.2]} max={[fx1, CEIL + 0.45, ENTRANCE_Z]} m={MAT.matte("#b9b3a3", 0.95)} />
+      </group>
+      {/* terrace lamp (the one light still on) */}
+      <group position={TERRACE_LAMP}>
+        <mesh geometry={cyl(0.07, 0.05, 0.08, 16)} material={MAT.plastic("#e9e5dc")} position={[0, 0.06, 0]} />
+        <mesh geometry={sphere(0.05, 16, 12)} material={phys(`bulb${lamp}`, { color: "#fff2dd", emissive: "#ffcf8a", emissiveIntensity: 6 * lamp })} />
+      </group>
+      <Scooter p={[-2.4, 0, 3.6]} yaw={0.15} c="#a8312c" />
+      <Scooter p={[-3.5, 0, 3.4]} yaw={0.25} c="#1f3f6e" />
+      <Gate />
+      {/* street lamp beyond the gate */}
+      <group position={[STREET_LAMP[0], 0, STREET_LAMP[2]]}>
+        <mesh geometry={cyl(0.06, 0.08, STREET_LAMP[1], 10)} material={MAT.steel()} position={[0, STREET_LAMP[1] / 2, 0]} />
+        <mesh geometry={box(0.5, 0.08, 0.2, 0.03)} material={MAT.steel()} position={[-0.25, STREET_LAMP[1], 0]} />
+        <mesh geometry={box(0.3, 0.02, 0.14, 0.01)} material={basic("streetBulb", { color: "#ffd9a0" })} position={[-0.35, STREET_LAMP[1] - 0.05, 0]} />
+      </group>
+      {/* neighbour houses across the street + beside */}
+      {[[-14, 12, 7, 4.6], [-5.5, 12, 6, 3.6], [3.5, 12, 7, 5.2], [12, 12, 6, 3.8], [-9.5, -4, 4, 3.4], [9.5, -6, 4, 3.8]].map(([x, z, w, h], i) => (
+        <group key={i}>
+          <Slab min={[x - w / 2, 0, z - 2.5]} max={[x + w / 2, h, z + 2.5]} m={MAT.matte(["#3c4150", "#4a4a52", "#3a4458"][i % 3], 0.95)} />
+          <mesh geometry={box(w + 0.6, 0.1, 5.8, 0)} material={MAT.matte("#2a2224", 0.9)} position={[x, h + 0.25, z]} rotation={[0.18, 0, 0]} />
+          {i === 2 ? <mesh geometry={box(0.8, 0.9, 0.01, 0)} material={basic("neighbourWin", { color: "#5b4a30" })} position={[x + 1.2, 1.6, z - 2.51]} /> : null}
+        </group>
+      ))}
+      {/* a tree silhouette behind the side passage */}
+      <group position={[-6.5, 0, -8]}>
+        <mesh geometry={cyl(0.12, 0.18, 3.2, 8)} material={MAT.matte("#1f1a16", 0.9)} position={[0, 1.6, 0]} />
+        {[[0, 3.8, 0, 1.8], [1, 3.2, 0.5, 1.3], [-1, 3.4, -0.4, 1.4]].map(([x, y, z, r], i) => (
+          <mesh key={i} geometry={sphere(r, 12, 10)} material={MAT.matte("#141c18", 0.95)} position={[x, y, z]} castShadow />
+        ))}
+      </group>
+      <mesh geometry={box(60, 30, 0.1, 0)} material={basic("horizonBack", { color: "#0c1324", side: DoubleSide, fog: false })} position={[0, 5, -60]} visible={false} />
+    </group>
+  );
+};
+
+==== 4725 project/src/worlds/kos/set/Gudang.tsx
+// The gudang (storage room) behind the end wall — used for the "two people, same room" experiment.
+// Same building: its door is the gudang door at the end of the hallway, its vent is the hallway vent.
+
+import React from "react";
+import { box, cyl, sphere, torus } from "../../../kits/worldforge/geo.ts";
+import { basic, phys } from "../../../cine/mats.ts";
+import { CEIL, END_Z, GUDANG, VENT, WALL } from "../layout.ts";
+import { HoledWall, MAT, Slab } from "./parts.tsx";
+import type { KosState } from "./Kos.tsx";
+
+export const GUD = { x0: -0.95, x1: 1.75, z0: -18.2, z1: END_Z - WALL };
+export const GUD_SWITCH: [number, number, number] = [GUDANG.x - GUDANG.w / 2 - 0.22, 1.3, GUD.z1 - 0.012];
+export const GUD_BULB: [number, number, number] = [0.4, CEIL - 0.35, -16.7];
+
+export const Gudang: React.FC<{ s: KosState }> = ({ s }) => {
+  const wood = MAT.matte("#6b5440", 0.8);
+  const card = (c: string) => MAT.matte(c, 0.9);
+  const bulbOn = (s.gudang ?? 0) > 1.5 ? 1 : 0;
+  return (
+    <group>
+      <Slab min={[GUD.x0, -0.1, GUD.z0]} max={[GUD.x1, 0, GUD.z1]} m={MAT.concrete([2, 2])} cast={false} />
+      <group visible={s.roof !== false}>
+        <Slab min={[GUD.x0, CEIL, GUD.z0]} max={[GUD.x1, CEIL + 0.08, GUD.z1]} m={MAT.matte("#8d8a80", 0.95)} />
+      </group>
+      <HoledWall axis="z" c={GUD.x0 - WALL / 2} a0={GUD.z1} a1={GUD.z0} holes={[]} dado={false} />
+      <HoledWall axis="z" c={GUD.x1 + WALL / 2} a0={GUD.z1} a1={GUD.z0} holes={[]} dado={false} />
+      <HoledWall axis="x" c={GUD.z0 - WALL / 2} a0={GUD.x0 - WALL} a1={GUD.x1 + WALL} holes={[{ a0: 0.2, a1: 1.0, y0: 1.5, y1: 2.2 }]} dado={false} />
+      {/* back window glow + bars */}
+      <mesh geometry={box(0.8, 0.7, 0.001, 0)} material={basic("gudWin", { color: "#26395c" })} position={[0.6, 1.85, GUD.z0 - 0.2]} />
+      {[0.3, 0.5, 0.7, 0.9].map((x) => (
+        <mesh key={x} geometry={cyl(0.008, 0.008, 0.7, 6)} material={MAT.steel()} position={[x, 1.85, GUD.z0 - 0.05]} castShadow />
+      ))}
+      {/* shelves with boxes along the left wall */}
+      {[0.35, 0.95, 1.55].map((y, i) => (
+        <group key={y}>
+          <Slab min={[GUD.x0, y - 0.02, -17.9]} max={[GUD.x0 + 0.45, y, -15.6]} m={wood} />
+          {[0, 1, 2].map((k) => (
+            <mesh key={k} geometry={box(0.36, 0.28 + 0.06 * ((i + k) % 2), 0.4 + 0.1 * (k % 2), 0.01)} material={card(["#a88a5e", "#8f7550", "#b49a6a"][(i + k) % 3])} position={[GUD.x0 + 0.22, y + 0.15, -17.5 + k * 0.7]} rotation={[0, (k - 1) * 0.06, 0]} castShadow receiveShadow />
+          ))}
+        </group>
+      ))}
+      {[-17.9, -15.6].map((z) => (
+        <Slab key={z} min={[GUD.x0, 0, z - 0.02]} max={[GUD.x0 + 0.45, 1.6, z + 0.02]} m={wood} />
+      ))}
+      {/* an old bicycle against the right wall */}
+      <group position={[GUD.x1 - 0.25, 0, -17.0]} rotation={[0, Math.PI / 2, 0.06]}>
+        {[-0.5, 0.5].map((z) => (
+          <mesh key={z} geometry={torus(0.32, 0.02, 8, 36)} material={MAT.matte("#151515", 0.8)} position={[z, 0.34, 0]} castShadow />
+        ))}
+        <mesh geometry={cyl(0.015, 0.015, 1.0, 8)} material={MAT.matte("#7a2a24", 0.4)} position={[0, 0.62, 0]} rotation={[0, 0, Math.PI / 2 + 0.15]} castShadow />
+        <mesh geometry={cyl(0.015, 0.015, 0.6, 8)} material={MAT.matte("#7a2a24", 0.4)} position={[-0.25, 0.5, 0]} rotation={[0, 0, 0.6]} castShadow />
+        <mesh geometry={box(0.22, 0.05, 0.1, 0.02)} material={MAT.matte("#222", 0.6)} position={[-0.28, 0.82, 0]} castShadow />
+      </group>
+      {/* a rolled mattress, paint cans, a bucket */}
+      <mesh geometry={cyl(0.22, 0.22, 0.9, 20)} material={phys("matt", { color: "#9aa6a0", roughness: 0.9 })} position={[1.2, 0.22, -15.8]} rotation={[0, 0, Math.PI / 2]} castShadow receiveShadow />
+      {[0, 1, 2].map((k) => (
+        <mesh key={k} geometry={cyl(0.1, 0.1, 0.22, 20)} material={phys(`can${k}`, { color: ["#c9c4b8", "#d8d0b0", "#b5bcc4"][k], metalness: 0.5, roughness: 0.4 })} position={[0.1 + k * 0.23, 0.11, -17.85]} castShadow />
+      ))}
+      {/* hanging bulb + switch by the door */}
+      <mesh geometry={cyl(0.004, 0.004, 0.3, 6)} material={MAT.black()} position={[GUD_BULB[0], CEIL - 0.15, GUD_BULB[2]]} />
+      <mesh geometry={sphere(0.045, 16, 12)} material={phys(`gbulb${bulbOn}`, { color: "#f5efe2", emissive: "#ffd9a0", emissiveIntensity: 5 * bulbOn, roughness: 0.3 })} position={GUD_BULB} />
+      <mesh geometry={box(0.07, 0.11, 0.012, 0.004)} material={MAT.plastic("#efeee8")} position={GUD_SWITCH} />
+      {/* the vent seen from inside (its flap faces the hallway) */}
+      <mesh geometry={box(VENT.w + 0.06, VENT.y1 - VENT.y0 + 0.06, 0.02, 0.004)} material={MAT.frame()} position={[VENT.x, (VENT.y0 + VENT.y1) / 2, GUD.z1 - 0.01]} />
+    </group>
+  );
+};
+
+==== 10714 project/src/worlds/kos/set/Kos.tsx
+// The kos building (one layout for the whole episode): hallway shell with room doors, breeze-block vents,
+// ceiling tube lamps, conduit, CCTV at the entrance, everyday clutter (sandals, rack, chair, bin), the end
+// of the hallway (End.tsx), the bedroom (Room.tsx), the outside (Exterior.tsx).
+
+import React from "react";
+import { box, cyl, sphere } from "../../../kits/worldforge/geo.ts";
+import { basic, phys } from "../../../cine/mats.ts";
+import { CCTV, CCTV_LOOK, CEIL, DOORS, END_Z, ENTRANCE_Z, HALL, LEFT_ROOMS_END, ROOM_DOOR, ROOM, SMALL_WIN, TUBES, WALL, type V3 } from "../layout.ts";
+import { DoorSet, doorHoles, HoledWall, MAT, Slab } from "./parts.tsx";
+import { End } from "./End.tsx";
+import { Room } from "./Room.tsx";
+import { Gudang } from "./Gudang.tsx";
+
+export type KosState = {
+  /** the bedroom (room 2) door open angle (rad, into the room) */
+  roomDoor: number;
+  /** key rotation 0..1 (locked at 1) */
+  key: number;
+  /** the bedroom door lever pressed 0..1 */
+  lever: number;
+  /** vent flap angle (rad) */
+  vent: number;
+  /** ceiling tubes 0..1 */
+  tubes: number;
+  /** CCTV LED 0..1 */
+  led: number;
+  /** clock colon on */
+  colon: boolean;
+  /** fan blade angle (rad) */
+  fan: number;
+  /** raincoat sway (rad) */
+  coat: number;
+  /** show the room interior / hallway (culling for speed) */
+  room: boolean;
+  hall: boolean;
+  /** roofs + ceilings (off for the overhead "dollhouse" views) */
+  roof?: boolean;
+  /** gudang (storage room) interior */
+  gudang?: number;
+  /** clothes piled on the desk chair (pareidolia) */
+  pile?: boolean;
+  /** daylight outside the windows */
+  day?: boolean;
+  /** the raincoat hangs at the end of the hallway */
+  coatOn?: boolean;
+};
+
+const LW = HALL.x0 - WALL / 2; // left wall centre
+const RW = HALL.x1 + WALL / 2; // right wall centre
+
+const Sandals: React.FC<{ p: V3; yaw: number; c: string }> = ({ p, yaw, c }) => (
+  <group position={p} rotation={[0, yaw, 0]}>
+    {[-0.07, 0.07].map((x, i) => (
+      <group key={i} position={[x, 0, i * 0.04]} rotation={[0, (i - 0.5) * 0.18, 0]}>
+        <mesh geometry={box(0.095, 0.016, 0.26, 0.008)} material={MAT.plastic(c)} position={[0, 0.008, 0]} castShadow receiveShadow />
+        {[1, -1].map((k) => (
+          <mesh key={k} geometry={box(0.008, 0.01, 0.11, 0.004)} material={MAT.plastic("#e8e3d8")} position={[k * 0.028, 0.03, 0.03]} rotation={[0.22, k * 0.4, 0]} />
+        ))}
+      </group>
+    ))}
+  </group>
+);
+
+const Tube: React.FC<{ p: V3; on: number }> = ({ p, on }) => (
+  <group position={p}>
+    <mesh geometry={box(0.12, 0.05, 1.24, 0.01)} material={MAT.plastic("#e6e6e1")} castShadow />
+    <mesh geometry={cyl(0.014, 0.014, 1.18, 12)} material={phys(`tube${on > 0.5}`, { color: "#dfe7ea", emissive: "#e8f4ff", emissiveIntensity: on * 1.25, roughness: 0.3 })} position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} />
+  </group>
+);
+
+const Cctv: React.FC<{ led: number }> = ({ led }) => {
+  const d = [CCTV_LOOK[0] - CCTV[0], CCTV_LOOK[1] - CCTV[1], CCTV_LOOK[2] - CCTV[2]];
+  const yaw = Math.atan2(d[0], d[2]);
+  const pitch = -Math.atan2(d[1], Math.hypot(d[0], d[2]));
+  return (
+    <group position={CCTV}>
+      <mesh geometry={box(0.02, 0.1, 0.08, 0.006)} material={MAT.plastic("#ecebe6")} position={[HALL.x1 - CCTV[0] - 0.01, 0.05, 0]} />
+      <mesh geometry={cyl(0.012, 0.012, HALL.x1 - CCTV[0], 10)} material={MAT.plastic("#ecebe6")} position={[(HALL.x1 - CCTV[0]) / 2, 0.06, 0]} rotation={[0, 0, Math.PI / 2]} />
+      <group rotation={[pitch, yaw, 0]} rotation-order="YXZ">
+        <mesh geometry={box(0.085, 0.08, 0.2, 0.02)} material={MAT.plastic("#5e5d58")} castShadow />
+        <mesh geometry={box(0.1, 0.012, 0.23, 0.004)} material={MAT.plastic("#5e5d58")} position={[0, 0.046, 0.02]} />
+        <mesh geometry={cyl(0.03, 0.03, 0.012, 24)} material={phys("lens", { color: "#05070a", roughness: 0.05, metalness: 0.3, clearcoat: 1 })} position={[0, 0, 0.102]} rotation={[Math.PI / 2, 0, 0]} />
+        <mesh geometry={sphere(0.005, 10, 8)} material={basic(`led${led > 0.5}`, { color: led > 0.5 ? "#ff2a1a" : "#3a0806" })} position={[0.028, -0.026, 0.1]} />
+      </group>
+    </group>
+  );
+};
+
+/** Plastic chair (kursi plastik) outside room 5. */
+const Chair: React.FC<{ p: V3; yaw: number }> = ({ p, yaw }) => {
+  const m = MAT.plastic("#2f6f9a");
+  return (
+    <group position={p} rotation={[0, yaw, 0]}>
+      <mesh geometry={box(0.42, 0.04, 0.4, 0.03)} material={m} position={[0, 0.44, 0]} castShadow receiveShadow />
+      <mesh geometry={box(0.42, 0.4, 0.04, 0.03)} material={m} position={[0, 0.68, -0.2]} rotation={[-0.12, 0, 0]} castShadow />
+      {[[-0.18, -0.17], [0.18, -0.17], [-0.18, 0.17], [0.18, 0.17]].map(([x, z], i) => (
+        <mesh key={i} geometry={cyl(0.018, 0.024, 0.44, 10)} material={m} position={[x, 0.22, z]} rotation={[z * 0.3, 0, -x * 0.3]} castShadow />
+      ))}
+    </group>
+  );
+};
+
+/** Hallway: floor, ceiling, both side walls with doors, entrance lintel, lamps, CCTV, clutter. */
+export const Kos: React.FC<{ s: KosState }> = ({ s }) => {
+  const len = ENTRANCE_Z - END_Z;
+  const leftHoles = DOORS.filter((d) => d.side < 0).flatMap(doorHoles).concat([{ a0: SMALL_WIN.z0, a1: SMALL_WIN.z1, y0: SMALL_WIN.y0, y1: SMALL_WIN.y1 }]);
+  const rightHoles = DOORS.filter((d) => d.side > 0).flatMap(doorHoles);
+  return (
+    <group>
+      <group visible={s.hall}>
+        {/* floor + ceiling */}
+        <Slab min={[HALL.x0 - WALL, -0.1, END_Z - WALL]} max={[HALL.x1 + WALL, 0, ENTRANCE_Z]} m={MAT.tile([2, len / 0.8])} cast={false} />
+        <group visible={s.roof !== false}>
+          <Slab min={[HALL.x0 - WALL, CEIL, END_Z - WALL]} max={[HALL.x1 + WALL, CEIL + 0.08, ENTRANCE_Z]} m={MAT.ceil([1, len / 1.2])} />
+        </group>
+        {/* skirting */}
+        {[HALL.x0 + 0.006, HALL.x1 - 0.006].map((x) => (
+          <Slab key={x} min={[x - 0.006, 0, END_Z]} max={[x + 0.006, 0.09, ENTRANCE_Z]} m={MAT.trim()} cast={false} />
+        ))}
+        <HoledWall axis="z" c={LW} a0={ENTRANCE_Z} a1={END_Z} holes={leftHoles} />
+        <HoledWall axis="z" c={RW} a0={ENTRANCE_Z} a1={END_Z} holes={rightHoles} />
+        {/* entrance lintel (the hallway opens to the terrace) */}
+        <Slab min={[HALL.x0 - WALL, 2.35, ENTRANCE_Z - 0.15]} max={[HALL.x1 + WALL, CEIL + 0.08, ENTRANCE_Z]} m={MAT.wall()} />
+        {DOORS.map((d) => {
+          const isRoom = d.id === ROOM_DOOR.id;
+          return (
+            <DoorSet
+              key={d.id}
+              d={d}
+              wx={d.side < 0 ? LW : RW}
+              open={isRoom ? s.roomDoor : 0}
+              lever={isRoom ? s.lever : 0}
+              lockKey={isRoom ? s.key : undefined}
+              leaf={MAT.door(d.id === "K8" ? "dusty" : "std", d.id === "K8" ? "#4a3326" : undefined)}
+              extra={
+                d.id === "K8" ? (
+                  // the empty room: a hasp and padlock on the hallway side
+                  <group position={[RW - WALL / 2 - 0.03, 1.08, d.z - d.w / 2 + 0.07]}>
+                    <mesh geometry={box(0.012, 0.03, 0.12, 0.004)} material={MAT.steel()} />
+                    <mesh geometry={box(0.03, 0.05, 0.04, 0.008)} material={phys("brass", { color: "#a98a3e", metalness: 1, roughness: 0.35 })} position={[-0.02, -0.04, 0.03]} castShadow />
+                  </group>
+                ) : null
+              }
+            />
+          );
+        })}
+        {/* conduit along the ceiling corner + switches beside each door */}
+        <mesh geometry={cyl(0.012, 0.012, len, 8)} material={MAT.plastic("#e9e7e0")} position={[HALL.x1 - 0.03, CEIL - 0.03, (ENTRANCE_Z + END_Z) / 2]} rotation={[Math.PI / 2, 0, 0]} />
+        {DOORS.map((d) => (
+          <mesh key={`sw${d.id}`} geometry={box(0.012, 0.11, 0.07, 0.004)} material={MAT.plastic("#efeee8")} position={[(d.side < 0 ? HALL.x0 : HALL.x1) - d.side * 0.006, 1.35, d.z + d.w / 2 + 0.2]} />
+        ))}
+        {TUBES.map((p, i) => (
+          <Tube key={i} p={p} on={s.tubes} />
+        ))}
+        <Cctv led={s.led} />
+        {/* clutter */}
+        <Sandals p={[HALL.x0 + 0.25, 0, ROOM_DOOR.z + 0.62]} yaw={1.3} c="#7b2a2a" />
+        <Sandals p={[HALL.x1 - 0.24, 0, -3.5 + 0.6]} yaw={-1.7} c="#2a5b3c" />
+        <Sandals p={[HALL.x1 - 0.22, 0, -10.5 - 0.62]} yaw={-1.45} c="#3a3a3a" />
+        <Sandals p={[HALL.x0 + 0.22, 0, -9.0 + 0.6]} yaw={1.6} c="#b07a2a" />
+        <Chair p={[HALL.x1 - 0.3, 0, -7.0 - 0.75]} yaw={-1.35} />
+        {/* shoe rack by K1 */}
+        <group position={[HALL.x0 + 0.17, 0, -0.4]}>
+          {[0.08, 0.3, 0.52].map((y) => (
+            <mesh key={y} geometry={box(0.3, 0.02, 0.8, 0.005)} material={MAT.matte("#4a3a2c", 0.6)} position={[0, y, 0]} castShadow receiveShadow />
+          ))}
+          {[[-0.13, -0.38], [0.13, -0.38], [-0.13, 0.38], [0.13, 0.38]].map(([x, z], i) => (
+            <mesh key={i} geometry={box(0.02, 0.56, 0.02, 0.004)} material={MAT.matte("#4a3a2c", 0.6)} position={[x, 0.28, z]} />
+          ))}
+          {[-0.22, 0.05, 0.27].map((z, i) => (
+            <mesh key={z} geometry={box(0.11, 0.09, 0.27, 0.035)} material={MAT.matte(["#d8d2c6", "#2c2c30", "#8a5a3a"][i], 0.7)} position={[0, 0.35, z]} rotation={[0, 1.57, 0]} castShadow />
+          ))}
+        </group>
+        {/* trash bin near the entrance */}
+        <mesh geometry={cyl(0.17, 0.14, 0.48, 20)} material={MAT.plastic("#3e6b4c")} position={[HALL.x1 - 0.22, 0.24, 0.55]} castShadow receiveShadow />
+      </group>
+      {/* outer walls of both room blocks (keep the moon out except through real openings) */}
+      <Slab min={[ROOM.x0 - WALL, 0, ROOM.z1 + WALL]} max={[ROOM.x0, CEIL + 0.1, ENTRANCE_Z]} m={MAT.matte("#9a978c", 0.95)} />
+      <Slab min={[ROOM.x0 - WALL, 0, LEFT_ROOMS_END]} max={[ROOM.x0, CEIL + 0.1, ROOM.z0 - WALL]} m={MAT.matte("#9a978c", 0.95)} />
+      <Slab min={[-ROOM.x0, 0, END_Z - WALL]} max={[-ROOM.x0 + WALL, CEIL + 0.1, ENTRANCE_Z]} m={MAT.matte("#9a978c", 0.95)} />
+      <Slab min={[HALL.x1 + WALL, 0, END_Z - WALL]} max={[-ROOM.x0 + WALL, CEIL + 0.1, END_Z]} m={MAT.matte("#9a978c", 0.95)} />
+      <group visible={s.roof !== false}>
+        <Slab min={[ROOM.x0 - WALL, CEIL + 0.08, LEFT_ROOMS_END]} max={[-ROOM.x0 + WALL, CEIL + 0.2, ENTRANCE_Z]} m={MAT.matte("#8a877c", 0.95)} />
+        <Slab min={[HALL.x0 - WALL, CEIL + 0.08, END_Z - WALL]} max={[-ROOM.x0 + WALL, CEIL + 0.2, LEFT_ROOMS_END]} m={MAT.matte("#8a877c", 0.95)} />
+      </group>
+      {/* left building block ends at LEFT_ROOMS_END: an exterior face toward the side passage */}
+      <Slab min={[ROOM.x0 - WALL, 0, LEFT_ROOMS_END - WALL]} max={[HALL.x0 - WALL, 3.0, LEFT_ROOMS_END]} m={MAT.matte("#9a978c", 0.95)} />
+      <Room s={s} />
+      <End s={s} />
+      {s.gudang ? <Gudang s={s} /> : null}
+    </group>
+  );
+};
+
+==== 8577 project/src/worlds/kos/set/parts.tsx
+// Building blocks for the kos: axis-aligned slabs, walls with openings, door sets (frame, leaf, handle,
+// number, breeze-block vent), shared materials. All geometry/materials cached by key.
+
+import React from "react";
+import { DoubleSide, type Material } from "three";
+import { box, cyl, torus } from "../../../kits/worldforge/geo.ts";
+import { basic, phys, tileTex } from "../../../cine/mats.ts";
+import { ceilTex, concreteTex, doorTex, numberTex, plasterTex, rosterTex } from "../../../cine/set/tex.ts";
+import { CEIL, WALL, type Door, type V3 } from "../layout.ts";
+
+export const MAT = {
+  wall: () => phys("wallUp", { color: "#d3cdbb", roughness: 0.92, map: plasterTex("up", [1, 1], 0.12) }),
+  dado: () => phys("dado", { color: "#5d7a74", roughness: 0.55, map: plasterTex("dado", [1, 1], 0.3), clearcoat: 0.15 }),
+  trim: () => phys("trim", { color: "#3c4b47", roughness: 0.5 }),
+  ceil: (rep: [number, number]) => phys(`ceil${rep}`, { color: "#d9d9d4", roughness: 0.95, map: ceilTex(rep) }),
+  tile: (rep: [number, number]) => phys(`tile${rep}`, { color: "#ffffff", map: tileTex(rep), roughness: 0.34, clearcoat: 0.18, clearcoatRoughness: 0.45 }),
+  frame: () => phys("frame", { color: "#3a2416", roughness: 0.5, clearcoat: 0.3 }),
+  door: (key: string, base?: string) => phys(`door${key}`, { color: "#ffffff", map: doorTex(key, base), roughness: 0.42, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
+  chrome: () => phys("chrome", { color: "#c9ccd1", metalness: 1, roughness: 0.22 }),
+  steel: () => phys("steel", { color: "#55585e", metalness: 0.8, roughness: 0.45 }),
+  roster: () => phys("roster", { color: "#c9c4b4", roughness: 0.9, alphaMap: rosterTex(), alphaTest: 0.5, side: DoubleSide }),
+  concrete: (rep: [number, number]) => phys(`concrete${rep}`, { color: "#ffffff", map: concreteTex(rep), roughness: 0.95 }),
+  plastic: (c: string) => phys(`plastic${c}`, { color: c, roughness: 0.45, clearcoat: 0.2 }),
+  matte: (c: string, r = 0.85) => phys(`matte${c}${r}`, { color: c, roughness: r }),
+  black: () => basic("black", { color: "#000000" }),
+  number: (label: string) => phys(`num${label}`, { color: "#ffffff", map: numberTex(label), roughness: 0.6 }),
+};
+
+/** Axis-aligned slab from min to max corner. */
+export const Slab: React.FC<{ min: V3; max: V3; m: Material; r?: number; cast?: boolean; recv?: boolean }> = ({ min, max, m, r = 0.004, cast = true, recv = true }) => {
+  const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
+  if (w <= 0 || h <= 0 || d <= 0) return null;
+  return (
+    <mesh
+      geometry={box(+w.toFixed(4), +h.toFixed(4), +d.toFixed(4), r, 1)}
+      material={m}
+      position={[(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]}
+      castShadow={cast}
+      receiveShadow={recv}
+    />
+  );
+};
+
+export type Hole = { a0: number; a1: number; y0: number; y1: number };
+
+/**
+ * A wall along an axis with rectangular openings. `axis` "z": the wall runs along z at x = c (thickness
+ * across x); "x": runs along x at z = c. Upper paint + lower dado band (1.0 m) on both faces.
+ */
+export const HoledWall: React.FC<{ axis: "x" | "z"; c: number; a0: number; a1: number; holes: Hole[]; t?: number; top?: number; dado?: boolean }> = ({ axis, c, a0, a1, holes, t = WALL, top = CEIL, dado = true }) => {
+  const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+  const hs = [...holes].sort((p, q) => Math.min(p.a0, p.a1) - Math.min(q.a0, q.a1)).map((h) => ({ ...h, a0: Math.min(h.a0, h.a1), a1: Math.max(h.a0, h.a1) }));
+  const pieces: { a0: number; a1: number; y0: number; y1: number }[] = [];
+  let cur = lo;
+  for (const h of hs) {
+    if (h.a0 > cur) pieces.push({ a0: cur, a1: h.a0, y0: 0, y1: top });
+    if (h.y0 > 0) pieces.push({ a0: h.a0, a1: h.a1, y0: 0, y1: h.y0 });
+    if (h.y1 < top) pieces.push({ a0: h.a0, a1: h.a1, y0: h.y1, y1: top });
+    cur = Math.max(cur, h.a1);
+  }
+  if (cur < hi) pieces.push({ a0: cur, a1: hi, y0: 0, y1: top });
+  const DADO = 1.0;
+  const out: React.ReactNode[] = [];
+  pieces.forEach((p, i) => {
+    const mk = (y0: number, y1: number, m: Material, k: string, inset = 0) => {
+      if (y1 <= y0) return;
+      const min: V3 = axis === "z" ? [c - t / 2 - inset, y0, p.a0] : [p.a0, y0, c - t / 2 - inset];
+      const max: V3 = axis === "z" ? [c + t / 2 + inset, y1, p.a1] : [p.a1, y1, c + t / 2 + inset];
+      out.push(<Slab key={`${i}${k}`} min={min} max={max} m={m} />);
+    };
+    if (dado && p.y0 < DADO) {
+      mk(p.y0, Math.min(DADO, p.y1), MAT.dado(), "d", 0.004);
+      mk(Math.max(DADO, p.y0), p.y1, MAT.wall(), "u");
+      if (p.y1 > DADO) mk(DADO - 0.012, DADO + 0.012, MAT.trim(), "t", 0.008);
+    } else mk(p.y0, p.y1, MAT.wall(), "u");
+  });
+  return <>{out}</>;
+};
+
+/** Holes for a hallway door + its breeze-block vent above. */
+export const doorHoles = (d: Door): Hole[] => [{ a0: d.z - d.w / 2 - 0.06, a1: d.z + d.w / 2 + 0.06, y0: 0, y1: 2.5 }];
+
+/**
+ * A complete door set in a side wall at x = wx (wall centre): frame, leaf (open angle `open`, swinging
+ * into the room, i.e. away from the hallway), lever handles both sides, number plate, breeze-block vent.
+ */
+export const DoorSet: React.FC<{ d: Door; wx: number; open?: number; leaf: Material; extra?: React.ReactNode; lever?: number; lockKey?: number }> = ({ d, wx, open = 0, leaf, extra, lever = 0, lockKey }) => {
+  const s = d.side; // −1 left wall, +1 right wall
+  const z0 = d.z - d.w / 2, z1 = d.z + d.w / 2;
+  const fw = 0.06, depth = WALL + 0.03;
+  const hingeZ = d.hinge > 0 ? z1 : z0;
+  const latchDir = d.hinge > 0 ? -1 : 1; // from hinge toward the latch along z
+  // leaf swings into the room: rotate about y at the hinge; positive angle for a left-wall door moves −x
+  const ang = open * (s < 0 ? 1 : -1) * (d.hinge > 0 ? 1 : -1);
+  const fr = MAT.frame();
+  return (
+    <group>
+      <Slab min={[wx - depth / 2, 0, z0 - fw]} max={[wx + depth / 2, d.h + fw, z0]} m={fr} />
+      <Slab min={[wx - depth / 2, 0, z1]} max={[wx + depth / 2, d.h + fw, z1 + fw]} m={fr} />
+      <Slab min={[wx - depth / 2, d.h, z0 - fw]} max={[wx + depth / 2, d.h + fw, z1 + fw]} m={fr} />
+      {/* lintel + breeze-block vent above the door */}
+      <Slab min={[wx - WALL / 2, d.h + fw, z0 - fw]} max={[wx + WALL / 2, 2.2, z1 + fw]} m={MAT.wall()} />
+      <Slab min={[wx - depth / 2, 2.2, z0 - fw]} max={[wx + depth / 2, 2.22, z1 + fw]} m={fr} />
+      <Slab min={[wx - depth / 2, 2.48, z0 - fw]} max={[wx + depth / 2, 2.5, z1 + fw]} m={fr} />
+      {[-0.06, 0.06].map((o) => (
+        <mesh key={o} geometry={box(0.001, 0.26, d.w + 2 * fw, 0)} material={MAT.roster()} position={[wx + o, 2.35, d.z]} castShadow />
+      ))}
+      {/* leaf, pivoting at the hinge */}
+      <group position={[wx + s * 0.02, 0, hingeZ]} rotation={[0, ang, 0]}>
+        <group position={[0, 0, latchDir * d.w / 2]}>
+          <Slab min={[-0.02, 0.01, -d.w / 2 + 0.005]} max={[0.02, d.h - 0.005, d.w / 2 - 0.005]} m={leaf} r={0.006} />
+          {[1, -1].map((side) => (
+            <group key={side} position={[side * 0.026, 1.0, latchDir * (d.w / 2 - 0.085)]}>
+              <mesh geometry={box(0.012, 0.16, 0.045, 0.006)} material={MAT.chrome()} castShadow />
+              <group position={[side * 0.025, 0.03, 0]} rotation={[-latchDir * lever, 0, 0]}>
+                <mesh geometry={cyl(0.009, 0.009, 0.11, 12)} material={MAT.chrome()} position={[0, 0, -latchDir * 0.045]} rotation={[Math.PI / 2, 0, 0]} castShadow />
+              </group>
+              <mesh geometry={cyl(0.007, 0.007, 0.012, 10)} material={MAT.steel()} position={[side * 0.004, -0.045, 0]} rotation={[0, 0, Math.PI / 2]} />
+            </group>
+          ))}
+          <mesh geometry={box(0.004, 0.09, 0.09, 0.002)} material={MAT.number(d.label)} position={[-s * 0.024, 1.62, 0]} />
+          {lockKey !== undefined ? (
+            // key in the lock on the room side (turns a quarter to lock)
+            <group position={[s * 0.03, 0.955, latchDir * (d.w / 2 - 0.085)]} rotation={[lockKey * Math.PI / 2, 0, 0]}>
+              <mesh geometry={box(0.012, 0.008, 0.008, 0.002)} material={phys("keyBrass", { color: "#b8973f", metalness: 1, roughness: 0.3 })} position={[s * 0.006, 0, 0]} />
+              <mesh geometry={box(0.004, 0.028, 0.022, 0.003)} material={phys("keyBrass", { color: "#b8973f", metalness: 1, roughness: 0.3 })} position={[s * 0.016, 0, 0]} castShadow />
+              <mesh geometry={torus(0.005, 0.0015, 6, 12)} material={MAT.steel()} position={[s * 0.016, 0.018, 0]} rotation={[0, Math.PI / 2, 0]} />
+            </group>
+          ) : null}
+        </group>
+      </group>
+      {extra}
+    </group>
+  );
+};
+
+==== 14914 project/src/worlds/kos/set/Room.tsx
+// the bedroom (K2): bed under the window wall, desk with the LED clock (02:17) and the empty bottle,
+// standing fan (later: auditory pareidolia), wardrobe, hooks with clothes (later: clothes-pile shapes),
+// wall socket (later: socket face), poster, backpack. The door is the hallway DoorSet (Kos.tsx).
+
+import React from "react";
+import { DoubleSide } from "three";
+import { box, cyl, sphere, torus } from "../../../kits/worldforge/geo.ts";
+import { basic, phys, weaveTex } from "../../../cine/mats.ts";
+import { BED, BOTTLE, CEIL, CLOCK, CLOCK_YAW, DESK, FAN, HALL, ROOM, ROOM_WIN, SOCKET, WALL, WARDROBE } from "../layout.ts";
+import { HoledWall, MAT, Slab } from "./parts.tsx";
+import { ledTex, posterTex } from "../../../cine/set/tex.ts";
+import type { KosState } from "./Kos.tsx";
+
+const IN_X1 = HALL.x0 - WALL; // room-side face of the hallway wall
+
+const Fan: React.FC<{ a: number }> = ({ a }) => {
+  const body = MAT.plastic("#e9e6de");
+  return (
+    <group position={FAN} rotation={[0, Math.PI / 2 + 0.35, 0]}>
+      <mesh geometry={cyl(0.2, 0.22, 0.04, 28)} material={body} position={[0, 0.02, 0]} castShadow receiveShadow />
+      <mesh geometry={cyl(0.016, 0.016, 1.05, 10)} material={MAT.chrome()} position={[0, 0.56, 0]} castShadow />
+      <group position={[0, 1.12, 0]} rotation={[-0.08, 0, 0]}>
+        <mesh geometry={cyl(0.07, 0.07, 0.16, 20)} material={body} position={[0, 0, -0.09]} rotation={[Math.PI / 2, 0, 0]} castShadow />
+        <group position={[0, 0, 0.04]}>
+          {[0, 1, 2].map((k) => (
+            <mesh key={k} geometry={sphere(0.08, 16, 8)} material={phys("blade", { color: "#9fc3d8", roughness: 0.3, transparent: true, opacity: 0.85 })} rotation={[0, 0, a + (k * Math.PI * 2) / 3]} position={[Math.cos(a + (k * Math.PI * 2) / 3) * 0.1, Math.sin(a + (k * Math.PI * 2) / 3) * 0.1, 0]} scale={[1.2, 0.55, 0.06]} />
+          ))}
+          <mesh geometry={sphere(0.035, 16, 10)} material={body} />
+        </group>
+        {[0.2, 0.13].map((r) => (
+          <mesh key={r} geometry={torus(r, 0.003, 4, 48)} material={MAT.chrome()} position={[0, 0, 0.045]} />
+        ))}
+        {Array.from({ length: 16 }, (_, k) => (
+          <mesh key={k} geometry={box(0.003, 0.2, 0.003, 0)} material={MAT.chrome()} position={[Math.cos((k / 16) * Math.PI * 2) * 0.1, Math.sin((k / 16) * Math.PI * 2) * 0.1, 0.05]} rotation={[0, 0, (k / 16) * Math.PI * 2 - Math.PI / 2]} />
+        ))}
+      </group>
+    </group>
+  );
+};
+
+const Bed: React.FC = () => {
+  const cx = (BED.x0 + BED.x1) / 2, cz = (BED.z0 + BED.z1) / 2, L = BED.x1 - BED.x0, Wd = BED.z1 - BED.z0;
+  const sheet = phys("sheet", { color: "#ffffff", map: weaveTex("sheet", "#7f8fa8", [4, 4]), roughness: 0.9, sheen: 0.5, sheenColor: "#c8d4ea" });
+  const blanket = phys("blanket", { color: "#ffffff", map: weaveTex("blanket", "#8a4a3a", [5, 5], "#6f382c"), roughness: 0.92, sheen: 0.6, sheenColor: "#e0a090" });
+  return (
+    <group>
+      <Slab min={[BED.x0, 0, BED.z0]} max={[BED.x1, 0.24, BED.z1]} m={MAT.matte("#5a3b26", 0.6)} />
+      <mesh geometry={box(L - 0.04, 0.22, Wd - 0.04, 0.06)} material={sheet} position={[cx, 0.35, cz]} castShadow receiveShadow />
+      <mesh geometry={box(0.42, 0.11, Wd - 0.22, 0.05)} material={phys("pillow", { color: "#e4e1da", roughness: 0.9, sheen: 0.4 })} position={[BED.x0 + 0.28, 0.51, cz]} rotation={[0, 0, 0.06]} castShadow receiveShadow />
+      {/* blanket pushed toward the foot */}
+      <mesh geometry={box(0.95, 0.09, Wd + 0.04, 0.045)} material={blanket} position={[BED.x1 - 0.55, 0.5, cz]} rotation={[0.03, 0, -0.04]} castShadow receiveShadow />
+      <mesh geometry={box(0.5, 0.12, Wd - 0.1, 0.06)} material={blanket} position={[BED.x1 - 0.9, 0.55, cz + 0.05]} rotation={[0.08, 0.2, 0.1]} castShadow receiveShadow />
+      {/* headboard */}
+      <Slab min={[BED.x0 - 0.04, 0, BED.z0]} max={[BED.x0, 0.85, BED.z1]} m={MAT.matte("#5a3b26", 0.6)} />
+    </group>
+  );
+};
+
+const Desk: React.FC<{ colon: boolean }> = ({ colon }) => {
+  const z0 = DESK.z - DESK.d, cx = (DESK.x0 + DESK.x1) / 2;
+  const wood = MAT.matte("#8a6a4a", 0.55);
+  return (
+    <group>
+      <Slab min={[DESK.x0, DESK.top - 0.03, z0]} max={[DESK.x1, DESK.top, DESK.z]} m={wood} />
+      {[DESK.x0 + 0.03, DESK.x1 - 0.03].map((x) => (
+        <Slab key={x} min={[x - 0.025, 0, z0 + 0.03]} max={[x + 0.025, DESK.top - 0.03, DESK.z - 0.03]} m={wood} />
+      ))}
+      {/* LED clock (02:17) */}
+      <group position={CLOCK} rotation={[0, CLOCK_YAW, 0]}>
+        <mesh geometry={box(0.16, 0.07, 0.05, 0.012)} material={MAT.plastic("#141518")} position={[0, 0.035, 0]} castShadow />
+        <mesh geometry={box(0.13, 0.045, 0.001, 0)} material={phys(`ledface${colon}`, { color: "#000", emissive: "#ffffff", emissiveMap: ledTex("02:17", colon), emissiveIntensity: 2.2 })} position={[0, 0.037, 0.0255]} />
+      </group>
+      {/* empty bottle */}
+      <group position={BOTTLE}>
+        <mesh geometry={cyl(0.034, 0.034, 0.2, 20)} material={phys("bottle", { color: "#cfe3ee", roughness: 0.05, transparent: true, opacity: 0.32, clearcoat: 1 })} position={[0, 0.1, 0]} />
+        <mesh geometry={cyl(0.014, 0.03, 0.04, 16)} material={phys("bottle", { color: "#cfe3ee", roughness: 0.05, transparent: true, opacity: 0.32, clearcoat: 1 })} position={[0, 0.22, 0]} />
+        <mesh geometry={cyl(0.015, 0.015, 0.02, 16)} material={MAT.plastic("#2d6db0")} position={[0, 0.25, 0]} />
+        <mesh geometry={cyl(0.0345, 0.0345, 0.06, 20, true)} material={phys("label", { color: "#e8eef2", roughness: 0.6, side: DoubleSide })} position={[0, 0.11, 0]} />
+      </group>
+      {/* closed laptop with sleep LED, books, mug, lamp */}
+      <group position={[cx - 0.12, DESK.top, z0 + 0.25]} rotation={[0, 0.12, 0]}>
+        <mesh geometry={box(0.34, 0.018, 0.24, 0.008)} material={phys("laptop", { color: "#5b5f66", metalness: 0.7, roughness: 0.35 })} position={[0, 0.009, 0]} castShadow />
+        <mesh geometry={sphere(0.0025, 8, 6)} material={basic("sleep", { color: "#dfe8ff" })} position={[0.0, 0.01, 0.121]} />
+      </group>
+      {[0, 1, 2].map((k) => (
+        <mesh key={k} geometry={box(0.22, 0.03, 0.16, 0.004)} material={MAT.matte(["#7a2f2f", "#2f4f7a", "#c9b27a"][k], 0.7)} position={[DESK.x0 + 0.16, DESK.top + 0.015 + k * 0.03, z0 + 0.15]} rotation={[0, k * 0.15, 0]} castShadow />
+      ))}
+      <mesh geometry={cyl(0.04, 0.035, 0.09, 18)} material={MAT.plastic("#e3dbcf")} position={[cx + 0.2, DESK.top + 0.045, z0 + 0.12]} castShadow />
+      <group position={[DESK.x0 + 0.12, DESK.top, DESK.z - 0.1]}>
+        <mesh geometry={cyl(0.06, 0.07, 0.02, 20)} material={MAT.plastic("#2a2c30")} position={[0, 0.01, 0]} />
+        <mesh geometry={cyl(0.008, 0.008, 0.36, 8)} material={MAT.plastic("#2a2c30")} position={[0.04, 0.19, 0]} rotation={[0, 0, -0.25]} />
+        <mesh geometry={cyl(0.03, 0.07, 0.1, 18, true)} material={phys("shade", { color: "#2a2c30", roughness: 0.5, side: DoubleSide })} position={[0.12, 0.35, -0.02]} rotation={[0.3, 0, 0.9]} />
+      </group>
+      {/* chair */}
+      <group position={[DESK.x0 + 0.3, 0, z0 - 0.3]} rotation={[0, -0.5, 0]}>
+        <Slab min={[-0.21, 0.44, -0.2]} max={[0.21, 0.47, 0.2]} m={wood} />
+        <Slab min={[-0.21, 0.47, -0.22]} max={[0.21, 0.9, -0.19]} m={wood} />
+        {[[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]].map(([x, z], i) => (
+          <mesh key={i} geometry={box(0.03, 0.44, 0.03, 0.005)} material={wood} position={[x, 0.22, z]} castShadow />
+        ))}
+        {/* a shirt over the backrest */}
+        <mesh geometry={box(0.44, 0.32, 0.05, 0.03)} material={phys("shirtChair", { color: "#ffffff", map: weaveTex("shirtC", "#2e3240", [4, 4]), roughness: 0.9 })} position={[0, 0.78, -0.2]} rotation={[0.1, 0, 0.03]} castShadow />
+      </group>
+    </group>
+  );
+};
+
+/** Clothes on hooks beside the door (a jacket and a towel). */
+const Hooks: React.FC = () => (
+  <group position={[IN_X1 - 0.01, 1.72, -4.25]}>
+    <mesh geometry={box(0.03, 0.05, 0.6, 0.01)} material={MAT.matte("#5a3b26", 0.6)} />
+    <mesh geometry={box(0.12, 0.62, 0.36, 0.06)} material={phys("jacket", { color: "#ffffff", map: weaveTex("jacket", "#4a4f3a", [5, 5]), roughness: 0.9, sheen: 0.4 })} position={[-0.07, -0.33, 0.12]} rotation={[0, 0, 0.05]} castShadow receiveShadow />
+    <mesh geometry={box(0.06, 0.55, 0.24, 0.03)} material={phys("towel", { color: "#ffffff", map: weaveTex("towel", "#c9b9a0", [6, 6]), roughness: 0.95, sheen: 0.6 })} position={[-0.04, -0.3, -0.2]} castShadow />
+  </group>
+);
+
+const Window: React.FC<{ s: KosState }> = ({ s }) => {
+  const x = ROOM.x0 - WALL / 2, zc = (ROOM_WIN.z0 + ROOM_WIN.z1) / 2, yc = (ROOM_WIN.y0 + ROOM_WIN.y1) / 2;
+  const w = ROOM_WIN.z1 - ROOM_WIN.z0, h = ROOM_WIN.y1 - ROOM_WIN.y0;
+  const fr = MAT.frame();
+  const curtain = phys("curtain", { color: "#ffffff", map: weaveTex("curtain", "#3e5a74", [3, 3]), roughness: 0.95, side: DoubleSide, sheen: 0.5 });
+  return (
+    <group>
+      <group position={[x, yc, zc]}>
+        <Slab min={[-0.09, -h / 2 - 0.05, -w / 2 - 0.05]} max={[0.09, -h / 2, w / 2 + 0.05]} m={fr} />
+        <Slab min={[-0.09, h / 2, -w / 2 - 0.05]} max={[0.09, h / 2 + 0.05, w / 2 + 0.05]} m={fr} />
+        <Slab min={[-0.09, -h / 2, -w / 2 - 0.05]} max={[0.09, h / 2, -w / 2]} m={fr} />
+        <Slab min={[-0.09, -h / 2, w / 2]} max={[0.09, h / 2, w / 2 + 0.05]} m={fr} />
+        <Slab min={[-0.09, -0.02, -w / 2]} max={[0.09, 0.02, w / 2]} m={fr} />
+        <Slab min={[-0.09, -h / 2, -0.02]} max={[0.09, h / 2, 0.02]} m={fr} />
+        <mesh geometry={box(0.004, h, w, 0)} material={phys("glass", { color: "#9fb4c8", roughness: 0.08, transparent: true, opacity: 0.18, depthWrite: false })} />
+        {/* night outside: a neighbour wall + sky glow */}
+        <mesh geometry={box(0.001, 2.4, 3.2, 0)} material={s.day ? basic("roomSkyDay", { color: "#dbe6ee", side: DoubleSide }) : basic("roomSky", { color: "#14223c", side: DoubleSide })} position={[-1.6, 0.4, 0]} />
+      </group>
+      {/* curtains: one drawn, one gathered */}
+      {Array.from({ length: 7 }, (_, k) => (
+        <mesh key={k} geometry={cyl(0.035, 0.035, h + 0.35, 10, true)} material={curtain} position={[x + 0.12 + (k % 2) * 0.02, yc + 0.12, ROOM_WIN.z0 - 0.08 + k * 0.07]} castShadow />
+      ))}
+      {Array.from({ length: 4 }, (_, k) => (
+        <mesh key={`g${k}`} geometry={cyl(0.04, 0.04, h + 0.35, 10, true)} material={curtain} position={[x + 0.13 + (k % 2) * 0.03, yc + 0.12, ROOM_WIN.z1 + 0.08 - k * 0.05]} castShadow />
+      ))}
+      <mesh geometry={cyl(0.01, 0.01, w + 0.8, 8)} material={MAT.chrome()} position={[x + 0.14, ROOM_WIN.y1 + 0.32, (ROOM_WIN.z0 + ROOM_WIN.z1) / 2]} rotation={[Math.PI / 2, 0, 0]} />
+    </group>
+  );
+};
+
+/** A pile of clothes over the desk chair: in the dark it reads as someone sitting (pareidolia). */
+const Pile: React.FC = () => {
+  const z0 = DESK.z - DESK.d;
+  const cloth = (k: string, c: string) => phys(`pile${k}`, { color: "#ffffff", map: weaveTex(`pile${k}`, c, [4, 4]), roughness: 0.92, sheen: 0.5 });
+  return (
+    <group position={[DESK.x0 + 0.3, 0, z0 - 0.3]} rotation={[0, -0.5, 0]}>
+      <mesh geometry={sphere(0.17, 20, 14)} material={cloth("a", "#3c3f48")} position={[0, 1.06, -0.17]} scale={[1, 1.1, 0.9]} castShadow />
+      <mesh geometry={box(0.46, 0.5, 0.2, 0.09)} material={cloth("b", "#4a4434")} position={[0, 0.74, -0.15]} rotation={[0.08, 0, 0]} castShadow />
+      <mesh geometry={box(0.5, 0.16, 0.42, 0.07)} material={cloth("c", "#2e3a4e")} position={[0, 0.54, 0.02]} castShadow />
+      <mesh geometry={box(0.12, 0.42, 0.14, 0.05)} material={cloth("c", "#2e3a4e")} position={[-0.2, 0.28, 0.2]} rotation={[0.1, 0, 0.05]} castShadow />
+      <mesh geometry={box(0.12, 0.42, 0.14, 0.05)} material={cloth("b", "#4a4434")} position={[0.2, 0.3, 0.22]} rotation={[0.15, 0, -0.08]} castShadow />
+      {[1, -1].map((s) => (
+        <mesh key={s} geometry={box(0.1, 0.4, 0.12, 0.05)} material={cloth("a", "#3c3f48")} position={[s * 0.27, 0.72, -0.05]} rotation={[0.2, 0, s * 0.15]} castShadow />
+      ))}
+    </group>
+  );
+};
+
+export const Room: React.FC<{ s: KosState }> = ({ s }) => (
+  <group visible={s.room}>
+    <Slab min={[ROOM.x0 - WALL, -0.1, ROOM.z0]} max={[IN_X1, 0, ROOM.z1]} m={MAT.tile([4.4, 4.25])} cast={false} />
+    <group visible={s.roof !== false}>
+      <Slab min={[ROOM.x0 - WALL, CEIL, ROOM.z0 - WALL]} max={[IN_X1, CEIL + 0.08, ROOM.z1 + WALL]} m={MAT.ceil([3, 3])} />
+    </group>
+    {s.pile ? <Pile /> : null}
+    <HoledWall axis="z" c={ROOM.x0 - WALL / 2} a0={ROOM.z1 + WALL} a1={ROOM.z0 - WALL} holes={[{ a0: ROOM_WIN.z0, a1: ROOM_WIN.z1, y0: ROOM_WIN.y0, y1: ROOM_WIN.y1 }]} />
+    <HoledWall axis="x" c={ROOM.z1 + WALL / 2} a0={ROOM.x0 - WALL} a1={IN_X1} holes={[]} />
+    <HoledWall axis="x" c={ROOM.z0 - WALL / 2} a0={ROOM.x0 - WALL} a1={IN_X1} holes={[]} />
+    <Bed />
+    <Desk colon={s.colon} />
+    <Fan a={s.fan} />
+    <Hooks />
+    <Window s={s} />
+    {/* wardrobe */}
+    <group>
+      <Slab min={[WARDROBE.x0, 0, WARDROBE.z]} max={[WARDROBE.x1, WARDROBE.h, WARDROBE.z + WARDROBE.d]} m={MAT.matte("#6b4a32", 0.55)} />
+      <Slab min={[(WARDROBE.x0 + WARDROBE.x1) / 2 - 0.004, 0.05, WARDROBE.z + WARDROBE.d]} max={[(WARDROBE.x0 + WARDROBE.x1) / 2 + 0.004, WARDROBE.h - 0.05, WARDROBE.z + WARDROBE.d + 0.004]} m={MAT.black()} />
+      {[-0.06, 0.06].map((o) => (
+        <mesh key={o} geometry={box(0.012, 0.12, 0.02, 0.004)} material={MAT.chrome()} position={[(WARDROBE.x0 + WARDROBE.x1) / 2 + o, 1.0, WARDROBE.z + WARDROBE.d + 0.012]} />
+      ))}
+      <mesh geometry={box(0.5, 0.3, 0.4, 0.04)} material={MAT.matte("#3e4a5a", 0.8)} position={[(WARDROBE.x0 + WARDROBE.x1) / 2, WARDROBE.h + 0.15, WARDROBE.z + 0.25]} castShadow />
+    </group>
+    {/* poster above the desk, socket, backpack, rug */}
+    <mesh geometry={box(0.42, 0.59, 0.004, 0)} material={phys("poster", { color: "#ffffff", map: posterTex(), roughness: 0.7 })} position={[(DESK.x0 + DESK.x1) / 2, 1.55, ROOM.z1 - 0.004]} rotation={[0, Math.PI, 0]} />
+    <group position={SOCKET} rotation={[0, Math.PI / 2, 0]}>
+      <mesh geometry={box(0.075, 0.075, 0.012, 0.006)} material={MAT.plastic("#f0eee8")} />
+      {[-0.012, 0.012].map((x) => (
+        <mesh key={x} geometry={cyl(0.0035, 0.0035, 0.004, 8)} material={MAT.black()} position={[x, 0.004, 0.006]} rotation={[Math.PI / 2, 0, 0]} />
+      ))}
+    </group>
+    <group position={[DESK.x1 + 0.25, 0, DESK.z - 0.3]} rotation={[0, 0.6, 0.12]}>
+      <mesh geometry={box(0.3, 0.42, 0.18, 0.07)} material={MAT.matte("#2a3a2e", 0.85)} position={[0, 0.21, 0]} castShadow receiveShadow />
+      <mesh geometry={box(0.22, 0.16, 0.06, 0.04)} material={MAT.matte("#2a3a2e", 0.85)} position={[0, 0.15, 0.1]} castShadow />
+    </group>
+    <mesh geometry={box(1.4, 0.008, 0.9, 0.004)} material={phys("rug", { color: "#ffffff", map: weaveTex("rug", "#6a5a4a", [6, 4], "#4a3a2e"), roughness: 0.95 })} position={[-2.7, 0.004, -5.6]} receiveShadow />
+  </group>
+);
+
+==== 456 project/src/worlds/sets.tsx
+// World registry (picture side): the Set component of every world.
+import type React from "react";
+import type { Cam } from "../cine/Post.tsx";
+import type { SetState } from "./types.ts";
+import { CoastSet } from "./coast/Coast.tsx";
+import { KosSet } from "./kos/Kos.tsx";
+
+export type SetProps = { place: string; time: string; s: SetState; t: number; cam: Cam };
+export const SETS: Record<string, React.FC<SetProps>> = { coast: CoastSet, kos: KosSet };
+
+==== 1720 project/src/worlds/studio/data.ts
+// Studio places available in EVERY world (for the explanation passages): "mind" — a deep-blue neural
+// space with the glass brain from Dunia Nabel EP01. Far away from every set, never shares a frame with it.
+
+import { P_OFF, S_OFF, type LightState } from "../../cine/types.ts";
+import type { Place, V3 } from "../types.ts";
+
+export const MIND_O: V3 = [0, 0, 500];
+const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+const mind: Place = {
+  id: "mind", doc: "studio: the glass brain floating in a deep-blue neural space (any world) — for explaining perception, memory, fear",
+  kind: "studio", floor: MIND_O[1],
+  marks: {},
+  pois: { brain: MIND_O, front: add(MIND_O, [0, 0.1, 0.9]), top: add(MIND_O, [0, 0.8, 0]), back: add(MIND_O, [0, 0.1, -0.9]), left: add(MIND_O, [-0.9, 0, 0]), right: add(MIND_O, [0.9, 0, 0]) },
+  box: { min: add(MIND_O, [-12, -6, -12]), max: add(MIND_O, [12, 8, 12]) },
+  solids: [{ min: add(MIND_O, [-1.1, -0.9, -1.1]), max: add(MIND_O, [1.1, 1.0, 1.1]) }],
+  establish: { center: MIND_O, radius: 4.2, height: 0.8, yaw: 0.6 },
+  view: "brain", ambience: "studio", surface: "carpet", reverb: 0.6,
+};
+
+export const STUDIO: Record<string, Place> = { mind };
+
+export const studioLight = (): LightState => ({
+  bg: "#061426", fog: { color: "#061426", density: 0.0 }, env: 0.25,
+  hemi: { sky: "#6fa8d8", ground: "#0b1a2c", i: 0.5 },
+  moon: { dir: [0.3, 0.8, 0.5], color: "#cfe6ff", i: 1.6, box: { min: add(MIND_O, [-4, -3, -4]), max: add(MIND_O, [4, 4, 4]) } },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: add(MIND_O, [0, 1.5, 3]), color: "#8fdcff", i: 3, dist: 9 }, { pos: add(MIND_O, [-2.5, 0.5, 1]), color: "#ffbf73", i: 1.6, dist: 7 }, P_OFF, P_OFF, P_OFF, P_OFF],
+});
+
+==== 755 project/src/worlds/studio/Mind.tsx
+// The "mind" studio: neural backdrop, drifting motes and the glass brain with its pulsing network.
+import React from "react";
+import { BrainShell, brainNet, Motes, Network, NeuralBackdrop, type Net } from "../../cine/neural/Brain.tsx";
+import { MIND_O } from "./data.ts";
+
+export const MindStudio: React.FC<{ t: number }> = ({ t }) => {
+  const net = brainNet().userData.net as Net;
+  return (
+    <group position={MIND_O}>
+      <NeuralBackdrop top="#0f3b66" bottom="#06162b" glow="#3aa6e8" r={60} />
+      <Motes t={t} R={5} opacity={0.8} />
+      <group rotation={[0, t * 0.12, 0]}>
+        <BrainShell t={t} opacity={1} orange={0.85} />
+        <Network net={net} t={t} opacity={1} pulse={1} orangeShare={0.25} />
+      </group>
+    </group>
+  );
+};
+
+==== 4460 project/src/worlds/types.ts
+// World contract (data side). A world = one consistent place made of named sub-locations ("places").
+// Stories only ever name places, marks (where people stand/sit), POIs (what they look at) and set props
+// (things that change: lamps, doors, a light at sea). Everything here is plain data + pure functions,
+// importable by the director and the sound script (no JSX).
+
+import type { LightState, V3 } from "../cine/types.ts";
+
+export type { V3 };
+export type Box = { min: V3; max: V3 };
+export type Surface = "grass" | "wood" | "tile" | "stone" | "sand" | "metal" | "carpet";
+
+/** A spot a person can stand at. `yaw` = facing (0 = +z), `seat` = seat height (sit), `bed` = lie here. */
+export type Mark = { p: [number, number]; y?: number; yaw?: number; seat?: number; bed?: { head: [number, number]; y: number }; doc?: string };
+
+export type Place = {
+  id: string;
+  doc: string;
+  kind: "interior" | "exterior" | "studio";
+  /** floor height under the people standing here */
+  floor: number;
+  marks: Record<string, Mark>;
+  pois: Record<string, V3>;
+  /** cameras are clamped into `box` and pushed out of every solid */
+  box: Box;
+  /** generated interiors: the camera must also be inside one of these (the rooms of the place) */
+  zones?: Box[];
+  /** walls etc. that block the view (line-of-sight checks only) */
+  occluders?: Box[];
+  solids: Box[];
+  /** foliage (tree crowns, bushes): cameras are kept out, the view may pass through */
+  soft?: Box[];
+  /** the swing of every door leaf (cameras keep off it like off a solid; a shut door is air, so only a small margin) */
+  swings?: Box[];
+  /** ground height for cameras (exteriors with terrain) */
+  ground?: (x: number, z: number) => number;
+  /** hint for establishing shots: what to frame and from how far */
+  establish: { center: V3; radius: number; height: number; yaw: number };
+  /** the default looking direction for wides (a POI name) */
+  view: string;
+  /** interiors: a window POI to shoot far things through (long lens from just outside it) */
+  window?: string;
+  ambience: string;
+  surface: Surface;
+  /** 0 dry … 1 big hall (sound reverb) */
+  reverb: number;
+};
+
+export type PropDoc = { default: number; doc: string; sfx?: { up?: string; down?: string } };
+export type SetState = Record<string, number>;
+
+export type WorldData = {
+  id: string;
+  doc: string;
+  places: Record<string, Place>;
+  times: string[];
+  props: Record<string, PropDoc>;
+  /** light rig for a place at a time of day, given the set state */
+  light: (place: string, time: string, s: SetState, t: number) => LightState;
+};
+
+export const inBox = (p: V3, b: Box, m = 0) => p[0] > b.min[0] - m && p[0] < b.max[0] + m && p[1] > b.min[1] - m && p[1] < b.max[1] + m && p[2] > b.min[2] - m && p[2] < b.max[2] + m;
+
+/** Keep a camera position legal for a place: inside its box, out of solids, above the ground. */
+export const legalCam = (pl: Place, p: V3): V3 => {
+  const q: V3 = [
+    Math.min(pl.box.max[0], Math.max(pl.box.min[0], p[0])),
+    Math.min(pl.box.max[1], Math.max(pl.box.min[1], p[1])),
+    Math.min(pl.box.max[2], Math.max(pl.box.min[2], p[2])),
+  ];
+  if (pl.zones?.length && !pl.zones.some((z) => inBox(q, z))) {
+    // pull into the nearest room
+    let best = q, bd = Infinity;
+    for (const z of pl.zones) {
+      const c: V3 = [Math.min(z.max[0], Math.max(z.min[0], q[0])), Math.min(z.max[1], Math.max(z.min[1], q[1])), Math.min(z.max[2], Math.max(z.min[2], q[2]))];
+      const d = Math.hypot(c[0] - q[0], c[1] - q[1], c[2] - q[2]);
+      if (d < bd) { bd = d; best = c; }
+    }
+    q[0] = best[0]; q[1] = best[1]; q[2] = best[2];
+  }
+  // solids keep 12 cm off the lens; foliage (irregular, bigger than its box) half a metre
+  for (const [s, m] of [...pl.solids.map((b) => [b, 0.12] as const), ...(pl.swings ?? []).map((b) => [b, 0.12] as const), ...(pl.soft ?? []).map((b) => [b, 0.5] as const)]) {
+    if (!inBox(q, s, m)) continue;
+    // push out through the nearest face
+    const d = [q[0] - (s.min[0] - m), s.max[0] + m - q[0], q[1] - (s.min[1] - m), s.max[1] + m - q[1], q[2] - (s.min[2] - m), s.max[2] + m - q[2]];
+    const k = d.indexOf(Math.min(...d));
+    if (k === 0) q[0] = s.min[0] - m; else if (k === 1) q[0] = s.max[0] + m;
+    else if (k === 2) q[1] = s.min[1] - m; else if (k === 3) q[1] = s.max[1] + m;
+    else if (k === 4) q[2] = s.min[2] - m; else q[2] = s.max[2] + m;
+  }
+  if (pl.ground) q[1] = Math.max(q[1], pl.ground(q[0], q[2]) + 0.35);
+  return q;
+};
+
+==== 484 project/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "scripts/*.ts"],
+  "exclude": ["remotion.config.ts"]
+}
+
+==== 19633 project/worlds/kantor.world.json
+{
+ "id": "kantor",
+ "doc": "an open-plan office on the 11th floor of a city tower: four rows of workstations, one main desk with a monitor and a laptop near the east end, a printer/copier corner with a wall clock and a CCTV monitor, a CCTV camera high on the north wall, big north windows onto the city, a meeting room with a whiteboard behind a glass door on the east wall, the lift door in the south wall",
+ "times": [
+  "night",
+  "day",
+  "dusk"
+ ],
+ "ground": {
+  "size": 260,
+  "material": "asphalt",
+  "y": -33
+ },
+ "buildings": [
+  {
+   "rect": [
+    -30,
+    -42,
+    -18,
+    -30
+   ],
+   "height": 72,
+   "y": -33,
+   "color": "#3a404b",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    -14,
+    -36,
+    -4,
+    -26
+   ],
+   "height": 54,
+   "y": -33,
+   "color": "#454b55",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    0,
+    -48,
+    12,
+    -36
+   ],
+   "height": 88,
+   "y": -33,
+   "color": "#30353e",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    14,
+    -32,
+    24,
+    -22
+   ],
+   "height": 46,
+   "y": -33,
+   "color": "#4a4f57",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    28,
+    -46,
+    40,
+    -34
+   ],
+   "height": 66,
+   "y": -33,
+   "color": "#3a404b",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    -48,
+    -26,
+    -38,
+    -16
+   ],
+   "height": 42,
+   "y": -33,
+   "color": "#454b55",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    46,
+    -28,
+    56,
+    -18
+   ],
+   "height": 52,
+   "y": -33,
+   "color": "#30353e",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    -8,
+    -19,
+    4,
+    -12
+   ],
+   "height": 27,
+   "y": -33,
+   "color": "#4a4f57",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    8,
+    -18,
+    18,
+    -12
+   ],
+   "height": 24,
+   "y": -33,
+   "color": "#3a404b",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    -24,
+    -20,
+    -14,
+    -13
+   ],
+   "height": 30,
+   "y": -33,
+   "color": "#454b55",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    -60,
+    -60,
+    -44,
+    -46
+   ],
+   "height": 95,
+   "y": -33,
+   "color": "#30353e",
+   "roof": "#262a30"
+  },
+  {
+   "rect": [
+    60,
+    -64,
+    76,
+    -50
+   ],
+   "height": 80,
+   "y": -33,
+   "color": "#4a4f57",
+   "roof": "#262a30"
+  }
+ ],
+ "rooms": [
+  {
+   "id": "kantor",
+   "rect": [
+    -6,
+    -5,
+    6,
+    5
+   ],
+   "height": 3,
+   "floor": "tiles:#5a5f64",
+   "walls": "paint:#c4c8c7",
+   "ceiling": "paint:#cfd2d0",
+   "openings": [
+    {
+     "wall": "north",
+     "at": -4.3,
+     "type": "window",
+     "w": 2,
+     "h": 1.7,
+     "sill": 0.7
+    },
+    {
+     "wall": "north",
+     "at": -1.7,
+     "type": "window",
+     "w": 2,
+     "h": 1.7,
+     "sill": 0.7
+    },
+    {
+     "wall": "north",
+     "at": 0.2,
+     "type": "window",
+     "w": 1.8,
+     "h": 1.7,
+     "sill": 0.7
+    },
+    {
+     "wall": "south",
+     "at": 4.9,
+     "type": "double-door",
+     "id": "pintu-lift",
+     "sign": "LIFT · LANTAI 11"
+    },
+    {
+     "wall": "east",
+     "at": -3,
+     "type": "door",
+     "id": "pintu-rapat",
+     "glass": true,
+     "swing": -1,
+     "sign": "RUANG RAPAT"
+    },
+    {
+     "wall": "east",
+     "at": 1,
+     "type": "window",
+     "w": 1.4,
+     "h": 1.2,
+     "sill": 0.9
+    }
+   ]
+  },
+  {
+   "id": "ruang-rapat",
+   "rect": [
+    6,
+    -4.5,
+    10.5,
+    2.5
+   ],
+   "height": 3,
+   "floor": "vinyl:#4b5055",
+   "walls": "paint:#aeb3b3",
+   "ceiling": "paint:#c3c6c4",
+   "openings": [
+    {
+     "wall": "north",
+     "at": 8.2,
+     "type": "window",
+     "w": 2.4,
+     "h": 1.7,
+     "sill": 0.7
+    }
+   ]
+  }
+ ],
+ "objects": [
+  {
+   "use": "office-printer",
+   "at": [
+    4.6,
+    -4.63
+   ],
+   "id": "printer",
+   "yaw": 0
+  },
+  {
+   "use": "filing-cabinet",
+   "at": [
+    5.5,
+    -4.66
+   ],
+   "id": "lemari-printer",
+   "yaw": 0
+  },
+  {
+   "use": "cctv-monitor",
+   "at": [
+    3.2,
+    1.72,
+    -4.995
+   ],
+   "id": "monitor-cctv",
+   "yaw": 0
+  },
+  {
+   "use": "wall-clock",
+   "at": [
+    3.2,
+    2.45,
+    -4.988
+   ],
+   "id": "jam-dinding",
+   "yaw": 0
+  },
+  {
+   "use": "cctv-camera",
+   "at": [
+    1.7,
+    2.72,
+    -4.995
+   ],
+   "id": "kamera-cctv",
+   "yaw": 0
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    3,
+    -1.05
+   ],
+   "id": "meja-utama",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor-kerja",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-utama",
+   "on": "meja-utama:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "laptop",
+   "at": [
+    0,
+    0
+   ],
+   "id": "laptop-utama",
+   "on": "meja-utama:laptop",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    3,
+    -1.95
+   ],
+   "id": "kursi-utama",
+   "yaw": 0
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    1.55,
+    -1.05
+   ],
+   "id": "meja-1",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-1",
+   "on": "meja-1:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    1.639,
+    -2.051
+   ],
+   "id": "kursi-1",
+   "yaw": 0.347
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    0.1,
+    -1.05
+   ],
+   "id": "meja-2",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-2",
+   "on": "meja-2:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -0.019,
+    -2.059
+   ],
+   "id": "kursi-2",
+   "yaw": -0.089
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -1.35,
+    -1.05
+   ],
+   "id": "meja-3",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-3",
+   "on": "meja-3:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -1.281,
+    -1.967
+   ],
+   "id": "kursi-3",
+   "yaw": -0.324
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -2.8,
+    -1.05
+   ],
+   "id": "meja-4",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-4",
+   "on": "meja-4:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -2.773,
+    -2.041
+   ],
+   "id": "kursi-4",
+   "yaw": 0.173
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -4.25,
+    -1.05
+   ],
+   "id": "meja-5",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-5",
+   "on": "meja-5:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -4.355,
+    -2.065
+   ],
+   "id": "kursi-5",
+   "yaw": 0.279
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    3,
+    -0.29
+   ],
+   "id": "meja-6",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-6",
+   "on": "meja-6:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    3.113,
+    0.644
+   ],
+   "id": "kursi-6",
+   "yaw": 2.897
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    1.55,
+    -0.29
+   ],
+   "id": "meja-7",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-7",
+   "on": "meja-7:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    1.504,
+    0.689
+   ],
+   "id": "kursi-7",
+   "yaw": 2.925
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    0.1,
+    -0.29
+   ],
+   "id": "meja-8",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-8",
+   "on": "meja-8:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    0.048,
+    0.729
+   ],
+   "id": "kursi-8",
+   "yaw": 3.442
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -1.35,
+    -0.29
+   ],
+   "id": "meja-9",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-9",
+   "on": "meja-9:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -1.235,
+    0.659
+   ],
+   "id": "kursi-9",
+   "yaw": 3.28
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -2.8,
+    -0.29
+   ],
+   "id": "meja-10",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-10",
+   "on": "meja-10:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -2.902,
+    0.675
+   ],
+   "id": "kursi-10",
+   "yaw": 2.805
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -4.25,
+    -0.29
+   ],
+   "id": "meja-11",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-11",
+   "on": "meja-11:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -4.23,
+    0.73
+   ],
+   "id": "kursi-11",
+   "yaw": 3.089
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    3,
+    2.6
+   ],
+   "id": "meja-12",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-12",
+   "on": "meja-12:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    3.075,
+    1.636
+   ],
+   "id": "kursi-12",
+   "yaw": 0.35
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    1.55,
+    2.6
+   ],
+   "id": "meja-13",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-13",
+   "on": "meja-13:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    1.43,
+    1.65
+   ],
+   "id": "kursi-13",
+   "yaw": -0.038
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    0.1,
+    2.6
+   ],
+   "id": "meja-14",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-14",
+   "on": "meja-14:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    0.185,
+    1.581
+   ],
+   "id": "kursi-14",
+   "yaw": -0.34
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -1.35,
+    2.6
+   ],
+   "id": "meja-15",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-15",
+   "on": "meja-15:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -1.343,
+    1.622
+   ],
+   "id": "kursi-15",
+   "yaw": 0.126
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -2.8,
+    2.6
+   ],
+   "id": "meja-16",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-16",
+   "on": "meja-16:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -2.894,
+    1.665
+   ],
+   "id": "kursi-16",
+   "yaw": 0.308
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -4.25,
+    2.6
+   ],
+   "id": "meja-17",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-17",
+   "on": "meja-17:monitor",
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -4.132,
+    1.585
+   ],
+   "id": "kursi-17",
+   "yaw": -0.205
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    3,
+    3.36
+   ],
+   "id": "meja-18",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-18",
+   "on": "meja-18:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    2.936,
+    4.35
+   ],
+   "id": "kursi-18",
+   "yaw": 2.887
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    1.55,
+    3.36
+   ],
+   "id": "meja-19",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-19",
+   "on": "meja-19:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    1.517,
+    4.278
+   ],
+   "id": "kursi-19",
+   "yaw": 3.412
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    0.1,
+    3.36
+   ],
+   "id": "meja-20",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-20",
+   "on": "meja-20:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    0.208,
+    4.37
+   ],
+   "id": "kursi-20",
+   "yaw": 3.327
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -1.35,
+    3.36
+   ],
+   "id": "meja-21",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-21",
+   "on": "meja-21:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -1.461,
+    4.36
+   ],
+   "id": "kursi-21",
+   "yaw": 2.823
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -2.8,
+    3.36
+   ],
+   "id": "meja-22",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-22",
+   "on": "meja-22:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -2.761,
+    4.261
+   ],
+   "id": "kursi-22",
+   "yaw": 3.038
+  },
+  {
+   "use": "office-desk",
+   "at": [
+    -4.25,
+    3.36
+   ],
+   "id": "meja-23",
+   "yaw": 0
+  },
+  {
+   "use": "desk-monitor",
+   "at": [
+    0,
+    0
+   ],
+   "id": "monitor-23",
+   "on": "meja-23:monitor",
+   "yaw": 0
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    -4.192,
+    4.362
+   ],
+   "id": "kursi-23",
+   "yaw": 3.487
+  },
+  {
+   "use": "filing-cabinet",
+   "at": [
+    -5.66,
+    -3.2
+   ],
+   "id": "lemari-1",
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "filing-cabinet",
+   "at": [
+    -5.66,
+    -2.7
+   ],
+   "id": "lemari-2",
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "filing-cabinet",
+   "at": [
+    -5.66,
+    1.2
+   ],
+   "id": "lemari-3",
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "potted-plant",
+   "at": [
+    -5.45,
+    -4.5
+   ],
+   "id": "tanaman-1"
+  },
+  {
+   "use": "potted-plant",
+   "at": [
+    -5.45,
+    4.5
+   ],
+   "id": "tanaman-2"
+  },
+  {
+   "use": "potted-plant",
+   "at": [
+    5.5,
+    1.9
+   ],
+   "id": "tanaman-3"
+  },
+  {
+   "use": "potted-plant",
+   "at": [
+    6.6,
+    2
+   ],
+   "id": "tanaman-4"
+  },
+  {
+   "use": "meeting-table",
+   "at": [
+    8.4,
+    -1
+   ],
+   "id": "meja-rapat",
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    7.5,
+    -1.55
+   ],
+   "id": "kursi-rapat-1",
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    7.5,
+    -0.2
+   ],
+   "id": "kursi-rapat-2",
+   "yaw": 1.8707963267948966
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    9.3,
+    -1.8
+   ],
+   "id": "kursi-rapat-3",
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    9.3,
+    -1
+   ],
+   "id": "kursi-rapat-4",
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "office-chair",
+   "at": [
+    9.3,
+    -0.2
+   ],
+   "id": "kursi-rapat-5",
+   "yaw": -1.7707963267948965
+  },
+  {
+   "use": "whiteboard",
+   "at": [
+    10.495,
+    1.45,
+    -1
+   ],
+   "id": "papan-tulis",
+   "yaw": -1.5707963267948966
+  }
+ ],
+ "lights": [
+  {
+   "type": "panel",
+   "at": [
+    3,
+    2.95,
+    -1.6
+   ],
+   "prop": "lampu-meja",
+   "i": 0.55,
+   "id": "lampu-meja-utama"
+  },
+  {
+   "type": "screen",
+   "id": "cahaya-monitor-meja",
+   "at": [
+    3,
+    1.08,
+    -0.815
+   ],
+   "prop": "layar-meja",
+   "color": "#a8c4ff",
+   "i": 1.6
+  },
+  {
+   "type": "tube",
+   "id": "lampu-tl-printer",
+   "at": [
+    4.4,
+    2.95,
+    -3.2
+   ],
+   "prop": "lampu-tl",
+   "flicker": true,
+   "i": 0.5
+  },
+  {
+   "type": "screen",
+   "id": "cahaya-printer",
+   "at": [
+    4.6,
+    0.9,
+    -4.63
+   ],
+   "prop": "printer-nyala",
+   "color": "#bff5e0",
+   "i": 0.9
+  },
+  {
+   "type": "screen",
+   "id": "cahaya-cctv",
+   "at": [
+    3.2,
+    1.72,
+    -4.905
+   ],
+   "prop": "layar-cctv",
+   "color": "#c4ecd4",
+   "i": 2
+  },
+  {
+   "type": "exit-sign",
+   "id": "tanda-keluar",
+   "at": [
+    3.9,
+    2.4,
+    4.93
+   ]
+  },
+  {
+   "type": "panel",
+   "at": [
+    -4.5,
+    2.95,
+    -2.4
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    -4.5,
+    2.95,
+    2.6
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    -1.5,
+    2.95,
+    -3.5
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    -1.5,
+    2.95,
+    3.5
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    1.5,
+    2.95,
+    -3.5
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    1.5,
+    2.95,
+    3.5
+   ],
+   "prop": "lampu-kantor"
+  },
+  {
+   "type": "panel",
+   "at": [
+    4.5,
+    2.95,
+    3
+   ],
+   "prop": "lampu-kantor"
+  }
+ ],
+ "props": {
+  "lampu-meja": {
+   "default": 1,
+   "doc": "the ceiling panel above the main desk (on by default: someone works late)",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "lampu-kantor": {
+   "default": 0,
+   "doc": "all other ceiling panels (0 = switched off for the night, 1 = office hours)",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "layar-meja": {
+   "default": 1,
+   "doc": "light of the main desk's monitor (0 = standby)"
+  },
+  "lampu-tl": {
+   "default": 1,
+   "doc": "the old tube above the printer corner (it flickers)"
+  },
+  "printer-nyala": {
+   "default": 0,
+   "doc": "printer wakes up: light from its panel",
+   "sfx": {
+    "up": "machine"
+   }
+  },
+  "layar-cctv": {
+   "default": 0,
+   "doc": "CCTV monitor light",
+   "sfx": {
+    "up": "static"
+   }
+  }
+ },
+ "places": {
+  "kantor": {
+   "doc": "the whole open-plan floor seen from the west end: rows of desks, the main desk island, the printer at the far east end",
+   "kind": "interior",
+   "rooms": [
+    "kantor"
+   ],
+   "view": "printer",
+   "ambience": "room",
+   "surface": "tile",
+   "pois": {
+    "kantor-gelap": [
+     -3.2,
+     1,
+     0.8
+    ]
+   },
+   "establish": [
+    0,
+    0.6,
+    -1.5,
+    5.87,
+    1.67,
+    -1.973
+   ],
+   "marks": {
+    "lorong": {
+     "at": [
+      4.7,
+      1.15
+     ],
+     "yaw": 3.1416,
+     "doc": "at the east end of the floor between the desk rows, facing the printer corner"
+    },
+    "jendela": {
+     "at": [
+      -2.9,
+      -4.1
+     ],
+     "yaw": 3.1416,
+     "doc": "at the north windows, looking out at the city"
+    }
+   }
+  },
+  "cctv": {
+   "doc": "the printer corner as the wall CCTV camera sees it (fixed high wide angle from the north-west) — for 'caught on camera' moments",
+   "kind": "interior",
+   "rooms": [
+    "kantor"
+   ],
+   "area": [
+    1,
+    -5,
+    6,
+    1.2
+   ],
+   "view": "printer",
+   "ambience": "room",
+   "surface": "tile",
+   "marks": {
+    "belakang-printer": {
+     "at": [
+      4.9,
+      -2.55
+     ],
+     "yaw": -2.876,
+     "doc": "a step behind someone at the printer, facing their back"
+    },
+    "dekat-printer": {
+     "at": [
+      4.8,
+      -3.05
+     ],
+     "yaw": -2.82,
+     "doc": "right behind someone at the printer, facing their back"
+    }
+   },
+   "pois": {
+    "cctv-fokus": [
+     4.2,
+     1,
+     -3.3
+    ]
+   },
+   "establish": [
+    4,
+    1,
+    -3.2,
+    2.693,
+    3.24,
+    -2.268
+   ]
+  },
+  "pojok-printer": {
+   "doc": "the east end of the floor: the main desk, the printer corner (printer, CCTV monitor, wall clock), the glass door of the meeting room",
+   "kind": "interior",
+   "rooms": [
+    "kantor",
+    "ruang-rapat"
+   ],
+   "area": [
+    1,
+    -5,
+    10.5,
+    1.2
+   ],
+   "view": "printer",
+   "ambience": "room",
+   "surface": "tile",
+   "marks": {
+    "ambang-rapat": {
+     "at": [
+      7,
+      -2.85
+     ],
+     "yaw": -1.89,
+     "doc": "just inside the dark meeting room, behind the open door, facing the printer corner"
+    },
+    "printer-baca": {
+     "at": [
+      4.6,
+      -3.65
+     ],
+     "yaw": -1.9,
+     "doc": "in front of the printer, turned toward the room to read"
+    },
+    "printer-hadap-rapat": {
+     "at": [
+      4.6,
+      -3.65
+     ],
+     "yaw": 1.136,
+     "doc": "in front of the printer, turned toward the meeting-room door"
+    }
+   },
+   "establish": [
+    4.6,
+    1,
+    -4.3,
+    3.16,
+    1.1,
+    -1.399
+   ],
+   "pois": {
+    "kantor-gelap": [
+     -2.5,
+     1,
+     0
+    ],
+    "belakang-meja": [
+     4.95,
+     1.45,
+     -1.9
+    ],
+    "dalam-rapat": [
+     7.4,
+     1.4,
+     -2.9
+    ]
+   }
+  }
+ },
+ "fog": 0.12,
+ "ambient": "#7c8aa6"
+}
+==== 5521 project/worlds/minimarket.world.json
+{
+ "id": "minimarket",
+ "doc": "a city minimarket: a bright shop room with a checkout counter, QRIS standee and gondola shelves of goods; outside a pavement, a street and shop façades across the road.",
+ "times": [
+  "day",
+  "dusk",
+  "night"
+ ],
+ "ground": {
+  "size": 70,
+  "material": "concrete:#3b3e41",
+  "hills": 0.0
+ },
+ "rooms": [
+  {
+   "id": "toko",
+   "rect": [
+    -4,
+    -5,
+    4,
+    4
+   ],
+   "height": 3.0,
+   "floor": "tiles:#cdd2d1",
+   "walls": "paint:#7f9aa3",
+   "wainscot": "#245a6f",
+   "ceiling": "paint:#c7d0d1",
+   "openings": [
+    {
+     "wall": "south",
+     "at": 2,
+     "type": "door",
+     "sign": "MINIMARKET",
+     "w": 1.6,
+     "h": 2.2,
+     "id": "pintu-masuk"
+    },
+    {
+     "wall": "south",
+     "at": -1.5,
+     "type": "window",
+     "w": 2.4,
+     "h": 1.5,
+     "sill": 0.9
+    },
+    {
+     "wall": "east",
+     "at": 2.5,
+     "type": "window",
+     "w": 1.8,
+     "h": 1.3,
+     "sill": 0.9
+    }
+   ]
+  }
+ ],
+ "paths": [
+  {
+   "id": "trotoar-depan",
+   "points": [
+    [
+     -8,
+     5.6
+    ],
+    [
+     8,
+     5.6
+    ]
+   ],
+   "width": 2.2,
+   "material": "concrete:#6a6e70"
+  },
+  {
+   "id": "jalan-raya",
+   "points": [
+    [
+     -30,
+     8.2
+    ],
+    [
+     30,
+     8.2
+    ]
+   ],
+   "width": 5.0,
+   "material": "concrete:#2f3235"
+  }
+ ],
+ "buildings": [
+  {
+   "rect": [
+    -12,
+    10.5,
+    -3,
+    15
+   ],
+   "height": 4.5,
+   "color": "#c9b89a",
+   "sign": "APOTEK",
+   "windows": true
+  },
+  {
+   "rect": [
+    1.5,
+    10.5,
+    11,
+    15.5
+   ],
+   "height": 6.0,
+   "color": "#b0a894",
+   "sign": "RUKO",
+   "windows": true
+  },
+  {
+   "rect": [
+    -26,
+    11,
+    -15,
+    16
+   ],
+   "height": 5.0,
+   "color": "#a8b0b2",
+   "windows": true
+  },
+  {
+   "rect": [
+    14,
+    11,
+    24,
+    16
+   ],
+   "height": 5.5,
+   "color": "#bcae96",
+   "windows": true
+  },
+  {
+   "rect": [
+    -14,
+    -16,
+    -4,
+    -8
+   ],
+   "height": 5.0,
+   "color": "#9aa49a",
+   "windows": true
+  },
+  {
+   "rect": [
+    5,
+    -16,
+    15,
+    -8
+   ],
+   "height": 5.5,
+   "color": "#b2a690",
+   "windows": true
+  }
+ ],
+ "objects": [
+  {
+   "use": "counter",
+   "id": "kasir",
+   "at": [
+    -1.5,
+    -3.4
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "qris",
+   "id": "qris-1",
+   "at": [
+    -2.0,
+    0.95,
+    -3.1
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-1",
+   "at": [
+    -3.72,
+    -1.2
+   ],
+   "yaw": 1.5708
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-2",
+   "at": [
+    -3.72,
+    1.0
+   ],
+   "yaw": 1.5708
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-3",
+   "at": [
+    3.72,
+    -1.2
+   ],
+   "yaw": -1.5708
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-4",
+   "at": [
+    3.72,
+    1.0
+   ],
+   "yaw": -1.5708
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-5",
+   "at": [
+    0.9,
+    -1.4
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "store-shelf",
+   "id": "rak-6",
+   "at": [
+    0.9,
+    0.6
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "cash",
+   "id": "cash",
+   "at": [
+    -1.95,
+    0.95,
+    -3.55
+   ],
+   "yaw": 0.3
+  }
+ ],
+ "scatter": [
+  {
+   "use": "tree-broad",
+   "count": 10,
+   "area": [
+    -30,
+    16,
+    30,
+    30
+   ],
+   "minDist": 6,
+   "scale": [
+    0.8,
+    1.1
+   ],
+   "avoid": [
+    "buildings",
+    "paths"
+   ]
+  }
+ ],
+ "lights": [
+  {
+   "type": "panel",
+   "at": [
+    -1.5,
+    2.95,
+    -2.5
+   ],
+   "prop": "lampu-toko"
+  },
+  {
+   "type": "panel",
+   "at": [
+    1.5,
+    2.95,
+    -0.5
+   ],
+   "prop": "lampu-toko"
+  },
+  {
+   "type": "panel",
+   "at": [
+    -1.5,
+    2.95,
+    2.0
+   ],
+   "prop": "lampu-toko"
+  },
+  {
+   "type": "lamp-post",
+   "id": "lampu-jalan-1",
+   "at": [
+    -4,
+    0,
+    6.8
+   ]
+  },
+  {
+   "type": "lamp-post",
+   "id": "lampu-jalan-2",
+   "at": [
+    6,
+    0,
+    6.8
+   ]
+  }
+ ],
+ "props": {
+  "lampu-toko": {
+   "default": 1,
+   "doc": "shop ceiling panels on/off"
+  }
+ },
+ "places": {
+  "toko": {
+   "doc": "inside the minimarket: the checkout counter with QRIS at the back (north), gondola shelves along the walls and a centre aisle, the glass entrance door in the south wall",
+   "kind": "interior",
+   "rooms": [
+    "toko"
+   ],
+   "marks": {
+    "antre-1": {
+     "at": [
+      -1.5,
+      -2.5
+     ],
+     "yaw": 3.1416,
+     "doc": "first in line at the counter, facing the cashier"
+    },
+    "antre-2": {
+     "at": [
+      -1.5,
+      -1.2
+     ],
+     "yaw": 3.1416,
+     "doc": "second in the queue, behind antre-1"
+    },
+    "tengah-toko": {
+     "at": [
+      0.0,
+      0.2
+     ],
+     "yaw": 3.1416,
+     "doc": "in the centre aisle, facing the counter"
+    },
+    "dalam-pintu": {
+     "at": [
+      2.0,
+      3.0
+     ],
+     "yaw": 3.1416,
+     "doc": "just inside the entrance, facing into the shop"
+    }
+   },
+   "view": "kasir",
+   "ambience": "market",
+   "surface": "tile"
+  },
+  "jalan": {
+   "doc": "the pavement and street in front of the minimarket, shop façades across the road",
+   "kind": "exterior",
+   "area": [
+    -10,
+    4.6,
+    10,
+    10
+   ],
+   "marks": {
+    "depan-toko": {
+     "at": [
+      0.5,
+      7.2
+     ],
+     "yaw": 3.1416,
+     "doc": "on the pavement facing the shop, the across-street buildings behind as a backdrop"
+    },
+    "trotoar": {
+     "at": [
+      -0.6,
+      7.2
+     ],
+     "yaw": 3.1416,
+     "doc": "on the pavement facing the shop, across-street buildings behind"
+    }
+   },
+   "view": "pintu-masuk",
+   "ambience": "outdoor",
+   "surface": "stone",
+   "establish": [
+    0.5,
+    1.3,
+    5.4,
+    4.6,
+    2.3,
+    0.35
+   ]
+  }
+ },
+ "fog": 0.05
+}
+==== 5949 project/worlds/perpustakaan.world.json
+{
+  "id": "perpustakaan",
+  "doc": "a small one-room library building in a city park: reading room with shelves, tables and windows; outside a lawn, a gravel path, benches, trees and lamp posts",
+  "times": [
+    "day",
+    "dusk",
+    "night"
+  ],
+  "ground": {
+    "size": 80,
+    "material": "grass:#56703a",
+    "hills": 0.08
+  },
+  "rooms": [
+    {
+      "id": "ruang-baca",
+      "rect": [
+        -5,
+        -4,
+        5,
+        4
+      ],
+      "height": 3.2,
+      "floor": "planks:#b08a5e",
+      "walls": "paint:#ece2cf",
+      "wainscot": "#7a5534",
+      "ceiling": "paint:#f4efe6",
+      "openings": [
+        {
+          "wall": "south",
+          "at": 0,
+          "type": "door",
+          "glass": true,
+          "sign": "PERPUSTAKAAN",
+          "id": "pintu-depan"
+        },
+        {
+          "wall": "south",
+          "at": -3,
+          "type": "window",
+          "w": 1.6,
+          "h": 1.3,
+          "sill": 0.9
+        },
+        {
+          "wall": "south",
+          "at": 3,
+          "type": "window",
+          "w": 1.6,
+          "h": 1.3,
+          "sill": 0.9
+        },
+        {
+          "wall": "east",
+          "at": 0,
+          "type": "window",
+          "w": 2.0,
+          "h": 1.3,
+          "sill": 0.9
+        }
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "jalan-taman",
+      "points": [
+        [
+          0,
+          4.6
+        ],
+        [
+          0.5,
+          9
+        ],
+        [
+          -1.5,
+          15
+        ],
+        [
+          -1,
+          24
+        ]
+      ],
+      "width": 1.6,
+      "material": "dirt:#a89a80"
+    }
+  ],
+  "objects": [
+    {
+      "use": "bookshelf",
+      "id": "rak-1",
+      "at": [
+        -3.2,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-2",
+      "at": [
+        -1.1,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-3",
+      "at": [
+        1.1,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-4",
+      "at": [
+        3.2,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-5",
+      "at": [
+        -4.78,
+        -1
+      ],
+      "yaw": 1.5708
+    },
+    {
+      "use": "reading-table",
+      "id": "meja-baca",
+      "at": [
+        -1.6,
+        0.6
+      ]
+    },
+    {
+      "use": "wooden-chair",
+      "id": "kursi-baca",
+      "at": [
+        -1.45,
+        1.18
+      ],
+      "yaw": 3.1416
+    },
+    {
+      "use": "wooden-chair",
+      "at": [
+        -1.6,
+        -0.05
+      ]
+    },
+    {
+      "use": "reading-table",
+      "id": "meja-2",
+      "at": [
+        2.2,
+        0.6
+      ]
+    },
+    {
+      "use": "wooden-chair",
+      "at": [
+        2.2,
+        1.25
+      ],
+      "yaw": 3.1416
+    },
+    {
+      "use": "park-bench",
+      "id": "bangku-taman",
+      "at": [
+        2.4,
+        10
+      ],
+      "yaw": -1.5708
+    },
+    {
+      "use": "park-bench",
+      "at": [
+        -3.6,
+        14
+      ],
+      "yaw": 1.5708
+    },
+    {
+      "use": "tree-broad",
+      "id": "pohon-besar",
+      "at": [
+        8,
+        17
+      ]
+    }
+  ],
+  "scatter": [
+    {
+      "use": "tree-broad",
+      "count": 26,
+      "area": [
+        -30,
+        -30,
+        30,
+        30
+      ],
+      "minDist": 6,
+      "scale": [
+        0.8,
+        1.2
+      ]
+    },
+    {
+      "use": "bush",
+      "count": 30,
+      "area": [
+        -14,
+        -10,
+        14,
+        26
+      ],
+      "minDist": 2
+    },
+    {
+      "use": "grass-tuft",
+      "count": 300,
+      "area": [
+        -12,
+        -8,
+        12,
+        26
+      ],
+      "minDist": 0.4,
+      "avoid": [
+        "paths",
+        "rooms"
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "type": "panel",
+      "at": [
+        -1.8,
+        3.15,
+        0.5
+      ],
+      "prop": "lampu-ruang"
+    },
+    {
+      "type": "panel",
+      "at": [
+        2.0,
+        3.15,
+        0.5
+      ],
+      "prop": "lampu-ruang"
+    },
+    {
+      "type": "lamp-post",
+      "id": "lampu-taman-1",
+      "at": [
+        1.6,
+        0,
+        7.5
+      ],
+      "prop": "lampu-taman"
+    },
+    {
+      "type": "lamp-post",
+      "id": "lampu-taman-2",
+      "at": [
+        -2.8,
+        0,
+        17
+      ],
+      "prop": "lampu-taman"
+    }
+  ],
+  "props": {
+    "lampu-ruang": {
+      "default": 1,
+      "doc": "reading-room ceiling panels on/off"
+    },
+    "lampu-taman": {
+      "default": 0,
+      "doc": "park lamp posts on/off",
+      "sfx": {
+        "up": "click"
+      }
+    }
+  },
+  "places": {
+    "ruang-baca": {
+      "doc": "the reading room: shelves along the back wall, two reading tables, the glass door in the south wall",
+      "kind": "interior",
+      "rooms": [
+        "ruang-baca"
+      ],
+      "marks": {
+        "dalam-pintu": {
+          "at": [
+            0,
+            3.2
+          ],
+          "yaw": 3.1416,
+          "doc": "just inside the door, facing into the room"
+        },
+        "rak": {
+          "at": [
+            -1.1,
+            -2.9
+          ],
+          "yaw": 3.1416,
+          "doc": "in front of the shelves, facing them"
+        }
+      },
+      "view": "rak-2",
+      "ambience": "room",
+      "surface": "wood"
+    },
+    "taman": {
+      "doc": "the park lawn south of the library: the path from the far end to the door",
+      "kind": "exterior",
+      "area": [
+        -12,
+        4.3,
+        12,
+        26
+      ],
+      "marks": {
+        "ujung-jalan": {
+          "at": [
+            -1.0,
+            13.5
+          ],
+          "yaw": 3.0,
+          "doc": "on the path halfway across the park, facing the library"
+        },
+        "depan-pintu": {
+          "at": [
+            0.25,
+            4.75
+          ],
+          "yaw": 3.1416,
+          "doc": "on the path right in front of the door, facing it"
+        }
+      },
+      "view": "pintu-depan",
+      "ambience": "outdoor",
+      "surface": "grass"
+    }
+  }
+}
+==== 14091 project/worlds/rumah.world.json
+{
+ "id": "rumah",
+ "doc": "an Indonesian family house: a living room (sofa, coffee table, TV, family photos, front door), a kitchen with a dining table, a small bedroom (bed, wardrobe, desk), a long back corridor with an old wardrobe at its end, and the front terrace with a small yard, a gate and the neighbours' houses across the lane",
+ "times": [
+  "night",
+  "day",
+  "dusk",
+  "dawn"
+ ],
+ "ground": {
+  "size": 120,
+  "material": "grass:#5f7a3e",
+  "hills": 0.02
+ },
+ "rooms": [
+  {
+   "id": "ruang-tamu",
+   "rect": [
+    -4.5,
+    -3,
+    1,
+    3
+   ],
+   "height": 3.0,
+   "floor": "tiles:#d8cfc0",
+   "walls": "paint:#efe3cf",
+   "wainscot": "#c9b393",
+   "ceiling": "paint:#f4efe6",
+   "openings": [
+    {
+     "wall": "south",
+     "at": -3.6,
+     "type": "door",
+     "id": "pintu-depan"
+    },
+    {
+     "wall": "south",
+     "at": -1.2,
+     "type": "window",
+     "w": 1.8,
+     "h": 1.3,
+     "sill": 0.9
+    },
+    {
+     "wall": "east",
+     "at": -1.5,
+     "type": "arch",
+     "id": "lengkung-dapur"
+    },
+    {
+     "wall": "east",
+     "at": 1.6,
+     "type": "door",
+     "id": "pintu-kamar"
+    },
+    {
+     "wall": "west",
+     "at": -0.7,
+     "type": "arch",
+     "id": "lengkung-lorong"
+    }
+   ]
+  },
+  {
+   "id": "dapur",
+   "rect": [
+    1,
+    -3,
+    5.5,
+    0
+   ],
+   "height": 3.0,
+   "floor": "tiles:#cfd2cc",
+   "walls": "paint:#e6ece4",
+   "ceiling": "paint:#f2f4f0",
+   "openings": [
+    {
+     "wall": "west",
+     "at": -1.5,
+     "type": "arch",
+     "id": "lengkung-dapur"
+    },
+    {
+     "wall": "east",
+     "at": -1.5,
+     "type": "window",
+     "w": 1.2,
+     "h": 1.0,
+     "sill": 1.1
+    }
+   ]
+  },
+  {
+   "id": "kamar",
+   "rect": [
+    1,
+    0,
+    5.5,
+    3
+   ],
+   "height": 3.0,
+   "floor": "planks:#b08a5e",
+   "walls": "paint:#cfdbe6",
+   "ceiling": "paint:#eef2f5",
+   "openings": [
+    {
+     "wall": "west",
+     "at": 1.6,
+     "type": "door",
+     "id": "pintu-kamar"
+    },
+    {
+     "wall": "east",
+     "at": 1.5,
+     "type": "window",
+     "w": 1.2,
+     "h": 1.2,
+     "sill": 0.9
+    }
+   ]
+  },
+  {
+   "id": "lorong",
+   "rect": [
+    -7.3,
+    -6.0,
+    -4.5,
+    3.0
+   ],
+   "height": 3.0,
+   "floor": "planks:#8f6a48",
+   "walls": "paint:#e4d8c2",
+   "wainscot": "#8a6a4a",
+   "ceiling": "paint:#efe8dc",
+   "openings": [
+    {
+     "wall": "east",
+     "at": -0.7,
+     "type": "arch",
+     "id": "lengkung-lorong"
+    },
+    {
+     "wall": "west",
+     "at": -2.0,
+     "type": "door",
+     "id": "pintu-kamar-mandi",
+     "sign": "KM"
+    },
+    {
+     "wall": "west",
+     "at": 1.2,
+     "type": "door",
+     "id": "pintu-belakang"
+    },
+    {
+     "wall": "west",
+     "at": -4.3,
+     "type": "window",
+     "w": 1.0,
+     "h": 0.9,
+     "sill": 1.2
+    }
+   ]
+  }
+ ],
+ "paths": [
+  {
+   "id": "jalan-depan",
+   "points": [
+    [
+     -3.6,
+     3.2
+    ],
+    [
+     -3.4,
+     6
+    ],
+    [
+     -3.0,
+     9.5
+    ]
+   ],
+   "width": 1.2,
+   "material": "concrete:#a7a39a"
+  },
+  {
+   "id": "gang",
+   "points": [
+    [
+     -16,
+     10.6
+    ],
+    [
+     16,
+     10.6
+    ]
+   ],
+   "width": 3.0,
+   "material": "asphalt"
+  }
+ ],
+ "buildings": [
+  {
+   "rect": [
+    -14,
+    13,
+    -7,
+    19
+   ],
+   "height": 3.5,
+   "color": "#e7c9a0",
+   "sign": "",
+   "windows": true
+  },
+  {
+   "rect": [
+    -6,
+    13,
+    1,
+    19
+   ],
+   "height": 3.7,
+   "color": "#b9d3c2",
+   "windows": true
+  },
+  {
+   "rect": [
+    2,
+    13,
+    9,
+    19
+   ],
+   "height": 3.9,
+   "color": "#e8b4a6",
+   "windows": true
+  },
+  {
+   "rect": [
+    10,
+    13,
+    17,
+    19
+   ],
+   "height": 4.1,
+   "color": "#d7d0e6",
+   "windows": true
+  },
+  {
+   "rect": [
+    -16,
+    -4,
+    -9,
+    4
+   ],
+   "height": 3.5,
+   "color": "#d9c7a8",
+   "windows": true
+  },
+  {
+   "rect": [
+    7,
+    -4,
+    14,
+    4
+   ],
+   "height": 3.8,
+   "color": "#c8d7e0",
+   "windows": true
+  },
+  {
+   "rect": [
+    -9,
+    -15,
+    -2,
+    -10
+   ],
+   "height": 4.1,
+   "color": "#d8c3a5",
+   "windows": true
+  },
+  {
+   "rect": [
+    0,
+    -15,
+    7,
+    -10
+   ],
+   "height": 4.1,
+   "color": "#c9d6c3",
+   "windows": true
+  }
+ ],
+ "objects": [
+  {
+   "use": "sofa",
+   "id": "sofa",
+   "at": [
+    -2.0,
+    -2.45
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "coffee-table",
+   "id": "meja-tamu",
+   "at": [
+    -2.0,
+    -1.25
+   ]
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-kiri",
+   "at": [
+    -3.55,
+    -1.1
+   ],
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-kanan",
+   "at": [
+    -0.45,
+    -1.1
+   ],
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "tv-cabinet",
+   "id": "tv",
+   "at": [
+    -4.14,
+    1.2
+   ],
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "wall-photo",
+   "id": "foto-keluarga",
+   "at": [
+    -2.0,
+    -2.97
+   ]
+  },
+  {
+   "use": "wall-clock",
+   "id": "jam-dinding",
+   "at": [
+    -0.2,
+    2.3,
+    -2.97
+   ]
+  },
+  {
+   "use": "standing-fan",
+   "id": "kipas",
+   "at": [
+    0.45,
+    -2.45
+   ],
+   "yaw": -0.6
+  },
+  {
+   "use": "potted-plant",
+   "id": "tanaman",
+   "at": [
+    0.5,
+    2.5
+   ]
+  },
+  {
+   "use": "bookshelf",
+   "id": "rak",
+   "at": [
+    -4.25,
+    -2.2
+   ],
+   "yaw": 1.5707963267948966,
+   "scale": 0.8
+  },
+  {
+   "use": "kitchen-counter",
+   "id": "dapur-meja",
+   "at": [
+    3.0,
+    -2.68
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "fridge",
+   "id": "kulkas",
+   "at": [
+    4.95,
+    -2.62
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "dining-table",
+   "id": "meja-makan",
+   "at": [
+    3.2,
+    -1.05
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-makan-1",
+   "at": [
+    2.85,
+    -0.3
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-makan-2",
+   "at": [
+    3.6,
+    -0.3
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-makan-3",
+   "at": [
+    2.15,
+    -1.05
+   ],
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "bed",
+   "id": "kasur",
+   "at": [
+    4.85,
+    1.22
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "wardrobe",
+   "id": "lemari",
+   "at": [
+    1.75,
+    0.45
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "reading-table",
+   "id": "meja-belajar",
+   "at": [
+    3.0,
+    2.62
+   ],
+   "yaw": 3.141592653589793,
+   "scale": 0.7
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-belajar",
+   "at": [
+    3.0,
+    2.0
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "shoe-rack",
+   "id": "rak-sepatu",
+   "at": [
+    -2.6,
+    3.35
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "wooden-chair",
+   "id": "kursi-teras",
+   "at": [
+    -0.6,
+    3.6
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "potted-plant",
+   "id": "pot-teras",
+   "at": [
+    0.6,
+    3.5
+   ]
+  },
+  {
+   "use": "wardrobe",
+   "id": "lemari-tua",
+   "at": [
+    -5.9,
+    -5.6
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "wall-photo",
+   "id": "foto-lorong",
+   "at": [
+    -4.535,
+    -3.6
+   ],
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "wall-clock",
+   "id": "jam-lorong",
+   "at": [
+    -4.535,
+    2.3,
+    0.9
+   ],
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "potted-plant",
+   "id": "pot-lorong",
+   "at": [
+    -7.0,
+    2.6
+   ]
+  }
+ ],
+ "scatter": [
+  {
+   "use": "bush",
+   "count": 5,
+   "area": [
+    -7.5,
+    4.2,
+    -5.2,
+    9.4
+   ],
+   "minDist": 1.4,
+   "avoid": [
+    "paths",
+    "rooms",
+    "objects"
+   ]
+  },
+  {
+   "use": "bush",
+   "count": 5,
+   "area": [
+    1.2,
+    4.2,
+    3.8,
+    9.4
+   ],
+   "minDist": 1.4,
+   "avoid": [
+    "paths",
+    "rooms",
+    "objects"
+   ]
+  },
+  {
+   "use": "tree-broad",
+   "count": 8,
+   "area": [
+    -18,
+    -22,
+    16,
+    -16
+   ],
+   "minDist": 4.5
+  },
+  {
+   "use": "grass-tuft",
+   "count": 120,
+   "area": [
+    -7,
+    4.6,
+    3.5,
+    9.2
+   ],
+   "minDist": 0.4,
+   "avoid": [
+    "paths",
+    "rooms"
+   ]
+  }
+ ],
+ "lights": [
+  {
+   "type": "panel",
+   "id": "lampu-tamu-1",
+   "at": [
+    -2.0,
+    2.95,
+    -1.2
+   ],
+   "prop": "lampu-tamu"
+  },
+  {
+   "type": "panel",
+   "id": "lampu-tamu-2",
+   "at": [
+    -2.0,
+    2.95,
+    1.6
+   ],
+   "prop": "lampu-tamu"
+  },
+  {
+   "type": "bulb",
+   "id": "lampu-dapur",
+   "at": [
+    3.2,
+    2.5,
+    -1.1
+   ],
+   "prop": "lampu-dapur"
+  },
+  {
+   "type": "panel",
+   "id": "lampu-kamar",
+   "at": [
+    3.3,
+    2.95,
+    1.5
+   ],
+   "prop": "lampu-kamar"
+  },
+  {
+   "type": "bulb",
+   "id": "lampu-teras",
+   "at": [
+    -3.6,
+    2.65,
+    3.35
+   ],
+   "prop": "lampu-teras"
+  },
+  {
+   "type": "lamp-post",
+   "id": "lampu-gang",
+   "at": [
+    1.5,
+    0,
+    12.0
+   ],
+   "prop": "lampu-teras"
+  },
+  {
+   "type": "bulb",
+   "id": "lampu-lorong",
+   "at": [
+    -5.9,
+    2.6,
+    -2.5
+   ],
+   "prop": "lampu-lorong"
+  }
+ ],
+ "props": {
+  "lampu-tamu": {
+   "default": 1,
+   "doc": "living-room ceiling lamps (0 off, 1 on)",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "lampu-dapur": {
+   "default": 1,
+   "doc": "the kitchen bulb",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "lampu-kamar": {
+   "default": 1,
+   "doc": "the bedroom ceiling lamp",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "lampu-teras": {
+   "default": 1,
+   "doc": "terrace bulb + the lane's street lamp"
+  },
+  "lampu-lorong": {
+   "default": 1,
+   "doc": "the bare bulb in the back corridor (0 off — moonlight through the small window only)",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  }
+ },
+ "places": {
+  "ruang-tamu": {
+   "doc": "the living room: sofa under the family photo, coffee table, side chairs, TV on the west wall, front door and window in the south wall, an arch to the back corridor in the west wall, an arch to the kitchen and the bedroom door in the east wall",
+   "kind": "interior",
+   "rooms": [
+    "ruang-tamu"
+   ],
+   "marks": {
+    "tengah": {
+     "at": [
+      -2.0,
+      0.4
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "in the middle of the room, facing the sofa"
+    },
+    "dalam-pintu": {
+     "at": [
+      -3.6,
+      2.3
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "just inside the front door, facing into the room"
+    },
+    "depan-tv": {
+     "at": [
+      -2.9,
+      1.2
+     ],
+     "yaw": -1.5707963267948966,
+     "doc": "standing in front of the TV, facing it"
+    },
+    "jendela": {
+     "at": [
+      -1.2,
+      2.35
+     ],
+     "yaw": 0,
+     "doc": "at the window, looking out to the terrace"
+    },
+    "lengkung-lorong": {
+     "at": [
+      -3.95,
+      -0.7
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "in the arch from the back corridor, facing into the living room"
+    }
+   },
+   "view": "sofa",
+   "ambience": "room",
+   "surface": "tile"
+  },
+  "dapur": {
+   "doc": "the kitchen: counter with sink and stove along the north wall, fridge, the dining table with chairs",
+   "kind": "interior",
+   "rooms": [
+    "dapur"
+   ],
+   "marks": {
+    "kompor": {
+     "at": [
+      3.55,
+      -1.95
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the stove, cooking (back half to the room)"
+    },
+    "depan-kulkas": {
+     "at": [
+      4.95,
+      -1.7
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the fridge, facing it"
+    },
+    "lengkung": {
+     "at": [
+      1.6,
+      -1.5
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "in the arch from the living room, facing into the kitchen"
+    }
+   },
+   "view": "meja-makan",
+   "ambience": "room",
+   "surface": "tile"
+  },
+  "kamar": {
+   "doc": "a small bedroom: bed under the east window, wardrobe, a study table, the door to the living room",
+   "kind": "interior",
+   "rooms": [
+    "kamar"
+   ],
+   "marks": {
+    "tengah-kamar": {
+     "at": [
+      3.1,
+      1.2
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "in the middle of the bedroom, facing the bed"
+    },
+    "depan-lemari": {
+     "at": [
+      1.75,
+      1.05
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "in front of the wardrobe, facing it"
+    },
+    "dalam-pintu-kamar": {
+     "at": [
+      1.6,
+      1.6
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "just inside the bedroom door"
+    }
+   },
+   "view": "kasur",
+   "ambience": "room",
+   "surface": "wood"
+  },
+  "teras": {
+   "doc": "outside the house: the terrace by the front door, the small front yard with a path to the gate, the lane and the neighbours' houses across it",
+   "kind": "exterior",
+   "area": [
+    -8,
+    3.1,
+    4,
+    11
+   ],
+   "marks": {
+    "teras": {
+     "at": [
+      -1.7,
+      4.2
+     ],
+     "yaw": 0,
+     "doc": "on the terrace, facing the yard and the lane"
+    },
+    "depan-pintu": {
+     "at": [
+      -3.6,
+      4.0
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "outside the front door, facing it"
+    },
+    "halaman": {
+     "at": [
+      -3.2,
+      7.0
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "in the front yard, facing the house"
+    },
+    "gerbang": {
+     "at": [
+      -3.0,
+      9.2
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the gate, facing the house"
+    }
+   },
+   "view": "pintu-depan",
+   "ambience": "outdoor",
+   "surface": "stone"
+  },
+  "lorong": {
+   "doc": "the back corridor of the house: a long wooden hallway off the living room, the old wardrobe (lemari) at the far north end, the bathroom door and the back door on the west wall, a small high window",
+   "kind": "interior",
+   "rooms": [
+    "lorong"
+   ],
+   "marks": {
+    "ujung-lorong": {
+     "at": [
+      -5.9,
+      -4.4
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the far end of the corridor, facing the old wardrobe"
+    },
+    "tengah-lorong": {
+     "at": [
+      -5.9,
+      -1.6
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "halfway down the corridor, facing the wardrobe at the end"
+    },
+    "masuk-lorong": {
+     "at": [
+      -5.4,
+      1.0
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the near end by the arch from the living room, facing down the corridor"
+    },
+    "depan-kamar-mandi": {
+     "at": [
+      -6.4,
+      -2.0
+     ],
+     "yaw": -1.5707963267948966,
+     "doc": "in front of the bathroom door, facing it"
+    }
+   },
+   "view": "lemari-tua",
+   "ambience": "hall",
+   "surface": "wood"
+  }
+ },
+ "fog": 0.06
+}
+==== 11404 project/worlds/sekolah.world.json
+{
+ "id": "sekolah",
+ "doc": "an Indonesian school: a classroom (blackboard, teacher's desk, three rows of school desks, windows, lockers), the open veranda corridor outside its door with the notice board (mading), and the school field with the flagpole and the other class blocks around it",
+ "times": [
+  "day",
+  "dusk",
+  "night"
+ ],
+ "ground": {
+  "size": 140,
+  "material": "grass:#6a8a45",
+  "hills": 0.02
+ },
+ "rooms": [
+  {
+   "id": "kelas",
+   "rect": [
+    -4.5,
+    -4.5,
+    4.5,
+    3.5
+   ],
+   "height": 3.2,
+   "floor": "tiles:#d9d4c6",
+   "walls": "paint:#f1e8cf",
+   "wainscot": "#8fb39a",
+   "ceiling": "paint:#f6f3ea",
+   "openings": [
+    {
+     "wall": "west",
+     "at": 2.4,
+     "type": "door",
+     "id": "pintu-kelas",
+     "sign": "KELAS 8B"
+    },
+    {
+     "wall": "west",
+     "at": -0.6,
+     "type": "window",
+     "w": 1.6,
+     "h": 1.1,
+     "sill": 1.0
+    },
+    {
+     "wall": "east",
+     "at": -2.6,
+     "type": "window",
+     "w": 1.6,
+     "h": 1.4,
+     "sill": 0.9
+    },
+    {
+     "wall": "east",
+     "at": -0.2,
+     "type": "window",
+     "w": 1.6,
+     "h": 1.4,
+     "sill": 0.9
+    },
+    {
+     "wall": "east",
+     "at": 2.2,
+     "type": "window",
+     "w": 1.6,
+     "h": 1.4,
+     "sill": 0.9
+    }
+   ]
+  },
+  {
+   "id": "koridor",
+   "rect": [
+    -7.5,
+    -4.5,
+    -4.5,
+    3.5
+   ],
+   "height": 3.2,
+   "floor": "tiles:#c8c2b4",
+   "walls": "paint:#f1e8cf",
+   "wainscot": "#8fb39a",
+   "ceiling": "paint:#f6f3ea",
+   "open": [
+    "west",
+    "south",
+    "north"
+   ],
+   "openings": [
+    {
+     "wall": "east",
+     "at": 2.4,
+     "type": "door",
+     "id": "pintu-kelas",
+     "sign": "KELAS 8B"
+    },
+    {
+     "wall": "east",
+     "at": -0.6,
+     "type": "window",
+     "w": 1.6,
+     "h": 1.1,
+     "sill": 1.0
+    }
+   ]
+  }
+ ],
+ "paths": [
+  {
+   "id": "jalan-lapangan",
+   "points": [
+    [
+     -7.6,
+     0.2
+    ],
+    [
+     -12,
+     0.2
+    ],
+    [
+     -16.5,
+     0.0
+    ]
+   ],
+   "width": 1.6,
+   "material": "concrete:#b5b0a5"
+  }
+ ],
+ "buildings": [
+  {
+   "rect": [
+    -30,
+    -20,
+    -10,
+    -14
+   ],
+   "height": 6.4,
+   "color": "#f1e8cf",
+   "sign": "KELAS 7",
+   "windows": true
+  },
+  {
+   "rect": [
+    -30,
+    14,
+    -10,
+    20
+   ],
+   "height": 6.4,
+   "color": "#f1e8cf",
+   "sign": "KELAS 9",
+   "windows": true
+  },
+  {
+   "rect": [
+    -40,
+    -12,
+    -34,
+    12
+   ],
+   "height": 6.4,
+   "color": "#e9dfc4",
+   "sign": "PERPUSTAKAAN · TU",
+   "windows": true
+  },
+  {
+   "rect": [
+    6,
+    -12,
+    14,
+    10
+   ],
+   "height": 6.4,
+   "color": "#efe5cc",
+   "windows": true
+  }
+ ],
+ "objects": [
+  {
+   "use": "blackboard",
+   "id": "papan-tulis",
+   "at": [
+    0,
+    -4.47
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "office-desk",
+   "id": "meja-guru",
+   "at": [
+    -3.0,
+    -3.0
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "office-chair",
+   "id": "kursi-guru",
+   "at": [
+    -3.0,
+    -3.85
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "wall-clock",
+   "id": "jam-dinding",
+   "at": [
+    2.8,
+    2.6,
+    -4.47
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "locker-row",
+   "id": "loker",
+   "at": [
+    2.6,
+    3.22
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "bookshelf",
+   "id": "rak-buku",
+   "at": [
+    -2.6,
+    3.25
+   ],
+   "yaw": 3.141592653589793,
+   "scale": 0.85
+  },
+  {
+   "use": "potted-plant",
+   "id": "tanaman",
+   "at": [
+    4.0,
+    -4.0
+   ]
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-1a",
+   "at": [
+    -2.7,
+    -0.7
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-1a",
+   "at": [
+    -2.7,
+    -0.19999999999999996
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-1b",
+   "at": [
+    -0.9,
+    -0.7
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-1b",
+   "at": [
+    -0.9,
+    -0.19999999999999996
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-1c",
+   "at": [
+    0.9,
+    -0.7
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-1c",
+   "at": [
+    0.9,
+    -0.19999999999999996
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-1d",
+   "at": [
+    2.7,
+    -0.7
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-1d",
+   "at": [
+    2.7,
+    -0.19999999999999996
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-2a",
+   "at": [
+    -2.7,
+    0.75
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-2a",
+   "at": [
+    -2.7,
+    1.25
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-2b",
+   "at": [
+    -0.9,
+    0.75
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-2b",
+   "at": [
+    -0.9,
+    1.25
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-2c",
+   "at": [
+    0.9,
+    0.75
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-2c",
+   "at": [
+    0.9,
+    1.25
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-2d",
+   "at": [
+    2.7,
+    0.75
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-2d",
+   "at": [
+    2.7,
+    1.25
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-3a",
+   "at": [
+    -2.7,
+    2.2
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-3a",
+   "at": [
+    -2.7,
+    2.7
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-3b",
+   "at": [
+    -0.9,
+    2.2
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-3b",
+   "at": [
+    -0.9,
+    2.7
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-3c",
+   "at": [
+    0.9,
+    2.2
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-3c",
+   "at": [
+    0.9,
+    2.7
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "school-desk",
+   "id": "meja-3d",
+   "at": [
+    2.7,
+    2.2
+   ],
+   "yaw": 0
+  },
+  {
+   "use": "school-chair",
+   "id": "kursi-3d",
+   "at": [
+    2.7,
+    2.7
+   ],
+   "yaw": 3.141592653589793
+  },
+  {
+   "use": "notice-board",
+   "id": "mading",
+   "at": [
+    -4.62,
+    -1.5
+   ],
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "locker-row",
+   "id": "loker-koridor",
+   "at": [
+    -4.85,
+    -3.4
+   ],
+   "yaw": -1.5707963267948966
+  },
+  {
+   "use": "park-bench",
+   "id": "bangku-koridor",
+   "at": [
+    -7.0,
+    0.2
+   ],
+   "yaw": 1.5707963267948966
+  },
+  {
+   "use": "potted-plant",
+   "id": "pot-koridor",
+   "at": [
+    -7.1,
+    -3.9
+   ]
+  },
+  {
+   "use": "flagpole",
+   "id": "tiang-bendera",
+   "at": [
+    -18,
+    0
+   ]
+  }
+ ],
+ "scatter": [
+  {
+   "use": "tree-broad",
+   "count": 10,
+   "area": [
+    -34,
+    -13,
+    -12,
+    13
+   ],
+   "minDist": 5,
+   "avoid": [
+    "paths",
+    "rooms",
+    "objects"
+   ]
+  },
+  {
+   "use": "bush",
+   "count": 14,
+   "area": [
+    -9.5,
+    -6,
+    -8,
+    7
+   ],
+   "minDist": 1.2,
+   "avoid": [
+    "paths",
+    "rooms",
+    "objects"
+   ]
+  },
+  {
+   "use": "grass-tuft",
+   "count": 200,
+   "area": [
+    -32,
+    -12,
+    -8,
+    12
+   ],
+   "minDist": 0.5,
+   "avoid": [
+    "paths",
+    "rooms",
+    "objects"
+   ]
+  }
+ ],
+ "lights": [
+  {
+   "type": "tube",
+   "id": "lampu-kelas-1",
+   "at": [
+    -1.8,
+    3.15,
+    -2.2
+   ],
+   "prop": "lampu-kelas"
+  },
+  {
+   "type": "tube",
+   "id": "lampu-kelas-2",
+   "at": [
+    1.8,
+    3.15,
+    -2.2
+   ],
+   "prop": "lampu-kelas"
+  },
+  {
+   "type": "tube",
+   "id": "lampu-kelas-3",
+   "at": [
+    -1.8,
+    3.15,
+    1.4
+   ],
+   "prop": "lampu-kelas"
+  },
+  {
+   "type": "tube",
+   "id": "lampu-kelas-4",
+   "at": [
+    1.8,
+    3.15,
+    1.4
+   ],
+   "prop": "lampu-kelas"
+  },
+  {
+   "type": "bulb",
+   "id": "lampu-koridor-1",
+   "at": [
+    -6.0,
+    2.9,
+    -2.0
+   ],
+   "prop": "lampu-koridor"
+  },
+  {
+   "type": "bulb",
+   "id": "lampu-koridor-2",
+   "at": [
+    -6.0,
+    2.9,
+    2.0
+   ],
+   "prop": "lampu-koridor"
+  },
+  {
+   "type": "lamp-post",
+   "id": "lampu-lapangan",
+   "at": [
+    -12.5,
+    0,
+    3.2
+   ],
+   "prop": "lampu-koridor"
+  }
+ ],
+ "props": {
+  "lampu-kelas": {
+   "default": 1,
+   "doc": "classroom tube lamps (0 off — after school, 1 on)",
+   "sfx": {
+    "up": "click",
+    "down": "click"
+   }
+  },
+  "lampu-koridor": {
+   "default": 0,
+   "doc": "corridor bulbs + the field lamp (on at dusk / night)",
+   "sfx": {
+    "up": "click"
+   }
+  }
+ },
+ "places": {
+  "kelas": {
+   "doc": "the classroom: the blackboard and the teacher's desk at the north wall, three rows of desks facing it, windows in the east wall, lockers at the back, the door to the corridor in the west wall",
+   "kind": "interior",
+   "rooms": [
+    "kelas"
+   ],
+   "marks": {
+    "depan-papan": {
+     "at": [
+      -0.6,
+      -3.5
+     ],
+     "yaw": 0,
+     "doc": "in front of the blackboard, facing the class (teacher / presenter)"
+    },
+    "papan": {
+     "at": [
+      0.6,
+      -3.6
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the blackboard, facing it (writing on it)"
+    },
+    "depan-kelas": {
+     "at": [
+      1.2,
+      -2.1
+     ],
+     "yaw": -0.4,
+     "doc": "in front of the first row, facing the desks"
+    },
+    "jendela": {
+     "at": [
+      3.9,
+      -1.4
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "at the east window, looking out"
+    },
+    "belakang": {
+     "at": [
+      0.0,
+      3.0
+     ],
+     "yaw": 3.141592653589793,
+     "doc": "at the back of the class, facing the board"
+    },
+    "dalam-pintu": {
+     "at": [
+      -3.9,
+      2.4
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "just inside the door"
+    }
+   },
+   "view": "papan-tulis",
+   "ambience": "room",
+   "surface": "tile"
+  },
+  "koridor": {
+   "doc": "the open veranda corridor outside the classroom door: the notice board and lockers on the wall, a bench, the field beyond the open side",
+   "kind": "interior",
+   "rooms": [
+    "koridor"
+   ],
+   "marks": {
+    "depan-pintu": {
+     "at": [
+      -5.3,
+      2.4
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "outside the classroom door, facing it"
+    },
+    "mading": {
+     "at": [
+      -5.4,
+      -1.5
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "reading the notice board"
+    },
+    "tepi": {
+     "at": [
+      -6.9,
+      -1.2
+     ],
+     "yaw": -1.5707963267948966,
+     "doc": "at the open edge of the corridor, looking out at the field"
+    }
+   },
+   "view": "mading",
+   "ambience": "hall",
+   "surface": "tile"
+  },
+  "lapangan": {
+   "doc": "the school field: grass, the flagpole in the middle, the class blocks around, the corridor of class 8B on the east side",
+   "kind": "exterior",
+   "area": [
+    -32,
+    -12,
+    -7.6,
+    12
+   ],
+   "marks": {
+    "tiang": {
+     "at": [
+      -16.6,
+      1.6
+     ],
+     "yaw": -2.4,
+     "doc": "near the flagpole, facing it"
+    },
+    "tengah-lapangan": {
+     "at": [
+      -13,
+      -3.5
+     ],
+     "yaw": 1.5707963267948966,
+     "doc": "in the middle of the field, facing the classroom block"
+    },
+    "tepi-koridor": {
+     "at": [
+      -8.6,
+      2.2
+     ],
+     "yaw": -1.5707963267948966,
+     "doc": "at the edge of the field below the corridor, facing the field"
+    }
+   },
+   "view": "tiang-bendera",
+   "ambience": "outdoor",
+   "surface": "grass",
+   "establish": [
+    -16,
+    1.4,
+    0,
+    9.5,
+    3.2,
+    1.5708
+   ]
+  }
+ },
+ "fog": 0.04
+}

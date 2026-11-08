@@ -1,0 +1,1697 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 2500 scripts/deliver.mjs
+// Delivery master: measure integrated loudness, apply gain + a true limiter so the file
+// lands at the target without clipping, copy the video stream untouched, then verify.
+//   node scripts/deliver.mjs <in.mp4> <out.mp4> [targetLUFS=-14] [ceilingDb=-2]
+// (loudnorm alone can't stop AAC inter-sample overshoot; a limiter before the encoder can.)
+
+import { spawnSync } from "node:child_process";
+
+const [input, output, targetArg = "-14", ceilArg = "-2"] = process.argv.slice(2);
+if (!input || !output) {
+  console.error("usage: node scripts/deliver.mjs <in.mp4> <out.mp4> [targetLUFS] [ceilingDb]");
+  process.exit(1);
+}
+const target = Number(targetArg);
+const ceiling = 10 ** (Number(ceilArg) / 20);
+
+const ffmpeg = (args) => {
+  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(r.stderr);
+  return r.stderr;
+};
+
+/** ebur128 prints its summary to stderr. */
+const loudness = (file) => {
+  const log = ffmpeg(["-nostats", "-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"]);
+  const s = log.slice(log.lastIndexOf("Summary"));
+  return {
+    I: Number(/I:\s+(-?[\d.]+) LUFS/.exec(s)?.[1]),
+    peak: Number(/Peak:\s+(-?[\d.]+) dBFS/.exec(s)?.[1]),
+  };
+};
+
+const before = loudness(input);
+let gain = target - before.I + 0.4; // the limiter shaves a little; aim slightly high
+let after;
+// Peaky voices make the limiter eat more than expected, so measure and correct (max 5 passes).
+for (let pass = 1; pass <= 5; pass++) {
+  ffmpeg([
+    "-v", "error", "-y", "-i", input, "-c:v", "copy",
+    "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=${ceiling.toFixed(3)}:level=false:attack=2:release=80,aresample=48000`,
+    "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart", output,
+  ]);
+  after = loudness(output);
+  if (Math.abs(after.I - target) <= 0.5) break;
+  gain += 1.6 * (target - after.I); // the limiter absorbs part of every boost
+}
+const probe = spawnSync(
+  "ffprobe",
+  ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames", "-of", "csv=p=0", output],
+  { encoding: "utf8" },
+).stdout.trim();
+console.log(`in : ${before.I} LUFS, true peak ${before.peak} dBFS`);
+console.log(`out: ${after.I} LUFS, true peak ${after.peak} dBFS (gain ${gain.toFixed(2)} dB)`);
+console.log(`video: ${probe}`);
+if (Math.abs(after.I - target) > 0.5) console.warn(`WARNING: integrated loudness ${after.I} LUFS is more than 0.5 LU from the ${target} LUFS target; report this honestly.`);
+
+==== 1469 scripts/gl.mjs
+// WebGL renderer choice for headless Chrome, shared by every render script.
+// Order: GL env var > the project's .gl-mode file > "angle" (GPU). When the GPU path cannot create a WebGL
+// context (no GPU, some VMs/drivers), the scripts switch to "swangle" (software, much slower) automatically
+// and remember it in .gl-mode, so later renders and `npx remotion render` (remotion.config.ts) use it too.
+import fs from "node:fs";
+
+const FILE = ".gl-mode";
+
+// When the GPU path crashes, Remotion may reject an internal "Target closed" promise that nothing awaits.
+// That rejection is noise from the dead tab, not a render failure; real errors still reach the caller.
+export const tolerateClosedTargets = () =>
+  process.on("unhandledRejection", (e) => {
+    if (/Target closed/i.test(String(e?.message ?? e))) return;
+    console.error(e);
+    process.exit(1);
+  });
+
+export const glMode = () =>
+  process.env.GL || (fs.existsSync(FILE) ? fs.readFileSync(FILE, "utf8").trim() : "") || "angle";
+
+export const isWebGLError = (e) =>
+  /webgl|WebGLRenderer|GL context|BindToCurrentSequence|GL_VENDOR = Disabled/i.test(String(e?.stack ?? e?.message ?? e));
+
+export const switchToSoftware = () => {
+  fs.writeFileSync(FILE, "swangle\n");
+  console.log(
+    "\n! GPU 3D rendering is not available on this computer: switched to software rendering (GL=swangle, much slower)." +
+      "\n  Saved in .gl-mode; delete that file to try the GPU again.\n",
+  );
+  return "swangle";
+};
+
+==== 4438 scripts/render-final.mjs
+// Final delivery, cross-platform and restartable: bundle once, render the composition muted in
+// segments (finished segments are kept and skipped when re-run — delete out/seg after a source
+// edit), join them, lay the voice-over in at its offset, then master the audio to -14 LUFS.
+//   node scripts/render-final.mjs --comp=<id> --out=out/film.mp4 [--vo=public/audio/vo.mp3 --offset=0.4]
+//                                 [--parts=3] [--concurrency=2] [--crf=17] [--seg=out/seg]
+// Bounded concurrency + segments: one-pass high-concurrency 1080p renders have filled disks via swap.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { bundle } from "@remotion/bundler";
+import { renderMedia, selectComposition } from "@remotion/renderer";
+import { glMode, isWebGLError, switchToSoftware, tolerateClosedTargets } from "./gl.mjs";
+
+tolerateClosedTargets();
+
+const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const comp = arg("comp"), out = arg("out"), vo = arg("vo"), offset = Number(arg("offset", "0"));
+const parts = Number(arg("parts", "3")), concurrency = Number(arg("concurrency", "2")), crf = Number(arg("crf", "17"));
+if (!comp || !out) {
+  console.error("usage: node scripts/render-final.mjs --comp=<id> --out=<file.mp4> [--vo=<audio> --offset=<s>] [--parts=3] [--concurrency=2]");
+  process.exit(1);
+}
+const ff = (a) => {
+  const r = spawnSync("ffmpeg", a, { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(r.stderr);
+};
+const segDir = arg("seg", path.join("out", "seg"));
+fs.mkdirSync(segDir, { recursive: true });
+const serveUrl = await bundle({ entryPoint: path.resolve("src/index.ts") });
+const composition = await selectComposition({ serveUrl, id: comp });
+const N = composition.durationInFrames;
+const count = (f) => Number(spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", f], { encoding: "utf8" }).stdout.trim() || 0);
+const list = [];
+let gl = glMode();
+for (let i = 0; i < parts; i++) {
+  const a = Math.floor((N * i) / parts), b = Math.floor((N * (i + 1)) / parts) - 1;
+  const part = path.join(segDir, `part${i}.mp4`);
+  list.push(`file 'part${i}.mp4'`);
+  if (fs.existsSync(part) && count(part) === b - a + 1) {
+    console.log(`part ${i} (${a}-${b}) done, skipping`);
+    continue;
+  }
+  console.log(`part ${i}: frames ${a}-${b}`);
+  let shown = 0;
+  const tmp = path.join(segDir, `part${i}.tmp.mp4`);
+  const renderPart = () => renderMedia({
+    composition, serveUrl, codec: "h264", crf, pixelFormat: "yuv420p", muted: true, frameRange: [a, b], outputLocation: tmp,
+    concurrency, imageFormat: "jpeg", jpegQuality: 95, chromiumOptions: { gl }, timeoutInMilliseconds: 300000,
+    // a line per quarter (a \r counter floods logs that are read by an agent)
+    onProgress: ({ progress }) => { const q = Math.floor(progress * 4); if (q > shown) { shown = q; process.stdout.write(`  ${q * 25}%`); } },
+  });
+  try {
+    await renderPart();
+  } catch (e) {
+    if (gl === "swangle" || !isWebGLError(e)) throw e;
+    gl = switchToSoftware();
+    await renderPart();
+  }
+  process.stdout.write("\n");
+  fs.renameSync(tmp, part);
+}
+fs.rmSync(serveUrl, { recursive: true, force: true });
+fs.writeFileSync(path.join(segDir, "list.txt"), list.join("\n") + "\n");
+fs.mkdirSync(path.dirname(out), { recursive: true });
+const dur = (N / composition.fps).toFixed(4);
+const joined = path.join(segDir, "joined.mp4");
+if (vo) {
+  ff(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", path.join(segDir, "list.txt"), "-i", vo, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+    "-af", `adelay=${Math.round(offset * 1000)}:all=1,apad`, "-t", dur, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", joined]);
+  const r = spawnSync("node", [path.join("scripts", "deliver.mjs"), joined, out], { stdio: "inherit" });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+} else {
+  ff(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", path.join(segDir, "list.txt"), "-c", "copy", "-movflags", "+faststart", out]);
+}
+fs.rmSync(segDir, { recursive: true, force: true });
+console.log(`final: ${out} (${N} frames, ${composition.width}×${composition.height} @ ${composition.fps} fps)`);
+// a part that failed on the GPU path leaves its timeout timer behind; do not wait for it
+process.exit(0);
+
+==== 3557 scripts/stills.mjs
+// Visual QA: bundle once, render chosen frames of a composition, tile them into a contact sheet.
+//   node scripts/stills.mjs <outDir> <frame,frame,...> <compositionId> [scale]
+// Frames may be given in seconds with an "s" suffix (e.g. 4.5s), using the composition's fps.
+
+import path from "node:path";
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import { bundle } from "@remotion/bundler";
+import { openBrowser, renderStill, selectComposition } from "@remotion/renderer";
+import { glMode, isWebGLError, switchToSoftware, tolerateClosedTargets } from "./gl.mjs";
+
+tolerateClosedTargets();
+
+const [outDir, list, id, scaleArg = "1"] = process.argv.slice(2);
+if (!outDir || !list || !id) {
+  console.error("usage: node scripts/stills.mjs <outDir> <frame,frame,...|4.5s,...> <compositionId> [scale]");
+  process.exit(1);
+}
+fs.mkdirSync(outDir, { recursive: true });
+
+const serveUrl = await bundle({ entryPoint: path.resolve("src/index.ts") });
+// bundles are ~50 MB each; never leave them in the temp dir, even when a render throws
+const cleanup = () => fs.rmSync(serveUrl, { recursive: true, force: true });
+process.on("exit", cleanup);
+const composition = await selectComposition({ serveUrl, id });
+const frames = list.split(",").map((t) => (t.endsWith("s") ? Math.round(parseFloat(t) * composition.fps) : parseInt(t, 10)));
+const files = [];
+const renderAll = async (gl) => {
+  // one browser for all stills: WebGL contexts are expensive to create and tear down
+  const puppeteerInstance = await openBrowser("chrome", { chromiumOptions: { gl } });
+  try {
+    files.length = 0;
+    for (const frame of frames) {
+      const output = path.join(outDir, `f${String(frame).padStart(4, "0")}.png`);
+      await renderStill({ composition, serveUrl, output, frame, scale: Number(scaleArg), chromiumOptions: { gl }, timeoutInMilliseconds: 180000, puppeteerInstance });
+      files.push(output);
+      process.stdout.write(`${frame} `);
+    }
+  } finally {
+    // after a WebGL crash the tab may already be gone; closing must not hide the original error
+    await puppeteerInstance.close({ silent: true }).catch(() => {});
+  }
+};
+const gl = glMode();
+try {
+  await renderAll(gl);
+} catch (e) {
+  if (gl === "swangle" || !isWebGLError(e)) throw e;
+  await renderAll(switchToSoftware());
+}
+console.log();
+cleanup();
+
+// contact sheet (needs ffmpeg; skipped if missing)
+try {
+  const w = Math.round(composition.width * Number(scaleArg)), h = Math.round(composition.height * Number(scaleArg));
+  const cols = Math.min(4, files.length), rows = Math.ceil(files.length / cols), n = cols * rows;
+  if (n > 1) {
+    const inputs = files.flatMap((f) => ["-i", f]);
+    const pads = Array.from({ length: n - files.length }, () => ["-f", "lavfi", "-i", `color=c=black:s=${w}x${h}`]).flat();
+    const filter =
+      Array.from({ length: n }, (_, i) => `[${i}:v]scale=${w}:${h},setsar=1[v${i}]`).join(";") + ";" +
+      Array.from({ length: n }, (_, i) => `[v${i}]`).join("") +
+      `xstack=inputs=${n}:layout=` + Array.from({ length: n }, (_, i) => `${(i % cols) * w}_${Math.floor(i / cols) * h}`).join("|") +
+      `,scale='min(2160,iw)':-2`;
+    execFileSync("ffmpeg", ["-v", "error", "-y", ...inputs, ...pads, "-filter_complex", filter, "-frames:v", "1", path.join(outDir, "_sheet.jpg")]);
+    console.log(`sheet: ${path.join(outDir, "_sheet.jpg")}`);
+  }
+} catch {
+  console.log("(contact sheet skipped: ffmpeg not available)");
+}
+// a render that failed on the GPU path leaves its timeout timer behind; do not wait for it
+process.exit(0);
+
+==== 3047 scripts/vo-analyze.mjs
+// Read the real timing of a voice-over: duration, pauses and phrases (stretches of speech between
+// pauses). Optional word timings when whisper.cpp is available (set WHISPER_CLI and WHISPER_MODEL).
+// Write cuts in VO seconds from this output — never from a guessed script length.
+//   node scripts/vo-analyze.mjs public/audio/vo.mp3 [--noise=-38] [--pause=0.25] [--lang=id]
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split("=")[1];
+if (!file || !fs.existsSync(file)) {
+  console.error("usage: node scripts/vo-analyze.mjs <audio.mp3|wav> [--noise=-38] [--pause=0.25] [--lang=id]");
+  process.exit(1);
+}
+const run = (cmd, a) => spawnSync(cmd, a, { encoding: "utf8" });
+const duration = Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).stdout.trim());
+const log = run("ffmpeg", ["-v", "info", "-i", file, "-af", `silencedetect=n=${opt("noise", -38)}dB:d=${opt("pause", 0.25)}`, "-f", "null", "-"]).stderr;
+const starts = [...log.matchAll(/silence_start: ([\d.]+)/g)].map((m) => Number(m[1]));
+const ends = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((m) => Number(m[1]));
+const pauses = starts.map((s, i) => ({ start: s, end: ends[i] ?? duration }));
+// phrases = speech between pauses
+const phrases = [];
+let cur = 0;
+for (const p of pauses) {
+  if (p.start - cur > 0.15) phrases.push({ start: +cur.toFixed(2), end: +p.start.toFixed(2) });
+  cur = p.end;
+}
+if (duration - cur > 0.15) phrases.push({ start: +cur.toFixed(2), end: +duration.toFixed(2) });
+
+let words = null;
+const cli = process.env.WHISPER_CLI, model = process.env.WHISPER_MODEL;
+if (cli && model && fs.existsSync(cli) && fs.existsSync(model)) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vo-"));
+  const wav = path.join(tmp, "vo16k.wav");
+  run("ffmpeg", ["-v", "error", "-y", "-i", file, "-ar", "16000", "-ac", "1", wav]);
+  run(cli, ["-m", model, "-f", wav, "-l", opt("lang", "id"), "-ml", "1", "-sow", "-ojf", "-of", path.join(tmp, "w")]);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(tmp, "w.json"), "utf8"));
+    words = j.transcription.map((s) => ({ t: s.offsets.from / 1000, w: s.text.trim() })).filter((x) => x.w);
+  } catch {}
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+const out = { file, duration: +duration.toFixed(3), firstSpeech: phrases[0]?.start ?? 0, pauses, phrases, words };
+const json = file.replace(/\.[^.]+$/, "") + ".timing.json";
+fs.writeFileSync(json, JSON.stringify(out, null, 2));
+console.log(`duration ${out.duration} s · speech starts ${out.firstSpeech} s · ${phrases.length} phrases · ${pauses.length} pauses${words ? ` · ${words.length} words` : ""}`);
+for (const p of phrases) console.log(`  ${p.start.toFixed(2).padStart(7)} – ${p.end.toFixed(2).padStart(7)} s`);
+console.log(`timing: ${json}`);
+
+==== 3 src/brand.json
+{}
+
+==== 885 src/core/camera/director.ts
+// Camera director: a spherical rig (target, azimuth, elevation, distance, fov) sampled from
+// C1 keyframe tracks, so moves hand over without kinks and nothing depends on wall time.
+
+import { sample, type Key } from "../motion/track.ts";
+import type { Shot } from "../render/Post.tsx";
+
+const D = Math.PI / 180;
+
+/** Track channels: [targetX, targetY, targetZ, azimuthDeg, elevationDeg, distance, fovDeg]. */
+export type RigKeys = Key[];
+
+export const shotAt = (rig: RigKeys, frame: number, lens: { aperture: number; maxBlur: number; exposure: number }): Shot => {
+  const [tx, ty, tz, az, el, dist, fov] = sample(rig, frame);
+  const pos: [number, number, number] = [
+    tx + dist * Math.cos(el * D) * Math.sin(az * D),
+    ty + dist * Math.sin(el * D),
+    tz + dist * Math.cos(el * D) * Math.cos(az * D),
+  ];
+  return { pos, target: [tx, ty, tz], fov, focus: dist, ...lens };
+};
+
+==== 351 src/core/film/frame.ts
+// Frame size and the two render presets every AI BIJAN 3D film ships with.
+
+export const WIDTH = 1080;
+export const HEIGHT = 1920;
+
+/** Preview for approval, and the final deliverable (both 9:16). */
+export const PRESETS = {
+  preview: { width: WIDTH / 2, height: HEIGHT / 2, fps: 30 },
+  final: { width: WIDTH, height: HEIGHT, fps: 60 },
+} as const;
+
+==== 583 src/core/film/Posed.tsx
+import React, { useLayoutEffect, useRef } from "react";
+import type { Group, Matrix4 } from "three";
+
+/** A group placed by a world matrix computed for this frame (pose objects from pure state, never by mutation over time). */
+export const Posed: React.FC<{ matrix: Matrix4; children: React.ReactNode }> = ({ matrix, children }) => {
+  const ref = useRef<Group>(null);
+  useLayoutEffect(() => {
+    ref.current!.matrix.copy(matrix);
+    ref.current!.matrixWorldNeedsUpdate = true;
+  });
+  return (
+    <group ref={ref} matrixAutoUpdate={false}>
+      {children}
+    </group>
+  );
+};
+
+==== 2344 src/core/film/Stage3D.tsx
+// The standard AI BIJAN 3D frame: waits for the web font (canvases and overlays use it), mounts a
+// Remotion-synchronised ThreeCanvas with the settings every demo used (PCF shadows, dpr 1, MSAA in
+// the post chain instead of the canvas), then draws the 2D overlay and an optional fade on top.
+// Everything inside must be a pure function of the frame (see SKILL.md › Determinism).
+
+import React, { useEffect, useState } from "react";
+import { AbsoluteFill, continueRender, delayRender, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { PCFShadowMap } from "three";
+import { fontReady } from "../type/fonts.ts";
+
+export const Stage3D: React.FC<{
+  /** The 3D scene (studio/sky, objects, CameraRig, Post). */
+  children: React.ReactNode;
+  /** 2D layer laid out at 1080 × 1920 and scaled to the render size. */
+  overlay?: (scale: number) => React.ReactNode;
+  /** Page colour behind the canvas (visible only before the first frame paints). */
+  background?: string;
+  /** 0…1 fade to `fadeColor` over everything. */
+  fade?: number;
+  fadeColor?: string;
+}> = ({ children, overlay, background = "#e9e6e0", fade = 0, fadeColor = "#ece9e3" }) => {
+  const { width, height } = useVideoConfig();
+  const [handle] = useState(() => delayRender("font"));
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    fontReady().then(() => {
+      setReady(true);
+      continueRender(handle);
+    });
+  }, [handle]);
+  return (
+    <AbsoluteFill style={{ backgroundColor: background }}>
+      {ready ? (
+        <>
+          <ThreeCanvas
+            width={width}
+            height={height}
+            shadows={{ type: PCFShadowMap }}
+            dpr={1}
+            gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }}
+            camera={{ fov: 24, near: 1, far: 900, position: [0, 0, 60] }}
+          >
+            {children}
+          </ThreeCanvas>
+          {overlay ? (
+            <div style={{ position: "absolute", inset: 0, width: 1080, height: 1920, transform: `scale(${width / 1080})`, transformOrigin: "0 0" }}>
+              {overlay(width / 1080)}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {fade > 0 ? <AbsoluteFill style={{ backgroundColor: fadeColor, opacity: fade }} /> : null}
+    </AbsoluteFill>
+  );
+};
+
+==== 605 src/core/film/Voiceover.tsx
+// Voice-over placed `offset` seconds into the film (file under public/). Used for Studio preview
+// and non-muted renders; final delivery muxes the same file at the same offset with
+// scripts/render-final.mjs, so both paths agree.
+
+import React from "react";
+import { Html5Audio, Sequence, staticFile, useVideoConfig } from "remotion";
+
+export const Voiceover: React.FC<{ src: string; offset: number }> = ({ src, offset }) => {
+  const { fps } = useVideoConfig();
+  return (
+    <Sequence from={Math.round(offset * fps)} layout="none">
+      <Html5Audio src={staticFile(src)} />
+    </Sequence>
+  );
+};
+
+==== 675 src/core/geometry/lathe.ts
+// Turned parts (lenses, knobs, dials, bottles, columns): a profile of [radius, height] pairs
+// revolved around +y. Profiles are unit-sized — scale the mesh to the part's real size, so one
+// geometry can be reused and resized every frame without rebuilding.
+
+import { LatheGeometry, Vector2 } from "three";
+
+export const lathe = (profile: [number, number][], segments = 64) => new LatheGeometry(profile.map(([r, y]) => new Vector2(Math.max(r, 1e-4), y)), segments);
+
+/** A common one: barrel with a bevelled lip and a recessed face (lens, knob, dial). */
+export const BARREL: [number, number][] = [[0, 0], [1, 0], [1, 0.9], [0.92, 1], [0.7, 1], [0.66, 0.96], [0, 0.96]];
+
+==== 8208 src/core/geometry/slab.ts
+// Parametric rounded slab with a FIXED topology: every parameter change only moves
+// vertices, so a slab can morph continuously from a 1990s brick to a 2026 glass slab
+// (or a sensor orb) with no remeshing, popping or flicker.
+//
+// Surface = outline (front view, rounded rectangle with per-corner radius) × side profile
+// (front cap → front fillet → side wall with optional seam groove → back fillet → back cap).
+// The outline is offset inward by the profile inset; corners use the exact inward offset of
+// a rounded corner (radius rc − inset, mitred once the inset exceeds rc), so the same
+// generator makes sharp-cornered modules, rounded phones and — with rc = hw = hh and
+// fillets = d/2 — a sphere. Normals are analytic (sharp edges stay sharp).
+
+import { BufferAttribute, BufferGeometry, Sphere, Vector3 } from "three";
+
+export type SlabSpec = {
+  /** Half width (x), half height (y), full depth (z). */
+  hw: number;
+  hh: number;
+  d: number;
+  /** Outline corner radius, or per corner [TR, TL, BL, BR]. */
+  rc: number | readonly [number, number, number, number];
+  /** Front / back edge fillet radii. */
+  reF: number;
+  reB: number;
+  /** Groove around the side wall (z of its centre, depth, width). */
+  seamZ?: number;
+  seamDepth?: number;
+  seamWidth?: number;
+  /** Dome height of the front / back caps. */
+  bulgeF?: number;
+  bulgeB?: number;
+  /** Offset added to the shader-space position attribute `tfPos` (e.g. a module's place in its parent). */
+  origin?: readonly [number, number];
+  /** Planar UV: u = (x + origin.x) / uvSize.x + 0.5. */
+  uvSize?: readonly [number, number];
+};
+
+const N_CORNER = 10; // segments per corner arc
+const CAP_RHO = [0, 0.38, 0.68, 0.88]; // cap rings (edge ring comes from the fillet)
+const N_FILLET = 8;
+const GROOVE_U = [0.85, 0.5, 0.18, 0, -0.18, -0.5, -0.85];
+
+const P = 4 * (N_CORNER + 1);
+type Row = { kind: "capF" | "filletF" | "wall" | "filletB" | "capB"; a: number };
+const ROWS: Row[] = [
+  ...CAP_RHO.map((a) => ({ kind: "capF" as const, a })),
+  ...Array.from({ length: N_FILLET + 1 }, (_, k) => ({ kind: "filletF" as const, a: (k / N_FILLET) * (Math.PI / 2) })),
+  ...GROOVE_U.map((a) => ({ kind: "wall" as const, a })),
+  ...Array.from({ length: N_FILLET + 1 }, (_, k) => ({ kind: "filletB" as const, a: ((N_FILLET - k) / N_FILLET) * (Math.PI / 2) })),
+  ...[...CAP_RHO].reverse().map((a) => ({ kind: "capB" as const, a })),
+];
+const V = ROWS.length;
+/** Band index ranges per material group: front cap, side (fillets + wall), back cap. */
+const FRONT_END = CAP_RHO.length; // bands [0, FRONT_END)
+const BACK_START = V - 1 - CAP_RHO.length; // bands [BACK_START, V-1)
+
+const SIGN: [number, number][] = [
+  [1, 1],
+  [-1, 1],
+  [-1, -1],
+  [1, -1],
+];
+
+/** Outline point at inset i for sample c (0..P-1); writes [x, y, nx, ny]. */
+const outline = (hw: number, hh: number, rc: readonly number[], i: number, c: number, out: number[]) => {
+  const k = Math.floor(c / (N_CORNER + 1));
+  const j = c % (N_CORNER + 1);
+  const th = (k + j / N_CORNER) * (Math.PI / 2);
+  const m = Math.max(rc[k], i);
+  const r = Math.max(rc[k] - i, 0);
+  const [sx, sy] = SIGN[k];
+  const cx = sx * Math.max(hw - m, 0);
+  const cy = sy * Math.max(hh - m, 0);
+  out[0] = cx + r * Math.cos(th);
+  out[1] = cy + r * Math.sin(th);
+  out[2] = Math.cos(th);
+  out[3] = Math.sin(th);
+};
+
+export class Slab {
+  readonly geometry: BufferGeometry;
+  private pos: Float32Array;
+  private nor: Float32Array;
+  private uv: Float32Array;
+  private tf: Float32Array;
+
+  constructor() {
+    const n = P * V;
+    this.pos = new Float32Array(n * 3);
+    this.nor = new Float32Array(n * 3);
+    this.uv = new Float32Array(n * 2);
+    this.tf = new Float32Array(n * 3);
+    const idx: number[] = [];
+    for (let r = 0; r < V - 1; r++)
+      for (let c = 0; c < P; c++) {
+        const c1 = (c + 1) % P;
+        const a = r * P + c, b = (r + 1) * P + c, d = (r + 1) * P + c1, e = r * P + c1;
+        idx.push(a, b, d, a, d, e);
+      }
+    const g = new BufferGeometry();
+    g.setIndex(idx);
+    g.setAttribute("position", new BufferAttribute(this.pos, 3));
+    g.setAttribute("normal", new BufferAttribute(this.nor, 3));
+    g.setAttribute("uv", new BufferAttribute(this.uv, 2));
+    g.setAttribute("tfPos", new BufferAttribute(this.tf, 3));
+    const per = P * 6;
+    g.addGroup(0, FRONT_END * per, 0);
+    g.addGroup(FRONT_END * per, (BACK_START - FRONT_END) * per, 1);
+    g.addGroup(BACK_START * per, (V - 1 - BACK_START) * per, 2);
+    g.boundingSphere = new Sphere(new Vector3(), 1);
+    this.geometry = g;
+  }
+
+  update(s: SlabSpec) {
+    const rc = typeof s.rc === "number" ? [s.rc, s.rc, s.rc, s.rc] : [...s.rc];
+    const half = s.d / 2;
+    // fillets can never exceed the depth or the outline
+    let reF = Math.max(0, Math.min(s.reF, s.d, s.hw, s.hh));
+    let reB = Math.max(0, Math.min(s.reB, s.d, s.hw, s.hh));
+    if (reF + reB > s.d) {
+      const k = s.d / (reF + reB);
+      reF *= k;
+      reB *= k;
+    }
+    for (let k = 0; k < 4; k++) rc[k] = Math.max(0, Math.min(rc[k], s.hw, s.hh));
+    const zTop = half - reF, zBot = -half + reB;
+    const wallLen = zTop - zBot;
+    const w = Math.min(s.seamWidth ?? 0.1, wallLen * 0.9);
+    const seamZ = Math.min(zTop - w / 2, Math.max(zBot + w / 2, s.seamZ ?? (zTop + zBot) / 2));
+    const g = Math.min(s.seamDepth ?? 0, Math.min(s.hw, s.hh) * 0.5);
+    const bF = s.bulgeF ?? 0, bB = s.bulgeB ?? 0;
+    const [ox, oy] = s.origin ?? [0, 0];
+    const [us, vs] = s.uvSize ?? [2 * s.hw, 2 * s.hh];
+    const o = [0, 0, 0, 0];
+    const edge = [0, 0, 0, 0];
+
+    for (let r = 0; r < V; r++) {
+      const row = ROWS[r];
+      for (let c = 0; c < P; c++) {
+        let x: number, y: number, z: number, nx: number, ny: number, nz: number;
+        if (row.kind === "capF" || row.kind === "capB") {
+          const front = row.kind === "capF";
+          outline(s.hw, s.hh, rc, front ? reF : reB, c, edge);
+          const rho = row.a;
+          x = edge[0] * rho;
+          y = edge[1] * rho;
+          const R2 = Math.max(edge[0] * edge[0] + edge[1] * edge[1], 1e-9);
+          const b = front ? bF : bB;
+          z = front ? half + b * (1 - rho * rho) : -half - b * (1 - rho * rho);
+          // dome slope: n ∝ (2b·r/R² · radial, ±1)
+          const k = (2 * b) / R2;
+          nx = k * x;
+          ny = k * y;
+          nz = front ? 1 : -1;
+        } else {
+          let inset: number, nOut: number, nZ: number;
+          if (row.kind === "filletF") {
+            inset = reF * (1 - Math.sin(row.a));
+            z = zTop + reF * Math.cos(row.a);
+            nOut = Math.sin(row.a);
+            nZ = Math.cos(row.a);
+          } else if (row.kind === "filletB") {
+            inset = reB * (1 - Math.sin(row.a));
+            z = zBot - reB * Math.cos(row.a);
+            nOut = Math.sin(row.a);
+            nZ = -Math.cos(row.a);
+          } else {
+            const u = row.a;
+            z = seamZ + (w / 2) * u;
+            inset = (g * (1 + Math.cos(Math.PI * u))) / 2;
+            const slope = w > 1e-6 ? (-g * Math.PI * Math.sin(Math.PI * u)) / w : 0;
+            const l = Math.hypot(1, slope);
+            nOut = 1 / l;
+            nZ = slope / l;
+          }
+          outline(s.hw, s.hh, rc, inset, c, o);
+          x = o[0];
+          y = o[1];
+          nx = nOut * o[2];
+          ny = nOut * o[3];
+          nz = nZ;
+        }
+        const l = Math.hypot(nx, ny, nz) || 1;
+        const v = r * P + c;
+        this.pos[v * 3] = x;
+        this.pos[v * 3 + 1] = y;
+        this.pos[v * 3 + 2] = z;
+        this.nor[v * 3] = nx / l;
+        this.nor[v * 3 + 1] = ny / l;
+        this.nor[v * 3 + 2] = nz / l;
+        this.uv[v * 2] = (x + ox) / us + 0.5;
+        this.uv[v * 2 + 1] = (y + oy) / vs + 0.5;
+        this.tf[v * 3] = x + ox;
+        this.tf[v * 3 + 1] = y + oy;
+        this.tf[v * 3 + 2] = z;
+      }
+    }
+    const g0 = this.geometry;
+    g0.attributes.position.needsUpdate = true;
+    g0.attributes.normal.needsUpdate = true;
+    g0.attributes.uv.needsUpdate = true;
+    g0.attributes.tfPos.needsUpdate = true;
+    g0.boundingSphere!.radius = Math.hypot(s.hw, s.hh, half + Math.max(bF, bB)) + 0.01;
+  }
+
+  dispose() {
+    this.geometry.dispose();
+  }
+}
+
+==== 1730 src/core/materials/presets.ts
+// Starting points for physically plausible materials (MatState, see sweep.ts). Tune per brief —
+// these are recipes that read correctly under the bright studio, not a finished look.
+// Use them with `plainMaterial()` + `applyMat()` (any mesh) or `sweepMaterial()` (Slab meshes).
+
+import { mat, type MatState } from "./sweep.ts";
+
+export const MATERIALS = {
+  /** Injection-moulded plastic, slightly satin (1990s devices, appliances). */
+  mattePlastic: (color = "#2b2a28") => mat(color, { rough: 0.62, sheen: 0.35 }),
+  /** Glossy painted plastic or lacquer. */
+  glossPlastic: (color = "#f1efea") => mat(color, { rough: 0.32, cc: 0.6, ccRough: 0.12 }),
+  /** Brushed / anodised aluminium. */
+  aluminium: (color = "#c7c9cc") => mat(color, { rough: 0.33, metal: 1, aniso: 0.5 }),
+  /** Polished steel or chrome trim (use sparingly: needs the softbox reflections to read). */
+  polishedMetal: (color = "#d9dadc") => mat(color, { rough: 0.12, metal: 1 }),
+  /** Pearl ceramic / premium matte-gloss shell. */
+  ceramic: (color = "#efece6") => mat(color, { rough: 0.45, cc: 0.6, ccRough: 0.2 }),
+  /** Dark cover glass over a display. */
+  darkGlass: (color = "#0b0d10") => mat(color, { rough: 0.05, cc: 1, ccRough: 0.02 }),
+  /** Rubber, silicone, gaskets. */
+  rubber: (color = "#2a2b2d") => mat(color, { rough: 0.85 }),
+  /** Matte card / paper (PAPERWORLD-like; add edge thickness in geometry). */
+  paper: (color = "#f2ebdd") => mat(color, { rough: 0.95, sheen: 0.15 }),
+  /** Raw architectural concrete. */
+  concrete: (color = "#c9c5bd") => mat(color, { rough: 0.9 }),
+  /** Natural oiled wood. */
+  wood: (color = "#b88a5c") => mat(color, { rough: 0.6, sheen: 0.2 }),
+} satisfies Record<string, (c?: string) => MatState>;
+
+==== 971 src/core/materials/softboxOnly.ts
+// Studio lighting rule (from PRECISION): highlights come only from area lights (the HDR
+// light stage). Punctual lights keep their diffuse contribution and shadows, but their
+// specular lobes — the tell-tale CG pinpoint on clearcoat — are removed from the shader.
+
+import { ShaderChunk, type WebGLProgramParametersWithUniforms } from "three";
+
+const SRC = ShaderChunk.lights_physical_pars_fragment;
+const PATCHED = SRC.replace("clearcoatSpecularDirect += ccIrradiance", "clearcoatSpecularDirect += 0.0 * ccIrradiance").replace(
+  "reflectedLight.directSpecular += irradiance * specularBRDF",
+  "reflectedLight.directSpecular += 0.0 * irradiance * specularBRDF",
+);
+if (PATCHED === SRC) console.warn("softboxOnly: shader chunk changed; punctual specular not removed");
+
+export const patchSoftboxOnly = (shader: WebGLProgramParametersWithUniforms) => {
+  shader.fragmentShader = shader.fragmentShader.replace("#include <lights_physical_pars_fragment>", PATCHED);
+};
+
+==== 5657 src/core/materials/sweep.ts
+// Material transitions. A material's look is a plain number tree (MatState), so it can live
+// inside era definitions. Between eras the change does not fade globally: a front travels
+// along the object (top → bottom in object space, attribute `tfPos`) and each fragment flips
+// from state A to state B as it passes, with a thin light band riding the front — the
+// TIMEFORGE "time scan". Clearcoat, sheen and iridescence blend with the same progress.
+
+import { Color, MeshPhysicalMaterial, SRGBColorSpace, type Side, type Texture } from "three";
+import { patchSoftboxOnly } from "./softboxOnly.ts";
+
+export type Rgb = [number, number, number];
+export type MatState = {
+  color: Rgb;
+  rough: number;
+  metal: number;
+  cc: number;
+  ccRough: number;
+  sheen: number;
+  irid: number;
+  aniso: number;
+  emissive: Rgb;
+  emissiveI: number;
+};
+
+export const hex = (h: string): Rgb => [
+  parseInt(h.slice(1, 3), 16) / 255,
+  parseInt(h.slice(3, 5), 16) / 255,
+  parseInt(h.slice(5, 7), 16) / 255,
+];
+
+export const mat = (color: string, o: Partial<Omit<MatState, "color">> = {}): MatState => ({
+  color: hex(color),
+  rough: 0.5,
+  metal: 0,
+  cc: 0,
+  ccRough: 0.1,
+  sheen: 0,
+  irid: 0,
+  aniso: 0,
+  emissive: [0, 0, 0],
+  emissiveI: 0,
+  ...o,
+});
+
+/** Where the scan front is: 0 = not started (all A), 1 = done (all B). */
+export type Sweep = { progress: number; top: number; bottom: number; band: number };
+
+type TfUniforms = {
+  tfColor2: { value: Color };
+  tfRough2: { value: number };
+  tfMetal2: { value: number };
+  tfFront: { value: number };
+  tfSoft: { value: number };
+  tfBand: { value: number };
+  tfBandW: { value: number };
+  tfBandColor: { value: Color };
+};
+
+const BAND_COLOR = new Color("#bfeff2"); // light cyan, never neon
+
+type MatOpts = { map?: Texture; emissiveMap?: Texture; side?: Side; transparent?: boolean };
+const defined = (o: MatOpts) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+export const sweepMaterial = (o: MatOpts = {}) => {
+  const m = new MeshPhysicalMaterial(defined(o));
+  const u: TfUniforms = {
+    tfColor2: { value: new Color() },
+    tfRough2: { value: 0.5 },
+    tfMetal2: { value: 0 },
+    tfFront: { value: 1e4 },
+    tfSoft: { value: 0.35 },
+    tfBand: { value: 0 },
+    tfBandW: { value: 0.09 },
+    tfBandColor: { value: BAND_COLOR.clone() },
+  };
+  m.userData.tf = u;
+  m.onBeforeCompile = (shader) => {
+    patchSoftboxOnly(shader);
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec3 tfPos;\nvarying vec3 vTf;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvTf = tfPos;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform vec3 tfColor2; uniform float tfRough2; uniform float tfMetal2; uniform float tfFront; uniform float tfSoft;
+uniform float tfBand; uniform float tfBandW; uniform vec3 tfBandColor;
+varying vec3 vTf;`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        "#include <color_fragment>\nfloat tfk = smoothstep(tfFront - tfSoft, tfFront + tfSoft, vTf.y);\ndiffuseColor.rgb = mix(diffuseColor.rgb, tfColor2, tfk);",
+      )
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, tfRough2, tfk);")
+      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, tfMetal2, tfk);")
+      .replace(
+        "#include <emissivemap_fragment>",
+        "#include <emissivemap_fragment>\nfloat tfd = (vTf.y - tfFront) / tfBandW;\ntotalEmissiveRadiance += tfBandColor * tfBand * exp(-tfd * tfd);",
+      );
+  };
+  m.customProgramCacheKey = () => "tf-sweep";
+  return m;
+};
+
+/** A plain physical material that follows the same look rules (no sweep). */
+export const plainMaterial = (o: MatOpts = {}) => {
+  const m = new MeshPhysicalMaterial(defined(o));
+  m.onBeforeCompile = (shader) => patchSoftboxOnly(shader);
+  m.customProgramCacheKey = () => "tf-plain";
+  return m;
+};
+
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/** Apply A→B with a scan front at `sw.progress`; plain materials just take the blend. */
+export const applyMat = (m: MeshPhysicalMaterial, A: MatState, B: MatState, sw: Sweep) => {
+  const t = Math.min(1, Math.max(0, sw.progress));
+  const u = m.userData.tf as TfUniforms | undefined;
+  const lerp3 = (a: Rgb, b: Rgb, k: number): Rgb => [mix(a[0], b[0], k), mix(a[1], b[1], k), mix(a[2], b[2], k)];
+  if (u) {
+    m.color.setRGB(...A.color, SRGBColorSpace);
+    m.roughness = A.rough;
+    m.metalness = A.metal;
+    u.tfColor2.value.setRGB(...B.color, SRGBColorSpace);
+    u.tfRough2.value = B.rough;
+    u.tfMetal2.value = B.metal;
+    const soft = u.tfSoft.value;
+    u.tfFront.value = mix(sw.top + soft, sw.bottom - soft, t);
+    // the band lives only while the front is on the object
+    u.tfBand.value = sw.band * Math.sin(Math.PI * t) ** 0.6;
+  } else {
+    m.color.setRGB(...lerp3(A.color, B.color, t), SRGBColorSpace);
+    m.roughness = mix(A.rough, B.rough, t);
+    m.metalness = mix(A.metal, B.metal, t);
+  }
+  m.clearcoat = mix(A.cc, B.cc, t);
+  m.clearcoatRoughness = mix(A.ccRough, B.ccRough, t);
+  m.sheen = mix(A.sheen, B.sheen, t);
+  m.sheenRoughness = 0.5;
+  m.sheenColor.setRGB(1, 1, 1);
+  m.iridescence = mix(A.irid, B.irid, t);
+  m.iridescenceIOR = 1.3;
+  m.anisotropy = mix(A.aniso, B.aniso, t);
+  m.emissive.setRGB(...lerp3(A.emissive, B.emissive, t), SRGBColorSpace);
+  m.emissiveIntensity = mix(A.emissiveI, B.emissiveI, t);
+};
+
+==== 5014 src/core/materials/textures.ts
+// Procedural, deterministic textures (no image assets): perforated grilles and boards.
+
+import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping, RGBAFormat, SRGBColorSpace, type ColorSpace } from "three";
+
+const toTexture = (data: Uint8Array, w: number, h: number, colorSpace: ColorSpace = SRGBColorSpace) => {
+  const t = new DataTexture(data, w, h, RGBAFormat);
+  t.colorSpace = colorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = LinearMipmapLinearFilter;
+  t.magFilter = LinearFilter;
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  return t;
+};
+
+type Rgb = [number, number, number];
+const hex = (h: string): Rgb => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+/**
+ * Hex-packed micro perforation. Alpha carries the outline mask (stadium / circle) for
+ * alpha-to-coverage, so edges stay anti-aliased under MSAA.
+ */
+export const perforation = ({
+  w = 1024, h = 1024, across = 18, hole = 0.36, base = "#3a3a3d", rim = "#55565a", deep = "#0d0d0f",
+  mask = "none" as "none" | "stadium" | "circle",
+}) => {
+  const data = new Uint8Array(w * h * 4);
+  const pitch = w / across;
+  const rowH = pitch * Math.sqrt(3) / 2;
+  const B = hex(base), R = hex(rim), D = hex(deep);
+  const r = pitch * hole;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const row = Math.round(y / rowH);
+      const cy = row * rowH;
+      const off = row % 2 ? pitch / 2 : 0;
+      const cx = Math.round((x - off) / pitch) * pitch + off;
+      // nearest of the two candidate rows keeps the hex lattice exact
+      let d = Math.hypot(x - cx, y - cy);
+      const row2 = row + (y > cy ? 1 : -1);
+      const off2 = row2 % 2 ? pitch / 2 : 0;
+      const cx2 = Math.round((x - off2) / pitch) * pitch + off2;
+      d = Math.min(d, Math.hypot(x - cx2, y - row2 * rowH));
+      const inHole = Math.min(1, Math.max(0, (r - d) / 1.2));
+      const onRim = Math.min(1, Math.max(0, 1 - Math.abs(d - r - 1.2) / 1.6));
+      const c = B.map((b, i) => b + (R[i] - b) * onRim * 0.8 + (D[i] - b) * inHole);
+      let a = 255;
+      if (mask !== "none") {
+        const u = (x + 0.5) / w - 0.5, v = (y + 0.5) / h - 0.5;
+        let dist: number;
+        if (mask === "circle") dist = 0.5 - Math.hypot(u, v);
+        else {
+          // stadium in a w×h box (aspect-correct)
+          const aspect = w / h;
+          const hx = 0.5 * aspect - 0.5;
+          const px = Math.max(Math.abs(u * aspect) - hx, 0);
+          dist = 0.5 - Math.hypot(px, v);
+        }
+        a = Math.round(Math.min(1, Math.max(0, dist * h * 0.6 + 0.5)) * 255);
+      }
+      const k = (y * w + x) * 4;
+      data[k] = c[0];
+      data[k + 1] = c[1];
+      data[k + 2] = c[2];
+      data[k + 3] = a;
+    }
+  return toTexture(data, w, h);
+};
+
+/** Seeded PRNG (Park–Miller). */
+export const prng = (seed: number) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+/** Circuit board: graphite substrate, routed traces, vias and champagne pads. */
+export const circuitBoard = (size = 1024, seed = 11) => {
+  const rnd = prng(seed);
+  const S = size;
+  const data = new Uint8Array(S * S * 4);
+  const base = hex("#2c2d30"), trace = hex("#45474b"), pad = hex("#c8b48c"), via = hex("#8d8a84");
+  const set = (x: number, y: number, c: Rgb, a = 1) => {
+    if (x < 0 || y < 0 || x >= S || y >= S) return;
+    const k = (y * S + x) * 4;
+    for (let i = 0; i < 3; i++) data[k + i] = data[k + i] + (c[i] - data[k + i]) * a;
+  };
+  for (let i = 0; i < S * S; i++) {
+    const n = (rnd() - 0.5) * 6;
+    data[i * 4] = base[0] + n;
+    data[i * 4 + 1] = base[1] + n;
+    data[i * 4 + 2] = base[2] + n;
+    data[i * 4 + 3] = 255;
+  }
+  const disc = (cx: number, cy: number, r: number, c: Rgb, hollow = 0) => {
+    for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++)
+      for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+        const d = Math.hypot(x - cx, y - cy);
+        const a = Math.min(1, Math.max(0, r - d + 0.5)) * (hollow ? Math.min(1, Math.max(0, d - hollow + 0.5)) : 1);
+        if (a > 0) set(x, y, c, a);
+      }
+  };
+  const line = (x0: number, y0: number, x1: number, y1: number, wdt: number) => {
+    const L = Math.hypot(x1 - x0, y1 - y0);
+    for (let s = 0; s <= L; s += 0.5) {
+      const x = x0 + ((x1 - x0) * s) / L, y = y0 + ((y1 - y0) * s) / L;
+      disc(x, y, wdt / 2, trace);
+    }
+  };
+  // Manhattan + 45° routing from random pins
+  for (let i = 0; i < 70; i++) {
+    let x = rnd() * S, y = rnd() * S;
+    const steps = 2 + Math.floor(rnd() * 3);
+    const w = 3 + rnd() * 4;
+    for (let s = 0; s < steps; s++) {
+      const dir = Math.floor(rnd() * 8) * (Math.PI / 4);
+      const len = 40 + rnd() * 180;
+      const nx = x + Math.cos(dir) * len, ny = y + Math.sin(dir) * len;
+      line(x, y, nx, ny, w);
+      x = nx;
+      y = ny;
+    }
+    disc(x, y, w * 1.6, via, w * 0.7);
+  }
+  for (let i = 0; i < 40; i++) disc(rnd() * S, rnd() * S, 5 + rnd() * 5, pad);
+  return toTexture(data, S, S);
+};
+
+==== 2937 src/core/motion/easing.ts
+// PRECISION easing vocabulary. Every curve is a pure function of normalised time, so the
+// whole film stays deterministic: same frame in, same pose out.
+
+export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
+export const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+export const remap = (x: number, a: number, b: number) => clamp((x - a) / (b - a));
+
+export const smoothstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * (3 - 2 * x);
+};
+
+/** C2-continuous: zero velocity and acceleration at both ends. The house curve. */
+export const smootherstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/** CSS-style cubic bezier easing (x1,y1,x2,y2), solved by Newton + bisection. */
+export const bezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t: number) => ((ay * t + by) * t + cy) * t;
+  const dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    const X = clamp(x);
+    let t = X;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - X;
+      const d = dx(t);
+      if (Math.abs(e) < 1e-6) return sy(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1;
+    t = X;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - X) < 1e-6) break;
+      if (v < X) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+};
+
+// Named curves, tuned for product cinematography (long, confident tails; no bounce).
+export const ease = {
+  /** Default move: decisive start, very long settle. */
+  glide: bezier(0.45, 0, 0.12, 1),
+  /** Symmetric, weighty. Camera and large objects. */
+  inOut: bezier(0.65, 0, 0.35, 1),
+  /** Soft symmetric for subtle drifts. */
+  sine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t)),
+  /** Starts with energy (a magnet letting go), long deceleration. */
+  release: bezier(0.2, 0.7, 0.1, 1),
+  /** Gathers speed and arrives fast (magnetic pull into a dock). */
+  attract: bezier(0.55, 0, 0.95, 0.55),
+  /** Typographic reveal. */
+  type: bezier(0.2, 0, 0, 1),
+  out: bezier(0, 0, 0.2, 1),
+  in: bezier(0.6, 0, 1, 1),
+  smoother: smootherstep,
+};
+
+/** Eased progress of `frame` through [start, end]. */
+export const seg = (frame: number, start: number, end: number, curve: (t: number) => number = ease.inOut) =>
+  curve(remap(frame, start, end));
+
+/**
+ * Critically damped settle used after a mechanical stop: decays to zero with at most one
+ * tiny overshoot. `t` in frames since the stop, `amp` the initial offset.
+ */
+export const settle = (t: number, amp: number, freq = 0.11, damping = 0.16) =>
+  t <= 0 ? 0 : amp * Math.exp(-damping * t) * Math.cos(freq * t * Math.PI);
+
+==== 2286 src/core/motion/track.ts
+// Keyframe tracks with C1 continuity. Interior keys pass through with Catmull-Rom tangents
+// (so a camera never "kinks" when one move hands over to the next); `hold` keys and the
+// ends get zero tangents (a soft ease in/out). Tangents are clamped Fritsch–Carlson style
+// so a curve never overshoots its keys — no accidental bounces.
+
+/**
+ * `m` overrides the tangent (units per frame), e.g. to arrive at speed for a magnetic snap;
+ * `stop` makes the key an impact: it is reached at `m` and left at rest.
+ */
+export type Key = { f: number; v: number[]; hold?: boolean; m?: number[]; stop?: boolean };
+
+const hermite = (p0: number, p1: number, m0: number, m1: number, t: number, h: number) => {
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * h * m1;
+};
+
+const tangent = (keys: Key[], i: number, c: number) => {
+  const k = keys[i];
+  if (k.m) return k.m[c];
+  if (k.hold || i === 0 || i === keys.length - 1) return 0;
+  const a = keys[i - 1], b = keys[i + 1];
+  const m = (b.v[c] - a.v[c]) / (b.f - a.f);
+  // Monotone clamp: no overshoot past either neighbour.
+  const d0 = (k.v[c] - a.v[c]) / (k.f - a.f);
+  const d1 = (b.v[c] - k.v[c]) / (b.f - k.f);
+  if (d0 * d1 <= 0) return 0;
+  const lim = 3 * Math.min(Math.abs(d0), Math.abs(d1));
+  return Math.sign(m) * Math.min(Math.abs(m), lim);
+};
+
+/** Sample a multi-channel track at `frame`. */
+export const sample = (keys: Key[], frame: number): number[] => {
+  if (frame <= keys[0].f) return keys[0].v.slice();
+  const last = keys[keys.length - 1];
+  if (frame >= last.f) return last.v.slice();
+  let i = 0;
+  while (i < keys.length - 2 && frame >= keys[i + 1].f) i++;
+  const a = keys[i], b = keys[i + 1];
+  const h = b.f - a.f;
+  const t = (frame - a.f) / h;
+  return a.v.map((_, c) =>
+    hermite(a.v[c], b.v[c], a.stop ? 0 : tangent(keys, i, c), tangent(keys, i + 1, c), t, h),
+  );
+};
+
+/** Convenience: build keys from [frame, ...values] tuples; append "hold" to pin a key. */
+export const keys = (...rows: (number | "hold")[][]): Key[] =>
+  rows.map((r) => {
+    const hold = r[r.length - 1] === "hold";
+    const nums = r.filter((x): x is number => typeof x === "number");
+    return { f: nums[0], v: nums.slice(1), hold };
+  });
+
+==== 7055 src/core/render/Post.tsx
+// Camera + finishing chain (from PRECISION; proven in PRECISION, TIMEFORGE and BUILDFORGE).
+// The rig applies the shot for this frame before R3F advances, then the composer renders: scene (MSAA) → ground-truth AO → depth of field → restrained
+// bloom → Khronos PBR Neutral tone mapping → grade (warmth, vignette, fine grain).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { type Camera, HalfFloatType, NeutralToneMapping, PerspectiveCamera, Vector2, WebGLRenderTarget } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import type { Pass } from "three/examples/jsm/postprocessing/Pass.js";
+
+/**
+ * Render layer for additive / volumetric effects (light shafts, glows, halos, beams). Put such
+ * meshes on this layer ONLY (`mesh.layers.set(FX_LAYER)`): the camera still renders them, but the
+ * depth-based passes (GTAO, depth of field) skip them. Large transparent volumes on the default
+ * layer corrupt those passes and can silently blank the whole frame.
+ */
+export const FX_LAYER = 1;
+
+/** Run a pass with the FX layer hidden from the camera (depth/normal passes must not see effects). */
+export const withoutFx = <P extends Pass>(pass: P, camera: Camera): P => {
+  const render = pass.render.bind(pass);
+  pass.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    camera.layers.disable(FX_LAYER);
+    try {
+      render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+    } finally {
+      camera.layers.enable(FX_LAYER);
+    }
+  };
+  return pass;
+};
+
+export type Shot = {
+  pos: [number, number, number];
+  target: [number, number, number];
+  fov: number;
+  roll?: number;
+  /** Focus distance (world units) and lens aperture for the bokeh pass. */
+  focus: number;
+  aperture: number;
+  maxBlur: number;
+  exposure: number;
+};
+
+export const CameraRig: React.FC<{ shot: Shot; near?: number; far?: number }> = ({ shot, near = 1, far = 900 }) => {
+  const { camera, gl } = useThree();
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...shot.pos);
+    cam.up.set(Math.sin(shot.roll ?? 0), Math.cos(shot.roll ?? 0), 0);
+    cam.lookAt(...shot.target);
+    cam.fov = shot.fov;
+    cam.near = near;
+    cam.far = far;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    cam.layers.enable(FX_LAYER);
+    gl.toneMapping = NeutralToneMapping;
+    gl.toneMappingExposure = shot.exposure;
+  }, [shot, camera, gl, near, far]);
+  return null;
+};
+
+/**
+ * Replaces non-finite pixels (NaN/Inf from a faulty custom shader) right after the scene render.
+ * Without it, bloom spreads a single NaN pixel across the whole frame and the frame renders blank
+ * with no error — found in testing with a custom light-shaft shader.
+ */
+const NanGuardShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.14 },
+    uGrain: { value: 0.012 },
+    uRes: { value: new Vector2(1080, 1920) },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uGrain; uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      // ivory highlights, a breath of cool in the shadows
+      c.rgb += smoothstep(0.6, 1.0, l) * vec3(0.002, 0.001, -0.003);
+      c.rgb += (1.0 - smoothstep(0.0, 0.5, l)) * vec3(-0.004, 0.0, 0.006);
+      // gentle S-curve: deeper form shadows without crushing the whites
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.24);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.25);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.35, 0.95, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain;
+      gl_FragColor = c;
+    }`,
+};
+
+export const Post: React.FC<{ shot: Shot; frame: number; ao?: boolean; aoRadius?: number }> = ({ shot, frame, ao = true, aoRadius = 0.28 }) => {
+  const { gl, scene, camera, size } = useThree();
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(NanGuardShader));
+    if (ao) {
+      const gtao = new GTAOPass(scene, camera, w, h);
+      gtao.blendIntensity = 1.0;
+      gtao.updateGtaoMaterial({ radius: aoRadius, distanceExponent: 1.8, thickness: 0.5, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+      composer.addPass(withoutFx(gtao, camera));
+    }
+    const dof = withoutFx(new BokehPass(scene, camera, { focus: 10, aperture: 0.002, maxblur: 0.008 }), camera);
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.14, 0.45, 2.2);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const grade = new ShaderPass(GradeShader);
+    grade.uniforms.uRes.value.set(w, h);
+    composer.addPass(grade);
+    return { composer, dof, grade };
+  }, [gl, scene, camera, size.width, size.height, ao, aoRadius]);
+
+  useLayoutEffect(() => {
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    u.focus.value = shot.focus;
+    u.aperture.value = shot.aperture;
+    u.maxblur.value = shot.maxBlur;
+    chain.dof.enabled = shot.maxBlur > 0 && shot.aperture > 0;
+    chain.grade.uniforms.uTime.value = frame % 997;
+  }, [frame, chain, shot]);
+
+  useFrame(() => {
+    chain.composer.render();
+  }, 1);
+  return null;
+};
+
+==== 8601 src/core/studio/Studio.tsx
+// AI BIJAN bright studio (light stage from PRECISION, used by PRECISION and TIMEFORGE): a
+// procedural HDR environment for controlled softbox reflections, a bright seamless cyclorama
+// with an optional tint pool behind the subject, an optional pearl plinth with a hairline ring,
+// a soft key light that casts contact shadows, and a blob shadow under a floating object.
+// Calibrated for hand-held objects about 5–20 world units across; pass `shadow` bounds and a
+// `plinth` for other scales (large outdoor scenes should use an outdoor sky setup instead).
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import {
+  BackSide, CanvasTexture, Color, CylinderGeometry, type DirectionalLight, Euler, Mesh, MeshBasicMaterial, PlaneGeometry,
+  PMREMGenerator, Scene, ShaderMaterial, SphereGeometry, type Texture, TorusGeometry,
+} from "three";
+import { plainMaterial } from "../materials/sweep.ts";
+
+export type StudioLook = {
+  envRotation: number;
+  envIntensity: number;
+  keyAz: number;
+  keyEl: number;
+  keyIntensity: number;
+  /** Backdrop tint: rgb and amount (0 = neutral pearl). */
+  tint: [number, number, number];
+  tintAmount: number;
+  /** Time-ring inlay glow 0..1. */
+  ring: number;
+};
+
+export type Plinth = { top: number; r: number; h: number; ring?: boolean };
+/** Default plinth (top surface y, radius, height) — the TIMEFORGE calibration. */
+export const PLINTH: Plinth = { top: -9.6, r: 5.8, h: 0.9, ring: true };
+export type ShadowBounds = { left: number; right: number; top: number; bottom: number; near: number; far: number };
+const SHADOW: ShadowBounds = { left: -12, right: 12, top: 14, bottom: -12, near: 10, far: 70 };
+
+/** A neutral look: no tint, standard key. Spread and override per film. */
+export const NEUTRAL_LOOK: StudioLook = { envRotation: 0.35, envIntensity: 1, keyAz: (18 * Math.PI) / 180, keyEl: (66 * Math.PI) / 180, keyIntensity: 1.5, tint: [1, 1, 1], tintAmount: 0, ring: 0 };
+
+const stage = () => {
+  const scene = new Scene();
+  scene.add(
+    new Mesh(
+      new SphereGeometry(30, 64, 32),
+      new ShaderMaterial({
+        side: BackSide,
+        vertexShader: /* glsl */ `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: /* glsl */ `
+          varying vec3 vDir;
+          void main(){
+            float y = vDir.y;
+            vec3 c = mix(vec3(0.2, 0.195, 0.19), vec3(0.52, 0.51, 0.5), smoothstep(-0.45, 0.02, y));
+            c = mix(c, vec3(0.78, 0.78, 0.77), smoothstep(0.05, 0.75, y));
+            gl_FragColor = vec4(c, 1.0);
+          }`,
+      }),
+    ),
+  );
+  const panel = (w: number, h: number, k: number, pos: [number, number, number], tint = "#ffffff") => {
+    const m = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ color: new Color(tint).multiplyScalar(k), side: 2 }));
+    m.position.set(...pos);
+    m.lookAt(0, 0, 0);
+    scene.add(m);
+  };
+  panel(14, 14, 2.0, [0, 22, 0]); // overhead softbox
+  panel(1.5, 26, 7.0, [-20, 3, -7], "#fff6ec"); // warm rim strip
+  panel(1.2, 26, 6.0, [20, 3, -9], "#eefcff"); // cool rim strip
+  panel(11, 9, 3.4, [-12, 11, 16], "#fffaf4"); // key box
+  panel(12, 6, 1.8, [11, 5, 19]); // fill
+  panel(30, 1.3, 5.0, [0, 15, 11]); // long strip: the line that sweeps across glass
+  // graphite flags give glossy white parts a defined edge
+  panel(9, 22, 0.04, [21, -1, 9]);
+  panel(9, 22, 0.04, [-21, -1, 4]);
+  panel(30, 4, 0.07, [0, -5, 24]);
+  return scene;
+};
+
+const backdrop = () =>
+  new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    uniforms: {
+      uTop: { value: new Color("#f3f1ec") },
+      uMid: { value: new Color("#e7e4de") },
+      uLow: { value: new Color("#d6d2cb") },
+      uTint: { value: new Color("#ffffff") },
+      uTintAmt: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vWorld; varying vec4 vClip;
+      void main(){ vec4 w = modelMatrix * vec4(position,1.0); vWorld = w.xyz; vClip = projectionMatrix * viewMatrix * w; gl_Position = vClip; }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; uniform vec3 uTint; uniform float uTintAmt;
+      varying vec3 vWorld; varying vec4 vClip;
+      void main(){
+        vec2 s = vClip.xy / vClip.w;
+        vec3 dir = normalize(vWorld - cameraPosition);
+        float t = clamp(0.5 + 0.5 * (0.7 * s.y + 0.3 * dir.y * 1.6), 0.0, 1.0);
+        vec3 c = mix(uLow, uMid, smoothstep(0.0, 0.55, t));
+        c = mix(c, uTop, smoothstep(0.5, 1.0, t));
+        float r = length(s * vec2(1.0, 0.6) - vec2(0.0, 0.1));
+        // the tint lives in the soft pool of light behind the subject
+        c = mix(c, c * uTint, uTintAmt * (1.0 - smoothstep(0.0, 1.25, r)));
+        c *= 1.0 + 0.1 * (1.0 - smoothstep(0.0, 1.1, r)) - 0.06 * smoothstep(0.7, 1.5, r);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+
+const blobTexture = () => {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 256;
+  const c = cv.getContext("2d")!;
+  const g = c.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, "rgba(40,36,32,1)");
+  g.addColorStop(0.45, "rgba(40,36,32,0.45)");
+  g.addColorStop(1, "rgba(40,36,32,0)");
+  c.fillStyle = g;
+  c.fillRect(0, 0, 256, 256);
+  return new CanvasTexture(cv);
+};
+
+export type Blob = { x: number; z: number; sx: number; sz: number; rot: number; opacity: number };
+
+export const Studio: React.FC<{ look: StudioLook; blob?: Blob; plinth?: Plinth | false; shadow?: ShadowBounds }> = ({ look, blob, plinth = PLINTH, shadow = SHADOW }) => {
+  const P = plinth || PLINTH;
+  const { gl, scene } = useThree();
+  const env = useMemo<Texture>(() => {
+    const pm = new PMREMGenerator(gl);
+    const t = pm.fromScene(stage(), 0.035).texture;
+    pm.dispose();
+    return t;
+  }, [gl]);
+  const parts = useMemo(() => {
+    const bg = new Mesh(new SphereGeometry(400, 64, 32), backdrop());
+    const plinthMat = plainMaterial();
+    plinthMat.color.set("#ecebe6");
+    plinthMat.roughness = 0.5;
+    plinthMat.clearcoat = 0.4;
+    plinthMat.clearcoatRoughness = 0.3;
+    const ringMat = new MeshBasicMaterial({ color: new Color("#bfeff2") });
+    const blobMat = new MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.3 });
+    return {
+      bg,
+      plinth: new CylinderGeometry(P.r, P.r * 1.01, P.h, 128, 1),
+      plinthMat,
+      ring: new TorusGeometry(P.r - 0.45, 0.03, 8, 192),
+      ringMat,
+      blobGeo: new PlaneGeometry(1, 1),
+      blobMat,
+    };
+  }, [P.r, P.h]);
+
+  useLayoutEffect(() => {
+    scene.environment = env;
+    scene.background = null;
+    scene.environmentRotation = new Euler(0, look.envRotation, 0, "YXZ");
+    scene.environmentIntensity = look.envIntensity;
+    const u = (parts.bg.material as ShaderMaterial).uniforms;
+    u.uTint.value.setRGB(...look.tint);
+    u.uTintAmt.value = look.tintAmount;
+    const k = 0.75 + 1.6 * look.ring;
+    parts.ringMat.color.setRGB(0.75 * k, 0.94 * k, 0.95 * k);
+    parts.blobMat.opacity = blob?.opacity ?? 0;
+  });
+
+  const key = useMemo(() => {
+    const d = 34;
+    return [d * Math.cos(look.keyEl) * Math.sin(look.keyAz), d * Math.sin(look.keyEl), d * Math.cos(look.keyEl) * Math.cos(look.keyAz)] as [number, number, number];
+  }, [look.keyAz, look.keyEl]);
+
+  return (
+    <>
+      <primitive object={parts.bg} />
+      {plinth ? <mesh geometry={parts.plinth} material={parts.plinthMat} position={[0, P.top - P.h / 2, 0]} receiveShadow /> : null}
+      {plinth && P.ring ? <mesh geometry={parts.ring} material={parts.ringMat} position={[0, P.top + 0.002, 0]} rotation={[Math.PI / 2, 0, 0]} /> : null}
+      {blob ? (
+        <mesh
+          geometry={parts.blobGeo}
+          material={parts.blobMat}
+          position={[blob.x, P.top + 0.01, blob.z]}
+          rotation={[-Math.PI / 2, 0, blob.rot]}
+          scale={[blob.sx, blob.sz, 1]}
+        />
+      ) : null}
+      <directionalLight
+        position={key}
+        intensity={look.keyIntensity}
+        color="#fff6ea"
+        castShadow
+        shadow-mapSize={[1024, 1024]}
+        shadow-intensity={0.6}
+        shadow-bias={-0.0002}
+        shadow-normalBias={0.02}
+        shadow-radius={9}
+        onUpdate={(l: DirectionalLight) => {
+          const c = l.shadow.camera;
+          c.left = shadow.left;
+          c.right = shadow.right;
+          c.top = shadow.top;
+          c.bottom = shadow.bottom;
+          c.near = shadow.near;
+          c.far = shadow.far;
+          c.updateProjectionMatrix();
+        }}
+      />
+    </>
+  );
+};
+
+==== 1643 src/core/type/brand.ts
+// The buyer's shared AI BIJAN brand kit (aibijan-brand.json, see BRAND_KIT.md), copied to src/brand.json.
+// In AI BIJAN Motion the brand lives in overlays (title, kicker, end card, labels); the 3D world keeps the
+// style's art direction unless the buyer explicitly asks for brand colours in the scene.
+import brandFile from "../../brand.json";
+
+export type BrandKit = {
+  brand?: string; handle?: string; cta?: string; logo?: string; font?: string;
+  colors?: { primary?: string; accent?: string; background?: string };
+};
+export const BRAND = brandFile as unknown as BrandKit;
+
+const isHex = (c?: string): c is string => !!c && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.trim());
+const lum = (c: string) => {
+  let h = c.trim().slice(1);
+  if (h.length === 3) h = [...h].map((x) => x + x).join("");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+/** WCAG contrast ratio of two hex colours (1–21). */
+export const contrast = (a: string, b: string) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+/** The brand accent when it stays readable on `background` (≥ 3:1), otherwise the style's own `fallback`. */
+export const brandAccent = (background: string, fallback: string) => {
+  const a = BRAND.colors?.accent;
+  return isHex(a) && isHex(background) && contrast(a, background) >= 3 ? a : fallback;
+};
+/** Brand name for overlays, or the fallback text. */
+export const brandName = (fallback = "") => BRAND.brand?.trim() || fallback;
+
+==== 1366 src/core/type/fonts.ts
+import { continueRender, delayRender, staticFile } from "remotion";
+
+// Default typeface: Manrope (SIL Open Font License, see public/fonts/OFL-manrope.txt).
+// Bundled locally in public/fonts so rendering never depends on Google Fonts being reachable
+// and every OS renders the same glyph metrics.
+const FAMILY = "Manrope";
+const WEIGHTS = ["200", "300", "400", "500", "600"] as const;
+
+let ready: Promise<void> | null = null;
+const load = (): Promise<void> => {
+  if (ready) return ready;
+  if (typeof document === "undefined") return (ready = Promise.resolve());
+  const handle = delayRender("Loading bundled Manrope font");
+  ready = Promise.all(
+    WEIGHTS.map(async (w) => {
+      const face = new FontFace(FAMILY, `url(${staticFile(`fonts/manrope-latin-${w}-normal.woff2`)}) format("woff2")`, {
+        weight: w,
+        style: "normal",
+      });
+      await face.load();
+      (document.fonts as unknown as { add(f: FontFace): void }).add(face);
+    }),
+  ).then(
+    () => continueRender(handle),
+    (err) => {
+      continueRender(handle);
+      throw err;
+    },
+  );
+  return ready;
+};
+load();
+
+export const MANROPE = FAMILY;
+export const manropeReady = load;
+
+/** The font every overlay and canvas texture uses. */
+export const FONT = MANROPE;
+export const fontReady = manropeReady;
+
+export const INK = "#1f2426";
+export const INK_SOFT = "#6a7174";
+
+==== 691 src/core/type/project.ts
+import { PerspectiveCamera, Vector3 } from "three";
+import type { Shot } from "../render/Post.tsx";
+
+/** Project a world point to pixel coordinates with exactly the film camera for this frame. */
+export const projector = (shot: Shot, width: number, height: number) => {
+  const cam = new PerspectiveCamera(shot.fov, width / height, 0.05, 1200);
+  cam.position.set(...shot.pos);
+  cam.up.set(Math.sin(shot.roll ?? 0), Math.cos(shot.roll ?? 0), 0);
+  cam.lookAt(...shot.target);
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  return (p: Vector3): [number, number] => {
+    const v = p.clone().project(cam);
+    return [((v.x + 1) / 2) * width, ((1 - v.y) / 2) * height];
+  };
+};
+
+==== 113 src/index.ts
+import { registerRoot } from "remotion";
+import { RemotionRoot } from "./Root.tsx";
+
+registerRoot(RemotionRoot);
+
+==== 777 src/Root.tsx
+import React from "react";
+import { Composition } from "remotion";
+import { PRESETS } from "./core/film/frame.ts";
+import { Showcase } from "./scenes/showcase/Showcase.tsx";
+
+// Register each film twice: a preview (540 × 960 @ 30, for approval) and a final (1080 × 1920 @ 60).
+// The 3D renders natively at each size, so the preview is cheap and the final is sharp.
+const { preview, final } = PRESETS;
+
+export const RemotionRoot: React.FC = () => (
+  <>
+    <Composition id="ShowcasePreview" component={Showcase} durationInFrames={6 * preview.fps} fps={preview.fps} width={preview.width} height={preview.height} />
+    <Composition id="ShowcaseFinal" component={Showcase} durationInFrames={6 * final.fps} fps={final.fps} width={final.width} height={final.height} />
+  </>
+);
+
+==== 4075 src/scenes/showcase/Showcase.tsx
+// Environment smoke test and minimal example of the core: a bright studio, one parametric object
+// that physically changes shape (fixed-topology Slab) with a material scan, a turned part, a
+// keyframed camera, post-processing and a 2D title. If this renders correctly, the machine can
+// render AI BIJAN 3D films. It is a technical check, not a style demo.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useCurrentFrame, useVideoConfig } from "remotion";
+import { Matrix4, Quaternion, Euler, Vector3 } from "three";
+import { shotAt } from "../../core/camera/director.ts";
+import { Slab } from "../../core/geometry/slab.ts";
+import { BARREL, lathe } from "../../core/geometry/lathe.ts";
+import { applyMat, plainMaterial, sweepMaterial } from "../../core/materials/sweep.ts";
+import { MATERIALS } from "../../core/materials/presets.ts";
+import { ease, mix, remap } from "../../core/motion/easing.ts";
+import { keys, sample } from "../../core/motion/track.ts";
+import { CameraRig, Post } from "../../core/render/Post.tsx";
+import { NEUTRAL_LOOK, PLINTH, Studio } from "../../core/studio/Studio.tsx";
+import { Posed } from "../../core/film/Posed.tsx";
+import { Stage3D } from "../../core/film/Stage3D.tsx";
+import { FONT, INK, INK_SOFT } from "../../core/type/fonts.ts";
+
+const A = { hw: 3.6, hh: 2.6, d: 2.6, rc: 0.3, reF: 0.15, reB: 0.15 };
+const B = { hw: 3.2, hh: 3.2, d: 1.2, rc: 1.4, reF: 0.5, reB: 0.6 };
+const MA = MATERIALS.mattePlastic("#3a3936");
+const MB = MATERIALS.ceramic();
+const TRIM_A = MATERIALS.polishedMetal();
+const TRIM_B = MATERIALS.aluminium("#b9babd");
+
+// seconds
+const RIG = keys([0, 0, -4.5, 0, -18, 6, 46, 24], [3, 0, -4.2, 0, 4, 8, 40, 24], [6, 0, -4.4, 0, 22, 10, 42, 24]);
+const YAW = keys([0, -30], [6, 25]);
+
+const Object3D: React.FC<{ t: number }> = ({ t }) => {
+  const slab = useMemo(() => new Slab(), []);
+  const body = useMemo(() => [sweepMaterial(), sweepMaterial(), sweepMaterial()], []);
+  const trim = useMemo(() => plainMaterial(), []);
+  const barrel = useMemo(() => lathe(BARREL), []);
+  const k = ease.inOut(remap(t, 1.2, 4.2));
+  const p = Object.fromEntries(Object.entries(A).map(([key, v]) => [key, mix(v, B[key as keyof typeof B], k)])) as typeof A;
+  const scan = { progress: ease.inOut(remap(t, 1.6, 3.8)), top: p.hh, bottom: -p.hh, band: 1.4 };
+  useLayoutEffect(() => {
+    slab.update(p);
+    for (const m of body) applyMat(m, MA, MB, scan);
+    applyMat(trim, TRIM_A, TRIM_B, { ...scan, band: 0 });
+  });
+  const lens = mix(0.9, 1.6, k);
+  return (
+    <>
+      <mesh geometry={slab.geometry} material={body} castShadow receiveShadow />
+      <mesh geometry={barrel} material={trim} position={[0, -0.1, p.d / 2 - 0.05]} rotation={[Math.PI / 2, 0, 0]} scale={[1.1, lens, 1.1]} castShadow />
+    </>
+  );
+};
+
+export const Showcase: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps;
+  const shot = shotAt(RIG, t, { aperture: 0.0009, maxBlur: 0.004, exposure: 1 });
+  const hover = mix(A.hh, B.hh, ease.inOut(remap(t, 1.2, 4.2)));
+  const pos = new Vector3(0, PLINTH.top + 2.2 + hover, 0);
+  const q = new Quaternion().setFromEuler(new Euler(0, (sample(YAW, t)[0] * Math.PI) / 180, 0));
+  const matrix = new Matrix4().compose(pos, q, new Vector3(1, 1, 1));
+  const title = ease.type(remap(t, 0.2, 0.9));
+  return (
+    <Stage3D
+      overlay={() => (
+        <div style={{ position: "absolute", top: 90, left: 0, right: 0, textAlign: "center", fontFamily: FONT, opacity: title }}>
+          <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: "0.42em", paddingLeft: "0.42em", color: INK_SOFT }}>AI BIJAN MOTION</div>
+          <div style={{ fontSize: 96, fontWeight: 200, color: INK, marginTop: 8 }}>Studio check</div>
+        </div>
+      )}
+    >
+      <Studio look={NEUTRAL_LOOK} blob={{ x: 0, z: 0, sx: 14, sz: 10, rot: 0, opacity: 0.3 }} />
+      <Posed matrix={matrix}>
+        <Object3D t={t} />
+      </Posed>
+      <CameraRig shot={shot} />
+      <Post shot={shot} frame={frame} aoRadius={0.45} />
+    </Stage3D>
+  );
+};
+
+==== 484 tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "scripts/*.ts"],
+  "exclude": ["remotion.config.ts"]
+}

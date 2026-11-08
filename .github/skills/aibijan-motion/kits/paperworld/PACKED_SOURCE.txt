@@ -1,0 +1,2070 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 5290 src/kits/paperworld/components/MiniatureEnvironment.tsx
+// MiniatureEnvironment — the small handmade things that make a set feel inhabited.
+// Trees and bushes use cross-slot construction (two cut-outs slotted at 90°), so they hold
+// their silhouette from every camera angle. Clouds and stars hang on visible threads.
+
+import React from "react";
+import { S } from "../geometry/shapes.ts";
+import { Cut, ShearPop, type V3 } from "./Paper.tsx";
+import { paperFace } from "../material/paper.ts";
+
+const thread = paperFace("ivoryShade", { relief: 0.2 });
+
+/** Visible cotton thread from y0 up to y1 (a hanging prop's string). */
+export const Thread: React.FC<{ position: V3; length: number; radius?: number }> = ({ position, length, radius = 0.03 }) => (
+  <mesh position={[position[0], position[1] + length / 2, position[2]]} material={thread} castShadow>
+    <cylinderGeometry args={[radius, radius, length, 5]} />
+  </mesh>
+);
+
+/** Ground plane: one huge sheet of cardstock (top face at y = 0). */
+export const Ground: React.FC<{ color: string; size?: number; position?: V3 }> = ({ color, size = 600, position = [0, 0, 0] }) => (
+  <Cut shape={S.rectC(size, size)} color={color} depth={0.6} position={[position[0], position[1] - 0.3, position[2]]} rotation={[-Math.PI / 2, 0, 0]} cast={false} />
+);
+
+/** Flat print lying on the ground (roads, plazas, rugs). Sits 0.02 above the sheet. */
+export const GroundPrint: React.FC<{ shape: Parameters<typeof Cut>[0]["shape"]; color: string; position: V3; yaw?: number; lift?: number }> = ({
+  shape,
+  color,
+  position,
+  yaw = 0,
+  lift = 0.02,
+}) => (
+  <group position={[position[0], position[1] + lift, position[2]]} rotation={[0, yaw, 0]}>
+    <Cut shape={shape} color={color} depth={0.04} rotation={[-Math.PI / 2, 0, 0]} cast={false} />
+  </group>
+);
+
+export type TreeKind = "round" | "cone" | "cloud";
+export const PaperTree: React.FC<{ kind?: TreeKind; h?: number; color?: string; trunk?: string; t?: number; position?: V3; yaw?: number }> = ({
+  kind = "round",
+  h = 5,
+  color = "mint",
+  trunk = "brown",
+  t = 1,
+  position,
+  yaw = 0,
+}) => {
+  const trunkH = h * 0.42;
+  const crown =
+    kind === "cone"
+      ? S.poly(`cone-${h}`, [[-h * 0.32, trunkH * 0.75], [h * 0.32, trunkH * 0.75], [0, h]])
+      : kind === "cloud"
+        ? S.path(`treecloud-${h}`, (s) => {
+            const r = h * 0.3;
+            s.absarc(0, h - r * 1.05, r, 0, Math.PI * 2, false);
+          })
+        : S.path(`treeround-${h}`, (s) => {
+            const r = h * 0.29;
+            s.absarc(0, h - r, r, 0, Math.PI * 2, false);
+          });
+  const lobe = S.circle(h * 0.16);
+  return (
+    <ShearPop t={t} position={position} yaw={yaw}>
+      {[0, Math.PI / 2].map((a) => (
+        <group key={a} rotation={[0, a, 0]}>
+          <Cut shape={S.rect(0.32, trunkH + 0.4, 0.05)} color={trunk} depth={0.08} />
+          <Cut shape={crown} color={color} depth={0.08} />
+          {kind === "cloud" ? (
+            <>
+              <Cut shape={lobe} color={color} depth={0.08} position={[-h * 0.2, h * 0.58, 0]} />
+              <Cut shape={lobe} color={color} depth={0.08} position={[h * 0.21, h * 0.62, 0]} />
+            </>
+          ) : null}
+        </group>
+      ))}
+    </ShearPop>
+  );
+};
+
+export const PaperBush: React.FC<{ w?: number; color?: string; t?: number; position?: V3; yaw?: number }> = ({ w = 2.4, color = "mintDeep", t = 1, position, yaw = 0 }) => (
+  <ShearPop t={t} position={position} yaw={yaw}>
+    {[0, Math.PI / 2].map((a) => (
+      <group key={a} rotation={[0, a, 0]}>
+        <Cut shape={S.cloud(w, w * 0.62, 3)} color={color} depth={0.08} />
+      </group>
+    ))}
+  </ShearPop>
+);
+
+/** Cloud hung on a thread from the "fly loft" above the set. */
+export const PaperCloud: React.FC<{ w?: number; color?: string; position: V3; threadTo?: number; sway?: number }> = ({
+  w = 8,
+  color = "ivoryLight",
+  position,
+  threadTo = 60,
+  sway = 0,
+}) => (
+  <group position={position} rotation={[0, 0, sway]}>
+    <Cut shape={S.cloud(w, w * 0.45, 4)} color={color} depth={0.14} />
+    <Cut shape={S.cloud(w * 0.72, w * 0.32, 3)} color="ivoryShade" depth={0.1} position={[w * 0.1, 0, -0.35]} />
+    <Thread position={[-w * 0.22, w * 0.3, 0]} length={threadTo} />
+    <Thread position={[w * 0.24, w * 0.28, 0]} length={threadTo} />
+  </group>
+);
+
+export const PaperLamp: React.FC<{ h?: number; t?: number; position?: V3; glow?: number }> = ({ h = 5, t = 1, position, glow = 0.3 }) => (
+  <ShearPop t={t} position={position}>
+    <Cut shape={S.rect(0.18, h, 0.05)} color="brownDeep" depth={0.18} />
+    <Cut shape={S.rectC(0.9, 0.16, 0.05)} color="brownDeep" depth={0.3} position={[0, h, 0]} />
+    <Cut shape={S.circle(0.42)} color="goldLight" depth={0.3} position={[0, h + 0.45, 0]} opts={{ emissive: "goldLight", emissiveIntensity: glow }} />
+    <Cut shape={S.outline("arch", 0.7, 0.4)} color="brownDeep" depth={0.32} position={[0, h + 0.8, 0]} />
+  </ShearPop>
+);
+
+/** Rolling layered hill (a cut silhouette with optional little houses on its crest). */
+export const PaperHill: React.FC<{ w: number; h: number; color: string; position: V3; skew?: number; t?: number; yaw?: number }> = ({ w, h, color, position, skew = 0, t = 1, yaw = 0 }) => (
+  <ShearPop t={t} position={position} yaw={yaw}>
+    <Cut shape={S.hill(w, h, 0.4, skew)} color={color} depth={0.2} />
+  </ShearPop>
+);
+
+==== 3955 src/kits/paperworld/components/Paper.tsx
+// The two primitives every PAPERWORLD object is built from:
+//   <Cut>   — one piece of cardstock: an extruded silhouette with a dyed face and a pale cut edge.
+//   <Hinge> — a crease: children rotate about a line through `at` (PaperFold).
+//   <PopUp> — the pop-up-book special case: a piece lying flat that stands up about its base.
+
+import React from "react";
+import { Matrix4, type BufferGeometry } from "three";
+import { extrude, flat, type ShapeSpec } from "../geometry/shapes.ts";
+import { paperEdge, paperFace, type PaperOpts } from "../material/paper.ts";
+import { PAPER } from "../tokens.ts";
+
+export type V3 = [number, number, number];
+
+export type CutProps = {
+  shape: ShapeSpec;
+  color: string;
+  /** Cut-edge colour; defaults to the pale core of `color`. */
+  edge?: string;
+  depth?: number;
+  opts?: PaperOpts;
+  position?: V3;
+  rotation?: V3;
+  scale?: number | V3;
+  cast?: boolean;
+  receive?: boolean;
+  visible?: boolean;
+  segments?: number;
+  renderOrder?: number;
+};
+
+export const Cut: React.FC<CutProps> = ({
+  shape,
+  color,
+  edge,
+  depth = PAPER.card,
+  opts = {},
+  position,
+  rotation,
+  scale,
+  cast = true,
+  receive = true,
+  visible = true,
+  segments,
+  renderOrder,
+}) => (
+  <mesh
+    geometry={extrude(shape, depth, segments)}
+    material={[paperFace(color, opts), edge ? paperFace(edge, { ...opts, relief: 0.4 }) : paperEdge(color, opts)]}
+    position={position}
+    rotation={rotation}
+    scale={scale}
+    castShadow={cast}
+    receiveShadow={receive}
+    visible={visible}
+    renderOrder={renderOrder}
+  />
+);
+
+/** Zero-thickness print on a face (ink, printed UI): no shadow casting, sits on the surface. */
+export const Print: React.FC<{ shape: ShapeSpec; color: string; position?: V3; rotation?: V3; scale?: number | V3; opts?: PaperOpts }> = ({
+  shape,
+  color,
+  position,
+  rotation,
+  scale,
+  opts,
+}) => (
+  <mesh geometry={flat(shape) as BufferGeometry} material={paperFace(color, opts)} position={position} rotation={rotation} scale={scale} receiveShadow />
+);
+
+type Axis = "x" | "y" | "z";
+const rot = (axis: Axis, a: number): V3 => (axis === "x" ? [a, 0, 0] : axis === "y" ? [0, a, 0] : [0, 0, a]);
+
+/** PaperFold: rotate children by `angle` about the crease line through `at` along `axis`. */
+export const Hinge: React.FC<{ at: V3; axis: Axis; angle: number; children: React.ReactNode }> = ({ at, axis, angle, children }) => (
+  <group position={at} rotation={rot(axis, angle)}>
+    <group position={[-at[0], -at[1], -at[2]]}>{children}</group>
+  </group>
+);
+
+/**
+ * Pop-up piece: children are authored standing up (front facing +z, base on y = 0).
+ * t = 0 lies flat on its back (folded away from the viewer), t = 1 stands upright.
+ * Values slightly above 1 (from popEase) lean a touch forward, then settle.
+ */
+export const PopUp: React.FC<{ t: number; position?: V3; yaw?: number; children: React.ReactNode; hideFlat?: boolean }> = ({
+  t,
+  position,
+  yaw = 0,
+  children,
+  hideFlat = false,
+}) => (
+  <group position={position} rotation={[0, yaw, 0]} visible={!(hideFlat && t <= 0.001)}>
+    <group rotation={[(-Math.PI / 2) * (1 - t), 0, 0]}>{children}</group>
+  </group>
+);
+
+/**
+ * Parallel-fold pop-up (the "box" mechanism of pop-up books): front and back faces rotate
+ * rigidly about their base lines while the sides shear, so a 3-D box folds perfectly flat
+ * backwards (away from the viewer) at t = 0 and stands square at t = 1.
+ */
+export const ShearPop: React.FC<{ t: number; position?: V3; yaw?: number; children: React.ReactNode; visible?: boolean }> = ({
+  t,
+  position,
+  yaw = 0,
+  children,
+  visible = true,
+}) => {
+  const th = Math.max(0.018, t) * (Math.PI / 2);
+  const m = new Matrix4().set(1, 0, 0, 0, 0, Math.sin(th), 0, 0, 0, -Math.cos(th), 1, 0, 0, 0, 0, 1);
+  return (
+    <group position={position} rotation={[0, yaw, 0]} visible={visible}>
+      <group matrix={m} matrixAutoUpdate={false}>
+        {children}
+      </group>
+    </group>
+  );
+};
+
+==== 4711 src/kits/paperworld/components/PaperBuilding.tsx
+// PaperBuilding — a folded cardstock house: a front facade with cut windows over a darker
+// backing, a plain back facade, two side walls and a roof, all real board with thickness.
+// Pops up with the parallel-fold (box) mechanism, so it collapses flat like a pop-up book.
+
+import React from "react";
+import { hash01 } from "../motion/easing.ts";
+import { S, type Hole } from "../geometry/shapes.ts";
+import { Cut, ShearPop, type V3 } from "./Paper.tsx";
+
+export type BuildingSpec = {
+  w: number;
+  d: number;
+  h: number;
+  roof: "gable" | "flat" | "step";
+  rh?: number;
+  wall: string;
+  roofColor: string;
+  trim: string;
+  window: string;
+  cols: number;
+  rows: number;
+  door?: string;
+  /** Skip sills and back/side walls (for far rows that only show their face). */
+  facadeOnly?: boolean;
+  seed?: number;
+};
+
+const B = 0.16; // board
+
+const facadeShape = (b: BuildingSpec, holes: Hole[]) => {
+  const rh = b.rh ?? b.w * 0.35;
+  if (b.roof === "gable") return S.gable(b.w, b.h, rh, holes);
+  if (b.roof === "step") {
+    const w = b.w, h = b.h, s = Math.min(0.9, rh / 3);
+    const pts: [number, number][] = [
+      [-w / 2, 0], [w / 2, 0], [w / 2, h],
+      [w * 0.32, h], [w * 0.32, h + s], [w * 0.16, h + s], [w * 0.16, h + 2 * s], [-w * 0.16, h + 2 * s],
+      [-w * 0.16, h + s], [-w * 0.32, h + s], [-w * 0.32, h], [-w / 2, h],
+    ];
+    const base = S.poly(`step-${w}-${h}-${s}`, pts);
+    return { key: base.key + JSON.stringify(holes), make: () => { const sh = base.make(); for (const ho of S.rect(1, 1, 0, holes).make().holes) sh.holes.push(ho); return sh; } };
+  }
+  return S.rect(b.w, b.h, 0, holes);
+};
+
+export const windowGrid = (b: BuildingSpec): Hole[] => {
+  const holes: Hole[] = [];
+  const ww = Math.min(0.95, (b.w / b.cols) * 0.46);
+  const wh = ww * 1.45;
+  const y0 = b.door ? 3.0 : 1.4;
+  const usable = b.h - y0 - 0.6;
+  const pitchY = b.rows > 1 ? usable / b.rows : 0;
+  const arched = hash01((b.seed ?? 0) * 7 + 3) < 0.35;
+  for (let r = 0; r < b.rows; r++)
+    for (let c = 0; c < b.cols; c++) {
+      const x = -b.w / 2 + (b.w / b.cols) * (c + 0.5);
+      const y = y0 + r * pitchY + (pitchY - wh) * 0.4;
+      if (b.door && r === 0 && Math.abs(x) < 1.0) continue;
+      holes.push(arched ? { kind: "arch", x, y, w: ww, h: wh } : { kind: "rect", x, y, w: ww, h: wh, r: 0.06 });
+    }
+  return holes;
+};
+
+export const PaperBuilding: React.FC<{ b: BuildingSpec; t?: number; position?: V3; yaw?: number }> = ({ b, t = 1, position, yaw = 0 }) => {
+  const holes = windowGrid(b);
+  const rh = b.rh ?? b.w * 0.35;
+  const front = facadeShape(b, holes);
+  const plain = facadeShape(b, []);
+  const half = b.d / 2;
+  const slope = Math.atan2(rh, b.w / 2);
+  const rafter = Math.hypot(b.w / 2, rh) + 0.35;
+  return (
+    <ShearPop t={t} position={position} yaw={yaw}>
+      {/* front facade, with a darker backing behind the cut windows */}
+      <Cut shape={front} color={b.wall} depth={B} position={[0, 0, half]} />
+      <Cut shape={S.rect(b.w - 0.3, b.h - 0.3)} color={b.window} depth={0.04} position={[0, 0.1, half - 0.35]} opts={{ relief: 0.5 }} />
+      {!b.facadeOnly ? (
+        <>
+          {holes.map((h, i) => (
+            <Cut key={i} shape={S.rectC(("w" in h ? h.w : 1) + 0.28, 0.14, 0.03)} color={b.trim} depth={0.22} position={[h.x, h.y - 0.05, half + 0.1]} />
+          ))}
+          <Cut shape={plain} color={b.wall} depth={B} position={[0, 0, -half]} />
+          {[-1, 1].map((s) => (
+            <Cut key={s} shape={S.rect(b.d, b.h)} color={b.wall} depth={B} position={[(s * b.w) / 2 - s * B * 0.5, 0, 0]} rotation={[0, (s * Math.PI) / 2, 0]} />
+          ))}
+        </>
+      ) : null}
+      {/* roof */}
+      {b.roof === "gable" ? (
+        [-1, 1].map((s) => (
+          <group key={s} position={[0, b.h + rh, 0]} rotation={[0, 0, s * -slope]}>
+            <Cut shape={S.rectC(b.d + 0.5, 0.2)} color={b.roofColor} depth={rafter} position={[(s * rafter) / 2, 0.08, 0]} rotation={[0, Math.PI / 2, 0]} />
+          </group>
+        ))
+      ) : (
+        <>
+          <Cut shape={S.rectC(b.w + 0.3, b.d + 0.3)} color={b.roofColor} depth={0.18} position={[0, b.h, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+          <Cut shape={S.rectC(b.w + 0.45, 0.32, 0.04)} color={b.trim} depth={0.26} position={[0, b.h - 0.3, half + 0.1]} />
+        </>
+      )}
+      {b.door ? (
+        <>
+          <Cut shape={S.outline("arch", 1.3, 2.3)} color={b.door} depth={0.08} position={[0, 0, half + 0.1]} />
+          <Cut shape={S.circle(0.09)} color="gold" depth={0.08} position={[0.35, 1.1, half + 0.18]} />
+          <Cut shape={S.rectC(1.9, 0.2, 0.05)} color={b.trim} depth={0.5} position={[0, 0.1, half + 0.2]} />
+        </>
+      ) : null}
+    </ShearPop>
+  );
+};
+
+==== 12151 src/kits/paperworld/components/PaperCharacter.tsx
+// PaperCharacter — a layered cardstock puppet rig. Give every film its own character: colours (`colors`),
+// scarf and hair curl on/off, scale and acting; never reuse a previous film's look.
+//
+// Construction (front faces +z, feet on the origin, 6.3 units tall):
+//   back layer   bob of dark-brown hair, long scarf tail, coat back-belt
+//   body layer   coral A-line coat, cobalt legs + brown shoes (hinged at the hips)
+//   front layer  peach head, swoop fringe, curl, face, mint collar, gold buttons,
+//                sleeves hinged at the shoulders, gold scarf.
+// Every piece is real cardstock with thickness, separated by a few millimetres so the
+// layers cast tiny shadows on each other. Limbs swing out of plane (like a brad-jointed
+// puppet that can also step), so a walk reads from behind, in profile and at three-quarters.
+
+import React from "react";
+import { S } from "../geometry/shapes.ts";
+import { Cut, Hinge, type V3 } from "./Paper.tsx";
+
+export type PuppetPose = {
+  /** Walk cycle position in strides (1.0 = one full left+right cycle). */
+  walk: number;
+  /** 0 = standing still, 1 = full stride. */
+  stride: number;
+  /** Forward lean (radians, about x). */
+  lean: number;
+  headTilt: number;
+  headNod: number;
+  /** Eye direction, −1..1 each. */
+  look: [number, number];
+  blink: number;
+  /** Arms raised outward (radians, about z). */
+  armOut: [number, number];
+  /** Arms swung forward (radians, about x; positive = forward). */
+  armFwd: [number, number];
+  mouth: "smile" | "o" | "flat";
+  /** Vertical squash/stretch around 1. */
+  squash: number;
+  /** Seconds of scarf flutter time. */
+  time: number;
+};
+
+export const restPose = (p: Partial<PuppetPose> = {}): PuppetPose => ({
+  walk: 0,
+  stride: 0,
+  lean: 0,
+  headTilt: 0,
+  headNod: 0,
+  look: [0, 0],
+  blink: 0,
+  armOut: [0, 0],
+  armFwd: [0, 0],
+  mouth: "smile",
+  squash: 1,
+  time: 0,
+  ...p,
+});
+
+export const PUPPET_COLORS = {
+  coat: "coral",
+  coatDeep: "coralDeep",
+  collar: "mint",
+  scarf: "gold",
+  scarfDeep: "goldDeep",
+  legs: "cobalt",
+  shoes: "brown",
+  hair: "#6a4532",
+  hairLight: "#8a6047",
+  skin: "skin",
+  ink: "ink",
+  cheek: "coralLight",
+};
+export type PuppetColors = { [K in keyof typeof PUPPET_COLORS]: string };
+
+// ── Shapes (built once, cached by key) ─────────────────────────────────────────
+const coat = S.path("pip-coat", (s) => {
+  s.moveTo(-1.0, 1.12);
+  s.lineTo(1.0, 1.12);
+  s.quadraticCurveTo(1.1, 1.12, 1.06, 1.3);
+  s.lineTo(0.74, 3.12);
+  s.quadraticCurveTo(0.7, 3.42, 0.42, 3.42);
+  s.lineTo(-0.42, 3.42);
+  s.quadraticCurveTo(-0.7, 3.42, -0.74, 3.12);
+  s.lineTo(-1.06, 1.3);
+  s.quadraticCurveTo(-1.1, 1.12, -1.0, 1.12);
+});
+const hem = S.path("pip-hem", (s) => {
+  s.moveTo(-1.0, 1.12);
+  s.lineTo(1.0, 1.12);
+  s.quadraticCurveTo(1.1, 1.12, 1.06, 1.3);
+  s.lineTo(1.03, 1.42);
+  s.lineTo(-1.03, 1.42);
+  s.lineTo(-1.06, 1.3);
+  s.quadraticCurveTo(-1.1, 1.12, -1.0, 1.12);
+});
+const collarL = S.poly("pip-collarL", [[-0.05, 2.78], [-0.5, 3.42], [-0.02, 3.42]]);
+const collarR = S.poly("pip-collarR", [[0.05, 2.78], [0.02, 3.42], [0.5, 3.42]]);
+const leg = S.rect(0.4, 1.3, 0.12);
+const shoe = S.rectC(0.62, 0.3, 0.14);
+const sleeve = S.path("pip-sleeve", (s) => {
+  // hangs from the shoulder pivot at (0,0) down to y = -1.3
+  s.moveTo(-0.2, 0.05);
+  s.quadraticCurveTo(0, 0.24, 0.2, 0.05);
+  s.lineTo(0.24, -1.18);
+  s.quadraticCurveTo(0, -1.3, -0.24, -1.18);
+  s.closePath();
+});
+const cuff = S.rectC(0.5, 0.16, 0.06);
+const hand = S.circle(0.2);
+const neck = S.rect(0.46, 0.5, 0.1);
+const head = S.circle(1.12);
+const hairBack = S.path("pip-hairBack", (s) => {
+  s.moveTo(-1.3, 4.0);
+  s.quadraticCurveTo(-1.36, 3.86, -1.1, 3.86);
+  s.lineTo(1.1, 3.86);
+  s.quadraticCurveTo(1.36, 3.86, 1.3, 4.0);
+  s.lineTo(1.28, 4.82);
+  s.absarc(0, 4.82, 1.28, 0, Math.PI, false);
+  s.lineTo(-1.3, 4.0);
+});
+const backSwoop = S.path("pip-backSwoop", (s) => {
+  s.moveTo(-1.05, 4.35);
+  s.bezierCurveTo(-0.6, 4.75, 0.1, 4.6, 0.55, 5.15);
+  s.bezierCurveTo(0.75, 5.45, 0.95, 5.5, 1.1, 5.3);
+  s.bezierCurveTo(0.9, 5.2, 0.85, 4.9, 0.55, 4.7);
+  s.bezierCurveTo(0.1, 4.35, -0.5, 4.2, -1.05, 4.35);
+});
+const clip = S.rectC(0.62, 0.2, 0.1);
+const fringe = S.path("pip-fringe", (s) => {
+  s.moveTo(-1.16, 4.7);
+  s.absarc(0, 4.8, 1.18, Math.PI + 0.08, -0.08, true);
+  // wavy swoop back from right temple to left temple
+  s.bezierCurveTo(0.95, 5.05, 0.55, 5.25, 0.3, 5.12);
+  s.bezierCurveTo(0.05, 5.0, -0.2, 5.28, -0.45, 5.08);
+  s.bezierCurveTo(-0.75, 4.86, -0.95, 4.95, -1.16, 4.7);
+});
+const curlShape = S.path("pip-curl", (s) => {
+  s.moveTo(-0.08, 0);
+  s.bezierCurveTo(-0.2, 0.35, 0.05, 0.62, 0.32, 0.55);
+  s.bezierCurveTo(0.55, 0.48, 0.5, 0.2, 0.3, 0.24);
+  s.bezierCurveTo(0.18, 0.27, 0.22, 0.4, 0.3, 0.38);
+  s.bezierCurveTo(0.12, 0.5, -0.02, 0.3, 0.08, 0);
+  s.closePath();
+});
+const eye = S.ellipse(0.12, 0.19);
+const glint = S.circle(0.045);
+const cheek = S.circle(0.17);
+const smile = S.path("pip-smile", (s) => {
+  s.moveTo(-0.17, 0.04);
+  s.quadraticCurveTo(0, -0.16, 0.17, 0.04);
+  s.quadraticCurveTo(0, -0.07, -0.17, 0.04);
+});
+const mouthO = S.ellipse(0.09, 0.11);
+const mouthFlat = S.rectC(0.26, 0.05, 0.025);
+const button = S.circle(0.085);
+const scarfBand = S.rectC(1.5, 0.42, 0.2);
+const scarfTail = S.path("pip-scarfTail", (s) => {
+  s.moveTo(-0.2, 0);
+  s.lineTo(0.2, 0);
+  s.lineTo(0.24, -0.95);
+  s.lineTo(0.12, -1.06);
+  s.lineTo(0.04, -0.96);
+  s.lineTo(-0.05, -1.06);
+  s.lineTo(-0.14, -0.96);
+  s.lineTo(-0.24, -1.04);
+  s.closePath();
+});
+const stripe = S.rectC(0.44, 0.07, 0.02);
+const belt = S.rectC(1.5, 0.22, 0.06);
+
+
+export const PaperCharacter: React.FC<{
+  pose: PuppetPose; position?: V3; yaw?: number; scale?: number; visible?: boolean;
+  /** PALETTE names or hex colours; unspecified parts keep the base colours. */
+  colors?: Partial<PuppetColors>;
+  scarf?: boolean;
+  curl?: boolean;
+}> = ({
+  pose,
+  position,
+  yaw = 0,
+  scale = 1,
+  visible = true,
+  colors,
+  scarf = true,
+  curl = true,
+}) => {
+  const C: PuppetColors = { ...PUPPET_COLORS, ...colors };
+  const ph = pose.walk * Math.PI * 2;
+  const swing = Math.sin(ph) * 0.48 * pose.stride;
+  const bob = ((1 - Math.cos(ph * 2)) / 2) * 0.09 * pose.stride;
+  const sway = Math.sin(ph) * 0.035 * pose.stride;
+  const t = pose.time;
+  // the scarf trails behind in proportion to speed, with a soft flutter
+  const flutter = Math.sin(t * 7.3) * 0.08 + Math.sin(t * 11.9 + 1) * 0.04;
+  const trail = 0.25 + 0.75 * pose.stride;
+  const eyeX = pose.look[0] * 0.08, eyeY = pose.look[1] * 0.06;
+  const blink = Math.max(0.12, 1 - pose.blink);
+  const headSec = Math.sin(ph * 2 - 0.6) * 0.025 * pose.stride; // head lags the body
+
+  return (
+    <group position={position} rotation={[0, yaw, 0]} scale={scale} visible={visible}>
+      <group position={[0, bob, 0]} rotation={[pose.lean, 0, sway]} scale={[1, pose.squash, 1]}>
+        {/* legs + shoes, hinged at the hips */}
+        {([-1, 1] as const).map((side) => (
+          <Hinge key={side} at={[side * 0.3, 1.45, -0.03]} axis="x" angle={side * swing}>
+            <Cut shape={leg} color={C.legs} position={[side * 0.3, 0.18, -0.03]} />
+            <Cut shape={shoe} color={C.shoes} position={[side * 0.32, 0.16, 0.06]} depth={0.1} />
+          </Hinge>
+        ))}
+
+        {/* coat */}
+        <Cut shape={coat} color={C.coat} position={[0, 0, 0]} />
+        <Cut shape={hem} color={C.coatDeep} position={[0, 0, 0.045]} depth={0.03} />
+        <Cut shape={collarL} color={C.collar} position={[0, 0, 0.05]} depth={0.04} />
+        <Cut shape={collarR} color={C.collar} position={[0, 0, 0.05]} depth={0.04} />
+        {[2.55, 2.12, 1.7].map((y) => (
+          <Cut key={y} shape={button} color={C.scarf} position={[0, y, 0.055]} depth={0.05} />
+        ))}
+        {/* back: belt with two buttons, seen when Pip walks away */}
+        <Cut shape={belt} color={C.coatDeep} position={[0, 2.0, -0.05]} depth={0.04} />
+        {[-0.45, 0.45].map((x) => (
+          <Cut key={x} shape={button} color={C.scarf} position={[x, 2.0, -0.085]} depth={0.04} />
+        ))}
+
+        {/* scarf: band, front tail, and a long back tail that streams behind */}
+        <Cut shape={neck} color={C.skin} position={[0, 3.3, -0.01]} />
+        {scarf ? (
+          <>
+            <Cut shape={scarfBand} color={C.scarf} position={[0, 3.46, 0.07]} depth={0.08} />
+            {[-0.45, 0, 0.45].map((x) => (
+              <Cut key={x} shape={stripe} color={C.scarfDeep} position={[x, 3.46, 0.115]} rotation={[0, 0, Math.PI / 2]} scale={[0.7, 1, 1]} depth={0.02} />
+            ))}
+            <Hinge at={[0.42, 3.36, 0.11]} axis="x" angle={0.12 * trail + flutter * 0.5}>
+              <group position={[0.42, 3.36, 0.11]} rotation={[0, 0, 0.12]}>
+                <Cut shape={scarfTail} color={C.scarf} scale={[1, 0.85, 1]} />
+                <Cut shape={stripe} color={C.scarfDeep} position={[0, -0.55, 0.035]} depth={0.02} />
+              </group>
+            </Hinge>
+            <Hinge at={[-0.35, 3.4, -0.1]} axis="x" angle={0.3 + 0.95 * trail + flutter}>
+              <group position={[-0.35, 3.4, -0.1]} rotation={[0, 0, -0.18 + flutter * 0.6]}>
+                <Cut shape={scarfTail} color={C.scarf} scale={[1.05, 1.35, 1]} />
+                <Cut shape={stripe} color={C.scarfDeep} position={[0, -0.8, -0.035]} depth={0.02} />
+              </group>
+            </Hinge>
+          </>
+        ) : null}
+
+        {/* sleeves, hinged at the shoulders */}
+        {([-1, 1] as const).map((side) => {
+          const i = side < 0 ? 0 : 1;
+          const fwd = -side * swing * 0.85 + pose.armFwd[i];
+          return (
+            <group key={side} position={[side * 0.74, 3.18, 0.1]} rotation={[-fwd, 0, side * (0.1 + pose.armOut[i])]}>
+              <Cut shape={sleeve} color={C.coat} />
+              <Cut shape={cuff} color={C.collar} position={[0, -1.12, 0.04]} depth={0.04} />
+              <Cut shape={hand} color={C.skin} position={[0, -1.36, 0.02]} />
+            </group>
+          );
+        })}
+
+        {/* head */}
+        <group position={[0, 3.62, 0]} rotation={[pose.headNod + headSec, 0, pose.headTilt]}>
+          <group position={[0, -3.62, 0]}>
+            <Cut shape={hairBack} color={C.hair} position={[0, 0, -0.07]} />
+            {/* back of the head: a paler swoop of hair and a gold clip, so Pip reads from behind */}
+            <Cut shape={backSwoop} color={C.hairLight} position={[0, 0, -0.115]} depth={0.03} />
+            <group position={[-0.62, 4.95, -0.14]} rotation={[0, 0, 0.5]}>
+              <Cut shape={clip} color={C.scarf} depth={0.05} />
+              <Cut shape={S.circle(0.09)} color={C.coat} depth={0.04} position={[0, 0, -0.04]} />
+            </group>
+            <Cut shape={head} color={C.skin} position={[0, 4.72, 0.03]} />
+            <Cut shape={fringe} color={C.hair} position={[0, 0, 0.1]} />
+            {curl ? (
+              <group position={[0.1, 5.95, 0.0]} rotation={[0, 0, Math.sin(t * 3.1) * 0.08 - 0.1]}>
+                <Cut shape={curlShape} color={C.hair} />
+              </group>
+            ) : null}
+            {/* face */}
+            {[-1, 1].map((side) => (
+              <group key={side} position={[side * 0.4 + eyeX, 4.5 + eyeY, 0.08]} scale={[1, blink, 1]}>
+                <Cut shape={eye} color={C.ink} depth={0.03} />
+                {pose.blink < 0.5 ? <Cut shape={glint} color="ivoryLight" position={[0.04, 0.07, 0.02]} depth={0.02} /> : null}
+              </group>
+            ))}
+            {[-1, 1].map((side) => (
+              <Cut key={side} shape={cheek} color={C.cheek} position={[side * 0.7, 4.16, 0.075]} depth={0.02} />
+            ))}
+            {pose.mouth === "smile" ? (
+              <Cut shape={smile} color={C.ink} position={[0, 4.12, 0.08]} depth={0.02} />
+            ) : pose.mouth === "o" ? (
+              <Cut shape={mouthO} color={C.ink} position={[0, 4.08, 0.08]} depth={0.02} />
+            ) : (
+              <Cut shape={mouthFlat} color={C.ink} position={[0, 4.1, 0.08]} depth={0.02} />
+            )}
+          </group>
+        </group>
+      </group>
+    </group>
+  );
+};
+
+==== 2418 src/kits/paperworld/components/PaperClock.tsx
+// PaperClock — layered analog clock: rim ring, face disc, cut tick marks, two hands on a
+// brad. Time is given in hours (e.g. 15.25 = 3:15); the hands are exact functions of it.
+
+import React from "react";
+import { S } from "../geometry/shapes.ts";
+import { Cut, type V3 } from "./Paper.tsx";
+
+export const PaperClock: React.FC<{
+  r: number;
+  hours: number;
+  rim?: string;
+  face?: string;
+  hands?: string;
+  ticks?: string;
+  position?: V3;
+  rotation?: V3;
+}> = ({ r, hours, rim = "gold", face = "ivoryLight", hands = "cobaltDeep", ticks = "brownDeep", position, rotation }) => {
+  const minuteA = -((hours % 1) * Math.PI * 2);
+  const hourA = -(((hours % 12) / 12) * Math.PI * 2);
+  const tick = S.rectC(r * 0.05, r * 0.16, r * 0.02);
+  const major = S.rectC(r * 0.09, r * 0.22, r * 0.03);
+  const hourHand = S.path(`hourhand-${r}`, (s) => {
+    s.moveTo(-r * 0.07, -r * 0.12);
+    s.lineTo(r * 0.07, -r * 0.12);
+    s.lineTo(r * 0.045, r * 0.5);
+    s.lineTo(0, r * 0.58);
+    s.lineTo(-r * 0.045, r * 0.5);
+    s.closePath();
+  });
+  const minuteHand = S.path(`minutehand-${r}`, (s) => {
+    s.moveTo(-r * 0.045, -r * 0.16);
+    s.lineTo(r * 0.045, -r * 0.16);
+    s.lineTo(r * 0.03, r * 0.76);
+    s.lineTo(0, r * 0.84);
+    s.lineTo(-r * 0.03, r * 0.76);
+    s.closePath();
+  });
+  const d = Math.max(0.05, r * 0.025);
+  return (
+    <group position={position} rotation={rotation}>
+      <Cut shape={S.circle(r * 1.08)} color={rim} depth={d * 4} />
+      <Cut shape={S.circle(r * 0.95)} color={face} depth={d} position={[0, 0, d * 2.2]} />
+      <Cut shape={S.ring(r * 0.95, r * 1.08)} color={rim} depth={d * 2} position={[0, 0, d * 3]} />
+      {Array.from({ length: 12 }, (_, i) => {
+        const a = (i / 12) * Math.PI * 2;
+        const isMajor = i % 3 === 0;
+        return (
+          <group key={i} rotation={[0, 0, -a]}>
+            <Cut shape={isMajor ? major : tick} color={ticks} depth={d} position={[0, r * (isMajor ? 0.73 : 0.77), d * 3]} />
+          </group>
+        );
+      })}
+      <group rotation={[0, 0, hourA]} position={[0, 0, d * 4.2]}>
+        <Cut shape={hourHand} color={hands} depth={d * 1.2} />
+      </group>
+      <group rotation={[0, 0, minuteA]} position={[0, 0, d * 5.6]}>
+        <Cut shape={minuteHand} color={hands} depth={d * 1.2} />
+      </group>
+      <Cut shape={S.circle(r * 0.08)} color={rim} depth={d * 2} position={[0, 0, d * 6.6]} />
+    </group>
+  );
+};
+
+==== 8748 src/kits/paperworld/components/PaperDoor.tsx
+// PaperDoor — a dimensional cardstock doorway.
+//
+//   frame   heavy board cut as outline-minus-opening, with a sill, sitting proud of the wall
+//   lining  a thin band following the opening, giving the doorway real depth (the reveal)
+//   leaf    layered panels + knob, hung on a hinge; or a two-panel bifold that folds like a
+//           paper screen (inner panel swings out, outer panel folds back against it)
+//   crest   optional coloured cap above the frame (reads from far overhead)
+//
+// Door-local space: opening centred on x = 0, door plane z = 0, front faces +z, base y = 0.
+// The opening (where a portal surface or another room shows through) starts at y = SILL.
+
+import React from "react";
+import { S, traceOutline, type Outline, type ShapeSpec } from "../geometry/shapes.ts";
+import { Cut, Hinge, type V3 } from "./Paper.tsx";
+
+export const SILL = 0.14;
+
+export type DoorSpec = {
+  kind: Outline;
+  /** Opening width and height (above the sill). */
+  w: number;
+  h: number;
+  frame: string;
+  leaf: string;
+  trim: string;
+  knob?: string;
+  /** Face width of the frame around the opening. */
+  border?: number;
+  /** Depth of the reveal behind the door plane. */
+  reveal?: number;
+  panel?: "inset" | "window" | "planks" | "none";
+  crest?: string;
+  /** Outer frame outline (defaults to the opening's kind). */
+  outer?: Outline;
+};
+
+export const doorOpening = (d: DoorSpec): ShapeSpec =>
+  S.path(`opening-${d.kind}-${d.w}-${d.h}`, (s) => {
+    traceOutline(s, d.kind, 0, SILL, d.w, d.h);
+  });
+
+const knobShape = S.circle(0.17);
+const knobRose = S.circle(0.26);
+
+/** Leaf face decoration (layered on the front of the leaf, and mirrored on the back). */
+const LeafDetail: React.FC<{ d: DoorSpec; lw: number; lh: number; side: 1 | -1 }> = ({ d, lw, lh, side }) => {
+  const z = side * 0.06;
+  const panel = d.panel ?? "inset";
+  if (panel === "none") return null;
+  if (panel === "inset") {
+    const pw = lw * 0.66;
+    const top = lh - (d.kind === "rect" ? 0.5 : lw * 0.5) - 0.35;
+    const h2 = Math.max(0.6, top * 0.42);
+    const h1 = Math.max(0.6, top - h2 - 1.0);
+    return (
+      <>
+        <Cut shape={S.rect(pw, h1, 0.12)} color={d.trim} depth={0.04} position={[0, 0.5, z]} />
+        <Cut shape={d.kind === "rect" ? S.rect(pw, h2, 0.12) : S.outline(d.kind, pw, h2 + pw * 0.3)} color={d.trim} depth={0.04} position={[0, 0.5 + h1 + 0.45, z]} />
+      </>
+    );
+  }
+  if (panel === "window") {
+    const r = Math.min(lw * 0.28, 0.9);
+    const wy = lh - (d.kind === "rect" ? r + 0.6 : lw * 0.5 + 0.2);
+    return (
+      <>
+        <Cut shape={S.ring(r * 0.78, r)} color={d.trim} depth={0.05} position={[0, wy, z]} />
+        <Cut shape={S.circle(r * 0.8)} color="goldLight" depth={0.02} position={[0, wy, z * 0.4]} opts={{ emissive: "goldLight", emissiveIntensity: 0.25 }} />
+        <Cut shape={S.rectC(0.09, r * 1.6)} color={d.trim} depth={0.03} position={[0, wy, z * 1.2]} />
+        <Cut shape={S.rectC(r * 1.6, 0.09)} color={d.trim} depth={0.03} position={[0, wy, z * 1.2]} />
+        <Cut shape={S.rect(lw * 0.6, Math.max(0.5, wy - r - 1.0), 0.1)} color={d.trim} depth={0.04} position={[0, 0.45, z]} />
+      </>
+    );
+  }
+  // planks
+  const n = Math.max(3, Math.round(lw / 0.55));
+  return (
+    <>
+      {Array.from({ length: n - 1 }, (_, i) => (
+        <Cut key={i} shape={S.rect(0.06, lh - (d.kind === "rect" ? 0.3 : lw * 0.45))} color={d.trim} depth={0.03} position={[-lw / 2 + ((i + 1) * lw) / n, 0.15, z]} />
+      ))}
+      <Cut shape={S.rectC(lw * 0.92, 0.22, 0.06)} color={d.trim} depth={0.04} position={[0, lh * 0.25, z * 1.1]} />
+      <Cut shape={S.rectC(lw * 0.92, 0.22, 0.06)} color={d.trim} depth={0.04} position={[0, lh * 0.62, z * 1.1]} />
+    </>
+  );
+};
+
+export const PaperDoor: React.FC<{
+  d: DoorSpec;
+  /** 0 closed → 1 fully open. */
+  open?: number;
+  bifold?: boolean;
+  hinge?: "left" | "right";
+  showLeaf?: boolean;
+  /** Draw the reveal lining (off for doors pasted flat on a wall). */
+  lining?: boolean;
+  /** Draw the frame (off when a second leaf-only door overlays a frame drawn elsewhere). */
+  showFrame?: boolean;
+  position?: V3;
+  yaw?: number;
+}> = ({ d, open = 0, bifold = false, hinge = "left", showLeaf = true, lining = true, showFrame = true, position, yaw = 0 }) => {
+  const b = d.border ?? 0.55;
+  const reveal = d.reveal ?? 0.8;
+  const outer = d.outer ?? d.kind;
+  const ow = d.w + 2 * b;
+  const oh = d.h + SILL + b;
+  const lw = d.w - 0.1;
+  const lh = d.h - 0.08;
+  const hs = hinge === "left" ? 1 : -1;
+  const hx = -hs * (d.w / 2 - 0.02);
+  const leafZ = 0.06;
+
+  const leafBody = (w: number, shape: ShapeSpec, xOff: number) => (
+    <group position={[xOff, 0, 0]}>
+      <Cut shape={shape} color={d.leaf} depth={0.1} />
+      {w === lw ? (
+        <>
+          <LeafDetail d={d} lw={lw} lh={lh} side={1} />
+          <LeafDetail d={d} lw={lw} lh={lh} side={-1} />
+        </>
+      ) : null}
+    </group>
+  );
+
+  let leaf: React.ReactNode = null;
+  if (showLeaf) {
+    const leafShape = S.outline(d.kind, lw, lh);
+    if (!bifold) {
+      const a = -hs * open * 1.8;
+      const kx = hs * (lw / 2 - 0.4);
+      leaf = (
+        <Hinge at={[hx, 0, leafZ]} axis="y" angle={a}>
+          <group position={[0, SILL + 0.02, leafZ]}>
+            {leafBody(lw, leafShape, 0)}
+            <Cut shape={knobRose} color={d.knob ?? "gold"} depth={0.05} position={[kx, lh * 0.45, 0.08]} />
+            <Cut shape={knobShape} color={d.knob ?? "gold"} depth={0.22} position={[kx, lh * 0.45, 0.16]} />
+            <Cut shape={knobShape} color={d.knob ?? "gold"} depth={0.22} position={[kx, lh * 0.45, -0.16]} />
+          </group>
+        </Hinge>
+      );
+    } else {
+      // Two half-panels: the leaf outline split down the middle by clipping shapes in half.
+      const half = lw / 2;
+      const th = open * 1.45;
+      // Halves of the leaf outline: walk the outline, keep one side, close along x = 0.
+      const halfShape = (sign: 1 | -1) =>
+        S.path(`bifold${sign}-${d.kind}-${lw}-${lh}`, (s) => {
+          const pts = S.outline(d.kind, lw, lh).make().getPoints(64).filter((p) => sign * p.x > 0.0001 && p.y > 0.0001);
+          if (sign > 0) pts.reverse();
+          s.moveTo(0, 0);
+          s.lineTo(0, lh);
+          for (const p of pts) s.lineTo(p.x, p.y);
+          s.lineTo(sign * half, 0);
+          s.closePath();
+        });
+      const left = halfShape(-1);
+      const right = halfShape(1);
+      // inner panel hinged at the frame, outer panel creased to it: a folding screen
+      const inner = hs > 0 ? left : right;
+      const outerP = hs > 0 ? right : left;
+      const innerOff = hs * half; // centre of the inner panel → its own hinge at the frame edge
+      leaf = (
+        <Hinge at={[hx, 0, leafZ]} axis="y" angle={-hs * th}>
+          <group position={[hx + innerOff, SILL + 0.02, leafZ]}>
+            <Cut shape={inner} color={d.leaf} depth={0.08} />
+            <Cut shape={S.rect(half * 0.62, lh * 0.36, 0.1)} color={d.trim} depth={0.03} position={[0, lh * 0.12, 0.05]} />
+            <Cut shape={S.rect(half * 0.62, lh * 0.36, 0.1)} color={d.trim} depth={0.03} position={[0, lh * 0.12, -0.05]} />
+          </group>
+          <Hinge at={[hx + hs * half, 0, leafZ]} axis="y" angle={hs * 2 * th}>
+            <group position={[hx + hs * half, SILL + 0.02, leafZ]}>
+              <Cut shape={outerP} color={d.leaf} depth={0.08} />
+              <Cut shape={S.rect(half * 0.62, lh * 0.36, 0.1)} color={d.trim} depth={0.03} position={[0, lh * 0.12, 0.05]} />
+              <Cut shape={S.rect(half * 0.62, lh * 0.36, 0.1)} color={d.trim} depth={0.03} position={[0, lh * 0.12, -0.05]} />
+              <Cut shape={knobShape} color={d.knob ?? "gold"} depth={0.22} position={[hs * (half * 0.5 - 0.1), lh * 0.45, 0.15]} />
+            </group>
+          </Hinge>
+        </Hinge>
+      );
+    }
+  }
+
+  return (
+    <group position={position} rotation={[0, yaw, 0]}>
+      {showFrame ? (
+        <>
+          {/* frame face */}
+          <Cut shape={S.frame(outer, ow, oh, d.kind, d.w, d.h, SILL)} color={d.frame} depth={0.22} position={[0, 0, 0.11]} />
+          {/* inner bead: a second, thinner frame in the trim colour */}
+          <Cut shape={S.frame(d.kind, d.w + 0.32, d.h + SILL + 0.16, d.kind, d.w, d.h, SILL)} color={d.trim} depth={0.08} position={[0, 0, 0.26]} />
+          {lining ? <Cut shape={S.frame(d.kind, d.w + 0.12, d.h + SILL + 0.06, d.kind, d.w, d.h, SILL)} color={d.frame} depth={reveal} position={[0, 0, -reveal / 2]} /> : null}
+        </>
+      ) : null}
+      {showFrame && d.crest ? (
+        <Cut shape={S.outline("arch", ow * 0.62, ow * 0.31 + 0.2)} color={d.crest} depth={0.3} position={[0, oh - (outer === "rect" ? 0.05 : ow * 0.12), 0.0]} />
+      ) : null}
+      {leaf}
+    </group>
+  );
+};
+
+==== 6030 src/kits/paperworld/example/PaperworldExample.tsx
+// PAPERWORLD technical example — a paper village morning built only from src/kits/paperworld.
+// Hills, houses and trees pop up in sequence, a clock on the tower runs, an arched door folds open and a
+// puppet in its own colours walks out of it toward the lens while the camera dollies down with shallow
+// depth of field that racks to the puppet. 5 s at any fps (every time is in seconds).
+// It is a technical check and a starting point, not a story: never reuse it as a buyer's film.
+
+import React from "react";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { PCFShadowMap } from "three";
+import { Stage, type Light, type Shot } from "../render/Stage.tsx";
+import { clamp, ease, foldEase, mix, popEase, remap } from "../motion/easing.ts";
+import { Ground, PaperBush, PaperCloud, PaperHill, PaperLamp, PaperTree } from "../components/MiniatureEnvironment.tsx";
+import { PaperBuilding, type BuildingSpec } from "../components/PaperBuilding.tsx";
+import { PaperDoor } from "../components/PaperDoor.tsx";
+import { PaperClock } from "../components/PaperClock.tsx";
+import { PaperCharacter, restPose } from "../components/PaperCharacter.tsx";
+import { ShearPop, type V3 } from "../components/Paper.tsx";
+
+export const PAPERWORLD_EXAMPLE_SECONDS = 5;
+
+const MORNING: Light = {
+  dir: [-0.55, 0.75, 0.4],
+  key: "#fff1dc",
+  keyI: 2.5,
+  fill: "#e9eef6",
+  fillI: 0.55,
+  sky: "#fdf6ea",
+  ground: "#cdb08f",
+  hemiI: 1.2,
+  bg: "#f1e7d6",
+  exposure: 1.04,
+  shadowSize: 60,
+  shadowSoft: 4,
+};
+
+const TOWER: BuildingSpec = { w: 5, d: 4.5, h: 11.5, roof: "step", wall: "goldLight", roofColor: "goldDeep", trim: "ivoryLight", window: "cobaltDeep", cols: 2, rows: 2, seed: 9 };
+const TOWER_AT: V3 = [0.5, 0, -19];
+
+// The puppet walks out through the door: door and path share one heading.
+const DOOR_AT: V3 = [-3.2, 0, -9];
+const WALK_END: V3 = [1.0, 0, 2.0];
+const HEADING = Math.atan2(WALK_END[0] - DOOR_AT[0], WALK_END[2] - DOOR_AT[2]);
+const WALK_START: V3 = [DOOR_AT[0] - Math.sin(HEADING) * 0.7, 0, DOOR_AT[2] - Math.cos(HEADING) * 0.7];
+
+const lerp3 = (a: V3, b: V3, t: number): V3 => [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)];
+const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+export const PaperworldExample: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const s = frame / fps;
+  const pop = (a: number, b: number) => popEase(remap(s, a, b));
+
+  // puppet: steps out from behind the door once it is half open, then walks to the foreground
+  const w = remap(s, 2.0, 4.8);
+  const stride = Math.min(remap(s, 2.0, 2.4), 1 - remap(s, 4.4, 4.8));
+  const puppet = lerp3(WALK_START, WALK_END, ease.inOut(w));
+
+  // camera: one eased dolly from a high wide view down to eye level; focus racks from the village to the puppet
+  const k = ease.inOut(remap(s, 0, PAPERWORLD_EXAMPLE_SECONDS));
+  const pos = lerp3([-6, 10, 34], [3.5, 5.0, 17], k);
+  const target = lerp3([0, 4.2, -8], [0, 3.4, -5], k);
+  const head: V3 = [puppet[0], 3.6, puppet[2]];
+  const shot: Shot = {
+    pos,
+    target,
+    fov: 34,
+    focus: mix(dist(pos, target), dist(pos, head), clamp(remap(s, 2.2, 3.2))),
+    aperture: 0.0009,
+    maxBlur: 0.004,
+  };
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: MORNING.bg }}>
+      <ThreeCanvas width={width} height={height} shadows={{ type: PCFShadowMap }} dpr={1}
+        gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" }} camera={{ fov: 34, position: [0, 8, 30] }}>
+        <Stage shot={shot} light={MORNING} frame={frame} center={[0, 0, -8]}>
+          <Ground color="ivory" />
+          <PaperHill w={46} h={10} color="mintLight" position={[-6, 0, -34]} skew={0.2} t={pop(0.0, 0.7)} />
+          <PaperHill w={38} h={7} color="mint" position={[9, 0, -28]} skew={-0.3} t={pop(0.15, 0.85)} />
+          <PaperBuilding b={{ w: 5.5, d: 5, h: 8, roof: "gable", wall: "coralLight", roofColor: "cobalt", trim: "ivoryLight", window: "brownDeep", cols: 2, rows: 2, door: "mint", seed: 4 }}
+            position={[-5.5, 0, -17]} yaw={0.12} t={pop(0.4, 1.1)} />
+          <ShearPop t={pop(0.55, 1.25)} position={TOWER_AT}>
+            <PaperBuilding b={TOWER} />
+            <PaperClock r={0.95} hours={7 + s * 0.6} position={[0, 10.15, TOWER.d / 2 + 0.16]} />
+          </ShearPop>
+          <PaperBuilding b={{ w: 6, d: 5, h: 7, roof: "flat", wall: "cobaltLight", roofColor: "cobaltDeep", trim: "ivoryLight", window: "brownDeep", cols: 3, rows: 2, door: "coral", seed: 13 }}
+            position={[6, 0, -16]} yaw={-0.15} t={pop(0.7, 1.4)} />
+          <PaperTree kind="round" h={5.5} color="mint" position={[-8.5, 0, -7]} t={pop(0.9, 1.5)} />
+          <PaperTree kind="cone" h={6.5} color="mintDeep" position={[7.5, 0, -8]} t={pop(1.0, 1.6)} />
+          <PaperBush w={2.4} color="mintDeep" position={[4.2, 0, -1.5]} t={pop(1.1, 1.7)} />
+          <PaperLamp h={5.2} position={[-6.2, 0, -3.5]} t={pop(1.2, 1.8)} glow={0.25} />
+          <PaperCloud w={5} color="ivoryLight" position={[-5, 17 + Math.sin(s * 1.3) * 0.15, -24]} threadTo={24} />
+          <PaperCloud w={4} color="ivoryLight" position={[5.5, 15.5 + Math.sin(s * 1.1 + 1) * 0.15, -22]} threadTo={24} />
+          <PaperDoor d={{ kind: "arch", w: 3, h: 5.4, frame: "brown", leaf: "coral", trim: "coralDeep", panel: "inset" }}
+            position={DOOR_AT} yaw={HEADING} open={foldEase(remap(s, 1.5, 2.3)) * 0.9} />
+          <PaperCharacter
+            pose={restPose({ time: s, walk: Math.max(0, s - 2.0) * 1.5, stride, look: [0.1, 0.05], blink: s % 3.1 < 0.1 ? 1 : 0 })}
+            position={puppet} yaw={HEADING} scale={0.85}
+            colors={{ coat: "mint", coatDeep: "mintDeep", collar: "ivoryLight", legs: "brown", shoes: "brownDeep", hair: "#2f2420", hairLight: "#4a3a33", scarf: "coral" }}
+            scarf={false} curl={false} />
+        </Stage>
+      </ThreeCanvas>
+    </AbsoluteFill>
+  );
+};
+
+==== 10264 src/kits/paperworld/geometry/shapes.ts
+// Cut-out shape library. Every builder returns a ShapeSpec: a cache key plus a factory, so
+// identical cut-outs share one ExtrudeGeometry no matter how many sets use them.
+//
+// Convention: shapes stand on the origin — x centred, y from 0 upward — so a pop-up's crease
+// is always the shape's own base line. Extrusion depth is centred on z = 0.
+
+import { ExtrudeGeometry, Path, Shape, ShapeGeometry, type BufferGeometry } from "three";
+
+export type ShapeSpec = { key: string; make: () => Shape };
+
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+const k = (name: string, ...args: (number | string)[]) => `${name}(${args.map((a) => (typeof a === "number" ? r3(a) : a)).join(",")})`;
+
+/** Trace a rounded rectangle [x0,x1]×[y0,y1] into a Shape or Path (counter-clockwise). */
+const traceRoundRect = (p: Path, x0: number, y0: number, x1: number, y1: number, r: number) => {
+  const rr = Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2);
+  p.moveTo(x0 + rr, y0);
+  p.lineTo(x1 - rr, y0);
+  if (rr > 0) p.absarc(x1 - rr, y0 + rr, rr, -Math.PI / 2, 0, false);
+  p.lineTo(x1, y1 - rr);
+  if (rr > 0) p.absarc(x1 - rr, y1 - rr, rr, 0, Math.PI / 2, false);
+  p.lineTo(x0 + rr, y1);
+  if (rr > 0) p.absarc(x0 + rr, y1 - rr, rr, Math.PI / 2, Math.PI, false);
+  p.lineTo(x0, y0 + rr);
+  if (rr > 0) p.absarc(x0 + rr, y0 + rr, rr, Math.PI, Math.PI * 1.5, false);
+  return p;
+};
+
+/** Arch outline (rectangle with a semicircular head) from the base line. */
+const traceArch = (p: Path, cx: number, y0: number, w: number, h: number, ccw = true) => {
+  const r = w / 2;
+  const spring = y0 + Math.max(0, h - r);
+  if (ccw) {
+    p.moveTo(cx - r, y0);
+    p.lineTo(cx + r, y0);
+    p.lineTo(cx + r, spring);
+    p.absarc(cx, spring, r, 0, Math.PI, false);
+    p.lineTo(cx - r, y0);
+  } else {
+    p.moveTo(cx - r, y0);
+    p.lineTo(cx - r, spring);
+    p.absarc(cx, spring, r, Math.PI, 0, true);
+    p.lineTo(cx + r, y0);
+    p.lineTo(cx - r, y0);
+  }
+  return p;
+};
+
+export type Outline = "arch" | "rect" | "gothic";
+
+/** Door/window outline of any kind, base on y0, centred on cx. */
+export const traceOutline = (p: Path, kind: Outline, cx: number, y0: number, w: number, h: number) => {
+  if (kind === "rect") return traceRoundRect(p, cx - w / 2, y0, cx + w / 2, y0 + h, 0);
+  if (kind === "arch") return traceArch(p, cx, y0, w, h);
+  // equilateral pointed arch
+  const spring = y0 + Math.max(0, h - 0.866 * w);
+  p.moveTo(cx - w / 2, y0);
+  p.lineTo(cx + w / 2, y0);
+  p.lineTo(cx + w / 2, spring);
+  p.absarc(cx - w / 2, spring, w, 0, Math.PI / 3, false);
+  p.absarc(cx + w / 2, spring, w, (2 * Math.PI) / 3, Math.PI, false);
+  p.lineTo(cx - w / 2, y0);
+  return p;
+};
+
+export type Hole =
+  | { kind: "rect"; x: number; y: number; w: number; h: number; r?: number }
+  | { kind: "arch"; x: number; y: number; w: number; h: number }
+  | { kind: "circle"; x: number; y: number; r: number };
+
+const holeKey = (hs: Hole[]) =>
+  hs.map((h) => (h.kind === "circle" ? k("c", h.x, h.y, h.r) : k(h.kind, h.x, h.y, h.w, h.h, h.kind === "rect" ? h.r ?? 0 : 0))).join("");
+
+const addHoles = (s: Shape, hs: Hole[]) => {
+  for (const h of hs) {
+    const p = new Path();
+    if (h.kind === "rect") traceRoundRect(p, h.x - h.w / 2, h.y, h.x + h.w / 2, h.y + h.h, h.r ?? 0);
+    else if (h.kind === "arch") traceArch(p, h.x, h.y, h.w, h.h);
+    else p.absarc(h.x, h.y, h.r, 0, Math.PI * 2, false);
+    s.holes.push(p);
+  }
+  return s;
+};
+
+export const S = {
+  /** Rounded rectangle standing on the base line. */
+  rect: (w: number, h: number, r = 0, holes: Hole[] = []): ShapeSpec => ({
+    key: k("rect", w, h, r) + holeKey(holes),
+    make: () => addHoles(traceRoundRect(new Shape(), -w / 2, 0, w / 2, h, r) as Shape, holes),
+  }),
+  /** Centred rounded rectangle (for slabs that sit on their centre). */
+  rectC: (w: number, h: number, r = 0, holes: Hole[] = []): ShapeSpec => ({
+    key: k("rectC", w, h, r) + holeKey(holes),
+    make: () => addHoles(traceRoundRect(new Shape(), -w / 2, -h / 2, w / 2, h / 2, r) as Shape, holes),
+  }),
+  arch: (w: number, h: number, holes: Hole[] = []): ShapeSpec => ({
+    key: k("arch", w, h) + holeKey(holes),
+    make: () => addHoles(traceArch(new Shape(), 0, 0, w, h) as Shape, holes),
+  }),
+  circle: (r: number, holes: Hole[] = []): ShapeSpec => ({
+    key: k("circle", r) + holeKey(holes),
+    make: () => {
+      const s = new Shape();
+      s.absarc(0, 0, r, 0, Math.PI * 2, false);
+      return addHoles(s, holes);
+    },
+  }),
+  ellipse: (rx: number, ry: number): ShapeSpec => ({
+    key: k("ellipse", rx, ry),
+    make: () => {
+      const s = new Shape();
+      s.absellipse(0, 0, rx, ry, 0, Math.PI * 2, false, 0);
+      return s;
+    },
+  }),
+  /** Annulus (ring), e.g. a clock rim. */
+  ring: (r0: number, r1: number): ShapeSpec => ({
+    key: k("ring", r0, r1),
+    make: () => {
+      const s = new Shape();
+      s.absarc(0, 0, r1, 0, Math.PI * 2, false);
+      const h = new Path();
+      h.absarc(0, 0, r0, 0, Math.PI * 2, true);
+      s.holes.push(h);
+      return s;
+    },
+  }),
+  /** Arbitrary polygon from points (counter-clockwise). */
+  poly: (name: string, pts: [number, number][]): ShapeSpec => ({
+    key: k("poly", name),
+    make: () => {
+      const s = new Shape();
+      pts.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+      s.closePath();
+      return s;
+    },
+  }),
+  /** Free path: `draw` receives a fresh Shape. `name` must uniquely describe it. */
+  path: (name: string, draw: (s: Shape) => void): ShapeSpec => ({
+    key: k("path", name),
+    make: () => {
+      const s = new Shape();
+      draw(s);
+      return s;
+    },
+  }),
+  /** Gabled house front: body w×h with a roof of height rh. Optional window/door holes. */
+  gable: (w: number, h: number, rh: number, holes: Hole[] = []): ShapeSpec => ({
+    key: k("gable", w, h, rh) + holeKey(holes),
+    make: () => {
+      const s = new Shape();
+      s.moveTo(-w / 2, 0);
+      s.lineTo(w / 2, 0);
+      s.lineTo(w / 2, h);
+      s.lineTo(0, h + rh);
+      s.lineTo(-w / 2, h);
+      s.closePath();
+      return addHoles(s, holes);
+    },
+  }),
+  /** Opening of any outline kind (door leaves, portal surfaces, windows). */
+  outline: (kind: Outline, w: number, h: number, holes: Hole[] = []): ShapeSpec => ({
+    key: k("outline", kind, w, h) + holeKey(holes),
+    make: () => addHoles(traceOutline(new Shape(), kind, 0, 0, w, h) as Shape, holes),
+  }),
+  /** Frame: outer outline minus an inner opening (inner base may sit above the outer base). */
+  frame: (outer: Outline, ow: number, oh: number, inner: Outline, iw: number, ih: number, iy = 0): ShapeSpec => ({
+    key: k("frame", outer, ow, oh, inner, iw, ih, iy),
+    make: () => {
+      const s = traceOutline(new Shape(), outer, 0, 0, ow, oh) as Shape;
+      s.holes.push(traceOutline(new Path(), inner, 0, iy, iw, ih));
+      return s;
+    },
+  }),
+  /** Rolling hill silhouette: width w, peak h, base thickness b (stands on y=0). */
+  hill: (w: number, h: number, b: number, skew = 0): ShapeSpec => ({
+    key: k("hill", w, h, b, skew),
+    make: () => {
+      const s = new Shape();
+      s.moveTo(-w / 2, 0);
+      s.lineTo(w / 2, 0);
+      s.lineTo(w / 2, b);
+      s.bezierCurveTo(w * 0.25 + skew, b + h * 0.15, w * 0.2 + skew, b + h, skew, b + h);
+      s.bezierCurveTo(-w * 0.2 + skew, b + h, -w * 0.25 + skew, b + h * 0.15, -w / 2, b);
+      s.closePath();
+      return s;
+    },
+  }),
+  /** Puffy cloud from overlapping lobes along a flat base. */
+  cloud: (w: number, h: number, lobes = 4): ShapeSpec => ({
+    key: k("cloud", w, h, lobes),
+    make: () => {
+      const s = new Shape();
+      s.moveTo(-w / 2, 0);
+      s.lineTo(w / 2, 0);
+      const n = lobes;
+      for (let i = n - 1; i >= 0; i--) {
+        const t0 = i / n, t1 = (i + 1) / n;
+        const xa = -w / 2 + w * t1, xb = -w / 2 + w * t0;
+        const peak = h * (0.55 + 0.45 * Math.sin(Math.PI * (t0 + t1) * 0.5));
+        s.bezierCurveTo(xa, peak * 0.9, xb, peak * 0.9, xb, i === 0 ? 0 : peak * 0.35);
+      }
+      s.closePath();
+      return s;
+    },
+  }),
+  /** Five-point star. */
+  star: (r: number, inner = 0.45): ShapeSpec => ({
+    key: k("star", r, inner),
+    make: () => {
+      const s = new Shape();
+      for (let i = 0; i < 10; i++) {
+        const a = Math.PI / 2 + (i * Math.PI) / 5;
+        const rr = i % 2 ? r * inner : r;
+        const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+        if (i) s.lineTo(x, y);
+        else s.moveTo(x, y);
+      }
+      s.closePath();
+      return s;
+    },
+  }),
+  /** Crescent: disc of radius r minus an offset disc. */
+  crescent: (r: number, cut: number, off: number): ShapeSpec => ({
+    key: k("crescent", r, cut, off),
+    make: () => {
+      // Intersections of the two circles, then two arcs.
+      const d = off;
+      const x = (d * d + r * r - cut * cut) / (2 * d);
+      const y = Math.sqrt(Math.max(0, r * r - x * x));
+      const a0 = Math.atan2(y, x), a1 = Math.atan2(-y, x);
+      const b0 = Math.atan2(y, x - d), b1 = Math.atan2(-y, x - d);
+      const s = new Shape();
+      s.absarc(0, 0, r, a0, a1 + Math.PI * 2, false);
+      s.absarc(d, 0, cut, b1, b0, true);
+      s.closePath();
+      return s;
+    },
+  }),
+};
+
+// ── Geometry cache ─────────────────────────────────────────────────────────────
+
+const geoCache = new Map<string, BufferGeometry>();
+
+/** Extruded cut-out with centred thickness. Groups: 0 = faces, 1 = cut edges. */
+export const extrude = (spec: ShapeSpec, depth: number, curveSegments = 24): BufferGeometry => {
+  const key = `${spec.key}|${r3(depth)}|${curveSegments}`;
+  let g = geoCache.get(key);
+  if (!g) {
+    g = new ExtrudeGeometry(spec.make(), { depth, bevelEnabled: false, curveSegments, steps: 1 });
+    g.translate(0, 0, -depth / 2);
+    g.computeBoundingSphere();
+    geoCache.set(key, g);
+  }
+  return g;
+};
+
+/** Flat (zero-thickness) shape, for printed details lying on a face. */
+export const flat = (spec: ShapeSpec, curveSegments = 24): BufferGeometry => {
+  const key = `${spec.key}|flat|${curveSegments}`;
+  let g = geoCache.get(key);
+  if (!g) {
+    g = new ShapeGeometry(spec.make(), curveSegments);
+    geoCache.set(key, g);
+  }
+  return g;
+};
+
+==== 8410 src/kits/paperworld/material/paper.ts
+// PaperMaterial — the single material system every PAPERWORLD object is made of.
+//
+// Real cardstock reads through three things at once: low-frequency mottling (pulp density),
+// fibres (short bright/dark hairs), and a cut edge that is paler than the dyed face. Here
+// all three are procedural and seeded, so every render of every frame is identical.
+//
+// UVs are in scene units (ExtrudeGeometry's world UV generator uses shape coordinates), so
+// the grain has the same physical scale on a door, a floor or a puppet's sleeve.
+
+import {
+  CanvasTexture,
+  Color,
+  DoubleSide,
+  LinearMipmapLinearFilter,
+  MeshStandardMaterial,
+  NoColorSpace,
+  RepeatWrapping,
+  SRGBColorSpace,
+  ShaderChunk,
+  type Texture,
+} from "three";
+import { PAPER, PALETTE } from "../tokens.ts";
+
+const SIZE = 1024;
+
+const mulberry32 = (seed: number) => () => {
+  seed |= 0;
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+/** Tileable value noise sampled on the SIZE² grid (`cells` lattice cells per side). */
+const tileNoise = (cells: number, rnd: () => number) => {
+  const lattice = new Float32Array(cells * cells).map(() => rnd());
+  const out = new Float32Array(SIZE * SIZE);
+  const k = cells / SIZE;
+  for (let y = 0; y < SIZE; y++) {
+    const fy = y * k, y0 = Math.floor(fy), ty = fy - y0;
+    const sy = ty * ty * (3 - 2 * ty);
+    const r0 = (y0 % cells) * cells, r1 = ((y0 + 1) % cells) * cells;
+    for (let x = 0; x < SIZE; x++) {
+      const fx = x * k, x0 = Math.floor(fx), tx = fx - x0;
+      const sx = tx * tx * (3 - 2 * tx);
+      const c0 = x0 % cells, c1 = (x0 + 1) % cells;
+      const a = lattice[r0 + c0] + (lattice[r0 + c1] - lattice[r0 + c0]) * sx;
+      const b = lattice[r1 + c0] + (lattice[r1 + c1] - lattice[r1 + c0]) * sx;
+      out[y * SIZE + x] = a + (b - a) * sy;
+    }
+  }
+  return out;
+};
+
+type GrainMaps = { albedo: Texture; bump: Texture };
+let maps: GrainMaps | null = null;
+
+/** Draw the fibre layer: short curved hairs, wrapped so the tile repeats seamlessly. */
+const fibres = (rnd: () => number) => {
+  const c = document.createElement("canvas");
+  c.width = c.height = SIZE;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "rgb(128,128,128)";
+  g.fillRect(0, 0, SIZE, SIZE);
+  g.lineCap = "round";
+  for (let i = 0; i < 5200; i++) {
+    const x = rnd() * SIZE, y = rnd() * SIZE;
+    const len = 6 + rnd() ** 2 * 46;
+    const a = rnd() * Math.PI * 2;
+    const bend = (rnd() - 0.5) * 0.9;
+    const light = rnd() < 0.62;
+    const alpha = 0.05 + rnd() * 0.11;
+    g.strokeStyle = light ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha * 0.8})`;
+    g.lineWidth = 0.5 + rnd() * 1.1;
+    for (const ox of [-SIZE, 0, SIZE])
+      for (const oy of [-SIZE, 0, SIZE]) {
+        const px = x + ox, py = y + oy;
+        if (px < -60 || px > SIZE + 60 || py < -60 || py > SIZE + 60) continue;
+        g.beginPath();
+        g.moveTo(px, py);
+        g.quadraticCurveTo(
+          px + Math.cos(a + bend) * len * 0.5,
+          py + Math.sin(a + bend) * len * 0.5,
+          px + Math.cos(a) * len,
+          py + Math.sin(a) * len,
+        );
+        g.stroke();
+      }
+  }
+  return g.getImageData(0, 0, SIZE, SIZE).data;
+};
+
+const build = (): GrainMaps => {
+  const rnd = mulberry32(20261028);
+  const m1 = tileNoise(4, rnd), m2 = tileNoise(12, rnd), m3 = tileNoise(40, rnd), fine = tileNoise(256, rnd);
+  const fib = fibres(rnd);
+
+  const make = (fn: (i: number) => number) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = SIZE;
+    const g = c.getContext("2d")!;
+    const img = g.createImageData(SIZE, SIZE);
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      const v = Math.max(0, Math.min(255, Math.round(fn(i) * 255)));
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+      img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  };
+
+  // Albedo multiplier: ~0.965 mean, pulp mottling ±3 %, fibres ±4 %, tooth ±1.5 %.
+  const albedoCanvas = make((i) => {
+    const mottle = (m1[i] - 0.5) * 0.5 + (m2[i] - 0.5) * 0.35 + (m3[i] - 0.5) * 0.15;
+    const f = (fib[i * 4] - 128) / 128;
+    return 0.965 + mottle * 0.06 + f * 0.05 + (fine[i] - 0.5) * 0.03;
+  });
+  // Height: fibres stand proud, tooth gives the matte micro-relief.
+  const bumpCanvas = make((i) => {
+    const f = (fib[i * 4] - 128) / 128;
+    return 0.5 + f * 0.35 + (fine[i] - 0.5) * 0.35 + (m3[i] - 0.5) * 0.2;
+  });
+
+  const tex = (c: HTMLCanvasElement, srgb: boolean) => {
+    const t = new CanvasTexture(c);
+    t.wrapS = t.wrapT = RepeatWrapping;
+    t.repeat.set(1 / PAPER.grainTile, 1 / PAPER.grainTile);
+    t.minFilter = LinearMipmapLinearFilter;
+    t.anisotropy = 8;
+    t.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return { albedo: tex(albedoCanvas, true), bump: tex(bumpCanvas, false) };
+};
+
+export const grainMaps = () => (maps ??= build());
+
+// ── Material factory ────────────────────────────────────────────────────────────
+
+export type PaperOpts = {
+  /** Raise/lower the fibre relief (default 1). */
+  relief?: number;
+  roughness?: number;
+  /** Self-illumination for backlit paper (lamps, glowing doors). */
+  emissive?: string;
+  emissiveIntensity?: number;
+  doubleSide?: boolean;
+  /** 0 = edge identical to face, 1 = edge fully pale core. */
+  core?: number;
+};
+
+const cache = new Map<string, MeshStandardMaterial>();
+
+const resolve = (c: string) => (c in PALETTE ? PALETTE[c as keyof typeof PALETTE] : c);
+
+const CORE = new Color("#fff9ee");
+
+// three's screen-space bump mapping divides by the surface's screen derivatives; on a sliver seen exactly
+// edge-on (or a software rasteriser's helper pixels) those can vanish and the normal becomes NaN, which the
+// bloom then smears over the whole frame. Fall back to the geometric normal there.
+const SAFE_BUMP = ShaderChunk.bumpmap_pars_fragment
+  .replace(
+    "vec3 vSigmaX = normalize( dFdx( surf_pos.xyz ) );",
+    "vec3 dX = dFdx( surf_pos.xyz );\n\t\tvec3 dY = dFdy( surf_pos.xyz );\n\t\tif ( dot( dX, dX ) < 1e-14 || dot( dY, dY ) < 1e-14 ) return surf_norm;\n\t\tvec3 vSigmaX = normalize( dX );",
+  )
+  .replace("vec3 vSigmaY = normalize( dFdy( surf_pos.xyz ) );", "vec3 vSigmaY = normalize( dY );")
+  .replace(
+    "return normalize( abs( fDet ) * surf_norm - vGrad );",
+    "vec3 pn = abs( fDet ) * surf_norm - vGrad;\n\t\tfloat l2 = dot( pn, pn );\n\t\treturn l2 > 1e-12 ? pn * inversesqrt( l2 ) : surf_norm;",
+  );
+
+const make = (color: string, o: PaperOpts, edge: boolean) => {
+  const { albedo, bump } = grainMaps();
+  const col = new Color(resolve(color));
+  if (edge) col.lerp(CORE, o.core ?? 0.32);
+  const m = new MeshStandardMaterial({
+    color: col,
+    map: albedo,
+    bumpMap: bump,
+    bumpScale: (edge ? 0.35 : 0.9) * (o.relief ?? 1),
+    roughness: o.roughness ?? 0.93,
+    metalness: 0,
+    ...(o.doubleSide ? { side: DoubleSide } : {}),
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace("#include <bumpmap_pars_fragment>", SAFE_BUMP);
+  };
+  m.customProgramCacheKey = () => "paper-safe-bump";
+  if (o.emissive) {
+    m.emissive = new Color(resolve(o.emissive));
+    m.emissiveIntensity = o.emissiveIntensity ?? 1;
+  }
+  return m;
+};
+
+const key = (color: string, o: PaperOpts, edge: boolean) =>
+  `${color}|${o.relief ?? 1}|${o.roughness ?? 0.93}|${o.emissive ?? ""}|${o.emissiveIntensity ?? 1}|${o.doubleSide ? 1 : 0}|${o.core ?? 0.32}|${edge ? "e" : "f"}`;
+
+/** Face material for a paper colour (palette name or hex). Cached and shared. */
+export const paperFace = (color: string, o: PaperOpts = {}) => {
+  const k = key(color, o, false);
+  let m = cache.get(k);
+  if (!m) cache.set(k, (m = make(color, o, false)));
+  return m;
+};
+
+/** Cut-edge material: the paler core of the same stock. */
+export const paperEdge = (color: string, o: PaperOpts = {}) => {
+  const k = key(color, o, true);
+  let m = cache.get(k);
+  if (!m) cache.set(k, (m = make(color, o, true)));
+  return m;
+};
+
+/** [face, edge] pair for ExtrudeGeometry's two groups (0 = caps, 1 = sides). */
+export const paperPair = (color: string, o: PaperOpts = {}) => [paperFace(color, o), paperEdge(color, o)];
+
+==== 3963 src/kits/paperworld/motion/easing.ts
+// PAPERWORLD easing vocabulary (inherited from the PRECISION system). Every curve is a pure function of normalised time, so the
+// whole film stays deterministic: same frame in, same pose out.
+
+export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
+export const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+export const remap = (x: number, a: number, b: number) => clamp((x - a) / (b - a));
+
+export const smoothstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * (3 - 2 * x);
+};
+
+/** C2-continuous: zero velocity and acceleration at both ends. */
+export const smootherstep = (t: number) => {
+  const x = clamp(t);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/** CSS-style cubic bezier easing (x1,y1,x2,y2), solved by Newton + bisection. */
+export const bezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t: number) => ((ay * t + by) * t + cy) * t;
+  const dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    const X = clamp(x);
+    let t = X;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - X;
+      const d = dx(t);
+      if (Math.abs(e) < 1e-6) return sy(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1;
+    t = X;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - X) < 1e-6) break;
+      if (v < X) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+};
+
+// Named curves, tuned for handmade motion (long, confident tails; no bounce).
+export const ease = {
+  /** Default move: decisive start, very long settle. */
+  glide: bezier(0.45, 0, 0.12, 1),
+  /** Symmetric, weighty. Camera and large objects. */
+  inOut: bezier(0.65, 0, 0.35, 1),
+  /** Soft symmetric for subtle drifts. */
+  sine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t)),
+  /** Starts with energy (a magnet letting go), long deceleration. */
+  release: bezier(0.2, 0.7, 0.1, 1),
+  /** Gathers speed and arrives fast (magnetic pull into a dock). */
+  attract: bezier(0.55, 0, 0.95, 0.55),
+  /** Typographic reveal. */
+  type: bezier(0.2, 0, 0, 1),
+  out: bezier(0, 0, 0.2, 1),
+  in: bezier(0.6, 0, 1, 1),
+  smoother: smootherstep,
+};
+
+/** Eased progress of `frame` through [start, end]. */
+export const seg = (frame: number, start: number, end: number, curve: (t: number) => number = ease.inOut) =>
+  curve(remap(frame, start, end));
+
+/**
+ * Critically damped settle used after a mechanical stop: decays to zero with at most one
+ * tiny overshoot. `t` in frames since the stop, `amp` the initial offset.
+ */
+export const settle = (t: number, amp: number, freq = 0.11, damping = 0.16) =>
+  t <= 0 ? 0 : amp * Math.exp(-damping * t) * Math.cos(freq * t * Math.PI);
+
+// ── Paper-specific curves ───────────────────────────────────────────────────────
+/** Cardstock fold: committed start, soft landing. Paper has weight, not spring. */
+export const foldEase = bezier(0.55, 0, 0.18, 1);
+
+/**
+ * Pop-up hinge: rises past flat by at most `over` (fraction of travel) then settles, the
+ * way a pop-up piece slaps upright and wobbles once. 0 → 1, never more than one overshoot.
+ */
+export const popEase = (t: number, over = 0.035) => {
+  const x = clamp(t);
+  if (x < 0.7) return foldEase(x / 0.7) * (1 + over);
+  return 1 + over * (0.5 + 0.5 * Math.cos(((x - 0.7) / 0.3) * Math.PI));
+};
+
+/** Deterministic hash → [0,1) for per-object imperfections (seeded by an integer id). */
+export const hash01 = (n: number) => {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+};
+
+==== 2286 src/kits/paperworld/motion/track.ts
+// Keyframe tracks with C1 continuity. Interior keys pass through with Catmull-Rom tangents
+// (so a camera never "kinks" when one move hands over to the next); `hold` keys and the
+// ends get zero tangents (a soft ease in/out). Tangents are clamped Fritsch–Carlson style
+// so a curve never overshoots its keys — no accidental bounces.
+
+/**
+ * `m` overrides the tangent (units per frame), e.g. to arrive at speed for a magnetic snap;
+ * `stop` makes the key an impact: it is reached at `m` and left at rest.
+ */
+export type Key = { f: number; v: number[]; hold?: boolean; m?: number[]; stop?: boolean };
+
+const hermite = (p0: number, p1: number, m0: number, m1: number, t: number, h: number) => {
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * h * m1;
+};
+
+const tangent = (keys: Key[], i: number, c: number) => {
+  const k = keys[i];
+  if (k.m) return k.m[c];
+  if (k.hold || i === 0 || i === keys.length - 1) return 0;
+  const a = keys[i - 1], b = keys[i + 1];
+  const m = (b.v[c] - a.v[c]) / (b.f - a.f);
+  // Monotone clamp: no overshoot past either neighbour.
+  const d0 = (k.v[c] - a.v[c]) / (k.f - a.f);
+  const d1 = (b.v[c] - k.v[c]) / (b.f - k.f);
+  if (d0 * d1 <= 0) return 0;
+  const lim = 3 * Math.min(Math.abs(d0), Math.abs(d1));
+  return Math.sign(m) * Math.min(Math.abs(m), lim);
+};
+
+/** Sample a multi-channel track at `frame`. */
+export const sample = (keys: Key[], frame: number): number[] => {
+  if (frame <= keys[0].f) return keys[0].v.slice();
+  const last = keys[keys.length - 1];
+  if (frame >= last.f) return last.v.slice();
+  let i = 0;
+  while (i < keys.length - 2 && frame >= keys[i + 1].f) i++;
+  const a = keys[i], b = keys[i + 1];
+  const h = b.f - a.f;
+  const t = (frame - a.f) / h;
+  return a.v.map((_, c) =>
+    hermite(a.v[c], b.v[c], a.stop ? 0 : tangent(keys, i, c), tangent(keys, i + 1, c), t, h),
+  );
+};
+
+/** Convenience: build keys from [frame, ...values] tuples; append "hold" to pin a key. */
+export const keys = (...rows: (number | "hold")[][]): Key[] =>
+  rows.map((r) => {
+    const hold = r[r.length - 1] === "hold";
+    const nums = r.filter((x): x is number => typeof x === "number");
+    return { f: nums[0], v: nums.slice(1), hold };
+  });
+
+==== 14156 src/kits/paperworld/render/Stage.tsx
+// Stage — owns light, lens and the render loop for a PAPERWORLD film.
+//
+// Each frame:
+//   1. If a door is open onto another world, render that world from a "virtual camera"
+//      (the main camera carried through the door's rigid transform) into a texture, lit by
+//      the destination world's light, clipped at the destination doorway.
+//   2. Render the main world through the finishing chain:
+//      scene (MSAA) → GTAO contact shadows → sanitize → bokeh depth of field → soft bloom → tone map → grade.
+// The doorway surface samples step 1 in screen space, so the view through a door has true
+// perspective and parallax, and the camera can fly through it without a cut.
+
+import React, { useLayoutEffect, useMemo } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import {
+  AmbientLight,
+  Color,
+  DirectionalLight,
+  Fog,
+  HalfFloatType,
+  HemisphereLight,
+  Matrix4,
+  Mesh,
+  NeutralToneMapping,
+  Object3D,
+  PerspectiveCamera,
+  Plane,
+  ShaderMaterial,
+  Vector2,
+  Vector3,
+  WebGLRenderTarget,
+  type Scene,
+} from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { flat, type ShapeSpec } from "../geometry/shapes.ts";
+import type { V3 } from "../components/Paper.tsx";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type Shot = {
+  pos: V3;
+  target: V3;
+  fov: number;
+  roll?: number;
+  /** Focus distance (world units) and bokeh settings. */
+  focus: number;
+  aperture: number;
+  maxBlur: number;
+};
+
+/** A world's light: warm key with soft shadows, cool fill, hemispheric bounce, paper sky. */
+export type Light = {
+  /** Direction *toward* the key light (normalised internally). */
+  dir: V3;
+  key: string;
+  keyI: number;
+  fill: string;
+  fillI: number;
+  sky: string;
+  ground: string;
+  hemiI: number;
+  bg: string;
+  exposure: number;
+  /** Half-size of the shadow frustum around the light centre. */
+  shadowSize: number;
+  shadowSoft: number;
+  fog?: { color: string; near: number; far: number };
+};
+
+/** A door between worlds: rigid placement of the same doorway in both worlds. */
+export type Pose = { pos: V3; yaw: number };
+export type PortalState = {
+  from: Pose;
+  to: Pose;
+  /** Opening silhouette in door-local coordinates (x right, y up, base on y = 0). */
+  opening: ShapeSpec;
+  light: Light;
+  /** Where the destination light should centre its shadows (destination world coords). */
+  center: V3;
+};
+
+export const poseMatrix = (p: Pose) => new Matrix4().makeRotationY(p.yaw).setPosition(...p.pos);
+/** Rigid transform carrying source-world coordinates into the destination world. */
+export const portalMatrix = (from: Pose, to: Pose) => poseMatrix(to).multiply(poseMatrix(from).invert());
+
+export const mixLight = (a: Light, b: Light, t: number): Light => {
+  if (t <= 0) return a;
+  if (t >= 1) return b;
+  const c = (x: string, y: string) => "#" + new Color(x).lerp(new Color(y), t).getHexString();
+  const n = (x: number, y: number) => x + (y - x) * t;
+  return {
+    dir: [n(a.dir[0], b.dir[0]), n(a.dir[1], b.dir[1]), n(a.dir[2], b.dir[2])],
+    key: c(a.key, b.key),
+    keyI: n(a.keyI, b.keyI),
+    fill: c(a.fill, b.fill),
+    fillI: n(a.fillI, b.fillI),
+    sky: c(a.sky, b.sky),
+    ground: c(a.ground, b.ground),
+    hemiI: n(a.hemiI, b.hemiI),
+    bg: c(a.bg, b.bg),
+    exposure: n(a.exposure, b.exposure),
+    shadowSize: n(a.shadowSize, b.shadowSize),
+    shadowSoft: n(a.shadowSoft, b.shadowSoft),
+    fog: a.fog && b.fog ? { color: c(a.fog.color, b.fog.color), near: n(a.fog.near, b.fog.near), far: n(a.fog.far, b.fog.far) } : t < 0.5 ? a.fog : b.fog,
+  };
+};
+
+// ── Shaders ──────────────────────────────────────────────────────────────────
+
+const PortalShader = {
+  uniforms: { tPortal: { value: null }, uRes: { value: new Vector2(1080, 1920) }, uGain: { value: 1 } },
+  vertexShader: /* glsl */ `void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tPortal; uniform vec2 uRes; uniform float uGain;
+    void main(){ gl_FragColor = vec4(texture2D(tPortal, gl_FragCoord.xy / uRes).rgb * uGain, 1.0); }`,
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uVignette: { value: 0.16 },
+    uGrain: { value: 0.016 },
+    uRes: { value: new Vector2(1080, 1920) },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uVignette; uniform float uGrain; uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      // warm paper highlights, a breath of brown in the shadows (never blue-black)
+      c.rgb += smoothstep(0.55, 1.0, l) * vec3(0.006, 0.002, -0.006);
+      c.rgb += (1.0 - smoothstep(0.0, 0.45, l)) * vec3(0.012, 0.004, -0.004);
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.18);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.15);
+      c.rgb *= 1.0 - uVignette * smoothstep(0.38, 0.98, length(d));
+      float g = hash(vUv * uRes + uTime * 17.0) - 0.5;
+      c.rgb += g * uGrain * (0.6 + 0.4 * (1.0 - l));
+      gl_FragColor = c;
+    }`,
+};
+
+/** Keeps the HDR buffer finite before depth of field and bloom: one NaN or overflowing pixel from a
+ * custom material would otherwise be smeared over the whole frame by the bloom blur. */
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null }, uMax: { value: 12 } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uMax; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, uMax), clamp(c.a, 0.0, 1.0));
+    }`,
+};
+
+// ── Stage ────────────────────────────────────────────────────────────────────
+
+export type StageProps = {
+  shot: Shot;
+  light: Light;
+  /** Shadow/light centre for the main pass; defaults to the shot target. */
+  center?: V3;
+  portal?: PortalState | null;
+  frame: number;
+  ao?: boolean;
+  children: React.ReactNode;
+};
+
+type Rig = {
+  key: DirectionalLight;
+  fill: DirectionalLight;
+  hemi: HemisphereLight;
+  amb: AmbientLight;
+  target: Object3D;
+};
+
+const applyLight = (scene: Scene, rig: Rig, L: Light, center: Vector3, gl: { toneMappingExposure: number }) => {
+  const d = new Vector3(...L.dir).normalize();
+  rig.target.position.copy(center);
+  rig.target.updateMatrixWorld();
+  rig.key.position.copy(center).addScaledVector(d, 160);
+  rig.key.color.set(L.key);
+  rig.key.intensity = L.keyI;
+  const cam = rig.key.shadow.camera;
+  cam.left = cam.bottom = -L.shadowSize;
+  cam.right = cam.top = L.shadowSize;
+  cam.near = 20;
+  cam.far = 320;
+  cam.updateProjectionMatrix();
+  rig.key.shadow.radius = L.shadowSoft;
+  rig.key.updateMatrixWorld();
+  // fill from the opposite side, low, cool-ish
+  rig.fill.position.copy(center).add(new Vector3(-d.x * 100, 40, -d.z * 100 + 60));
+  rig.fill.color.set(L.fill);
+  rig.fill.intensity = L.fillI;
+  rig.fill.updateMatrixWorld();
+  rig.hemi.color.set(L.sky);
+  rig.hemi.groundColor.set(L.ground);
+  rig.hemi.intensity = L.hemiI;
+  scene.background = new Color(L.bg);
+  scene.fog = L.fog ? new Fog(L.fog.color, L.fog.near, L.fog.far) : null;
+  gl.toneMappingExposure = L.exposure;
+};
+
+export const Stage: React.FC<StageProps> = ({ shot, light, center, portal, frame, ao = true, children }) => {
+  const { gl, scene, camera, size } = useThree();
+
+  const rig = useMemo<Rig>(() => {
+    const target = new Object3D();
+    const key = new DirectionalLight("#fff", 3);
+    key.castShadow = true;
+    key.shadow.mapSize.set(4096, 4096);
+    key.shadow.bias = -0.00025;
+    key.shadow.normalBias = 0.035;
+    key.target = target;
+    const fill = new DirectionalLight("#fff", 0.5);
+    fill.target = target;
+    const hemi = new HemisphereLight("#fff", "#888", 1);
+    const amb = new AmbientLight("#ffffff", 0);
+    return { key, fill, hemi, amb, target };
+  }, []);
+
+  const chain = useMemo(() => {
+    const w = size.width, h = size.height;
+    const rt = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(gl, rt);
+    composer.setPixelRatio(1);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+    let gtao: GTAOPass | null = null;
+    if (ao) {
+      gtao = new GTAOPass(scene, camera, w, h);
+      gtao.blendIntensity = 0.85;
+      gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 0.8, scale: 1.0, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
+      composer.addPass(gtao);
+    }
+    composer.addPass(new ShaderPass(SanitizeShader));
+    const dof = new BokehPass(scene, camera, { focus: 20, aperture: 0.002, maxblur: 0.006 });
+    composer.addPass(dof);
+    const bloom = new UnrealBloomPass(new Vector2(w, h), 0.16, 0.6, 0.92);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    const grade = new ShaderPass(GradeShader);
+    (grade.uniforms.uRes.value as Vector2).set(w, h);
+    composer.addPass(grade);
+    const portalRT = new WebGLRenderTarget(w, h, { type: HalfFloatType, samples: 4 });
+    const vcam = new PerspectiveCamera();
+    vcam.matrixAutoUpdate = false;
+    vcam.matrixWorldAutoUpdate = false;
+    const portalMat = new ShaderMaterial({ ...PortalShader, uniforms: { tPortal: { value: portalRT.texture }, uRes: { value: new Vector2(w, h) }, uGain: { value: 1 } } });
+    portalMat.fog = false;
+    return { composer, dof, grade, portalRT, vcam, portalMat, gtao };
+  }, [gl, scene, camera, size.width, size.height, ao]);
+
+  const portalMesh = useMemo(() => {
+    const m = new Mesh(undefined, chain.portalMat);
+    m.matrixAutoUpdate = false;
+    m.frustumCulled = false;
+    return m;
+  }, [chain]);
+
+  // Camera for this frame.
+  useLayoutEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    cam.position.set(...shot.pos);
+    cam.up.set(Math.sin(shot.roll ?? 0), Math.cos(shot.roll ?? 0), 0);
+    cam.lookAt(...shot.target);
+    cam.fov = shot.fov;
+    cam.near = 0.08;
+    cam.far = 900;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    gl.toneMapping = NeutralToneMapping;
+    gl.shadowMap.autoUpdate = false;
+    const u = chain.dof.uniforms as unknown as Record<string, { value: number }>;
+    u.focus.value = shot.focus;
+    u.aperture.value = shot.aperture;
+    u.maxblur.value = shot.maxBlur;
+    chain.dof.enabled = shot.maxBlur > 0 && shot.aperture > 0;
+    chain.grade.uniforms.uTime.value = frame % 997;
+  }, [shot, camera, gl, chain, frame]);
+
+  // Doorway surface for this frame.
+  useLayoutEffect(() => {
+    if (!portal) {
+      portalMesh.visible = false;
+      return;
+    }
+    portalMesh.geometry = flat(portal.opening);
+    // sit a hair behind the door plane so the frame's inner edges stay crisp
+    portalMesh.matrix.copy(poseMatrix(portal.from)).multiply(new Matrix4().makeTranslation(0, 0, -0.01));
+    portalMesh.matrixWorldNeedsUpdate = true;
+    portalMesh.updateMatrixWorld(true);
+    portalMesh.visible = true;
+  }, [portal, portalMesh]);
+
+  useFrame(() => {
+    const cam = camera as PerspectiveCamera;
+    const mainCenter = new Vector3(...(center ?? shot.target));
+    if (portal) {
+      const X = portalMatrix(portal.from, portal.to);
+      const v = chain.vcam;
+      v.projectionMatrix.copy(cam.projectionMatrix);
+      v.projectionMatrixInverse.copy(cam.projectionMatrixInverse);
+      v.matrixWorld.multiplyMatrices(X, cam.matrixWorld);
+      v.matrixWorldInverse.copy(v.matrixWorld).invert();
+      // Clip everything on the near side of the destination doorway.
+      const toM = poseMatrix(portal.to);
+      const n = new Vector3(0, 0, -1).transformDirection(toM);
+      const p = new Vector3(0, 0, 0).applyMatrix4(toM);
+      gl.clippingPlanes = [new Plane().setFromNormalAndCoplanarPoint(n, p)];
+      applyLight(scene, rig, portal.light, new Vector3(...portal.center), gl);
+      chain.portalMat.uniforms.uGain.value = portal.light.exposure / light.exposure;
+      portalMesh.visible = false;
+      gl.setRenderTarget(chain.portalRT);
+      gl.shadowMap.needsUpdate = true;
+      gl.clear();
+      gl.render(scene, v);
+      gl.setRenderTarget(null);
+      gl.clippingPlanes = [];
+      portalMesh.visible = true;
+    }
+    applyLight(scene, rig, light, mainCenter, gl);
+    gl.shadowMap.needsUpdate = true;
+    chain.composer.render();
+  }, 1);
+
+  return (
+    <>
+      <primitive object={rig.target} />
+      <primitive object={rig.key} />
+      <primitive object={rig.fill} />
+      <primitive object={rig.hemi} />
+      <primitive object={rig.amb} />
+      <primitive object={portalMesh} />
+      {children}
+    </>
+  );
+};
+
+==== 1190 src/kits/paperworld/tokens.ts
+// PAPERWORLD design tokens. One palette, one set of physical constants, used by every set.
+// Colours are authored in sRGB; three.js converts them to linear for lighting.
+
+export const PALETTE = {
+  ivory: "#f3ead9",
+  ivoryLight: "#faf4e8",
+  ivoryShade: "#e5d8c1",
+  coral: "#e3806a",
+  coralDeep: "#c4614f",
+  coralLight: "#f0a892",
+  mint: "#9dd1bb",
+  mintDeep: "#6eaa93",
+  mintLight: "#cbe8da",
+  gold: "#e7b54a",
+  goldDeep: "#c38f2b",
+  goldLight: "#f2d58e",
+  cobalt: "#5f7cb6",
+  cobaltDeep: "#435e95",
+  cobaltLight: "#9eb2da",
+  brown: "#7d5843",
+  brownDeep: "#523729",
+  brownLight: "#ae8a70",
+  skin: "#f3d6bf",
+  ink: "#3b2a22",
+} as const;
+
+export type PaperColor = keyof typeof PALETTE;
+
+/** Physical constants (scene units ≈ centimetres of a desk-top diorama). */
+export const PAPER = {
+  /** Cardstock thickness for cut-outs. */
+  card: 0.06,
+  /** Heavier board for walls, frames and floors. */
+  board: 0.16,
+  /** World size of one tile of the grain texture. */
+  grainTile: 9,
+  /** The puppet's full height, used to scale every set. */
+  puppetHeight: 6.3,
+} as const;
+
+/** Film format. */
+export const FORMAT = { width: 1080, height: 1920, fps: 60 } as const;

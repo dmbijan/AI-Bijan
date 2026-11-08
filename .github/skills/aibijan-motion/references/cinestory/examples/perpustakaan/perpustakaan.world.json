@@ -1,0 +1,354 @@
+{
+  "id": "perpustakaan",
+  "doc": "a small one-room library building in a city park: reading room with shelves, tables and windows; outside a lawn, a gravel path, benches, trees and lamp posts",
+  "times": [
+    "day",
+    "dusk",
+    "night"
+  ],
+  "ground": {
+    "size": 80,
+    "material": "grass:#56703a",
+    "hills": 0.08
+  },
+  "rooms": [
+    {
+      "id": "ruang-baca",
+      "rect": [
+        -5,
+        -4,
+        5,
+        4
+      ],
+      "height": 3.2,
+      "floor": "planks:#b08a5e",
+      "walls": "paint:#ece2cf",
+      "wainscot": "#7a5534",
+      "ceiling": "paint:#f4efe6",
+      "openings": [
+        {
+          "wall": "south",
+          "at": 0,
+          "type": "door",
+          "glass": true,
+          "sign": "PERPUSTAKAAN",
+          "id": "pintu-depan"
+        },
+        {
+          "wall": "south",
+          "at": -3,
+          "type": "window",
+          "w": 1.6,
+          "h": 1.3,
+          "sill": 0.9
+        },
+        {
+          "wall": "south",
+          "at": 3,
+          "type": "window",
+          "w": 1.6,
+          "h": 1.3,
+          "sill": 0.9
+        },
+        {
+          "wall": "east",
+          "at": 0,
+          "type": "window",
+          "w": 2.0,
+          "h": 1.3,
+          "sill": 0.9
+        }
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "jalan-taman",
+      "points": [
+        [
+          0,
+          4.6
+        ],
+        [
+          0.5,
+          9
+        ],
+        [
+          -1.5,
+          15
+        ],
+        [
+          -1,
+          24
+        ]
+      ],
+      "width": 1.6,
+      "material": "dirt:#a89a80"
+    }
+  ],
+  "objects": [
+    {
+      "use": "bookshelf",
+      "id": "rak-1",
+      "at": [
+        -3.2,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-2",
+      "at": [
+        -1.1,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-3",
+      "at": [
+        1.1,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-4",
+      "at": [
+        3.2,
+        -3.78
+      ]
+    },
+    {
+      "use": "bookshelf",
+      "id": "rak-5",
+      "at": [
+        -4.78,
+        -1
+      ],
+      "yaw": 1.5708
+    },
+    {
+      "use": "reading-table",
+      "id": "meja-baca",
+      "at": [
+        -1.6,
+        0.6
+      ]
+    },
+    {
+      "use": "wooden-chair",
+      "id": "kursi-baca",
+      "at": [
+        -1.45,
+        1.18
+      ],
+      "yaw": 3.1416
+    },
+    {
+      "use": "wooden-chair",
+      "at": [
+        -1.6,
+        -0.05
+      ]
+    },
+    {
+      "use": "reading-table",
+      "id": "meja-2",
+      "at": [
+        2.2,
+        0.6
+      ]
+    },
+    {
+      "use": "wooden-chair",
+      "at": [
+        2.2,
+        1.25
+      ],
+      "yaw": 3.1416
+    },
+    {
+      "use": "park-bench",
+      "id": "bangku-taman",
+      "at": [
+        2.4,
+        10
+      ],
+      "yaw": -1.5708
+    },
+    {
+      "use": "park-bench",
+      "at": [
+        -3.6,
+        14
+      ],
+      "yaw": 1.5708
+    },
+    {
+      "use": "tree-broad",
+      "id": "pohon-besar",
+      "at": [
+        8,
+        17
+      ]
+    }
+  ],
+  "scatter": [
+    {
+      "use": "tree-broad",
+      "count": 26,
+      "area": [
+        -30,
+        -30,
+        30,
+        30
+      ],
+      "minDist": 6,
+      "scale": [
+        0.8,
+        1.2
+      ]
+    },
+    {
+      "use": "bush",
+      "count": 30,
+      "area": [
+        -14,
+        -10,
+        14,
+        26
+      ],
+      "minDist": 2
+    },
+    {
+      "use": "grass-tuft",
+      "count": 300,
+      "area": [
+        -12,
+        -8,
+        12,
+        26
+      ],
+      "minDist": 0.4,
+      "avoid": [
+        "paths",
+        "rooms"
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "type": "panel",
+      "at": [
+        -1.8,
+        3.15,
+        0.5
+      ],
+      "prop": "lampu-ruang"
+    },
+    {
+      "type": "panel",
+      "at": [
+        2.0,
+        3.15,
+        0.5
+      ],
+      "prop": "lampu-ruang"
+    },
+    {
+      "type": "lamp-post",
+      "id": "lampu-taman-1",
+      "at": [
+        1.6,
+        0,
+        7.5
+      ],
+      "prop": "lampu-taman"
+    },
+    {
+      "type": "lamp-post",
+      "id": "lampu-taman-2",
+      "at": [
+        -2.8,
+        0,
+        17
+      ],
+      "prop": "lampu-taman"
+    }
+  ],
+  "props": {
+    "lampu-ruang": {
+      "default": 1,
+      "doc": "reading-room ceiling panels on/off"
+    },
+    "lampu-taman": {
+      "default": 0,
+      "doc": "park lamp posts on/off",
+      "sfx": {
+        "up": "click"
+      }
+    }
+  },
+  "places": {
+    "ruang-baca": {
+      "doc": "the reading room: shelves along the back wall, two reading tables, the glass door in the south wall",
+      "kind": "interior",
+      "rooms": [
+        "ruang-baca"
+      ],
+      "marks": {
+        "dalam-pintu": {
+          "at": [
+            0,
+            3.2
+          ],
+          "yaw": 3.1416,
+          "doc": "just inside the door, facing into the room"
+        },
+        "rak": {
+          "at": [
+            -1.1,
+            -2.9
+          ],
+          "yaw": 3.1416,
+          "doc": "in front of the shelves, facing them"
+        }
+      },
+      "view": "rak-2",
+      "ambience": "room",
+      "surface": "wood"
+    },
+    "taman": {
+      "doc": "the park lawn south of the library: the path from the far end to the door",
+      "kind": "exterior",
+      "area": [
+        -12,
+        4.3,
+        12,
+        26
+      ],
+      "marks": {
+        "ujung-jalan": {
+          "at": [
+            -1.0,
+            13.5
+          ],
+          "yaw": 3.0,
+          "doc": "on the path halfway across the park, facing the library"
+        },
+        "depan-pintu": {
+          "at": [
+            0.25,
+            4.75
+          ],
+          "yaw": 3.1416,
+          "doc": "on the path right in front of the door, facing it"
+        }
+      },
+      "view": "pintu-depan",
+      "ambience": "outdoor",
+      "surface": "grass"
+    }
+  }
+}

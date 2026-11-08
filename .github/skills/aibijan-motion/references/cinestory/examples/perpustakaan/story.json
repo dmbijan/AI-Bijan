@@ -1,0 +1,100 @@
+{
+  "id": "perpustakaan",
+  "title": "Perpustakaan di Taman",
+  "vo": {
+    "file": "audio/perpustakaan.mp3",
+    "offset": 1.5
+  },
+  "words": "words.json",
+  "world": "perpustakaan",
+  "cast": [
+    {
+      "id": "nadia",
+      "look": "pemudi-hijab",
+      "name": "Nadia"
+    }
+  ],
+  "endCard": {
+    "text": "PERPUSTAKAAN DI TAMAN",
+    "sub": "contoh dunia dinamis"
+  },
+  "scenes": [
+    {
+      "at": 0,
+      "place": "taman",
+      "time": "dusk",
+      "mood": "calm",
+      "cast": {
+        "nadia": {
+          "at": "ujung-jalan"
+        }
+      },
+      "beats": [
+        {
+          "at": "Sore"
+        },
+        {
+          "at": "Nadia",
+          "do": "walk",
+          "to": "depan-pintu"
+        }
+      ]
+    },
+    {
+      "at": "Ia",
+      "place": "taman",
+      "cast": {
+        "nadia": {
+          "at": "depan-pintu"
+        }
+      },
+      "beats": [
+        {
+          "at": "membuka",
+          "do": "open",
+          "obj": "pintu-depan",
+          "sfx": "door-open"
+        }
+      ]
+    },
+    {
+      "at": "lalu",
+      "place": "ruang-baca",
+      "cast": {
+        "nadia": {
+          "at": "kursi-baca:seat",
+          "do": "sit"
+        }
+      },
+      "beats": [
+        {
+          "at": "duduk"
+        },
+        {
+          "at": "mulai",
+          "do": "write",
+          "target": "meja-baca:papers"
+        }
+      ]
+    },
+    {
+      "at": "Di luar",
+      "place": "taman",
+      "mood": "warm",
+      "cast": {},
+      "beats": [
+        {
+          "at": "lampu",
+          "show": "lampu-taman-1"
+        },
+        {
+          "at": "menyala",
+          "set": {
+            "lampu-taman": 1
+          },
+          "fade": 0.4
+        }
+      ]
+    }
+  ]
+}

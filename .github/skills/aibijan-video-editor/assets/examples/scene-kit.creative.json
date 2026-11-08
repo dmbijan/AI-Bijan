@@ -1,0 +1,599 @@
+{
+  "concept": {
+    "idea": "Search bars above everyone's head: what people secretly look up becomes visible, and privacy turns into the most expensive thing.",
+    "signature": "A crowd where every head carries a search bar, the person in front typing their search; the same bars return above the speaker at the end; Privacy as a hanging price tag."
+  },
+  "style": "mograph-mix",
+  "look": "flat",
+  "settings": {
+    "editing_intensity": "high",
+    "aspect_ratio": "9:16",
+    "music": "enabled",
+    "sound_effects": "medium",
+    "visual_overlays": "extensive"
+  },
+  "style_overrides": {
+    "sound": {
+      "bed": "cinematic"
+    }
+  },
+  "trim": {
+    "end_after_word": 115,
+    "tail": 0.06
+  },
+  "end_hold": 1.0,
+  "emphasize": [
+    13,
+    18,
+    46,
+    87,
+    105
+  ],
+  "captions": {
+    "zones": [
+      {
+        "from": "t:0",
+        "to": "w:14e",
+        "variant": "hook"
+      }
+    ]
+  },
+  "camera": [
+    {
+      "at": "t:0",
+      "preset": "talk",
+      "s": 1.25,
+      "fy": 0.37
+    },
+    {
+      "at": "w:10-0.15",
+      "s": 1.0,
+      "fy": 0.455,
+      "dur": 0.6,
+      "ease": "camera"
+    },
+    {
+      "at": "w:32-0.12",
+      "s": 1.12,
+      "fy": 0.43,
+      "dur": 0.01
+    },
+    {
+      "at": "w:58-0.12",
+      "s": 1.15,
+      "fy": 0.42,
+      "dur": 0.01
+    },
+    {
+      "at": "w:59",
+      "preset": "punch",
+      "amount": 0.07,
+      "hold": 0.4
+    },
+    {
+      "at": "w:72",
+      "preset": "punch",
+      "amount": 0.06,
+      "hold": 0.45
+    },
+    {
+      "at": "w:96-0.1",
+      "s": 1.25,
+      "fy": 0.37,
+      "dur": 0.01
+    },
+    {
+      "at": "w:99",
+      "preset": "punch",
+      "amount": 0.06,
+      "hold": 0.4
+    },
+    {
+      "at": "w:105-0.15",
+      "s": 1.0,
+      "fy": 0.455,
+      "dur": 0.6,
+      "ease": "camera"
+    },
+    {
+      "at": "w:112",
+      "preset": "punch",
+      "amount": 0.06,
+      "hold": 0.5
+    }
+  ],
+  "layouts": [
+    {
+      "at": "t:0",
+      "preset": "full",
+      "transition": "cut",
+      "dur": 0
+    },
+    {
+      "at": "w:15-0.05",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:32-0.08",
+      "preset": "full",
+      "transition": "bars"
+    },
+    {
+      "at": "w:40-0.05",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:58-0.1",
+      "preset": "full",
+      "transition": "bars"
+    },
+    {
+      "at": "w:75-0.05",
+      "preset": "none",
+      "transition": "orb"
+    },
+    {
+      "at": "w:96-0.08",
+      "preset": "full",
+      "transition": "bars"
+    }
+  ],
+  "overlays": [
+    {
+      "type": "Accents",
+      "start": "t:0",
+      "end": "end",
+      "items": [
+        "glints"
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "t:0.02",
+      "end": "w:3-0.08",
+      "at": "w:0-0.02",
+      "text": "Bayangin",
+      "accent": "Bayangin",
+      "layout": "left",
+      "x": 80,
+      "fx": "type",
+      "size": 170,
+      "y": 1120
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:3-0.1",
+      "end": "w:10-0.1",
+      "at": "w:3-0.04",
+      "text": "3 pencarian",
+      "accent": "3",
+      "stack": true,
+      "sizes": [
+        1.5,
+        0.75
+      ],
+      "fx": "slam",
+      "tag": "terakhir",
+      "tagAt": "w:6-0.05",
+      "size": 150,
+      "y": 1080
+    },
+    {
+      "type": "SceneBuild",
+      "anchor": "face",
+      "start": "w:10-0.05",
+      "end": "w:15-0.05",
+      "signature": true,
+      "items": [
+        {
+          "kind": "bar",
+          "slot": "above",
+          "dy": -40,
+          "size": 34,
+          "at": "w:10",
+          "move": "pop"
+        },
+        {
+          "kind": "bar",
+          "slot": "above-left",
+          "dy": 10,
+          "size": 30,
+          "at": "w:12",
+          "move": "pop",
+          "idle": "float"
+        },
+        {
+          "kind": "bar",
+          "slot": "above-right",
+          "dy": 10,
+          "size": 30,
+          "at": "w:13",
+          "move": "pop",
+          "idle": "float"
+        }
+      ]
+    },
+    {
+      "type": "SceneBuild",
+      "scene": true,
+      "start": "w:15-0.05",
+      "end": "w:32-0.08",
+      "items": [
+        {
+          "kind": "crowd",
+          "n": 6,
+          "y": 1000,
+          "size": 1.0,
+          "bars": true,
+          "barsAt": "w:16-0.1",
+          "at": "w:15",
+          "dimAt": "w:22-0.1"
+        },
+        {
+          "kind": "figure",
+          "pose": "stand",
+          "tone": "accent",
+          "x": 250,
+          "y": 1100,
+          "size": 620,
+          "at": "w:19-0.15",
+          "move": "slide",
+          "from": "left",
+          "label": "kamu"
+        },
+        {
+          "kind": "figure",
+          "pose": "wave",
+          "flip": true,
+          "x": 760,
+          "y": 1000,
+          "size": 660,
+          "at": "w:22-0.1",
+          "move": "slide",
+          "from": "right",
+          "label": "orang di depanmu",
+          "labelSize": 34,
+          "above": {
+            "kind": "bar",
+            "text": "cara cepat kaya tanpa kerja",
+            "typeAt": "w:27",
+            "typing": 0.95,
+            "size": 38,
+            "at": "w:24"
+          }
+        }
+      ],
+      "camera": [
+        {
+          "at": "w:22-0.1",
+          "zoom": 1.1,
+          "x": 620,
+          "y": 820,
+          "dur": 0.9
+        }
+      ]
+    },
+    {
+      "type": "SceneBuild",
+      "anchor": "face",
+      "start": "w:32-0.08",
+      "end": "w:40-0.05",
+      "items": [
+        {
+          "kind": "chip",
+          "text": "temanmu",
+          "slot": "chest",
+          "dy": -20,
+          "at": "w:32",
+          "move": "pop",
+          "tone": "accent",
+          "size": 46
+        },
+        {
+          "kind": "bar",
+          "text": "cara keliatan pinter padahal gak ngerti apa-apa",
+          "slot": "above",
+          "dy": -30,
+          "size": 40,
+          "at": "w:33-0.3",
+          "typeAt": "w:33",
+          "typing": 1.2,
+          "move": "pop"
+        }
+      ]
+    },
+    {
+      "type": "SceneBuild",
+      "scene": true,
+      "start": "w:40-0.05",
+      "end": "w:58-0.1",
+      "items": [
+        {
+          "kind": "figure",
+          "pose": "stand",
+          "tone": "accent",
+          "x": 290,
+          "y": 930,
+          "size": 580,
+          "at": "w:41",
+          "move": "slide",
+          "from": "left",
+          "label": "kamu"
+        },
+        {
+          "kind": "figure",
+          "pose": "point",
+          "flip": true,
+          "x": 790,
+          "y": 930,
+          "size": 580,
+          "at": "w:43-0.1",
+          "move": "slide",
+          "from": "right",
+          "label": "orang yang kamu suka",
+          "labelSize": 30,
+          "above": {
+            "kind": "bar",
+            "text": "cara tahu dia suka kita balik",
+            "typeAt": "w:52",
+            "typing": 1.05,
+            "size": 36,
+            "at": "w:49"
+          }
+        },
+        {
+          "kind": "thing",
+          "name": "heart",
+          "x": 540,
+          "y": 850,
+          "size": 150,
+          "at": "w:46",
+          "move": "pop",
+          "idle": "pulse"
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:58-0.1",
+      "end": "w:65-0.1",
+      "kicker": "awalnya",
+      "kickerAt": "w:58-0.05",
+      "text": "lucu kan?",
+      "accent": "lucu",
+      "at": "w:59-0.05",
+      "layout": "right",
+      "x": 1010,
+      "fx": "slide",
+      "tag": "pikir lagi",
+      "tagAt": "w:62-0.06",
+      "size": 160,
+      "y": 1170
+    },
+    {
+      "type": "SceneBuild",
+      "anchor": "face",
+      "start": "w:66-0.1",
+      "end": "w:75-0.08",
+      "items": [
+        {
+          "kind": "thing",
+          "name": "eye",
+          "slot": "left",
+          "at": "w:69",
+          "move": "pop",
+          "idle": "float"
+        },
+        {
+          "kind": "thing",
+          "name": "eye",
+          "slot": "right",
+          "at": "w:69+0.15",
+          "move": "pop",
+          "idle": "float"
+        },
+        {
+          "kind": "thing",
+          "name": "magnifier",
+          "slot": "above",
+          "dy": -20,
+          "at": "w:73",
+          "move": "pop",
+          "idle": "float"
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:66-0.08",
+      "end": "w:75-0.08",
+      "kicker": "semua orang bisa melihat",
+      "kickerAt": "w:66-0.05",
+      "text": "diam-diam",
+      "accent": "diam-diam",
+      "at": "w:72-0.15",
+      "stack": false,
+      "fx": "type",
+      "layout": "left",
+      "x": 70,
+      "size": 150,
+      "y": 1190
+    },
+    {
+      "type": "SceneBuild",
+      "scene": true,
+      "start": "w:75-0.05",
+      "end": "w:88-0.05",
+      "exit": "slide",
+      "items": [
+        {
+          "kind": "card",
+          "text": "Ketakutanmu",
+          "thing": "warning",
+          "x": 540,
+          "y": 500,
+          "w": 860,
+          "at": "w:75",
+          "move": "slide",
+          "from": "left",
+          "hide_captions": true,
+          "size": 56
+        },
+        {
+          "kind": "card",
+          "text": "Rasa penasaranmu",
+          "thing": "question",
+          "x": 540,
+          "y": 740,
+          "w": 860,
+          "at": "w:76",
+          "move": "slide",
+          "from": "right",
+          "hide_captions": true,
+          "size": 56
+        },
+        {
+          "kind": "card",
+          "text": "Pertanyaan",
+          "sub": "yang gak pernah berani kamu tanyakan",
+          "thing": "chat",
+          "x": 540,
+          "y": 980,
+          "w": 860,
+          "at": "w:79",
+          "move": "slide",
+          "from": "left",
+          "hide_captions": true,
+          "size": 56
+        },
+        {
+          "kind": "thing",
+          "name": "lock",
+          "x": 880,
+          "y": 360,
+          "size": 150,
+          "at": "w:87",
+          "move": "slam",
+          "tone": "accent2"
+        }
+      ]
+    },
+    {
+      "type": "SceneBuild",
+      "scene": true,
+      "start": "w:88-0.05",
+      "end": "w:96-0.08",
+      "enter": "slide",
+      "items": [
+        {
+          "kind": "chip",
+          "text": "tiba-tiba",
+          "x": 250,
+          "y": 330,
+          "at": "w:88",
+          "move": "pop",
+          "tone": "ink"
+        },
+        {
+          "kind": "tag",
+          "text": "Privacy",
+          "hang": true,
+          "string": 260,
+          "x": 540,
+          "y": 460,
+          "w": 600,
+          "at": "w:89-0.25",
+          "move": "drop",
+          "idle": "swing",
+          "stamp": "paling mahal",
+          "stampAt": "w:92-0.05",
+          "stampIcon": "lock",
+          "sub": "di dunia"
+        },
+        {
+          "kind": "thing",
+          "name": "coin",
+          "x": 200,
+          "y": 1000,
+          "size": 140,
+          "at": "w:93",
+          "move": "drop",
+          "rot": -12
+        },
+        {
+          "kind": "thing",
+          "name": "money",
+          "x": 880,
+          "y": 1010,
+          "size": 170,
+          "at": "w:93+0.2",
+          "move": "drop",
+          "rot": 10
+        }
+      ]
+    },
+    {
+      "type": "SceneBuild",
+      "anchor": "face",
+      "start": "w:105-0.08",
+      "end": "t:40.6",
+      "items": [
+        {
+          "kind": "bar",
+          "slot": "above",
+          "dy": -40,
+          "size": 34,
+          "at": "w:105-0.05",
+          "move": "pop"
+        },
+        {
+          "kind": "bar",
+          "slot": "above-left",
+          "dy": 10,
+          "size": 30,
+          "at": "w:107-0.02",
+          "move": "pop",
+          "idle": "float"
+        },
+        {
+          "kind": "bar",
+          "slot": "above-right",
+          "dy": 10,
+          "size": 30,
+          "at": "w:108-0.02",
+          "move": "pop",
+          "idle": "float"
+        }
+      ]
+    },
+    {
+      "type": "HeroTitle",
+      "start": "w:109-0.08",
+      "end": "t:40.6",
+      "kicker": "apakah kamu masih",
+      "kickerAt": "w:109-0.05",
+      "text": "berani?",
+      "accent": "berani",
+      "at": "w:112-0.05",
+      "tag": "keluar rumah?",
+      "tagAt": "w:114-0.05",
+      "size": 200,
+      "y": 1230
+    }
+  ],
+  "music": {
+    "hit_at": "w:115e"
+  },
+  "_beats": [
+    "HOOK face: 'Bayangin' typed (left), '3 pencarian' stacked with a huge 3 slamming in, then camera pulls back and three blank search bars pop above the head (kit bars in face slots)",
+    "ORB -> crowd scene: everyone gets a blank bar above the head on 'Semua orang'; 'kamu' slides in; 'orang di depanmu' steps forward while the crowd dims, their bar types the spoken search",
+    "BARS -> face: 'temanmu' chip on the chest, a bar above the head types the second spoken search",
+    "ORB -> pair scene: kamu + orang yang kamu suka, a heart pops between them, the bar above the other person types the third search",
+    "BARS -> face: 'lucu kan?' slides in from the right + 'pikir lagi'; eyes appear left and right of the head on 'melihat', a magnifier above, 'diam-diam' typed",
+    "ORB -> cards slide in one per spoken item (Ketakutanmu / Rasa penasaranmu / Pertanyaan), a lock slams on 'siapapun'",
+    "PUSH -> hanging price tag 'Privacy' drops and swings, 'paling mahal' stamp slams on, coins and money drop",
+    "BARS -> face ending: the three bars return above the head (callback), 'berani?' + 'keluar rumah?', music hit on the last word"
+  ]
+}

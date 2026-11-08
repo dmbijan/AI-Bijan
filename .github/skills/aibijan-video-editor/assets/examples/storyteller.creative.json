@@ -1,0 +1,508 @@
+{
+  "concept": {
+    "idea": "Everyone's last three searches float above their heads - privacy becomes visible.",
+    "signature": "Search bars above the speaker's head that type the spoken examples, then the same three bars return on the final question."
+  },
+  "style": "storyteller",
+  "settings": {
+    "editing_intensity": "medium",
+    "aspect_ratio": "9:16",
+    "music": "enabled",
+    "sound_effects": "medium",
+    "visual_overlays": "moderate"
+  },
+  "trim": {
+    "tail": 0.25
+  },
+  "end_hold": 0.8,
+  "glossary": {
+    "privacy": "privasi"
+  },
+  "emphasize": [
+    4,
+    46,
+    59,
+    63,
+    72,
+    112
+  ],
+  "camera": [
+    {
+      "at": "t:0",
+      "preset": "talk"
+    },
+    {
+      "at": "t:0.25",
+      "preset": "close",
+      "dur": 4.6,
+      "ease": "glide"
+    },
+    {
+      "at": "w:15-0.1",
+      "preset": "talk",
+      "dur": 0
+    },
+    {
+      "at": "w:18",
+      "preset": "punch",
+      "amount": 0.05,
+      "hold": 0.5
+    },
+    {
+      "at": "w:32-0.1",
+      "preset": "talk",
+      "dur": 0.6
+    },
+    {
+      "at": "w:52-0.3",
+      "preset": "close",
+      "dur": 1.6,
+      "ease": "glide"
+    },
+    {
+      "at": "w:58-0.1",
+      "preset": "talk",
+      "dur": 0.4
+    },
+    {
+      "at": "w:59",
+      "preset": "punch",
+      "amount": 0.07,
+      "hold": 0.45
+    },
+    {
+      "at": "w:65",
+      "preset": "close",
+      "dur": 3.0,
+      "ease": "glide"
+    },
+    {
+      "at": "w:88-0.14",
+      "preset": "talk",
+      "dur": 0
+    },
+    {
+      "at": "w:96",
+      "preset": "close",
+      "dur": 5.5,
+      "ease": "glide"
+    }
+  ],
+  "layouts": [
+    {
+      "at": "t:0",
+      "preset": "full",
+      "transition": "cut",
+      "dur": 0
+    },
+    {
+      "at": "w:75-0.15",
+      "preset": "none",
+      "transition": "bloom"
+    },
+    {
+      "at": "w:88-0.14",
+      "preset": "full",
+      "transition": "bloom"
+    },
+    {
+      "at": "w:115e+0.22",
+      "preset": "full",
+      "transition": "iris",
+      "hold": true
+    }
+  ],
+  "overlays": [
+    {
+      "type": "MoodGrade",
+      "mood": "dream",
+      "start": "t:0",
+      "end": "w:3",
+      "in": 0.01
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "warm",
+      "start": "w:3-0.3",
+      "end": "w:15-0.08"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "shock",
+      "start": "w:15-0.08",
+      "end": "w:19",
+      "out": 0.5
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "warm",
+      "start": "w:19-0.2",
+      "end": "w:32-0.1"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "amused",
+      "start": "w:32-0.2",
+      "end": "w:40"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "dream",
+      "start": "w:40-0.2",
+      "end": "w:52-0.2"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "whisper",
+      "start": "w:52-0.35",
+      "end": "w:58-0.05",
+      "out": 0.35
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "excited",
+      "start": "w:58-0.1",
+      "end": "w:61-0.05",
+      "in": 0.3,
+      "out": 0.4
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "serious",
+      "start": "w:61-0.1",
+      "end": "w:75-0.15"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "dark",
+      "start": "w:88-0.14",
+      "end": "w:96",
+      "in": 0.2
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "whisper",
+      "start": "w:96-0.2",
+      "end": "w:109-0.1"
+    },
+    {
+      "type": "MoodGrade",
+      "mood": "dark",
+      "start": "w:109-0.2",
+      "end": "end",
+      "in": 0.8
+    },
+    {
+      "type": "SearchStack",
+      "start": "w:10-0.1",
+      "end": "w:15-0.1",
+      "max": 3,
+      "size": 46,
+      "items": [
+        {
+          "at": "w:10"
+        },
+        {
+          "at": "w:12"
+        },
+        {
+          "at": "w:13+0.05"
+        }
+      ]
+    },
+    {
+      "type": "Shout",
+      "start": "w:17-0.18",
+      "end": "w:20+0.2",
+      "at": "w:17-0.12",
+      "tone": "red",
+      "y": 275,
+      "layer": "behind",
+      "lines": [
+        {
+          "text": "BISA",
+          "size": 140,
+          "at": "w:17-0.12"
+        },
+        {
+          "text": "NGELIAT!",
+          "size": 112,
+          "at": "w:18-0.1"
+        }
+      ]
+    },
+    {
+      "type": "SearchStack",
+      "start": "w:27-0.2",
+      "end": "w:40-0.1",
+      "max": 1,
+      "size": 48,
+      "items": [
+        {
+          "text": "cara cepat kaya tanpa kerja",
+          "at": "w:27-0.2",
+          "typing": 1.1
+        },
+        {
+          "text": "cara keliatan pinter padahal gak ngerti",
+          "at": "w:33-0.15",
+          "typing": 1.3
+        }
+      ]
+    },
+    {
+      "type": "SearchStack",
+      "start": "w:51-0.25",
+      "end": "w:58-0.1",
+      "max": 1,
+      "size": 48,
+      "items": [
+        {
+          "text": "cara tahu dia suka kita balik",
+          "at": "w:51-0.05",
+          "typing": 1.6
+        }
+      ]
+    },
+    {
+      "type": "Floaters",
+      "start": "w:46-0.1",
+      "end": "w:52-0.15",
+      "around": "head",
+      "items": [
+        {
+          "icon": "heart",
+          "at": "w:46",
+          "accent": "#FF6FA8",
+          "slot": 2,
+          "size": 110,
+          "depth": 0.35
+        },
+        {
+          "icon": "heart",
+          "at": "w:46+0.18",
+          "accent": "#FF6FA8",
+          "slot": 1,
+          "size": 90,
+          "depth": 0.8
+        }
+      ]
+    },
+    {
+      "type": "Shout",
+      "start": "w:58-0.08",
+      "end": "w:62",
+      "at": "w:59-0.15",
+      "tone": "gold",
+      "y": 300,
+      "case": "upper",
+      "lines": [
+        {
+          "text": "LUCU, KAN?!",
+          "size": 118,
+          "at": "w:59-0.15"
+        }
+      ]
+    },
+    {
+      "type": "Floaters",
+      "start": "w:66",
+      "end": "w:75-0.15",
+      "around": "head",
+      "items": [
+        {
+          "icon": "eye",
+          "at": "w:69-0.05",
+          "slot": 0,
+          "size": 120,
+          "depth": 0.3
+        },
+        {
+          "icon": "eye",
+          "at": "w:69+0.2",
+          "slot": 3,
+          "size": 100,
+          "depth": 0.75
+        },
+        {
+          "icon": "search",
+          "at": "w:72-0.05",
+          "slot": 1,
+          "size": 110,
+          "depth": 0.5
+        },
+        {
+          "glyph": "?",
+          "at": "w:74-0.05",
+          "slot": 2,
+          "size": 130,
+          "depth": 0.85
+        }
+      ]
+    },
+    {
+      "type": "SceneLens",
+      "start": "w:75-0.15",
+      "end": "w:88-0.14",
+      "words": [
+        {
+          "text": "ketakutanmu",
+          "x": 300,
+          "y": 520,
+          "size": 58
+        },
+        {
+          "text": "penasaranmu",
+          "x": 760,
+          "y": 760,
+          "size": 62
+        },
+        {
+          "text": "pertanyaan",
+          "x": 330,
+          "y": 1000,
+          "size": 60
+        },
+        {
+          "text": "diam-diam",
+          "x": 820,
+          "y": 430,
+          "size": 40
+        },
+        {
+          "text": "cara cepat kaya",
+          "x": 640,
+          "y": 1110,
+          "size": 38
+        },
+        {
+          "text": "suka kita balik",
+          "x": 250,
+          "y": 780,
+          "size": 36
+        },
+        {
+          "text": "kamu cari",
+          "x": 820,
+          "y": 600,
+          "size": 34
+        },
+        {
+          "text": "siapapun",
+          "x": 760,
+          "y": 960,
+          "size": 42
+        },
+        {
+          "text": "berani",
+          "x": 180,
+          "y": 640,
+          "size": 38
+        },
+        {
+          "text": "tanyakan",
+          "x": 520,
+          "y": 380,
+          "size": 36
+        },
+        {
+          "text": "keliatan pinter",
+          "x": 420,
+          "y": 1180,
+          "size": 34
+        },
+        {
+          "text": "pencarian",
+          "x": 880,
+          "y": 1180,
+          "size": 36
+        }
+      ],
+      "focus": [
+        {
+          "word": "ketakutanmu",
+          "at": "w:75"
+        },
+        {
+          "word": "penasaranmu",
+          "at": "w:77"
+        },
+        {
+          "word": "pertanyaan",
+          "at": "w:79"
+        }
+      ]
+    },
+    {
+      "type": "StoryTitle",
+      "start": "w:88-0.1",
+      "end": "w:96-0.05",
+      "kicker": "barang paling mahal",
+      "kickerAt": "w:91",
+      "text": "Privasi.",
+      "at": "w:89-0.05",
+      "y": 380,
+      "size": 190
+    },
+    {
+      "type": "SearchStack",
+      "start": "w:105-0.1",
+      "end": "w:109+0.4",
+      "max": 3,
+      "size": 46,
+      "items": [
+        {
+          "at": "w:105"
+        },
+        {
+          "at": "w:107"
+        },
+        {
+          "at": "w:108+0.05"
+        }
+      ]
+    },
+    {
+      "type": "Floaters",
+      "start": "w:109",
+      "end": "end",
+      "around": "head",
+      "items": [
+        {
+          "glyph": "?",
+          "at": "w:110",
+          "slot": 1,
+          "size": 150,
+          "depth": 0.45
+        },
+        {
+          "glyph": "?",
+          "at": "w:112",
+          "slot": 2,
+          "size": 110,
+          "depth": 0.85
+        }
+      ]
+    }
+  ],
+  "sfx": [
+    {
+      "at": "w:115e+0.22",
+      "kind": "impact",
+      "gain_db": -8
+    }
+  ],
+  "music": {
+    "hit_at": "w:115"
+  },
+  "_beats": [
+    "HOOK 'Bayangin, besok pagi' dream grade + slow push; three search bars rise above the head on 'muncul di atas kepala'",
+    "SHOCK 'Semua orang bisa ngeliat' white flash + red punch grade, extruded SEMUA ORANG / BISA NGELIAT! behind the head, punch",
+    "EXAMPLES one search bar above the head types each quote (max 1): cepat kaya (warm), keliatan pinter (amused), suka balik (whisper, push-in, hearts)",
+    "EXCITED 'Awalnya lucu kan?' gold LUCU, KAN?! + punch",
+    "TURN 'Tapi coba pikir lagi' cold serious grade, eyes / search / ? floating around the head",
+    "DEPTH bloom -> dark word cloud, magnifier reads ketakutanmu, penasaranmu, pertanyaan",
+    "THESIS bloom back -> dark grade, 'Privasi.' title with a light arc, kicker 'barang paling mahal'",
+    "ENDING quiet whisper grade + slow push, three search bars again, dark grade + ? on the last question, iris to black"
+  ]
+}

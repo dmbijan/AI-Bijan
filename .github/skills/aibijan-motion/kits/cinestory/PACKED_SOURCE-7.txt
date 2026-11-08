@@ -1,0 +1,2558 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 38059 project/src/gen/build.ts
+// World builder (data side): world.json + object specs → a WorldData the director can use (places with
+// marks, POIs, camera space, solids, light rig) plus the resolved geometry the renderer draws (walls with
+// openings, doors, objects with world transforms and bounds, ground, paths, fixtures) and a navigation grid.
+// Pure functions; importable by Node (compile, sound, QA) and the browser (render).
+
+import { P_OFF, S_OFF, type LightState, type PointL, type SpotL } from "../cine/types.ts";
+import type { Mark, Place, PropDoc, SetState, WorldData } from "../worlds/types.ts";
+import { fbm } from "../kits/worldforge/noise.ts";
+import { BUILTIN } from "./objects/builtin-data.ts";
+import type { FixtureSpec, ObjectSpec, ObjectUse, OpeningSpec, PartSpec, RoomSpec, ScatterSpec, V2, V3, WorldSpec } from "./spec.ts";
+
+export type Box3 = { min: V3; max: V3 };
+export type ObjInfo = { id: string; doc: string; bounds: V3; center: V3; anchors: Record<string, V3>; walkable?: boolean; hand?: boolean; states: Record<string, number>; builtin: boolean };
+export type Inst = { id: string; use: string; pos: V3; yaw: number; scale: number; info: ObjInfo; variant?: string; color?: string; states: Record<string, number>; box: Box3; parts: Box3[] };
+export type Opening = OpeningSpec & { room: string; x: number; z: number; y: number; w: number; h: number; sill: number; axis: "x" | "z"; wallC: number; id: string };
+export type Built = {
+  spec: WorldSpec;
+  rooms: (RoomSpec & { y: number; height: number })[];
+  openings: Opening[];
+  insts: Inst[];
+  scatter: { use: string; info: ObjInfo; items: { pos: V3; yaw: number; scale: number }[]; variant?: string }[];
+  fixtures: (FixtureSpec & { id: string })[];
+  ground?: (x: number, z: number) => number;
+  bounds: Box3;
+  nav: Nav;
+  objects: Record<string, ObjectSpec>;
+};
+export type Nav = { x0: number; z0: number; cell: number; nx: number; nz: number; free: Uint8Array; floor: (x: number, z: number) => number };
+
+const deg = Math.PI / 180;
+const rot3 = (p: V3, r: V3 = [0, 0, 0]): V3 => {
+  let [x, y, z] = p;
+  const [ax, ay, az] = [r[0] * deg, r[1] * deg, r[2] * deg];
+  // XYZ euler (three.js default): apply X, then Y, then Z in object space = R = Rz·Ry·Rx? three uses intrinsic XYZ → R = Rx·Ry·Rz applied to the vector
+  let c = Math.cos(az), s = Math.sin(az); [x, y] = [x * c - y * s, x * s + y * c];
+  c = Math.cos(ay); s = Math.sin(ay); [x, z] = [x * c + z * s, -x * s + z * c];
+  c = Math.cos(ax); s = Math.sin(ax); [y, z] = [y * c - z * s, y * s + z * c];
+  return [x, y, z];
+};
+
+/** Local bounds of one part (before its own repeat/mirror). */
+const partBox = (p: PartSpec): Box3 => {
+  const sc = p.scale ?? [1, 1, 1];
+  let half: V3;
+  switch (p.shape) {
+    case "box": { const s = p.size ?? [0.1, 0.1, 0.1]; half = [s[0] / 2, s[1] / 2, s[2] / 2]; break; }
+    case "plane": case "text": { const s = p.size ?? [0.5, 0.3]; half = [s[0] / 2, s[1] / 2, 0.005]; break; }
+    case "cyl": case "cone": { const r = Math.max(p.r ?? 0.05, p.r2 ?? p.r ?? 0.05); half = [r, (p.h ?? 0.1) / 2, r]; break; }
+    case "capsule": { const r = p.r ?? 0.05; half = [r, (p.h ?? 0.1) / 2 + r, r]; break; }
+    case "sphere": { const r = p.r ?? 0.05; half = [r, r, r]; break; }
+    case "torus": { const R = (p.R ?? 0.2) + (p.r ?? 0.02); half = [R, R, p.r ?? 0.02]; break; }
+    case "lathe": { const pr = p.profile ?? [[0.1, 0], [0.1, 0.1]]; const R = Math.max(...pr.map((q) => q[0])); const y0 = Math.min(...pr.map((q) => q[1])), y1 = Math.max(...pr.map((q) => q[1])); return { min: add(p.at ?? [0, 0, 0], [-R * sc[0], y0 * sc[1], -R * sc[2]]), max: add(p.at ?? [0, 0, 0], [R * sc[0], y1 * sc[1], R * sc[2]]) }; }
+    case "rod": { const a = p.from ?? [0, 0, 0], b = p.to ?? [0, 1, 0], r = p.r ?? 0.02; return { min: [Math.min(a[0], b[0]) - r, Math.min(a[1], b[1]) - r, Math.min(a[2], b[2]) - r], max: [Math.max(a[0], b[0]) + r, Math.max(a[1], b[1]) + r, Math.max(a[2], b[2]) + r] }; }
+    case "pile": { const s = p.size ?? [0.4, 0.15, 0.3]; half = [s[0] / 2, s[1] / 2, s[2] / 2]; break; }
+    default: half = [0.05, 0.05, 0.05];
+  }
+  half = [half[0] * sc[0], half[1] * sc[1], half[2] * sc[2]];
+  const at = p.at ?? [0, 0, 0];
+  const lo: V3 = [Infinity, Infinity, Infinity], hi: V3 = [-Infinity, -Infinity, -Infinity];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const q = rot3([half[0] * sx, half[1] * sy, half[2] * sz], p.rot);
+    for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], at[k] + q[k]); hi[k] = Math.max(hi[k], at[k] + q[k]); }
+  }
+  return { min: lo, max: hi };
+};
+const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const union = (a: Box3, b: Box3): Box3 => ({ min: [Math.min(a.min[0], b.min[0]), Math.min(a.min[1], b.min[1]), Math.min(a.min[2], b.min[2])], max: [Math.max(a.max[0], b.max[0]), Math.max(a.max[1], b.max[1]), Math.max(a.max[2], b.max[2])] });
+
+/** Expand repeat / mirror into concrete parts (the renderer uses the same expansion). */
+export const expandParts = (parts: PartSpec[]): PartSpec[] => {
+  const out: PartSpec[] = [];
+  const rotY = (v: V3, a: number): V3 => [v[0] * Math.cos(a) + v[2] * Math.sin(a), v[1], -v[0] * Math.sin(a) + v[2] * Math.cos(a)];
+  for (const p of parts) {
+    const n = p.repeat?.n ?? 1;
+    for (let i = 0; i < n; i++) {
+      const step = p.repeat?.step ?? [0, 0, 0], sr = p.repeat?.stepRot ?? [0, 0, 0];
+      const off: V3 = [step[0] * i, step[1] * i, step[2] * i];
+      let q: PartSpec;
+      if (p.repeat?.around) {
+        const a = sr[1] * i * deg;
+        const r0 = p.rot ?? [0, 0, 0];
+        q = { ...p, repeat: undefined, at: add(rotY(p.at ?? [0, 0, 0], a), off), rot: [r0[0], r0[1] + sr[1] * i, r0[2]] };
+        if (p.from && p.to) { q.from = add(rotY(p.from, a), off); q.to = add(rotY(p.to, a), off); }
+      } else {
+        q = { ...p, repeat: undefined, at: add(p.at ?? [0, 0, 0], off), rot: add(p.rot ?? [0, 0, 0], [sr[0] * i, sr[1] * i, sr[2] * i]) };
+        if (p.from && p.to) { q.from = add(p.from, off); q.to = add(p.to, off); }
+      }
+      out.push(q);
+      if (p.mirror) {
+        const k = p.mirror === "x" ? 0 : 2;
+        const m = (v: V3): V3 => { const c: V3 = [...v]; c[k] = -c[k]; return c; };
+        const r = q.rot ?? [0, 0, 0];
+        out.push({ ...q, at: m(q.at ?? [0, 0, 0]), from: q.from ? m(q.from) : undefined, to: q.to ? m(q.to) : undefined, rot: p.mirror === "x" ? [r[0], -r[1], -r[2]] : [-r[0], -r[1], r[2]] });
+      }
+    }
+  }
+  return out;
+};
+
+export const objectInfo = (id: string, objects: Record<string, ObjectSpec>): ObjInfo => {
+  const b = BUILTIN[id];
+  if (b) return { id, doc: b.doc, bounds: b.bounds, center: [0, b.bounds[1] / 2, 0], anchors: b.anchors ?? {}, walkable: b.walkable, hand: b.hand, states: b.states ?? {}, builtin: true };
+  const o = objects[id];
+  if (!o) throw new Error(`object "${id}" is not in the library (built-in: ${Object.keys(BUILTIN).join(", ")}) and no objects/${id}.json was found`);
+  let box: Box3 | null = null;
+  for (const p of expandParts(o.parts)) box = box ? union(box, partBox(p)) : partBox(p);
+  const bb = box ?? { min: [-0.1, 0, -0.1], max: [0.1, 0.2, 0.1] };
+  const bounds: V3 = o.bounds ?? [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
+  return { id, doc: o.doc, bounds, center: [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2], anchors: o.anchors ?? {}, walkable: o.walkable, hand: o.hand, states: o.states ?? {}, builtin: false };
+};
+
+/** World AABBs of the visible parts of a compound object (precise collision / line of sight). Built-ins: one box. */
+export const partBoxes = (id: string, objects: Record<string, ObjectSpec>, pos: V3, yaw: number, scale: number): Box3[] => {
+  const o = objects[id];
+  const sol = BUILTIN[id]?.solid;
+  if (!o && !sol) return [];
+  const out: Box3[] = [];
+  for (const p of o ? expandParts(o.parts) : [null]) {
+    const b: Box3 = p ? partBox(p) : { min: sol![0], max: sol![1] };
+    const sz = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+    if (Math.max(...sz) < 0.06 || sz.filter((v) => v < 0.03).length >= 2) continue; // thin rods / tiny bits never block a camera
+    const lo: V3 = [Infinity, pos[1] + b.min[1] * scale, Infinity], hi: V3 = [-Infinity, pos[1] + b.max[1] * scale, -Infinity];
+    for (const x of [b.min[0], b.max[0]]) for (const z of [b.min[2], b.max[2]]) {
+      const w = toWorld(pos, yaw, scale, [x, 0, z]);
+      lo[0] = Math.min(lo[0], w[0]); hi[0] = Math.max(hi[0], w[0]); lo[2] = Math.min(lo[2], w[2]); hi[2] = Math.max(hi[2], w[2]);
+    }
+    out.push({ min: lo, max: hi });
+  }
+  return out;
+};
+
+/** World AABB of an object placed at pos/yaw/scale. */
+export const placedBox = (info: ObjInfo, pos: V3, yaw: number, scale: number): Box3 => {
+  const [w, h, d] = info.bounds, c = info.center;
+  const lo: V3 = [Infinity, pos[1] + (c[1] - h / 2) * scale, Infinity], hi: V3 = [-Infinity, pos[1] + (c[1] + h / 2) * scale, -Infinity];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const lx = (c[0] + (sx * w) / 2) * scale, lz = (c[2] + (sz * d) / 2) * scale;
+    const x = pos[0] + lx * Math.cos(yaw) + lz * Math.sin(yaw), z = pos[2] - lx * Math.sin(yaw) + lz * Math.cos(yaw);
+    lo[0] = Math.min(lo[0], x); hi[0] = Math.max(hi[0], x); lo[2] = Math.min(lo[2], z); hi[2] = Math.max(hi[2], z);
+  }
+  return { min: lo, max: hi };
+};
+/** Object-space point → world. */
+export const toWorld = (pos: V3, yaw: number, scale: number, p: V3): V3 => [pos[0] + (p[0] * Math.cos(yaw) + p[2] * Math.sin(yaw)) * scale, pos[1] + p[1] * scale, pos[2] + (-p[0] * Math.sin(yaw) + p[2] * Math.cos(yaw)) * scale];
+
+const rng = (seed: number) => () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+
+// ── times of day ─────────────────────────────────────────────────────────────
+type TimeLook = { bg: string; fog: string; hemiSky: string; hemiGround: string; hemi: number; key: string; keyI: number; dir: V3; env: number; dark: number };
+export const TIMES: Record<string, TimeLook> = {
+  night: { bg: "#050913", fog: "#0c1424", hemiSky: "#2b3f66", hemiGround: "#0b0c0e", hemi: 0.4, key: "#a8c0ff", keyI: 1.4, dir: [-0.35, 0.62, 0.7], env: 0.05, dark: 1 },
+  dusk: { bg: "#2a2a3e", fog: "#6a5a68", hemiSky: "#7a7aa0", hemiGround: "#2a2018", hemi: 0.85, key: "#ffb27a", keyI: 2.4, dir: [0.7, 0.18, -0.65], env: 0.18, dark: 0.6 },
+  dawn: { bg: "#5a6a88", fog: "#9a9aa8", hemiSky: "#a8b8d8", hemiGround: "#3a3028", hemi: 1.0, key: "#ffd2a0", keyI: 2.8, dir: [0.6, 0.2, -0.75], env: 0.3, dark: 0.35 },
+  day: { bg: "#9ab8d8", fog: "#b8c8d8", hemiSky: "#cfe0f2", hemiGround: "#5a5040", hemi: 1.25, key: "#fff4e0", keyI: 3.2, dir: [0.45, 0.78, 0.4], env: 0.45, dark: 0 },
+};
+
+const FIX: Record<FixtureSpec["type"], { color: string; i: number; dist: number }> = {
+  panel: { color: "#eaf2ff", i: 3.4, dist: 8 }, tube: { color: "#e8f4ff", i: 2.8, dist: 7.5 }, bulb: { color: "#ffcf8a", i: 1.7, dist: 5 },
+  "lamp-post": { color: "#ffb05c", i: 9, dist: 16 }, string: { color: "#ffd08a", i: 2.2, dist: 6 }, spot: { color: "#fff2dc", i: 30, dist: 20 },
+  "exit-sign": { color: "#4dff9a", i: 0.5, dist: 2.2 }, lantern: { color: "#ffb45e", i: 1.6, dist: 5 }, fire: { color: "#ff8a3a", i: 3.2, dist: 7 }, screen: { color: "#8fb8ff", i: 0.7, dist: 2.5 },
+};
+const flick = (t: number, seed: number) => { const a = Math.sin(t * 13.1 + seed) + Math.sin(t * 7.7 + seed * 2) + Math.sin(t * 2.3 + seed * 3); return a > 1.6 ? 0.15 : a > 1.2 ? 0.6 : 1; };
+export const fixtureLevel = (f: FixtureSpec, s: SetState, t: number) => (f.prop ? s[f.prop] ?? 1 : 1) * (f.flicker ? flick(t, f.at[0] * 3 + f.at[2]) : 1);
+
+// ── the builder ──────────────────────────────────────────────────────────────
+
+export const buildWorld = (spec: WorldSpec, objectList: ObjectSpec[] = []): { data: WorldData; built: Built } => {
+  const objects: Record<string, ObjectSpec> = Object.fromEntries(objectList.map((o) => [o.id, o]));
+  const errs: string[] = [];
+  const rooms = (spec.rooms ?? []).map((r) => ({ ...r, y: r.y ?? 0, height: r.height ?? 2.9 }));
+  const roomById = Object.fromEntries(rooms.map((r) => [r.id, r]));
+  // terrain
+  const g = spec.ground;
+  // under (and just around) a room the terrain sinks below its floor: never coplanar (flicker) or poking through
+  const ground = g ? (x: number, z: number) => {
+    const v = (g.y ?? 0) + (g.hills ?? 0) * fbm(x * 0.035 + (g.seed ?? 3), z * 0.035, 4) * 4;
+    for (const r of rooms) if (x > r.rect[0] - 0.4 && x < r.rect[2] + 0.4 && z > r.rect[1] - 0.4 && z < r.rect[3] + 0.4) return Math.min(v, r.y - 0.03);
+    return v;
+  } : undefined;
+  // paths flatten the terrain a little: compute height as is (characters follow it)
+  const floorAt = (x: number, z: number) => {
+    for (const r of rooms) if (x >= r.rect[0] - 0.01 && x <= r.rect[2] + 0.01 && z >= r.rect[1] - 0.01 && z <= r.rect[3] + 0.01) return r.y;
+    return ground ? ground(x, z) : 0;
+  };
+  // openings
+  const openings: Opening[] = [];
+  for (const r of rooms) for (const o of r.openings ?? []) {
+    const [x0, z0, x1, z1] = r.rect;
+    const axis: "x" | "z" = o.wall === "north" || o.wall === "south" ? "x" : "z";
+    const wallC = o.wall === "north" ? z0 : o.wall === "south" ? z1 : o.wall === "west" ? x0 : x1;
+    const w = o.w ?? (o.type === "double-door" ? 1.5 : o.type === "window" ? 1.2 : o.type === "arch" ? 1.4 : 0.95);
+    const h = o.h ?? (o.type === "window" ? 1.1 : 2.1);
+    const sill = o.type === "window" ? o.sill ?? 0.95 : 0;
+    const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const kindName = o.type === "window" ? "jendela" : o.type === "arch" ? "lengkung" : "pintu";
+    let id = o.id ?? (o.sign ? `${kindName}-${slug(o.sign)}` : `${kindName}-${r.id}-${o.wall}`);
+    while (openings.some((q) => q.id === id)) id += "-2";
+    openings.push({ ...o, room: r.id, x: axis === "x" ? o.at : wallC, z: axis === "x" ? wallC : o.at, y: r.y, w, h, sill, axis, wallC, id });
+  }
+  // objects
+  const inRoomXZ = (x: number, z: number) => rooms.some((r) => x >= r.rect[0] && x <= r.rect[2] && z >= r.rect[1] && z <= r.rect[3]);
+  const insts: Inst[] = [];
+  const surfaceOf = (ref: string) => {
+    const [oid, anchor = "top"] = ref.split(":");
+    const host = insts.find((i) => i.id === oid);
+    if (!host) { errs.push(`object placed "on": "${ref}" but "${oid}" is not defined before it`); return undefined; }
+    const a = host.info.anchors[anchor] ?? [0, host.info.bounds[1], 0];
+    return toWorld(host.pos, host.yaw, host.scale, a);
+  };
+  (spec.objects ?? []).forEach((u: ObjectUse, k) => {
+    let info: ObjInfo;
+    try { info = objectInfo(u.use, objects); } catch (e) { errs.push((e as Error).message); return; }
+    const yaw = u.yaw ?? 0, scale = u.scale ?? 1;
+    let pos: V3;
+    if (u.on) { const s = surfaceOf(u.on); pos = s ? [u.at.length === 3 ? s[0] + (u.at as V3)[0] : s[0] + u.at[0], s[1], u.at.length === 3 ? s[2] + (u.at as V3)[2] : s[2] + (u.at as V2)[1]] : [0, 0, 0]; }
+    else if (u.at.length === 3) { const a3 = u.at as V3; pos = inRoomXZ(a3[0], a3[2]) || !ground ? a3 : [a3[0], ground(a3[0], a3[2]) + a3[1], a3[2]]; }
+    else pos = [u.at[0], floorAt(u.at[0], u.at[1]), u.at[1]];
+    const id = u.id ?? `${u.use}-${k + 1}`;
+    insts.push({ id, use: u.use, pos, yaw, scale, info, variant: u.variant, color: u.color, states: { ...info.states, ...(u.states ?? {}) }, box: placedBox(info, pos, yaw, scale), parts: partBoxes(u.use, objects, pos, yaw, scale) });
+  });
+  // paths
+  const paths = spec.paths ?? [];
+  const nearPath = (x: number, z: number, m: number) => paths.some((p) => { for (let i = 1; i < p.points.length; i++) { const [ax, az] = p.points[i - 1], [bx, bz] = p.points[i]; const dx = bx - ax, dz = bz - az, L = dx * dx + dz * dz || 1, k = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L)); if (Math.hypot(x - ax - dx * k, z - az - dz * k) < (p.width ?? 1.2) / 2 + m) return true; } return false; });
+  const inRoom = (x: number, z: number, m = 0) => rooms.some((r) => x > r.rect[0] - m && x < r.rect[2] + m && z > r.rect[1] - m && z < r.rect[3] + m);
+  // scatter
+  const scatter = (spec.scatter ?? []).map((sc: ScatterSpec, k) => {
+    let info: ObjInfo;
+    try { info = objectInfo(sc.use, objects); } catch (e) { errs.push((e as Error).message); return null; }
+    const r = rng(1000 + (sc.seed ?? k * 77)), items: { pos: V3; yaw: number; scale: number }[] = [];
+    const [ax0, az0, ax1, az1] = sc.area, minD = sc.minDist ?? Math.max(info.bounds[0], info.bounds[2]) * 0.8;
+    for (let tries = 0; items.length < sc.count && tries < sc.count * 40; tries++) {
+      const x = ax0 + r() * (ax1 - ax0), z = az0 + r() * (az1 - az0);
+      const av = sc.avoid ?? ["paths", "rooms", "objects"];
+      // trees keep only their trunk off the path (crowns may overhang it, like a real forest track)
+      if (av.includes("paths") && nearPath(x, z, sc.use.startsWith("tree") ? 1.3 : Math.max(info.bounds[0], info.bounds[2]) / 2 + 0.3)) continue;
+      if (av.includes("rooms") && inRoom(x, z, 0.5)) continue;
+      if (av.includes("objects") && insts.some((i) => x > i.box.min[0] - 0.6 && x < i.box.max[0] + 0.6 && z > i.box.min[2] - 0.6 && z < i.box.max[2] + 0.6)) continue;
+      if (items.some((q) => Math.hypot(q.pos[0] - x, q.pos[2] - z) < minD)) continue;
+      const s = (sc.scale?.[0] ?? 0.8) + r() * ((sc.scale?.[1] ?? 1.2) - (sc.scale?.[0] ?? 0.8));
+      items.push({ pos: [x, floorAt(x, z) - 0.02, z], yaw: r() * Math.PI * 2, scale: s });
+    }
+    return { use: sc.use, info, items, variant: sc.variant };
+  }).filter((x): x is NonNullable<typeof x> => !!x);
+  // fixtures
+  // outdoors (not inside a room) a fixture's y is its height above the ground
+  const lift = (p: V3): V3 => (ground && !inRoomXZ(p[0], p[2]) ? [p[0], ground(p[0], p[2]) + p[1], p[2]] : p);
+  // a lamp post given at its foot (y < 1.5) gets its head at the post height
+  const head = (f: FixtureSpec): V3 => (f.type === "lamp-post" && f.at[1] < 1.5 ? [f.at[0], f.at[1] + 4.2, f.at[2]] : f.at);
+  const fixtures = (spec.lights ?? []).map((f, i) => ({ ...f, at: lift(head(f)), to: f.to ? lift(f.to) : undefined, target: f.target ? lift(f.target) : undefined, id: f.id ?? `${f.type}-${i + 1}` }));
+  // world bounds
+  let wb: Box3 = { min: [-5, -1, -5], max: [5, 4, 5] };
+  if (rooms.length) wb = rooms.map((r) => ({ min: [r.rect[0], r.y, r.rect[1]] as V3, max: [r.rect[2], r.y + r.height, r.rect[3]] as V3 })).reduce(union);
+  if (g) wb = union(wb, { min: [-g.size / 2, -2, -g.size / 2], max: [g.size / 2, 20, g.size / 2] });
+  // ── navigation grid: walkable floor minus solids ───────────────────────────
+  const cell = 0.2, R = 0.28;
+  const nx0 = Math.floor(wb.min[0]) - 1, nz0 = Math.floor(wb.min[2]) - 1;
+  const nx = Math.ceil((wb.max[0] - nx0 + 1) / cell), nz = Math.ceil((wb.max[2] - nz0 + 1) / cell);
+  const free = new Uint8Array(nx * nz);
+  // per-part boxes that reach body height block walking (a stall's canopy or a hanging lamp does not)
+  const solidsXZ = insts.filter((i) => !i.info.walkable && i.box.max[1] - i.box.min[1] > 0.12).flatMap((i) => {
+    const fl0 = i.pos[1];
+    const ps = (i.parts.length ? i.parts : [i.box]).filter((b) => b.min[1] < fl0 + 1.7 && b.max[1] > fl0 + 0.12);
+    return ps.length ? ps : [];
+  });
+  // trees block with their trunk only; walkable undergrowth (ferns, grass) does not block
+  const scatterSolids = scatter.filter((s) => !s.info.walkable).flatMap((s) => s.items.map((it): Box3 => {
+    if (!s.use.startsWith("tree")) return placedBox(s.info, it.pos, it.yaw, it.scale);
+    const r = 0.3 * it.scale;
+    return { min: [it.pos[0] - r, it.pos[1], it.pos[2] - r], max: [it.pos[0] + r, it.pos[1] + 4.5 * it.scale, it.pos[2] + r] };
+  }));
+  const bld = (spec.buildings ?? []).map((b) => b.rect);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const x = nx0 + (i + 0.5) * cell, z = nz0 + (j + 0.5) * cell;
+    let ok = false;
+    if (rooms.length) {
+      for (const r of rooms) if (x > r.rect[0] + R && x < r.rect[2] - R && z > r.rect[1] + R && z < r.rect[3] - R) ok = true;
+      // doorways connect rooms
+      for (const o of openings) if (o.type !== "window" && (o.axis === "x" ? Math.abs(z - o.wallC) < 0.5 && Math.abs(x - o.x) < o.w / 2 - 0.12 : Math.abs(x - o.wallC) < 0.5 && Math.abs(z - o.z) < o.w / 2 - 0.12)) ok = true;
+    }
+    if (g && !inRoom(x, z, 0.3)) ok = Math.abs(x) < g.size / 2 - 1 && Math.abs(z) < g.size / 2 - 1;
+    if (ok && bld.some((b) => x > b[0] - R && x < b[2] + R && z > b[1] - R && z < b[3] + R)) ok = false;
+    if (ok && solidsXZ.some((b) => x > b.min[0] - R && x < b.max[0] + R && z > b.min[2] - R && z < b.max[2] + R)) ok = false;
+    if (ok && scatterSolids.some((b) => x > b.min[0] - R * 0.6 && x < b.max[0] + R * 0.6 && z > b.min[2] - R * 0.6 && z < b.max[2] + R * 0.6)) ok = false;
+    free[j * nx + i] = ok ? 1 : 0;
+  }
+  const nav: Nav = { x0: nx0, z0: nz0, cell, nx, nz, free, floor: floorAt };
+  const built: Built = { spec, rooms, openings, insts, scatter, fixtures, ground, bounds: wb, nav, objects };
+
+  // ── places ──────────────────────────────────────────────────────────────────
+  const places: Record<string, Place> = {};
+  for (const [pid, ps] of Object.entries(spec.places)) {
+    const pr = (ps.rooms ?? []).map((r) => roomById[r]).filter(Boolean);
+    let area = ps.area;
+    if (!area && pr.length) area = [Math.min(...pr.map((r) => r.rect[0])), Math.min(...pr.map((r) => r.rect[1])), Math.max(...pr.map((r) => r.rect[2])), Math.max(...pr.map((r) => r.rect[3]))];
+    if (!area) area = [wb.min[0], wb.min[2], wb.max[0], wb.max[2]];
+    const kind = ps.kind ?? (pr.length ? "interior" : "exterior");
+    const inArea = (x: number, z: number, m = 0) => x >= area![0] - m && x <= area![2] + m && z >= area![1] - m && z <= area![3] + m;
+    const fl = (x: number, z: number) => floorAt(x, z);
+    // marks: explicit + automatic (object anchors, doors, room centres)
+    const marks: Record<string, Mark> = {};
+    for (const r of pr.length ? pr : rooms.filter((r) => inArea((r.rect[0] + r.rect[2]) / 2, (r.rect[1] + r.rect[3]) / 2))) marks[`${r.id}:center`] = { p: [(r.rect[0] + r.rect[2]) / 2, (r.rect[1] + r.rect[3]) / 2], y: r.y, doc: `middle of ${r.id}` };
+    for (const o of openings) {
+      if (o.type === "window" || !inArea(o.x, o.z, 1)) continue;
+      const r = roomById[o.room];
+      const inward = o.wall === "north" ? [0, 1] : o.wall === "south" ? [0, -1] : o.wall === "west" ? [1, 0] : [-1, 0];
+      const facing = Math.atan2(-inward[0], -inward[1]);
+      marks[`${o.id}:in`] = { p: [o.x + inward[0] * 0.75, o.z + inward[1] * 0.75], y: r.y, yaw: facing, doc: `inside ${o.room}, facing ${o.id}` };
+      marks[`${o.id}:out`] = { p: [o.x - inward[0] * 0.75, o.z - inward[1] * 0.75], y: r.y, yaw: facing + Math.PI, doc: `outside ${o.room} at ${o.id}, facing it` };
+    }
+    for (const i of insts) {
+      if (!inArea(i.pos[0], i.pos[2], 0.5)) continue;
+      const a = i.info.anchors;
+      const frontLocal: V3 = a.front ?? [0, 0, i.info.bounds[2] / 2 * (i.info.center[2] >= 0 ? 1 : 1) + 0.55];
+      const fw = toWorld(i.pos, i.yaw, i.scale, frontLocal);
+      marks[`${i.id}:front`] = { p: [fw[0], fw[2]], y: fl(fw[0], fw[2]), yaw: i.yaw + Math.PI, doc: `in front of ${i.id}, facing it` };
+      if (a.seat) { const sw = toWorld(i.pos, i.yaw, i.scale, a.seat); marks[`${i.id}:seat`] = { p: [sw[0], sw[2]], y: fl(sw[0], sw[2]), yaw: i.yaw, seat: sw[1] - fl(sw[0], sw[2]), doc: `sitting on ${i.id}` }; }
+      if (a.push) { const pw = toWorld(i.pos, i.yaw, i.scale, [a.push[0], 0, a.push[2] - 0.38]); marks[`${i.id}:push`] = { p: [pw[0], pw[2]], y: fl(pw[0], pw[2]), yaw: i.yaw, doc: `behind ${i.id}, hands on its handles` }; }
+      // a bed (anchors "bed" = mattress top centre, "head" = pillow end): lie / sleep / wake / sitUp there
+      if (a.bed) { const bw = toWorld(i.pos, i.yaw, i.scale, a.bed), hw = toWorld(i.pos, i.yaw, i.scale, a.head ?? [a.bed[0], a.bed[1], a.bed[2] - 0.8]); marks[`${i.id}:bed`] = { p: [bw[0], bw[2]], y: fl(bw[0], bw[2]), yaw: i.yaw, bed: { head: [hw[0], hw[2]], y: bw[1] }, doc: `lying in ${i.id}` }; }
+      if (a.behind) { const bw = toWorld(i.pos, i.yaw, i.scale, a.behind); marks[`${i.id}:behind`] = { p: [bw[0], bw[2]], y: fl(bw[0], bw[2]), yaw: i.yaw, doc: `behind ${i.id} (the seller's side), facing over it` }; }
+    }
+    for (const [k, m] of Object.entries(ps.marks ?? {})) {
+      const y = m.at.length === 3 ? (m.at as V3)[1] : fl(m.at[0], (m.at as V2)[1]);
+      const p: [number, number] = m.at.length === 3 ? [(m.at as V3)[0], (m.at as V3)[2]] : [m.at[0], (m.at as V2)[1]];
+      marks[k] = { p, y, yaw: m.yaw, seat: m.seat, bed: m.bed ? { head: m.bed.head, y: m.bed.y } : undefined, doc: m.doc };
+    }
+    // POIs: explicit + objects, openings, fixtures
+    const pois: Record<string, V3> = {};
+    for (const i of insts) if (inArea(i.pos[0], i.pos[2], 2)) pois[i.id] = [i.pos[0], i.box.max[1] - (i.box.max[1] - i.box.min[1]) * 0.35, i.pos[2]];
+    for (const o of openings) if (inArea(o.x, o.z, 2)) pois[o.id] = [o.x, o.y + o.sill + o.h * 0.55, o.z];
+    for (const f of fixtures) if (inArea(f.at[0], f.at[2], 2)) pois[f.id] = f.at;
+    Object.assign(pois, ps.pois ?? {});
+    // camera space and solids
+    const yTop = pr.length ? Math.max(...pr.map((r) => r.y + r.height)) - 0.2 : 40;
+    const yBot = pr.length ? Math.min(...pr.map((r) => r.y)) + 0.3 : (ground ? -5 : 0.3);
+    const m = kind === "interior" ? -0.25 : 25;
+    const solids = insts.filter((i) => !i.info.walkable && inArea(i.pos[0], i.pos[2], 8)).flatMap((i) => (i.parts.length ? i.parts : [i.box]));
+    for (const b of spec.buildings ?? []) solids.push({ min: [b.rect[0], (b.y ?? 0) - 1, b.rect[1]], max: [b.rect[2], (b.y ?? 0) + b.height, b.rect[3]] });
+    // seen from outside, a closed room is a building: cameras of an exterior place stay out of it
+    if (kind === "exterior") for (const r of rooms) if (!pr.includes(r) && !(r.open?.length)) solids.push({ min: [r.rect[0] - 0.1, r.y - 0.5, r.rect[1] - 0.1], max: [r.rect[2] + 0.1, r.y + r.height + 0.3, r.rect[3] + 0.1] });
+    for (const s of scatter) for (const it of s.items) {
+      if (!inArea(it.pos[0], it.pos[2], 15) || s.info.bounds[1] <= 1.2) continue;
+      // trees: the trunk blocks (crowns are above the action); other tall things: their box
+      if (s.use.startsWith("tree")) { const r = 0.3 * it.scale; solids.push({ min: [it.pos[0] - r, it.pos[1], it.pos[2] - r], max: [it.pos[0] + r, it.pos[1] + 4.5 * it.scale, it.pos[2] + r] }); }
+      else solids.push(placedBox(s.info, it.pos, it.yaw, it.scale));
+    }
+    // foliage the camera must not sit in (tree crowns, bushes) — scatter and placed built-ins
+    const crownBox = (use: string, pos: V3, yaw: number, scale: number): Box3 | null => {
+      const c = BUILTIN[use]?.crown;
+      if (!c) return null;
+      const lo: V3 = [Infinity, pos[1] + c[0][1] * scale, Infinity], hi: V3 = [-Infinity, pos[1] + c[1][1] * scale, -Infinity];
+      for (const x of [c[0][0], c[1][0]]) for (const z of [c[0][2], c[1][2]]) { const w = toWorld(pos, yaw, scale, [x, 0, z]); lo[0] = Math.min(lo[0], w[0]); hi[0] = Math.max(hi[0], w[0]); lo[2] = Math.min(lo[2], w[2]); hi[2] = Math.max(hi[2], w[2]); }
+      return { min: lo, max: hi };
+    };
+    const soft: Box3[] = [];
+    for (const sc of scatter) for (const it of sc.items) if (inArea(it.pos[0], it.pos[2], 20)) { const b = crownBox(sc.use, it.pos, it.yaw, it.scale); if (b) soft.push(b); }
+    for (const i of insts) if (inArea(i.pos[0], i.pos[2], 20)) { const b = crownBox(i.use, i.pos, i.yaw, i.scale); if (b) soft.push(b); }
+    const cx = (area[0] + area[2]) / 2, cz = (area[1] + area[3]) / 2, rad = Math.max(area[2] - area[0], area[3] - area[1]) / 2;
+    const est = ps.establish;
+    const firstMark = Object.values(marks)[0];
+    places[pid] = {
+      id: pid, doc: ps.doc, kind, floor: fl(cx, cz), marks, pois,
+      box: { min: [area[0] - m, yBot, area[1] - m], max: [area[2] + m, yTop, area[3] + m] },
+      zones: kind === "interior" && pr.length ? pr.map((r) => ({ min: [r.rect[0] + 0.25, r.y + 0.3, r.rect[1] + 0.25] as V3, max: [r.rect[2] - 0.25, r.y + r.height - 0.2, r.rect[3] - 0.25] as V3 })) : undefined,
+      solids, soft, ground: ground && kind === "exterior" ? ground : undefined,
+      establish: est ? { center: [est[0], est[1], est[2]], radius: est[3], height: est[4], yaw: est[5] } : { center: [cx, fl(cx, cz) + 1.2, cz], radius: kind === "interior" ? Math.min(rad, 4) : Math.max(8, rad * 0.9), height: kind === "interior" ? 1.0 : Math.max(4, rad * 0.4), yaw: 0.7 },
+      view: ps.view ?? Object.keys(pois)[0] ?? "",
+      window: undefined,
+      ambience: ps.ambience ?? (kind === "interior" ? "room" : "outdoor"), surface: (ps.surface ?? (kind === "interior" ? "tile" : "grass")) as Place["surface"], reverb: kind === "interior" ? 0.35 : 0.05,
+    };
+    void firstMark;
+  }
+
+  // wall pieces (full height, between openings) block the view: line-of-sight checks for cameras
+  const occl: Box3[] = [];
+  for (const r of rooms) {
+    const [x0, z0, x1, z1] = r.rect, Tw = 0.15;
+    const sides = [{ s: "north", ax: "x", c: z0 - Tw / 2, a0: x0, a1: x1 }, { s: "south", ax: "x", c: z1 + Tw / 2, a0: x0, a1: x1 }, { s: "west", ax: "z", c: x0 - Tw / 2, a0: z0, a1: z1 }, { s: "east", ax: "z", c: x1 + Tw / 2, a0: z0, a1: z1 }] as const;
+    for (const w of sides) {
+      if (r.open?.includes(w.s)) continue;
+      const holes = openings.filter((o) => o.axis === w.ax && Math.abs(o.wallC - (w.ax === "x" ? (w.s === "north" ? z0 : z1) : (w.s === "west" ? x0 : x1))) < 0.05 && o.type !== "window").map((o) => [(w.ax === "x" ? o.x : o.z) - o.w / 2, (w.ax === "x" ? o.x : o.z) + o.w / 2]).sort((a, b) => a[0] - b[0]);
+      let cur: number = w.a0;
+      const piece = (a: number, b: number) => { if (b - a > 0.2) occl.push(w.ax === "x" ? { min: [a, r.y, w.c - Tw / 2], max: [b, r.y + r.height, w.c + Tw / 2] } : { min: [w.c - Tw / 2, r.y, a], max: [w.c + Tw / 2, r.y + r.height, b] }); };
+      for (const [a, b] of holes) { piece(cur, a); cur = Math.max(cur, b); }
+      piece(cur, w.a1);
+    }
+  }
+  for (const P of Object.values(places)) P.occluders = occl;
+  // the swing of every door leaf: cameras stay out of it (an open leaf would fill the frame)
+  const swings: Box3[] = openings.filter((o) => o.type === "door" || o.type === "double-door").map((o) => {
+    const into = o.wall === "north" || o.wall === "west" ? 1 : -1, sw = (o.swing ?? 1) * into;
+    const lw = o.type === "double-door" ? o.w / 2 : o.w, d0 = Math.min(0, sw * lw), d1 = Math.max(0, sw * lw);
+    return o.axis === "x" ? { min: [o.x - o.w / 2, o.y, o.z + d0], max: [o.x + o.w / 2, o.y + o.h, o.z + d1] } : { min: [o.x + d0, o.y, o.z - o.w / 2], max: [o.x + d1, o.y + o.h, o.z + o.w / 2] };
+  });
+  for (const P of Object.values(places)) P.swings = swings;
+
+  // ── light rig per place ─────────────────────────────────────────────────────
+  const light = (place: string, time: string, s: SetState, t: number): LightState => {
+    const P = places[place];
+    const Tl = TIMES[time] ?? TIMES.night;
+    const interior = P?.kind === "interior";
+    const c: V3 = P ? [(P.box.min[0] + P.box.max[0]) / 2, 1.5, (P.box.min[2] + P.box.max[2]) / 2] : [0, 1.5, 0];
+    const near = fixtures.filter((f) => f.type !== "spot").map((f) => ({ f, d: Math.hypot(f.at[0] - c[0], f.at[2] - c[2]) })).sort((a, b) => a.d - b.d).slice(0, 5);
+    const pts: PointL[] = near.map(({ f }) => {
+      const k = FIX[f.type], lv = fixtureLevel(f, s, t) * (f.i ?? 1);
+      const pos: V3 = f.type === "string" && f.to ? [(f.at[0] + f.to[0]) / 2, (f.at[1] + f.to[1]) / 2 - 0.2, (f.at[2] + f.to[2]) / 2] : f.type === "panel" || f.type === "tube" ? [f.at[0], f.at[1] - 0.5, f.at[2]] : f.at;
+      return { pos, color: f.color ?? k.color, i: k.i * lv * (Tl.dark > 0.3 || interior ? 1 : 0.3), dist: k.dist };
+    });
+    while (pts.length < 5) pts.push(P_OFF);
+    // a soft fill so night interiors never crush
+    pts.push({ pos: [c[0], (P?.box.max[1] ?? 3) - 0.3, c[2]], color: interior ? "#8aa0c0" : Tl.hemiSky, i: interior ? 0.35 : 0.5, dist: interior ? 7 : 20 });
+    const spotF = fixtures.find((f) => f.type === "spot");
+    const spot0: SpotL = spotF ? { pos: spotF.at, target: spotF.target ?? [spotF.at[0], 0, spotF.at[2]], color: spotF.color ?? FIX.spot.color, i: FIX.spot.i * fixtureLevel(spotF, s, t) * (spotF.i ?? 1), angle: 0.6, penumbra: 0.6, dist: 20 } : S_OFF;
+    const box = P ? { min: [P.box.min[0] - 2, P.box.min[1] - 1, P.box.min[2] - 2] as V3, max: [P.box.max[0] + 2, Math.min(P.box.max[1], (interior ? 4 : 18)), P.box.max[2] + 2] as V3 } : wb;
+    const fog = spec.fog ?? (interior ? 0.1 : 0.3);
+    return {
+      bg: Tl.bg, fog: { color: Tl.fog, density: interior ? 0.006 + 0.01 * fog : 0.004 + 0.02 * fog }, env: Tl.env * (interior ? 0.5 : 1) + 0.02,
+      hemi: { sky: interior ? spec.ambient ?? "#9aa8c0" : Tl.hemiSky, ground: Tl.hemiGround, i: interior ? 0.36 + Tl.hemi * 0.25 : Tl.hemi },
+      moon: { dir: spec.sky?.sun ?? Tl.dir, color: Tl.key, i: Tl.keyI * (interior ? 0.8 : 1), box },
+      spots: [spot0, S_OFF],
+      pts: pts.slice(0, 6) as LightState["pts"],
+    };
+  };
+
+  const props: Record<string, PropDoc> = {};
+  for (const [k, p] of Object.entries(spec.props ?? {})) props[k] = { default: p.default, doc: p.doc, sfx: p.sfx ?? (p.door ? { up: "door-open", down: "door-close" } : p.lights ? { up: "click", down: "click" } : undefined) };
+  // every door gets an open prop automatically: "<door id>" 0..1
+  for (const o of openings) if ((o.type === "door" || o.type === "double-door") && !props[o.id]) props[o.id] = { default: 0, doc: `${o.id} (0 shut, 1 open)`, sfx: { up: "door-open", down: "door-close" } };
+  for (const i of insts) for (const [k, v] of Object.entries(i.states)) props[`${i.id}.${k}`] = { default: v, doc: `${i.id} ${k} (0..1)` };
+  // every object can appear / leave on a beat: "set": { "<id>.visible": 0 } (start hidden: "states": { "visible": 0 })
+  for (const i of insts) if (!props[`${i.id}.visible`]) props[`${i.id}.visible`] = { default: 1, doc: `${i.id} on screen (1) or gone (0)` };
+  for (const f of fixtures) if (f.prop && !props[f.prop]) props[f.prop] = { default: 1, doc: `lights ${f.prop} (0 off, 1 on)`, sfx: { up: "click", down: "click" } };
+  if (errs.length) throw new Error(errs.join("\n"));
+  const data: WorldData = { id: spec.id, doc: spec.doc, places, times: spec.times, props, light };
+  return { data, built };
+};
+
+// ── navigation ───────────────────────────────────────────────────────────────
+
+/** A* on the walk grid from a to b, then string-pulled to a few waypoints. Falls back to the straight line. */
+export const navPath = (nav: Nav, a: V2, b: V2): V2[] => {
+  const { x0, z0, cell, nx, nz, free } = nav;
+  const ci = (x: number) => Math.max(0, Math.min(nx - 1, Math.floor((x - x0) / cell))), cj = (z: number) => Math.max(0, Math.min(nz - 1, Math.floor((z - z0) / cell)));
+  const nearestFree = (i: number, j: number) => {
+    if (free[j * nx + i]) return [i, j];
+    for (let r = 1; r < 12; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { const ii = i + di, jj = j + dj; if (ii >= 0 && jj >= 0 && ii < nx && jj < nz && free[jj * nx + ii]) return [ii, jj]; }
+    return [i, j];
+  };
+  const [si, sj] = nearestFree(ci(a[0]), cj(a[1])), [ti, tj] = nearestFree(ci(b[0]), cj(b[1]));
+  const N = nx * nz, g = new Float32Array(N).fill(Infinity), came = new Int32Array(N).fill(-1), open: number[] = [];
+  const h = (k: number) => Math.hypot((k % nx) - ti, Math.floor(k / nx) - tj);
+  const start = sj * nx + si, goal = tj * nx + ti;
+  g[start] = 0; open.push(start);
+  const f = new Float32Array(N).fill(Infinity); f[start] = h(start);
+  const closed = new Uint8Array(N);
+  let found = false, iter = 0;
+  while (open.length && iter++ < 200000) {
+    let bi = 0; for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
+    const cur = open.splice(bi, 1)[0];
+    if (cur === goal) { found = true; break; }
+    closed[cur] = 1;
+    const cx = cur % nx, cz = Math.floor(cur / nx);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const x = cx + dx, z = cz + dz;
+      if (x < 0 || z < 0 || x >= nx || z >= nz) continue;
+      const k = z * nx + x;
+      if (!free[k] || closed[k]) continue;
+      if (dx && dz && (!free[cz * nx + x] || !free[z * nx + cx])) continue;
+      const ng = g[cur] + (dx && dz ? 1.414 : 1);
+      if (ng < g[k]) { g[k] = ng; f[k] = ng + h(k); came[k] = cur; if (!open.includes(k)) open.push(k); }
+    }
+  }
+  if (!found) return [a, b];
+  const cells: V2[] = [];
+  for (let k = goal; k !== -1; k = came[k]) cells.push([x0 + ((k % nx) + 0.5) * cell, z0 + (Math.floor(k / nx) + 0.5) * cell]);
+  cells.reverse();
+  // string pulling: keep a waypoint only where the straight line would cross a blocked cell
+  const clear = (p: V2, q: V2) => { const n = Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / (cell * 0.5)); for (let s = 0; s <= n; s++) { const x = p[0] + ((q[0] - p[0]) * s) / Math.max(1, n), z = p[1] + ((q[1] - p[1]) * s) / Math.max(1, n); if (!free[cj(z) * nx + ci(x)]) return false; } return true; };
+  const out: V2[] = [a];
+  let anchor: V2 = a;
+  for (let k = 1; k < cells.length; k++) if (!clear(anchor, cells[k])) { out.push(cells[k - 1]); anchor = cells[k - 1]; }
+  out.push(b);
+  return out;
+};
+
+==== 210 project/src/gen/dyn.ts
+import type { V3 } from "./spec.ts";
+/** Per-frame transforms of objects that moved (pushed, carried, rolling) — by object id. */
+export type Dyn = Record<string, { pos: V3; yaw: number; hidden?: boolean }>;
+
+==== 17930 project/src/gen/GenSet.tsx
+// Renders a generated world (Built): rooms (floor, ceiling, walls with openings, wainscot, handrails),
+// doors that open with their prop, windows, signs, terrain + paths, buildings, objects (compound or
+// built-in, moved by the story when pushed/carried), scatter, light fixtures, sky and dust.
+
+import React, { useMemo } from "react";
+import { BufferAttribute, BufferGeometry, DoubleSide } from "three";
+import { box, cached, cyl, sphere } from "../kits/worldforge/geo.ts";
+import { canvasTex, phys } from "../cine/mats.ts";
+import { HoledWall, MAT, Slab, Window, type Hole } from "../cine/set/parts.tsx";
+import { SKIES, SkyDome } from "../cine/env/Sky.tsx";
+import { Dust, Glow } from "../cine/FX.tsx";
+import type { Cam } from "../cine/types.ts";
+import type { SetState } from "../worlds/types.ts";
+import { fixtureLevel, TIMES, type Built, type Inst, type Opening } from "./build.ts";
+import { Compound, matOf } from "./objects/Compound.tsx";
+import { Builtin, BuiltinScatter } from "./objects/builtin.tsx";
+import type { V3 } from "./spec.ts";
+
+import type { Dyn } from "./dyn.ts";
+export type { Dyn };
+const T = 0.15;
+
+const signTex = (text: string, bg = "#1d4f8a", ink = "#ffffff") =>
+  canvasTex(`sign${text}${bg}`, 512, 128, (g, w, h) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    g.fillStyle = ink; g.textAlign = "center"; g.textBaseline = "middle";
+    let s = 74; g.font = `700 ${s}px Manrope, sans-serif`;
+    while (g.measureText(text).width > w * 0.88 && s > 20) { s -= 4; g.font = `700 ${s}px Manrope, sans-serif`; }
+    g.fillText(text, w / 2, h / 2 + 4);
+  });
+
+const windowTex = (key: string, lit: number) =>
+  canvasTex(`bwin${key}${lit}`, 256, 256, (g, w, h) => {
+    g.fillStyle = "#000"; g.fillRect(0, 0, w, h);
+    let seed = key.length * 7 + 3;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { const on = r() < lit; g.fillStyle = on ? `rgba(255,${200 + r() * 40},${120 + r() * 60},1)` : "#20242c"; g.fillRect(x * 64 + 14, y * 64 + 12, 36, 40); }
+  }, [1, 1]);
+
+/** A door leaf (or two) in an opening, hinged at the jamb, opening `open` 0..1 into the room. */
+const DoorLeaves: React.FC<{ o: Opening; open: number; color: string }> = ({ o, open, color }) => {
+  const leafM = phys(`gdoor${color}`, { color, roughness: 0.45, clearcoat: 0.35 });
+  const frameM = phys("gdoorframe", { color: "#d8dcdc", roughness: 0.5 });
+  const rot = o.axis === "x" ? 0 : Math.PI / 2;
+  // inward direction (into the room) in the opening's local frame (local +z)
+  const into = o.wall === "north" || o.wall === "west" ? 1 : -1;
+  const sw = (o.swing ?? 1) * into;
+  const leaves = o.type === "double-door" ? [[-o.w / 2, 1], [o.w / 2, -1]] : [[-o.w / 2, 1]];
+  const lw = o.type === "double-door" ? o.w / 2 : o.w;
+  return (
+    <group position={[o.x, o.y, o.z]} rotation={[0, rot, 0]}>
+      <Slab min={[-o.w / 2 - 0.07, 0, -T / 2 - 0.02]} max={[-o.w / 2, o.h + 0.07, T / 2 + 0.02]} m={frameM} />
+      <Slab min={[o.w / 2, 0, -T / 2 - 0.02]} max={[o.w / 2 + 0.07, o.h + 0.07, T / 2 + 0.02]} m={frameM} />
+      <Slab min={[-o.w / 2 - 0.07, o.h, -T / 2 - 0.02]} max={[o.w / 2 + 0.07, o.h + 0.07, T / 2 + 0.02]} m={frameM} />
+      {leaves.map(([hx, dir], i) => (
+        <group key={i} position={[hx, 0, 0]} rotation={[0, -open * 1.6 * dir * sw, 0]}>
+          <group position={[(dir * lw) / 2, 0, 0]}>
+            <Slab min={[-lw / 2 + 0.005, 0.01, -0.022]} max={[lw / 2 - 0.005, o.h - 0.005, 0.022]} m={leafM} r={0.006} />
+            {o.glass ? <mesh geometry={box(lw * 0.45, 0.42, 0.05, 0.004)} material={matOf("glass")} position={[0, 1.45, 0]} /> : null}
+            {[1, -1].map((s) => <mesh key={s} geometry={box(0.12, 0.025, 0.025, 0.006)} material={matOf("chrome")} position={[(-dir * lw) / 2 + dir * 0.1, 1.02, s * 0.04]} castShadow />)}
+          </group>
+        </group>
+      ))}
+      {o.sign ? <mesh geometry={box(Math.min(1.4, o.w + 0.3), 0.28, 0.03, 0.006)} material={phys(`gsign${o.sign}`, { color: "#ffffff", map: signTex(o.sign), emissive: "#ffffff", emissiveMap: signTex(o.sign), emissiveIntensity: 0.35, roughness: 0.5 })} position={[0, o.h + 0.32, (into * (T / 2 + 0.03))]} /> : null}
+    </group>
+  );
+};
+
+const Room: React.FC<{ b: Built; ri: number; s: SetState }> = ({ b, ri, s }) => {
+  const r = b.rooms[ri];
+  const [x0, z0, x1, z1] = r.rect;
+  const wallM = matOf(r.walls ?? "paint:#dfe3e0");
+  const dado = r.wainscot ? phys(`gdado${r.wainscot}`, { color: r.wainscot, roughness: 0.5, clearcoat: 0.2 }) : null;
+  const sides: { side: "north" | "south" | "west" | "east"; axis: "x" | "z"; c: number; a0: number; a1: number }[] = [
+    { side: "north", axis: "x", c: z0 - T / 2, a0: x0 - T, a1: x1 + T },
+    { side: "south", axis: "x", c: z1 + T / 2, a0: x0 - T, a1: x1 + T },
+    { side: "west", axis: "z", c: x0 - T / 2, a0: z0, a1: z1 },
+    { side: "east", axis: "z", c: x1 + T / 2, a0: z0, a1: z1 },
+  ];
+  // a wall shared with an earlier room (same line, fully covered) is built once
+  const covered = (axis: "x" | "z", c: number, a0: number, a1: number) =>
+    b.rooms.slice(0, ri).some((q) => {
+      const [qx0, qz0, qx1, qz1] = q.rect;
+      if (axis === "x") return (Math.abs(qz0 - T / 2 - c) < T * 1.5 || Math.abs(qz1 + T / 2 - c) < T * 1.5) && qx0 - T <= a0 + 0.01 && qx1 + T >= a1 - 0.01;
+      return (Math.abs(qx0 - T / 2 - c) < T * 1.5 || Math.abs(qx1 + T / 2 - c) < T * 1.5) && qz0 <= a0 + 0.01 && qz1 >= a1 - 0.01;
+    });
+  return (
+    <group>
+      {/* floors of neighbouring rooms overlap under the shared wall: a hair of height per room so they never flicker */}
+      <Slab min={[x0 - T, r.y - 0.12, z0 - T]} max={[x1 + T, r.y + 0.0015 * (ri % 4), z1 + T]} m={matOf(r.floor ?? "vinyl:#d6dcd8")} cast={false} />
+      {r.ceiling !== "none" ? <Slab min={[x0 - T, r.y + r.height, z0 - T]} max={[x1 + T, r.y + r.height + 0.1, z1 + T]} m={matOf(r.ceiling ?? "paint:#eceeed")} /> : null}
+      {sides.map((w) => {
+        if (r.open?.includes(w.side) || covered(w.axis, w.c, w.a0, w.a1)) return null;
+        const holes: Hole[] = b.openings.filter((o) => o.axis === w.axis && Math.abs(o.wallC + (w.side === "north" || w.side === "west" ? -T / 2 : T / 2) - w.c) < T * 1.6 && (w.axis === "x" ? o.x : o.z) > w.a0 && (w.axis === "x" ? o.x : o.z) < w.a1)
+          .map((o) => { const a = w.axis === "x" ? o.x : o.z; return { a0: a - o.w / 2, a1: a + o.w / 2, y0: o.sill, y1: o.sill + o.h }; });
+        return <HoledWall key={w.side} axis={w.axis} c={w.c} a0={w.a0} a1={w.a1} holes={holes} t={T} y0={r.y} top={r.height} m={wallM} dado={dado} />;
+      })}
+      {r.handrail ? sides.map((w) => (r.open?.includes(w.side) ? null : (
+        <mesh key={`hr${w.side}`} geometry={cyl(0.025, 0.025, +(w.a1 - w.a0 - 2 * T).toFixed(3), 10)} material={phys(`ghr${r.handrail}`, { color: r.handrail!, roughness: 0.4, clearcoat: 0.4 })}
+          position={w.axis === "x" ? [(w.a0 + w.a1) / 2, r.y + 0.9, w.c + (w.side === "north" ? T / 2 + 0.07 : -T / 2 - 0.07)] : [w.c + (w.side === "west" ? T / 2 + 0.07 : -T / 2 - 0.07), r.y + 0.9, (w.a0 + w.a1) / 2]}
+          rotation={w.axis === "x" ? [0, 0, Math.PI / 2] : [Math.PI / 2, 0, 0]} castShadow />
+      ))) : null}
+      {void s}
+    </group>
+  );
+};
+
+const Ground: React.FC<{ b: Built }> = ({ b }) => {
+  const g = b.spec.ground!;
+  const geo = useMemo(() => cached(`gground${b.spec.id}`, () => {
+    const n = Math.min(220, Math.round(g.size / 0.8)), half = g.size / 2;
+    const pos = new Float32Array((n + 1) * (n + 1) * 3), uv = new Float32Array((n + 1) * (n + 1) * 2);
+    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+      const x = -half + (g.size * i) / n, z = -half + (g.size * j) / n, k = j * (n + 1) + i;
+      pos[k * 3] = x; pos[k * 3 + 1] = b.ground!(x, z); pos[k * 3 + 2] = z;
+      uv[k * 2] = x / 6; uv[k * 2 + 1] = z / 6;
+    }
+    const idx: number[] = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * (n + 1) + i, c = a + n + 1; idx.push(a, c, a + 1, a + 1, c, c + 1); }
+    const geom = new BufferGeometry();
+    geom.setAttribute("position", new BufferAttribute(pos, 3));
+    geom.setAttribute("uv", new BufferAttribute(uv, 2));
+    geom.setIndex(idx);
+    geom.computeVertexNormals();
+    return geom;
+  }), [b, g]);
+  const m = matOf(g.material ?? "grass");
+  const mm = m as unknown as { map?: { repeat: { set: (a: number, b: number) => void } } };
+  if (mm.map) mm.map.repeat.set(1, 1);
+  return <mesh geometry={geo} material={m} receiveShadow />;
+};
+
+const Paths: React.FC<{ b: Built }> = ({ b }) => {
+  const geos = useMemo(() => (b.spec.paths ?? []).map((p, pi) => cached(`gpath${b.spec.id}${pi}`, () => {
+    const w = (p.width ?? 1.2) / 2, pts = p.points;
+    // densify
+    const dense: [number, number][] = [];
+    for (let i = 1; i < pts.length; i++) { const [ax, az] = pts[i - 1], [bx, bz] = pts[i], L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 0.5)); for (let k = 0; k < n; k++) dense.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n]); }
+    dense.push(pts[pts.length - 1]);
+    const pos: number[] = [], idx: number[] = [], uv: number[] = [];
+    dense.forEach(([x, z], i) => {
+      const [nx, nz] = dense[Math.min(dense.length - 1, i + 1)], [px, pz] = dense[Math.max(0, i - 1)];
+      const dx = nx - px, dz = nz - pz, L = Math.hypot(dx, dz) || 1, ox = -dz / L, oz = dx / L;
+      const wob = w * (1 + 0.15 * Math.sin(i * 0.9));
+      for (const s of [-1, 1]) { const X = x + ox * wob * s, Z = z + oz * wob * s; pos.push(X, (b.ground ? b.ground(X, Z) : b.nav.floor(X, Z)) + 0.025, Z); uv.push((s + 1) / 2, i * 0.3); }
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    });
+    const geom = new BufferGeometry();
+    geom.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
+    geom.setAttribute("uv", new BufferAttribute(new Float32Array(uv), 2));
+    geom.setIndex(idx);
+    geom.computeVertexNormals();
+    return geom;
+  })), [b]);
+  return <group>{geos.map((g, i) => <mesh key={i} geometry={g} material={matOf(b.spec.paths![i].material ?? "dirt")} receiveShadow />)}</group>;
+};
+
+const Buildings: React.FC<{ b: Built; dark: number }> = ({ b, dark }) => (
+  <group>
+    {(b.spec.buildings ?? []).map((bd, i) => {
+      const [x0, z0, x1, z1] = bd.rect, y = bd.y ?? 0, w = x1 - x0;
+      const winM = phys(`gbwin${i}${Math.round(dark * 4)}`, { color: "#ffffff", map: windowTex(`${i}`, dark > 0.5 ? 0.35 : 0), emissive: "#ffffff", emissiveMap: windowTex(`${i}`, dark > 0.5 ? 0.35 : 0), emissiveIntensity: dark > 0.5 ? 1.4 : 0, roughness: 0.5 });
+      return (
+        <group key={i}>
+          <Slab min={[x0, y, z0]} max={[x1, y + bd.height, z1]} m={matOf(`paint:${bd.color ?? "#cfc6b8"}`)} />
+          <Slab min={[x0 - 0.2, y + bd.height, z0 - 0.2]} max={[x1 + 0.2, y + bd.height + 0.25, z1 + 0.2]} m={matOf(bd.roof ?? "#7a4a36")} />
+          {bd.windows !== false ? [z0 - 0.01, z1 + 0.01].map((z, k) => <mesh key={k} geometry={cached(`gbw${w},${bd.height}`, () => { const g = new BufferGeometry(); const hw = w * 0.42, hh = bd.height * 0.36; g.setAttribute("position", new BufferAttribute(new Float32Array([-hw, -hh, 0, hw, -hh, 0, hw, hh, 0, -hw, hh, 0]), 3)); g.setAttribute("uv", new BufferAttribute(new Float32Array([0, 0, Math.max(1, w / 3), 0, Math.max(1, w / 3), Math.max(1, bd.height / 3), 0, Math.max(1, bd.height / 3)]), 2)); g.setIndex([0, 1, 2, 0, 2, 3]); g.computeVertexNormals(); return g; })} material={winM} position={[(x0 + x1) / 2, y + bd.height * 0.55, z]} rotation={[0, k ? 0 : Math.PI, 0]} />) : null}
+          {bd.sign ? <mesh geometry={box(Math.min(w * 0.8, 4), 0.6, 0.06, 0.01)} material={phys(`gbsign${bd.sign}`, { color: "#ffffff", map: signTex(bd.sign, "#b0302a"), emissive: "#ffffff", emissiveMap: signTex(bd.sign, "#b0302a"), emissiveIntensity: dark > 0.5 ? 0.9 : 0.1 })} position={[(x0 + x1) / 2, y + Math.min(3.4, bd.height - 0.5), z1 + 0.08]} /> : null}
+        </group>
+      );
+    })}
+  </group>
+);
+
+const Fixture: React.FC<{ f: Built["fixtures"][number]; lv: number; cam: Cam; dark: number }> = ({ f, lv, cam, dark }) => {
+  const k = Math.max(0, lv);
+  const em = (c: string, i: number) => phys(`gfx${c}${Math.round(i * 20)}`, { color: "#ffffff", emissive: c, emissiveIntensity: i, roughness: 0.4 });
+  const dist = Math.hypot(cam.pos[0] - f.at[0], cam.pos[1] - f.at[1], cam.pos[2] - f.at[2]);
+  const glowK = Math.min(1, Math.max(0, (dist - 2) / 8));
+  switch (f.type) {
+    case "panel": return <mesh geometry={box(0.6, 0.05, 1.2, 0.01)} material={em(f.color ?? "#eef4ff", 0.3 + 1.6 * k)} position={f.at} />;
+    case "tube": return <group position={f.at}><mesh geometry={box(0.12, 0.05, 1.24, 0.01)} material={MAT.plastic("#e6e6e1")} /><mesh geometry={cyl(0.015, 0.015, 1.18, 10)} material={em("#eaf4ff", 0.2 + 1.3 * k)} position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} /></group>;
+    case "bulb": return <group position={f.at}><mesh geometry={cyl(0.004, 0.004, 0.4, 5)} material={MAT.steel()} position={[0, 0.22, 0]} /><mesh geometry={sphere(0.05, 14, 10)} material={em(f.color ?? "#ffcf8a", 0.4 + 2.5 * k)} /><Glow pos={[0, 0, 0]} size={0.9 * glowK + 0.2} color={f.color ?? "#ffcf8a"} i={0.35 * k * dark} /></group>;
+    case "lamp-post": return (
+      <group position={[f.at[0], f.at[1] - 4.2, f.at[2]]}>
+        <mesh geometry={cyl(0.06, 0.09, 4.4, 10)} material={MAT.steel()} position={[0, 2.2, 0]} castShadow />
+        <mesh geometry={box(0.5, 0.12, 0.25, 0.03)} material={MAT.steel()} position={[0.2, 4.4, 0]} />
+        <mesh geometry={box(0.36, 0.04, 0.18, 0.01)} material={em(f.color ?? "#ffb05c", 0.3 + 2.4 * k)} position={[0.2, 4.33, 0]} />
+        <Glow pos={[0.2, 4.2, 0]} size={2.6 * glowK + 0.3} color={f.color ?? "#ffb05c"} i={0.4 * k * dark} />
+      </group>
+    );
+    case "string": {
+      const to = f.to ?? f.at, n = Math.max(4, Math.round(Math.hypot(to[0] - f.at[0], to[2] - f.at[2]) / 0.6));
+      return <group>{Array.from({ length: n + 1 }, (_, i) => { const u = i / n, sag = Math.sin(u * Math.PI) * 0.35; const p: V3 = [f.at[0] + (to[0] - f.at[0]) * u, f.at[1] + (to[1] - f.at[1]) * u - sag, f.at[2] + (to[2] - f.at[2]) * u]; return <group key={i} position={p}><mesh geometry={sphere(0.035, 10, 8)} material={em(f.color ?? "#ffd08a", 0.5 + 2.5 * k)} /><Glow pos={[0, 0, 0]} size={0.5 * glowK + 0.1} color={f.color ?? "#ffd08a"} i={0.3 * k * dark} /></group>; })}</group>;
+    }
+    case "exit-sign": return <mesh geometry={box(0.4, 0.16, 0.05, 0.01)} material={phys(`gexit${Math.round(k * 10)}`, { color: "#ffffff", map: signTex("KELUAR", "#0e9a52"), emissive: "#ffffff", emissiveMap: signTex("KELUAR", "#0e9a52"), emissiveIntensity: 0.4 + 1.2 * k })} position={f.at} />;
+    case "lantern": return <group position={f.at}><mesh geometry={cyl(0.07, 0.08, 0.18, 12)} material={em("#ffb45e", 0.4 + 2.4 * k)} /><Glow pos={[0, 0, 0]} size={1.2 * glowK + 0.3} color="#ffb45e" i={0.4 * k} /></group>;
+    // the fire's glow shrinks near the lens like the bulb's and lantern's (full size it filled the frame as a blur)
+    case "fire": return <group position={f.at}><mesh geometry={cyl(0.03, 0.05, 0.5, 6)} material={matOf("bark")} rotation={[0, 0, 1.2]} /><mesh geometry={cyl(0.03, 0.05, 0.5, 6)} material={matOf("bark")} rotation={[0, 1.6, 1.2]} /><Glow pos={[0, 0.25, 0]} size={0.5 + 0.9 * Math.min(1, Math.max(0, (dist - 1.5) / 4.5))} color="#ff8a3a" i={0.7 * k} /></group>;
+    case "screen": return <mesh geometry={box(0.5, 0.32, 0.03, 0.005)} material={em(f.color ?? "#8fb8ff", 0.3 + 1.2 * k)} position={f.at} />;
+    case "spot": return <mesh geometry={cyl(0.08, 0.12, 0.2, 12)} material={MAT.steel()} position={f.at} />;
+  }
+  return null;
+};
+
+const ObjectAt: React.FC<{ inst: Inst; b: Built; s: SetState; dyn?: Dyn[string] }> = ({ inst, b, s, dyn }) => {
+  if (dyn?.hidden || (s[`${inst.id}.visible`] ?? inst.states.visible ?? 1) < 0.5) return null;
+  const pos = dyn?.pos ?? inst.pos, yaw = dyn?.yaw ?? inst.yaw;
+  const states: Record<string, number> = { ...inst.states };
+  for (const k of Object.keys(states)) if (s[`${inst.id}.${k}`] !== undefined) states[k] = s[`${inst.id}.${k}`];
+  return (
+    <group position={pos} rotation={[0, yaw, 0]} scale={inst.scale}>
+      {inst.info.builtin ? <Builtin id={inst.use} color={inst.color} /> : <Compound spec={b.objects[inst.use]} states={states} />}
+    </group>
+  );
+};
+
+export const GenSet: React.FC<{ b: Built; place: string; time: string; s: SetState; t: number; cam: Cam; dyn: Dyn; area?: [number, number, number, number] }> = ({ b, time, s, t, cam, dyn, area }) => {
+  const Tl = TIMES[time] ?? TIMES.night;
+  const skyLook = SKIES[time] ?? SKIES.night;
+  return (
+    <group>
+      <SkyDome look={skyLook} dir={b.spec.sky?.sun ?? Tl.dir} cam={cam.pos} t={t} />
+      {b.spec.ground ? <Ground b={b} /> : null}
+      <Paths b={b} />
+      {b.rooms.map((_, i) => <Room key={i} b={b} ri={i} s={s} />)}
+      {b.openings.map((o) => (o.type === "window" ? (
+        <Window key={o.id} at={[o.x, o.y + o.sill, o.z]} axis={o.axis} w={o.w} h={o.h} />
+      ) : o.type === "arch" ? null : (
+        <DoorLeaves key={o.id} o={o} open={s[o.id] ?? 0} color={o.glass ? "#e9ecea" : "#c9d6d2"} />
+      )))}
+      <Buildings b={b} dark={Tl.dark} />
+      {b.insts.map((i) => <ObjectAt key={i.id} inst={i} b={b} s={s} dyn={dyn[i.id]} />)}
+      {b.scatter.map((sc, i) => (sc.info.builtin ? <BuiltinScatter key={i} id={sc.use} items={sc.items} seed={i} /> : (
+        <group key={i}>{sc.items.map((it, k) => <group key={k} position={it.pos} rotation={[0, it.yaw, 0]} scale={it.scale}><Compound spec={b.objects[sc.use]} /></group>)}</group>
+      )))}
+      {b.fixtures.map((f) => <Fixture key={f.id} f={f} lv={fixtureLevel(f, s, t)} cam={cam} dark={Tl.dark} />)}
+      {area ? <Dust min={[area[0], 0.2, area[1]]} max={[area[2], 2.6, area[3]]} n={220} t={t} i={0.22} size={0.01} /> : null}
+      {void DoubleSide}
+    </group>
+  );
+};
+
+==== 1653 project/src/gen/objects/builtin-data.ts
+// Built-in objects drawn by code (organic shapes that primitives cannot make well: trees, bushes, rocks,
+// ferns). Metadata only — the renderer is builtin.tsx. Everything else lives in library/objects/*.json.
+import type { V3 } from "../spec.ts";
+
+/** `solid`: the part that blocks bodies and cameras [min, max] in local metres (trees: the trunk); default = bounds.
+ *  `crown`: foliage a camera must not sit inside (the view may pass through it). */
+export type BuiltinMeta = { doc: string; bounds: V3; anchors?: Record<string, V3>; walkable?: boolean; hand?: boolean; states?: Record<string, number>; solid?: [V3, V3]; crown?: [V3, V3] };
+
+export const BUILTIN: Record<string, BuiltinMeta> = {
+  "tree-pine": { doc: "tall conifer (forest, hills)", bounds: [3.2, 11, 3.2], solid: [[-0.2, 0, -0.2], [0.2, 4, 0.2]], crown: [[-1.45, 1.5, -1.45], [1.45, 11, 1.45]] },
+  "tree-broad": { doc: "broad-leaf tree with a round crown (forest, parks, villages)", bounds: [5, 8, 5], solid: [[-0.28, 0, -0.28], [0.28, 4.6, 0.28]], crown: [[-2.5, 3.6, -2.2], [2.7, 8, 2.5]] },
+  "tree-palm": { doc: "coconut palm (coast, villages)", bounds: [4, 9, 4], solid: [[-0.18, 0, -0.18], [0.75, 8.2, 0.18]], crown: [[-1.8, 7.4, -2.3], [3.3, 9.2, 2.3]] },
+  bush: { doc: "leafy bush ~1 m", bounds: [1.4, 1.0, 1.4], crown: [[-0.75, 0, -0.7], [0.8, 1.0, 0.7]] },
+  fern: { doc: "low fern / undergrowth", bounds: [0.9, 0.5, 0.9], walkable: true },
+  rock: { doc: "mossy rock ~0.8 m", bounds: [1.0, 0.6, 0.9] },
+  log: { doc: "fallen mossy log ~3 m", bounds: [3.2, 0.5, 0.5] },
+  "grass-tuft": { doc: "grass tuft (scatter only)", bounds: [0.3, 0.35, 0.3], walkable: true },
+};
+
+==== 6866 project/src/gen/objects/builtin.tsx
+// Built-in organic objects (trees, bushes, ferns, rocks, logs, grass). Each is a short list of parts
+// (geometry + material + local matrix); one object renders the parts, a scatter renders each part as one
+// InstancedMesh over all items (hundreds of trees stay cheap).
+
+import React, { useMemo } from "react";
+import { BufferGeometry, Color, ConeGeometry, CylinderGeometry, IcosahedronGeometry, InstancedMesh, type Material, Matrix4, Quaternion, Vector3, Euler } from "three";
+import { cached } from "../../kits/worldforge/geo.ts";
+import { fbm } from "../../kits/worldforge/noise.ts";
+import { phys } from "../../cine/mats.ts";
+import type { V3 } from "../spec.ts";
+
+type BPart = { geo: BufferGeometry; mat: Material; m: Matrix4; tint?: boolean };
+
+const blob = (key: string, seed: number, k = 0.3) =>
+  cached(`blob${key}`, () => {
+    const g = new IcosahedronGeometry(1, 2);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i));
+      v.multiplyScalar(1 + k * fbm(v.x * 1.6 + seed, v.y * 1.6 + v.z * 1.3, 3));
+      a.setXYZ(i, v.x, v.y, v.z);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+const M = (p: V3, s: V3 = [1, 1, 1], r: V3 = [0, 0, 0]) => new Matrix4().compose(new Vector3(...p), new Quaternion().setFromEuler(new Euler(...r)), new Vector3(...s));
+const bark = () => phys("bBark", { color: "#4b3a2b", roughness: 0.95 });
+const needle = () => phys("bNeedle", { color: "#ffffff", roughness: 0.85 });
+const leafM = () => phys("bLeaf", { color: "#ffffff", roughness: 0.8, sheen: 0.3, sheenColor: "#d8ffc0" });
+
+export const builtinParts = (id: string): BPart[] =>
+  (({
+    "tree-pine": () => [
+      { geo: cached("bTrunkPine", () => new CylinderGeometry(0.1, 0.2, 4, 10)), mat: bark(), m: M([0, 2, 0]) },
+      ...[0, 1, 2, 3, 4].map((k) => ({ geo: cached("bCone", () => new ConeGeometry(1, 1, 9)), mat: needle(), m: M([0, 2.6 + k * 1.6, 0], [1.65 - k * 0.27, 2.6, 1.65 - k * 0.27], [0, k * 0.7, 0]), tint: true })),
+    ],
+    "tree-broad": () => [
+      { geo: cached("bTrunkBroad", () => new CylinderGeometry(0.16, 0.3, 4.6, 10)), mat: bark(), m: M([0, 2.3, 0]) },
+      { geo: cached("bBranch", () => new CylinderGeometry(0.06, 0.1, 2.2, 7)), mat: bark(), m: M([0.6, 4.2, 0.1], [1, 1, 1], [0, 0, -0.7]) },
+      { geo: cached("bBranch", () => new CylinderGeometry(0.06, 0.1, 2.2, 7)), mat: bark(), m: M([-0.5, 4.0, -0.3], [1, 1, 1], [0.3, 0, 0.8]) },
+      ...([[0, 5.6, 0, 2.1], [1.3, 5.0, 0.4, 1.5], [-1.2, 5.1, -0.3, 1.6], [0.2, 6.6, -0.6, 1.4], [-0.3, 5.2, 1.2, 1.4]] as number[][]).map(([x, y, z, r], k) => ({ geo: blob(`crown${k % 3}`, k * 3.1, 0.35), mat: leafM(), m: M([x, y, z], [r, r * 0.82, r]), tint: true })),
+    ],
+    "tree-palm": () => [
+      ...[0, 1, 2, 3].map((k) => ({ geo: cached("bPalmSeg", () => new CylinderGeometry(0.13, 0.16, 2.2, 9)), mat: bark(), m: M([k * 0.18, 1.1 + k * 2.05, 0], [1, 1, 1], [0, 0, -0.09]) })),
+      ...[0, 1, 2, 3, 4, 5, 6].map((k) => ({ geo: cached("bFrond", () => new ConeGeometry(0.35, 3.0, 4)), mat: leafM(), m: M([0.75 + Math.sin((k / 7) * 6.28) * 1.2, 8.3, Math.cos((k / 7) * 6.28) * 1.2], [1, 1, 0.18], [Math.cos((k / 7) * 6.28) * 1.2, (k / 7) * 6.28, -Math.sin((k / 7) * 6.28) * 1.2]), tint: true })),
+    ],
+    bush: () => ([[0, 0.45, 0, 0.55], [0.35, 0.38, 0.15, 0.42], [-0.3, 0.36, -0.1, 0.45]] as number[][]).map(([x, y, z, r], k) => ({ geo: blob(`bush${k}`, k * 5.7, 0.3), mat: leafM(), m: M([x, y, z], [r, r * 0.85, r]), tint: true })),
+    fern: () => [0, 1, 2, 3, 4, 5].map((k) => ({ geo: cached("bFernLeaf", () => new ConeGeometry(0.09, 0.6, 3)), mat: leafM(), m: M([Math.sin(k) * 0.18, 0.2, Math.cos(k) * 0.18], [1, 1, 0.25], [Math.cos(k) * 1.1, k, -Math.sin(k) * 1.1]), tint: true })),
+    rock: () => [{ geo: blob("rock", 2.2, 0.3), mat: phys("bRock", { color: "#ffffff", roughness: 0.93, flatShading: true }), m: M([0, 0.22, 0], [0.5, 0.32, 0.45]), tint: true }],
+    log: () => [
+      { geo: cached("bLog", () => new CylinderGeometry(0.22, 0.25, 3.0, 12)), mat: bark(), m: M([0, 0.22, 0], [1, 1, 1], [0, 0, Math.PI / 2]) },
+      { geo: blob("moss", 1.1, 0.25), mat: phys("bMoss", { color: "#3f5a2a", roughness: 0.95 }), m: M([0.3, 0.42, 0], [0.9, 0.08, 0.2]) },
+    ],
+    "grass-tuft": () => [0, 1, 2, 3].map((k) => ({ geo: cached("bBlade", () => new ConeGeometry(0.03, 0.35, 3).translate(0, 0.175, 0)), mat: leafM(), m: M([Math.sin(k * 1.7) * 0.06, 0, Math.cos(k * 1.7) * 0.06], [1, 1, 1], [Math.sin(k) * 0.3, 0, Math.cos(k) * 0.3]), tint: true })),
+  }) as Record<string, () => BPart[]>)[id]?.() ?? [];
+
+const TINT: Record<string, [string, string]> = {
+  "tree-pine": ["#1f3a24", "#2d4a2a"], "tree-broad": ["#2f5a2a", "#4a6a2a"], "tree-palm": ["#3f6a2a", "#5a7a30"], bush: ["#2f5228", "#4a6a30"], fern: ["#2f5a28", "#507a34"],
+  rock: ["#5e5a55", "#7a756e"], log: ["#ffffff", "#ffffff"], "grass-tuft": ["#3f5a2a", "#6a7a3a"],
+};
+
+export const Builtin: React.FC<{ id: string; color?: string }> = ({ id, color }) => {
+  const parts = useMemo(() => builtinParts(id), [id]);
+  const tint = color ?? TINT[id]?.[0] ?? "#ffffff";
+  return (
+    <group>
+      {parts.map((p, i) => {
+        const pos = new Vector3(), q = new Quaternion(), s = new Vector3();
+        p.m.decompose(pos, q, s);
+        const mat = p.tint ? phys(`bt${id}${tint}${(p.mat as unknown as { uuid: string }).uuid}`, { color: tint, roughness: 0.85 }) : p.mat;
+        return <mesh key={i} geometry={p.geo} material={mat} position={pos} quaternion={q} scale={s} castShadow receiveShadow />;
+      })}
+    </group>
+  );
+};
+
+/** Many copies of a built-in object as instanced meshes (one per part), tinted per item. */
+export const BuiltinScatter: React.FC<{ id: string; items: { pos: V3; yaw: number; scale: number }[]; seed?: number }> = ({ id, items, seed = 1 }) => {
+  const meshes = useMemo(() => {
+    const parts = builtinParts(id);
+    const [c0, c1] = TINT[id] ?? ["#ffffff", "#ffffff"];
+    const A = new Color(c0), B = new Color(c1), c = new Color();
+    return parts.map((p) => {
+      const mat = p.tint ? phys(`bti${(p.mat as unknown as { uuid: string }).uuid}`, { color: "#ffffff", roughness: 0.85, flatShading: id === "rock" }) : p.mat;
+      const m = new InstancedMesh(p.geo, mat, items.length);
+      items.forEach((it, i) => {
+        const W = new Matrix4().compose(new Vector3(...it.pos), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), it.yaw), new Vector3(it.scale, it.scale, it.scale)).multiply(p.m);
+        m.setMatrixAt(i, W);
+        if (p.tint) m.setColorAt(i, c.copy(A).lerp(B, ((Math.sin(i * 12.9898 + seed) * 43758.5453) % 1 + 1) % 1));
+      });
+      m.castShadow = id !== "grass-tuft" && id !== "fern";
+      m.receiveShadow = true;
+      return m;
+    });
+  }, [id, items, seed]);
+  return <group>{meshes.map((m, i) => <primitive key={i} object={m} />)}</group>;
+};
+
+==== 11521 project/src/gen/objects/Compound.tsx
+// Renders a compound object (ObjectSpec): primitives + materials from the JSON, the same part expansion
+// (repeat/mirror) the builder used for bounds. Materials are cached by their spec; text signs are canvas
+// textures; piles are instanced spheres.
+
+import React, { useMemo } from "react";
+import { Color, DoubleSide, InstancedMesh, Matrix4, type Material, Quaternion, SphereGeometry, Vector3 } from "three";
+import { box, cached, cyl, lathe, sphere, torus } from "../../kits/worldforge/geo.ts";
+import { canvasTex, phys, plankTex, tileTex, weaveTex } from "../../cine/mats.ts";
+import { plasterTex, concreteTex } from "../../cine/set/tex.ts";
+import { CapsuleGeometry, ConeGeometry, PlaneGeometry } from "three";
+import { expandParts } from "../build.ts";
+import type { MatSpec, ObjectSpec, PartSpec, V3 } from "../spec.ts";
+
+const deg = Math.PI / 180;
+const noiseTex = (key: string, color: string) =>
+  canvasTex(`noise${key}`, 256, 256, (g, w, h) => {
+    g.fillStyle = color; g.fillRect(0, 0, w, h);
+    let seed = 7;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${r() > 0.5 ? "255,255,255" : "0,0,0"},${0.04 + r() * 0.06})`; g.fillRect(r() * w, r() * h, 2 + r() * 5, 2 + r() * 5); }
+  }, [3, 3]);
+
+// a light-coloured screen / sign at full glow burns white over a close shot (and blooms over its frame): the glow
+// is capped by the colour's brightness so a pale screen tops out just under white; saturated colours keep theirs
+const glow = (hex: string, i: number) => { const c = new Color(hex); return Math.min(i, 1.05 / Math.max(0.3, 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)); };
+
+/** Material from a spec string ("steel", "paint:#cfe", "fabric:#a33", …) or object. */
+export const matOf = (m: MatSpec | undefined, fallback = "#b0b0b0"): Material => {
+  if (!m) return phys(`gm${fallback}`, { color: fallback, roughness: 0.7 });
+  if (typeof m === "object") {
+    const key = `gmo${JSON.stringify(m)}`;
+    const tex = m.texture === "weave" ? weaveTex(key, m.color ?? fallback, [4, 4]) : m.texture === "planks" ? plankTex([2, 2]) : m.texture === "tiles" ? tileTex([2, 2]) : m.texture === "noise" ? noiseTex(key, m.color ?? fallback) : undefined;
+    return phys(key, {
+      color: tex && m.texture !== "planks" && m.texture !== "tiles" ? "#ffffff" : m.color ?? fallback, map: tex, roughness: m.roughness ?? 0.6, metalness: m.metal ?? 0,
+      emissive: m.emissive ?? "#000000", emissiveIntensity: m.emissive ? glow(m.emissive, m.glow ?? 1.5) : 0, transparent: m.opacity !== undefined && m.opacity < 1, opacity: m.opacity ?? 1, depthWrite: !(m.opacity !== undefined && m.opacity < 0.9), side: m.opacity !== undefined ? DoubleSide : undefined,
+    });
+  }
+  const [name, arg] = m.split(":");
+  const c = arg ?? fallback;
+  switch (name) {
+    case "wood": return phys("gwood", { color: arg ?? "#8a6440", roughness: 0.62, clearcoat: 0.1 });
+    case "darkwood": return phys("gdwood", { color: "#4a3020", roughness: 0.6, clearcoat: 0.1 });
+    case "steel": return phys("gsteel", { color: "#8d939a", metalness: 0.8, roughness: 0.38 });
+    case "chrome": return phys("gchrome", { color: "#d4d8de", metalness: 1, roughness: 0.18 });
+    case "aluminium": return phys("galu", { color: "#bcc2ca", metalness: 0.85, roughness: 0.32 });
+    case "rubber": return phys("grubber", { color: "#1b1b1d", roughness: 0.92 });
+    case "glass": return phys("gglass", { color: "#bfd3e6", roughness: 0.05, transparent: true, opacity: 0.25, depthWrite: false, side: DoubleSide });
+    case "ceramic": return phys(`gcer${c}`, { color: arg ?? "#f1f1ec", roughness: 0.22, clearcoat: 0.6 });
+    case "paper": return phys(`gpaper${c}`, { color: arg ?? "#f3efe4", roughness: 0.9 });
+    case "bark": return phys("gbark", { color: "#4a3a2c", roughness: 0.95, map: noiseTex("bark", "#4a3a2c") });
+    case "stone": return phys(`gstone${c}`, { color: "#ffffff", map: noiseTex(`stone${c}`, arg ?? "#7a7670"), roughness: 0.95 });
+    case "plastic": return phys(`gplastic${c}`, { color: c, roughness: 0.42, clearcoat: 0.25 });
+    case "paint": return phys(`gpaint${c}`, { color: c, roughness: 0.85, map: plasterTex("gp", [1, 1], 0.1) });
+    case "fabric": case "cloth": return phys(`gfab${c}`, { color: "#ffffff", map: weaveTex(`gfab${c}`, c, [4, 4]), roughness: 0.9, sheen: 0.4, sheenColor: "#ffffff" });
+    case "leaf": return phys(`gleaf${c}`, { color: c, roughness: 0.75, sheen: 0.3, sheenColor: "#c8ffb0", side: DoubleSide });
+    case "metal": return phys(`gmetal${c}`, { color: c, metalness: 0.7, roughness: 0.4 });
+    case "emissive": return phys(`gemis${c}`, { color: "#000000", emissive: c, emissiveIntensity: glow(c, 2.2), roughness: 0.4 });
+    // floors stay satin: glossier ones mirror the ceiling lights into a white pool across the floor
+    case "vinyl": return phys(`gvinyl${c}`, { color: c, map: tileTex([1, 1]), roughness: 0.55, clearcoat: 0.06 });
+    case "tiles": return phys(`gtiles${c}`, { color: c, map: tileTex([1, 1]), roughness: 0.5, clearcoat: 0.08 });
+    case "planks": return phys(`gplanks${c}`, { color: arg ?? "#ffffff", map: plankTex([1, 1]), roughness: 0.7 });
+    case "concrete": return phys(`gconc${c}`, { color: arg ?? "#ffffff", map: concreteTex([1, 1]), roughness: 0.95 });
+    case "asphalt": return phys("gasph", { color: "#ffffff", map: noiseTex("asph", "#3a3b3e"), roughness: 0.9 });
+    case "dirt": return phys(`gdirt${c}`, { color: "#ffffff", map: noiseTex(`dirt${c}`, arg ?? "#6b5640"), roughness: 0.95 });
+    case "grass": return phys(`ggrass${c}`, { color: "#ffffff", map: noiseTex(`grass${c}`, arg ?? "#4a5a30"), roughness: 0.95 });
+    default: return phys(`gm${m}`, { color: name.startsWith("#") ? name : fallback, roughness: 0.7 });
+  }
+};
+
+const textTex = (text: string, ink: string, bg: string, w: number, h: number) =>
+  canvasTex(`txt${text}${ink}${bg}${w}${h}`, 512, Math.max(64, Math.round((512 * h) / w)), (g, W, H) => {
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    g.fillStyle = ink; g.textAlign = "center"; g.textBaseline = "middle";
+    let size = H * 0.62;
+    g.font = `700 ${size}px Manrope, sans-serif`;
+    while (g.measureText(text).width > W * 0.9 && size > 10) { size *= 0.9; g.font = `700 ${size}px Manrope, sans-serif`; }
+    g.fillText(text, W / 2, H / 2);
+  });
+
+const Pile: React.FC<{ p: PartSpec }> = ({ p }) => {
+  const mesh = useMemo(() => {
+    const [w, h, d] = (p.size ?? [0.4, 0.15, 0.3]) as number[];
+    const n = p.count ?? 20, r = p.r ?? 0.035, cols = p.colors ?? ["#c0392b"];
+    let seed = (p.seed ?? 3) * 7919 + 13;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const m = new InstancedMesh(cached(`pileS${r}`, () => new SphereGeometry(r, 12, 9)), phys("pileMat", { color: "#ffffff", roughness: 0.45, clearcoat: 0.3 }), n);
+    const M = new Matrix4(), q = new Quaternion(), c = new Color();
+    for (let i = 0; i < n; i++) {
+      // a heap: more items low and in the middle
+      const u = rnd() * 2 - 1, v = rnd() * 2 - 1, k = 1 - Math.max(Math.abs(u), Math.abs(v)) * 0.6;
+      const y = r + rnd() * Math.max(0, h - 2 * r) * k;
+      M.compose(new Vector3((u * (w / 2 - r)), y, (v * (d / 2 - r))), q.setFromAxisAngle(new Vector3(0, 1, 0), rnd() * 6), new Vector3(1 + (rnd() - 0.5) * 0.25, 0.9 + rnd() * 0.2, 1 + (rnd() - 0.5) * 0.25));
+      m.setMatrixAt(i, M);
+      m.setColorAt(i, c.set(cols[Math.floor(rnd() * cols.length)]).offsetHSL(0, 0, (rnd() - 0.5) * 0.08));
+    }
+    m.castShadow = true; m.receiveShadow = true;
+    return m;
+  }, [p]);
+  return <primitive object={mesh} position={[0, -(p.size?.[1] ?? 0.15) / 2, 0]} />;
+};
+
+const Part: React.FC<{ p: PartSpec; states: Record<string, number> }> = ({ p, states }) => {
+  if (p.when && (states[p.when] ?? 0) < 0.5) return null;
+  let mat = matOf(p.mat);
+  if (p.glowState) {
+    const k = states[p.glowState] ?? 0;
+    const base = typeof p.mat === "string" && p.mat.startsWith("emissive:") ? p.mat.split(":")[1] : (typeof p.mat === "object" ? p.mat.emissive : undefined) ?? "#ffd9a0";
+    mat = phys(`glow${base}${Math.round(k * 20)}`, { color: "#111111", emissive: base, emissiveIntensity: 0.05 + glow(base, 2.4) * k, roughness: 0.4 });
+  }
+  const cast = p.castShadow !== false;
+  const rot: V3 = [(p.rot?.[0] ?? 0) * deg, (p.rot?.[1] ?? 0) * deg, (p.rot?.[2] ?? 0) * deg];
+  const sc = p.scale ?? [1, 1, 1];
+  const at = p.at ?? [0, 0, 0];
+  switch (p.shape) {
+    case "box": { const s = p.size ?? [0.1, 0.1, 0.1]; return <mesh geometry={box(s[0], s[1], s[2], p.round ?? Math.min(0.01, Math.min(s[0], s[1], s[2]) * 0.2), 2)} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />; }
+    case "cyl": return <mesh geometry={cyl(p.r ?? 0.05, p.r2 ?? p.r ?? 0.05, p.h ?? 0.1, 24)} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />;
+    case "cone": return <mesh geometry={cached(`gcone${p.r},${p.h}`, () => new ConeGeometry(p.r ?? 0.05, p.h ?? 0.1, 24))} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />;
+    case "sphere": return <mesh geometry={sphere(p.r ?? 0.05, 24, 16)} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />;
+    case "torus": return <mesh geometry={torus(p.R ?? 0.2, p.r ?? 0.02, 10, 40, p.arc ?? Math.PI * 2)} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} />;
+    case "capsule": return <mesh geometry={cached(`gcap${p.r},${p.h}`, () => new CapsuleGeometry(p.r ?? 0.05, p.h ?? 0.1, 6, 14))} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />;
+    case "lathe": return <mesh geometry={lathe(JSON.stringify(p.profile), (p.profile ?? [[0.1, 0], [0.1, 0.1]]) as [number, number][], 40)} material={mat} position={at} rotation={rot} scale={sc} castShadow={cast} receiveShadow />;
+    case "plane": { const s = p.size ?? [0.5, 0.3]; return <mesh geometry={cached(`gpl${s}`, () => new PlaneGeometry(s[0], s[1]))} material={mat} position={at} rotation={rot} scale={sc} receiveShadow />; }
+    case "text": {
+      const s = p.size ?? [0.6, 0.2];
+      const tm = phys(`gtext${p.text}${p.ink}${p.bg}`, { color: "#ffffff", map: textTex(p.text ?? "", p.ink ?? "#111111", p.bg ?? "#ffffff", s[0], s[1]), roughness: 0.6, emissive: "#ffffff", emissiveMap: textTex(p.text ?? "", p.ink ?? "#111111", p.bg ?? "#ffffff", s[0], s[1]), emissiveIntensity: p.glowState ? (states[p.glowState] ?? 0) * 0.8 : 0 });
+      return <mesh geometry={cached(`gpl${s}`, () => new PlaneGeometry(s[0], s[1]))} material={tm} position={at} rotation={rot} scale={sc} />;
+    }
+    case "rod": {
+      const a = new Vector3(...(p.from ?? [0, 0, 0])), b = new Vector3(...(p.to ?? [0, 1, 0]));
+      const d = b.clone().sub(a), L = d.length();
+      const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), d.clone().normalize());
+      return <mesh geometry={cyl(p.r ?? 0.015, p.r ?? 0.015, +L.toFixed(4), 12)} material={mat} position={a.add(b).multiplyScalar(0.5).toArray() as V3} quaternion={q} castShadow={cast} />;
+    }
+    case "pile": return <group position={at} rotation={rot}><Pile p={p} /></group>;
+  }
+  return null;
+};
+
+export const Compound: React.FC<{ spec: ObjectSpec; states?: Record<string, number> }> = ({ spec, states = {} }) => {
+  const parts = useMemo(() => expandParts(spec.parts), [spec]);
+  return <group>{parts.map((p, i) => <Part key={i} p={p} states={{ ...(spec.states ?? {}), ...states }} />)}</group>;
+};
+
+==== 627 project/src/gen/objects/registry.ts
+// Generated by scripts/objects.mjs — every object JSON in library/objects and assets/objects.
+import type { ObjectSpec } from "../spec.ts";
+import o_bookshelf from "../../../library/objects/bookshelf.json";
+import o_park_bench from "../../../library/objects/park-bench.json";
+import o_reading_table from "../../../library/objects/reading-table.json";
+import o_wooden_chair from "../../../library/objects/wooden-chair.json";
+
+export const OBJECTS: ObjectSpec[] = [o_bookshelf as unknown as ObjectSpec, o_park_bench as unknown as ObjectSpec, o_reading_table as unknown as ObjectSpec, o_wooden_chair as unknown as ObjectSpec];
+
+==== 57 project/src/gen/objects/sheet-list.json
+["bookshelf","park-bench","reading-table","wooden-chair"]
+==== 7387 project/src/gen/spec.ts
+// Dynamic worlds and objects as DATA. A story that needs a location the built-in worlds cannot stage gets a
+// `world.json` (rooms with openings, terrain + paths, objects, scatter, light fixtures, places) and, for
+// objects the library lacks, `objects/<id>.json` (compound objects from primitives). The engine builds the
+// 3D set, the camera space, collision, navigation and the light rig from these — no code per story.
+
+export type V2 = [number, number];
+export type V3 = [number, number, number];
+
+// ── objects ──────────────────────────────────────────────────────────────────
+
+/** Named material presets, or a custom material. Presets: wood, darkwood, steel, chrome, aluminium,
+ *  plastic:#hex, paint:#hex, fabric:#hex, rubber, glass, ceramic, paper, leaf:#hex, bark, stone, metal:#hex,
+ *  emissive:#hex, cloth:#hex (woven). */
+export type MatSpec = string | { color?: string; roughness?: number; metal?: number; emissive?: string; glow?: number; opacity?: number; texture?: "weave" | "planks" | "tiles" | "noise" };
+
+export type PartSpec = {
+  shape: "box" | "cyl" | "cone" | "sphere" | "torus" | "capsule" | "rod" | "lathe" | "plane" | "text" | "pile";
+  /** box: [w, h, d]; plane: [w, h] */
+  size?: number[];
+  /** cyl/cone/sphere/capsule/rod radius; cyl top radius = r, bottom = r2 (default r) */
+  r?: number; r2?: number;
+  /** cyl/cone/capsule height */
+  h?: number;
+  /** torus: ring radius R, tube r, arc (rad) */
+  R?: number; arc?: number;
+  /** rod from → to (a tube between two points) */
+  from?: V3; to?: V3;
+  /** lathe profile [[radius, y], …] around Y */
+  profile?: V2[];
+  /** text on a plane (signs): the words, colours */
+  text?: string; ink?: string; bg?: string;
+  /** pile: `count` small round items (radius r) heaped inside `size`, coloured from `colors` */
+  count?: number; colors?: string[]; seed?: number;
+  /** rounded box corner */
+  round?: number;
+  at?: V3;
+  /** rotation in degrees [x, y, z] */
+  rot?: V3;
+  /** non-uniform scale */
+  scale?: V3;
+  mat?: MatSpec;
+  /** repeat the part n times, moving by `step` (and rotating by `stepRot` degrees) each time; with
+   *  `around: true` the copies swing around the object's vertical axis by stepRot[1] (radial legs, spokes) */
+  repeat?: { n: number; step?: V3; stepRot?: V3; around?: boolean };
+  /** also add the part mirrored across this axis */
+  mirror?: "x" | "z";
+  /** only shown when this object state is > 0.5 (e.g. "open", "on") */
+  when?: string;
+  /** glow follows this object state 0..1 */
+  glowState?: string;
+  castShadow?: boolean;
+};
+
+export type ObjectSpec = {
+  id: string;
+  doc: string;
+  parts: PartSpec[];
+  /** named points in object space: "seat", "push" (handles), "top" (surface), "grab", "handle", "front" */
+  anchors?: Record<string, V3>;
+  /** a person can stand here (floor-level items like rugs) */
+  walkable?: boolean;
+  /** footprint/bounds override [w, h, d]; normally computed from the parts */
+  bounds?: V3;
+  /** carried in one hand */
+  hand?: boolean;
+  /** states with defaults (doors "open", lamps "on") */
+  states?: Record<string, number>;
+};
+
+// ── worlds ───────────────────────────────────────────────────────────────────
+
+export type OpeningSpec = {
+  /** wall of the room: north (−z side), south (+z), west (−x), east (+x) */
+  wall: "north" | "south" | "west" | "east";
+  /** position along the wall (world x for north/south, world z for west/east) */
+  at: number;
+  type: "door" | "double-door" | "window" | "arch";
+  w?: number; h?: number; sill?: number;
+  id?: string;
+  /** door with a glass panel */
+  glass?: boolean;
+  /** text sign above it */
+  sign?: string;
+  /** door swings into this room (+1) or out (−1) */
+  swing?: 1 | -1;
+};
+
+export type RoomSpec = {
+  id: string;
+  /** floor rectangle [x0, z0, x1, z1] and floor height */
+  rect: [number, number, number, number];
+  y?: number;
+  height?: number;
+  floor?: string;
+  walls?: string;
+  /** lower wall band colour (wainscot) */
+  wainscot?: string;
+  /** handrail along the walls (hospitals) */
+  handrail?: string;
+  ceiling?: string | "none";
+  openings?: OpeningSpec[];
+  /** walls not built (open sides, e.g. a market hall) */
+  open?: ("north" | "south" | "west" | "east")[];
+};
+
+export type PathSpec = { points: V2[]; width?: number; material?: string; id?: string };
+
+export type ObjectUse = {
+  use: string;
+  id?: string;
+  /** [x, z] on the floor/ground, or [x, y, z] */
+  at: V2 | V3;
+  yaw?: number;
+  scale?: number;
+  /** stand it on another object's anchor ("table-1:top") */
+  on?: string;
+  states?: Record<string, number>;
+  /** extra colour override for library objects that support it */
+  color?: string;
+  /** a variant/parameter string for library objects (e.g. goods "tomato") */
+  variant?: string;
+};
+
+export type ScatterSpec = { use: string; count: number; area: [number, number, number, number]; avoid?: ("paths" | "rooms" | "objects")[]; minDist?: number; scale?: [number, number]; seed?: number; variant?: string };
+
+export type FixtureSpec = {
+  type: "panel" | "tube" | "bulb" | "lamp-post" | "string" | "spot" | "exit-sign" | "lantern" | "fire" | "screen";
+  at: V3;
+  /** string lights: to point */
+  to?: V3;
+  color?: string;
+  /** light strength (1 = normal for the type) */
+  i?: number;
+  /** a set prop that switches/dims it (0..1) */
+  prop?: string;
+  /** flickers (broken tube) */
+  flicker?: boolean;
+  /** spot direction target */
+  target?: V3;
+  id?: string;
+};
+
+export type GroundSpec = { size: number; material?: string; hills?: number; seed?: number; y?: number };
+export type SkySpec = { sun?: V3 };
+
+/** `bed`: lie here (lie / sleep / wake / sitUp) — `head`: [x, z] of the pillow end, `y`: mattress top height */
+export type MarkSpec = { at: V2 | V3; yaw?: number; seat?: number; bed?: { head: V2; y: number }; doc?: string };
+
+export type PlaceSpec = {
+  doc: string;
+  kind?: "interior" | "exterior";
+  /** blocking + camera area [x0, z0, x1, z1] (default: the rooms named in `rooms`, or the whole world) */
+  area?: [number, number, number, number];
+  rooms?: string[];
+  marks?: Record<string, MarkSpec>;
+  pois?: Record<string, V3>;
+  view?: string;
+  ambience?: string;
+  surface?: string;
+  /** establishing hint: where to look from [cx, cy, cz, radius, height, yaw] */
+  establish?: [number, number, number, number, number, number];
+};
+
+export type PropSpec = { default: number; doc: string; sfx?: { up?: string; down?: string }; door?: string; lights?: string[] };
+
+export type WorldSpec = {
+  id: string;
+  doc: string;
+  times: string[];
+  rooms?: RoomSpec[];
+  ground?: GroundSpec;
+  paths?: PathSpec[];
+  objects?: ObjectUse[];
+  scatter?: ScatterSpec[];
+  lights?: FixtureSpec[];
+  /** buildings seen from outside: simple massing with windows, signs */
+  buildings?: { rect: [number, number, number, number]; height: number; color?: string; roof?: string; sign?: string; windows?: boolean; y?: number }[];
+  places: Record<string, PlaceSpec>;
+  props?: Record<string, PropSpec>;
+  /** atmosphere: fog 0..1, wind 0..1, interior ambient light colour */
+  fog?: number;
+  ambient?: string;
+  sky?: SkySpec;
+};
+
+==== 113 project/src/index.ts
+import { registerRoot } from "remotion";
+import { RemotionRoot } from "./Root.tsx";
+
+registerRoot(RemotionRoot);
+
+==== 4099 project/src/kits/worldforge/geo.ts
+// Small geometry kit for architecture: struts between points, merged lattices, lathe and
+// arch profiles, geodesic frames. Geometries are cached by key so a film builds each once.
+
+import {
+  BufferGeometry,
+  CylinderGeometry,
+  IcosahedronGeometry,
+  LatheGeometry,
+  Matrix4,
+  Quaternion,
+  Shape,
+  SphereGeometry,
+  TorusGeometry,
+  Vector2,
+  Vector3,
+} from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+
+const cache = new Map<string, BufferGeometry>();
+export const cached = <G extends BufferGeometry>(key: string, make: () => G): G => {
+  let g = cache.get(key);
+  if (!g) {
+    g = make();
+    cache.set(key, g);
+  }
+  return g as G;
+};
+
+export const cyl = (rt: number, rb: number, h: number, seg = 32, open = false, ts = 0, tl = Math.PI * 2) =>
+  cached(`cyl${rt},${rb},${h},${seg},${open},${ts},${tl}`, () => new CylinderGeometry(rt, rb, h, seg, 1, open, ts, tl));
+export const box = (w: number, h: number, d: number, r = 0.04, seg = 2) =>
+  cached(`box${w},${h},${d},${r}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2.01, h / 2.01, d / 2.01)));
+export const sphere = (r: number, ws = 32, hs = 16, phiLen = Math.PI * 2, thetaLen = Math.PI) =>
+  cached(`sph${r},${ws},${hs},${phiLen},${thetaLen}`, () => new SphereGeometry(r, ws, hs, 0, phiLen, 0, thetaLen));
+export const torus = (R: number, r: number, rs = 8, ts = 48, arc = Math.PI * 2) =>
+  cached(`tor${R},${r},${rs},${ts},${arc}`, () => new TorusGeometry(R, r, rs, ts, arc));
+export const lathe = (key: string, pts: [number, number][], seg = 64) =>
+  cached(`lathe${key}`, () => new LatheGeometry(pts.map(([x, y]) => new Vector2(x, y)), seg));
+
+const UP = new Vector3(0, 1, 0);
+/** A cylinder from p to q (world-free; positions in the caller's frame). */
+export const strutGeo = (p: Vector3, q: Vector3, r: number, seg = 6) => {
+  const d = new Vector3().subVectors(q, p);
+  const len = d.length();
+  const g = new CylinderGeometry(r, r, len, seg, 1, false);
+  const m = new Matrix4().compose(
+    new Vector3().addVectors(p, q).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(UP, d.normalize()),
+    new Vector3(1, 1, 1),
+  );
+  g.applyMatrix4(m);
+  return g;
+};
+
+export const merged = (key: string, make: () => BufferGeometry[]) =>
+  cached(key, () => {
+    const parts = make().map((g) => (g.index ? g.toNonIndexed() : g));
+    for (const p of parts) {
+      for (const name of Object.keys(p.attributes)) if (name !== "position" && name !== "normal" && name !== "uv") p.deleteAttribute(name);
+    }
+    return mergeGeometries(parts, false)!;
+  });
+
+/** Geodesic frame over the upper hemisphere (edges of a subdivided icosahedron). */
+export const geodesicFrame = (R: number, detail: number, strutR: number) =>
+  merged(`geo${R},${detail},${strutR}`, () => {
+    const ico = new IcosahedronGeometry(R, detail);
+    const p = ico.attributes.position;
+    const key = (v: Vector3) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    const edges = new Map<string, [Vector3, Vector3]>();
+    for (let i = 0; i < p.count; i += 3) {
+      const tri = [0, 1, 2].map((k) => new Vector3(p.getX(i + k), p.getY(i + k), p.getZ(i + k)));
+      for (let k = 0; k < 3; k++) {
+        const a = tri[k], b = tri[(k + 1) % 3];
+        if (a.y < -0.01 || b.y < -0.01) continue;
+        const ka = key(a), kb = key(b);
+        const id = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+        if (!edges.has(id)) edges.set(id, [a, b]);
+      }
+    }
+    return [...edges.values()].map(([a, b]) => strutGeo(a, b, strutR, 5));
+  });
+
+/** Arch outline (flat sides, rounded roof) in the x-y plane, base on y = 0. */
+export const archShape = (w: number, h: number, shoulder: number, inset = 0) => {
+  const s = new Shape();
+  const hw = w / 2 - inset;
+  s.moveTo(-hw, inset > 0 ? 0 : 0);
+  s.lineTo(-hw, h - shoulder);
+  s.quadraticCurveTo(-hw, h - inset, 0, h - inset);
+  s.quadraticCurveTo(hw, h - inset, hw, h - shoulder);
+  s.lineTo(hw, 0);
+  s.lineTo(-hw, 0);
+  return s;
+};
+
+==== 6674 project/src/kits/worldforge/heightfield.ts
+// Height-field toolkit: graded grids, bilinear lookup, baked sun visibility + ambient occlusion.
+//
+// A WORLDFORGE terrain is one analytic height function sampled on two graded grids: a dense
+// "near" patch where the camera travels (sub-metre at the hero location, coarser toward its
+// edges) and a coarse "far" patch out to the horizon. Grid spacing grows exponentially away
+// from the origin, so detail is spent where the camera is. Because the sun never moves within
+// a film, terrain self-shadowing and AO are baked once per grid vertex (pure CPU, seeded) —
+// long mountain and dune shadows cost nothing per frame and can never flicker.
+
+export type Axis = {
+  n: number;
+  /** Index of coordinate 0. */
+  c: number;
+  coord: Float64Array;
+  /** Fractional index of a coordinate (inverse of the spacing map). */
+  inv: (x: number) => number;
+};
+
+/** Spacing s(x) = s0 + k·|x|: a graded axis covering [min, max] with x = 0 on a grid line. */
+export const expAxis = (min: number, max: number, s0: number, k: number): Axis => {
+  const uOf = (x: number) => (Math.sign(x) * Math.log(1 + (k * Math.abs(x)) / s0)) / k;
+  const lo = Math.ceil(-uOf(min));
+  const hi = Math.ceil(uOf(max));
+  const n = lo + hi + 1;
+  const coord = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const u = i - lo;
+    coord[i] = (Math.sign(u) * (s0 / k)) * (Math.exp(k * Math.abs(u)) - 1);
+  }
+  return { n, c: lo, coord, inv: (x: number) => lo + uOf(x) };
+};
+
+export type Grid = {
+  ax: Axis;
+  az: Axis;
+  /** Heights, row-major: index = j * ax.n + i (i along x, j along z). */
+  h: Float32Array;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+};
+
+export const makeGrid = (ax: Axis, az: Axis, height: (x: number, z: number) => number): Grid => {
+  const h = new Float32Array(ax.n * az.n);
+  for (let j = 0; j < az.n; j++) {
+    const z = az.coord[j];
+    for (let i = 0; i < ax.n; i++) h[j * ax.n + i] = height(ax.coord[i], z);
+  }
+  return { ax, az, h, minX: ax.coord[0], maxX: ax.coord[ax.n - 1], minZ: az.coord[0], maxZ: az.coord[az.n - 1] };
+};
+
+export const inside = (g: Grid, x: number, z: number, margin = 0) =>
+  x > g.minX + margin && x < g.maxX - margin && z > g.minZ + margin && z < g.maxZ - margin;
+
+/** Bilinear height lookup in grid-index space (clamped to the grid). */
+export const lookup = (g: Grid, x: number, z: number) => {
+  const nx = g.ax.n, nz = g.az.n;
+  let fi = g.ax.inv(x), fj = g.az.inv(z);
+  if (fi < 0) fi = 0; else if (fi > nx - 1.0001) fi = nx - 1.0001;
+  if (fj < 0) fj = 0; else if (fj > nz - 1.0001) fj = nz - 1.0001;
+  const i = fi | 0, j = fj | 0;
+  // Linear in true coordinates within the cell (the mesh is linear there too).
+  const x0 = g.ax.coord[i], x1 = g.ax.coord[i + 1];
+  const z0 = g.az.coord[j], z1 = g.az.coord[j + 1];
+  let tx = (x - x0) / (x1 - x0), tz = (z - z0) / (z1 - z0);
+  tx = tx < 0 ? 0 : tx > 1 ? 1 : tx;
+  tz = tz < 0 ? 0 : tz > 1 ? 1 : tz;
+  const k = j * nx + i;
+  const a = g.h[k] + (g.h[k + 1] - g.h[k]) * tx;
+  const b = g.h[k + nx] + (g.h[k + nx + 1] - g.h[k + nx]) * tx;
+  return a + (b - a) * tz;
+};
+
+/** Height at any point: the near grid where it exists, otherwise the far grid. */
+export const makeWorldHeight = (near: Grid, far: Grid) => (x: number, z: number) =>
+  inside(near, x, z) ? lookup(near, x, z) : lookup(far, x, z);
+
+export type BakeOpts = {
+  /** Unit vector toward the sun. */
+  sun: [number, number, number];
+  /** Highest point in the world: rays above it can stop. */
+  maxH: number;
+  maxDist: number;
+  /** Penumbra half-width as a slope (tan of angle). */
+  soft: number;
+};
+
+/**
+ * Sun visibility per grid vertex, 0..1 with soft penumbrae: march toward the sun and keep the
+ * smallest clearance angle between the ray and the terrain.
+ */
+export const bakeSun = (g: Grid, height: (x: number, z: number) => number, o: BakeOpts) => {
+  const [lx, ly, lz] = o.sun;
+  const lh = Math.hypot(lx, lz);
+  const dx = lx / lh, dz = lz / lh, tanE = ly / lh;
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    const z = g.az.coord[j];
+    const sz = j > 0 ? z - g.az.coord[j - 1] : g.az.coord[1] - z;
+    for (let i = 0; i < nx; i++) {
+      const x = g.ax.coord[i];
+      const sx = i > 0 ? x - g.ax.coord[i - 1] : g.ax.coord[1] - x;
+      const spacing = Math.max(sx, sz);
+      const h0 = g.h[j * nx + i] + 0.12 + 0.04 * spacing;
+      let vis = 1;
+      let s = spacing * 0.8;
+      while (s < o.maxDist) {
+        const ry = h0 + s * tanE;
+        if (ry > o.maxH) break;
+        const th = height(x + dx * s, z + dz * s);
+        const v = 0.5 + (ry - th) / s / (2 * o.soft);
+        if (v < vis) {
+          vis = v;
+          if (vis <= 0) { vis = 0; break; }
+        }
+        s = s * 1.045 + 0.3 * spacing;
+      }
+      out[j * nx + i] = vis > 1 ? 1 : vis;
+    }
+  }
+  return out;
+};
+
+/** Horizon-based ambient occlusion per vertex (8 directions, exponential steps). */
+export const bakeAO = (g: Grid, height: (x: number, z: number) => number, radius: number, strength: number) => {
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz);
+  const dirs = Array.from({ length: 8 }, (_, k) => [Math.cos((k / 8) * Math.PI * 2 + 0.3), Math.sin((k / 8) * Math.PI * 2 + 0.3)]);
+  const steps: number[] = [];
+  for (let s = 1.2; s < radius; s *= 1.6) steps.push(s);
+  for (let j = 0; j < nz; j++) {
+    const z = g.az.coord[j];
+    for (let i = 0; i < nx; i++) {
+      const x = g.ax.coord[i];
+      const h0 = g.h[j * nx + i];
+      let occ = 0;
+      for (const [cx, cz] of dirs) {
+        let m = 0;
+        for (const s of steps) {
+          const t = (height(x + cx * s, z + cz * s) - h0) / s;
+          if (t > m) m = t;
+        }
+        occ += m / Math.sqrt(1 + m * m);
+      }
+      const ao = 1 - (occ / 8) * strength;
+      out[j * nx + i] = ao < 0 ? 0 : ao;
+    }
+  }
+  return out;
+};
+
+/** Grid-space normal (world units), written into `out` as xyz per vertex. */
+export const gridNormals = (g: Grid) => {
+  const nx = g.ax.n, nz = g.az.n;
+  const out = new Float32Array(nx * nz * 3);
+  for (let j = 0; j < nz; j++) {
+    const j0 = j > 0 ? j - 1 : j, j1 = j < nz - 1 ? j + 1 : j;
+    const dz = g.az.coord[j1] - g.az.coord[j0];
+    for (let i = 0; i < nx; i++) {
+      const i0 = i > 0 ? i - 1 : i, i1 = i < nx - 1 ? i + 1 : i;
+      const dx = g.ax.coord[i1] - g.ax.coord[i0];
+      const gx = (g.h[j * nx + i1] - g.h[j * nx + i0]) / dx;
+      const gz = (g.h[j1 * nx + i] - g.h[j0 * nx + i]) / dz;
+      const l = Math.hypot(gx, 1, gz);
+      const k = (j * nx + i) * 3;
+      out[k] = -gx / l;
+      out[k + 1] = 1 / l;
+      out[k + 2] = -gz / l;
+    }
+  }
+  return out;
+};
+
+==== 3442 project/src/kits/worldforge/noise.ts
+// Seeded, deterministic noise for world-building. Every function is a pure function of its
+// inputs (no Math.random), so terrain, scatter and textures are identical in every render tab.
+
+export const mulberry32 = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/** Integer hash → [0, 1). */
+export const hash2 = (x: number, y: number, seed = 0) => {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 2147483647)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+};
+
+// 2D gradient (Perlin) noise with a seeded permutation table.
+const P = new Uint16Array(512);
+const GX = new Float32Array(256);
+const GY = new Float32Array(256);
+{
+  const rnd = mulberry32(0x6a52);
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) P[i] = p[i & 255];
+  for (let i = 0; i < 256; i++) {
+    const a = rnd() * Math.PI * 2;
+    GX[i] = Math.cos(a);
+    GY[i] = Math.sin(a);
+  }
+}
+
+/** Perlin noise, roughly in [-1, 1]. */
+export const noise2 = (x: number, y: number) => {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const X = xi & 255, Y = yi & 255;
+  const a = P[X] + Y, b = P[X + 1] + Y;
+  const g00 = P[a], g01 = P[a + 1], g10 = P[b], g11 = P[b + 1];
+  const d00 = GX[g00] * xf + GY[g00] * yf;
+  const d10 = GX[g10] * (xf - 1) + GY[g10] * yf;
+  const d01 = GX[g01] * xf + GY[g01] * (yf - 1);
+  const d11 = GX[g11] * (xf - 1) + GY[g11] * (yf - 1);
+  const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10);
+  const v = yf * yf * yf * (yf * (yf * 6 - 15) + 10);
+  const x0 = d00 + (d10 - d00) * u;
+  const x1 = d01 + (d11 - d01) * u;
+  return (x0 + (x1 - x0) * v) * 1.414;
+};
+
+// Octaves are rotated ~37° against each other so the lattice never lines up.
+const RC = 0.8, RS = 0.6;
+
+/** Fractal sum, roughly in [-1, 1]. */
+export const fbm = (x: number, y: number, oct: number, gain = 0.5) => {
+  let s = 0, a = 1, n = 0;
+  for (let i = 0; i < oct; i++) {
+    s += a * noise2(x, y);
+    n += a;
+    const nx = (RC * x - RS * y) * 2.03 + 17.1;
+    y = (RS * x + RC * y) * 2.03 + 3.7;
+    x = nx;
+    a *= gain;
+  }
+  return s / n;
+};
+
+/** Ridged multifractal in [0, 1]: sharp crests, eroded-looking valleys. */
+export const ridged = (x: number, y: number, oct: number, gain = 0.5) => {
+  let s = 0, a = 1, n = 0, w = 1;
+  for (let i = 0; i < oct; i++) {
+    let r = 1 - Math.abs(noise2(x, y));
+    r *= r;
+    r *= w;
+    w = Math.min(1, r * 1.8);
+    s += a * r;
+    n += a;
+    const nx = (RC * x - RS * y) * 2.07 + 31.3;
+    y = (RS * x + RC * y) * 2.07 + 7.9;
+    x = nx;
+    a *= gain;
+  }
+  return s / n;
+};
+
+export const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+export const smooth = (a: number, b: number, x: number) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** Polynomial smooth minimum. */
+export const smin = (a: number, b: number, k: number) => {
+  const h = clamp01(0.5 + (0.5 * (b - a)) / k);
+  return lerp(b, a, h) - k * h * (1 - h);
+};
+
+==== 2090 project/src/kits/worldforge/path.ts
+// Plan-view paths for vehicles and people: Catmull-Rom through the points, sampled by arc
+// length so speed along the path is exact (wheels and footsteps can be derived from distance).
+
+export type P2 = [number, number];
+
+export type PlanPath = {
+  length: number;
+  /** Position and unit direction at arc length s (clamped). */
+  at: (s: number) => { p: P2; dir: P2 };
+};
+
+const cr = (a: number, b: number, c: number, d: number, t: number) =>
+  0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+
+export const planPath = (pts: P2[], perSeg = 40): PlanPath => {
+  const n = pts.length;
+  const get = (i: number) => pts[Math.max(0, Math.min(n - 1, i))];
+  const samples: P2[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const a = get(i - 1), b = get(i), c = get(i + 1), d = get(i + 2);
+    for (let k = 0; k < perSeg; k++) {
+      const t = k / perSeg;
+      samples.push([cr(a[0], b[0], c[0], d[0], t), cr(a[1], b[1], c[1], d[1], t)]);
+    }
+  }
+  samples.push(pts[n - 1]);
+  const cum = [0];
+  for (let i = 1; i < samples.length; i++) cum.push(cum[i - 1] + Math.hypot(samples[i][0] - samples[i - 1][0], samples[i][1] - samples[i - 1][1]));
+  const length = cum[cum.length - 1];
+  const at = (s: number) => {
+    const x = Math.max(0, Math.min(length - 1e-6, s));
+    let lo = 0, hi = cum.length - 1;
+    while (hi - lo > 1) {
+      const m = (lo + hi) >> 1;
+      if (cum[m] <= x) lo = m;
+      else hi = m;
+    }
+    const f = (x - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]);
+    const A = samples[lo], B = samples[hi];
+    const dx = B[0] - A[0], dz = B[1] - A[1];
+    const l = Math.hypot(dx, dz) || 1;
+    return { p: [A[0] + dx * f, A[1] + dz * f] as P2, dir: [dx / l, dz / l] as P2 };
+  };
+  return { length, at };
+};
+
+/** Distance travelled with a smooth start: rest until t0, accelerate over `ramp`, then speed v. */
+export const travel = (t: number, t0: number, ramp: number, v: number) => {
+  if (t <= t0) return 0;
+  const u = t - t0;
+  if (u < ramp) return (v * u * u) / (2 * ramp);
+  return v * (u - ramp / 2);
+};
+
+==== 2106 project/src/lookdev/CastSheet.tsx
+// Character bible sheet: frame 2k = look k full body (3/4), frame 2k+1 = its face. Neutral studio light.
+import React from "react";
+import { useCurrentFrame } from "remotion";
+import { Stage } from "../cine/Stage.tsx";
+import { Lights, P_OFF, S_OFF, type LightState } from "../cine/Lights.tsx";
+import { CameraRig, FilmPost, GRADE0, type Cam } from "../cine/Post.tsx";
+import { Character } from "../cine/character/Character.tsx";
+import { restPose } from "../cine/character/pose.ts";
+import { LOOKS, lookSpec } from "../cine/character/looks.ts";
+import { phys } from "../cine/mats.ts";
+import { box } from "../kits/worldforge/geo.ts";
+
+export const CAST_SHEET_FRAMES = Object.keys(LOOKS).length * 2;
+
+const L: LightState = {
+  bg: "#9aa3ad", fog: { color: "#9aa3ad", density: 0.0 }, env: 0.5,
+  hemi: { sky: "#dfe6ee", ground: "#5a5048", i: 0.9 },
+  moon: { dir: [0.5, 0.8, 0.6], color: "#fff4e6", i: 2.6, box: { min: [-1.5, 0, -1.5], max: [1.5, 2.2, 1.5] } },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: [-1.6, 1.8, 1.4], color: "#cfe0ff", i: 2.2, dist: 6 }, P_OFF, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+
+export const CastSheet: React.FC<{ hold?: string }> = () => {
+  const f = useCurrentFrame();
+  const names = Object.keys(LOOKS);
+  const name = names[Math.floor(f / 2) % names.length];
+  const face = f % 2 === 1;
+  const spec = lookSpec(name, name);
+  const p = restPose();
+  p.yaw = -0.45;
+  const h = 1.8 * spec.scale;
+  const cam: Cam = face
+    ? { pos: [-0.25, h * 0.93, 0.62], target: [0, h * 0.91, 0], fov: 24 }
+    : { pos: [-1.0, h * 0.62, 3.6], target: [0, h * 0.5, 0], fov: 32 };
+  return (
+    <Stage overlay={() => <div style={{ position: "absolute", left: 40, top: 30, font: "600 40px Manrope", color: "#1d232b" }}>{name}</div>}>
+      <Lights s={L} />
+      <mesh geometry={box(8, 0.1, 8, 0.01)} material={phys("sheetFloor", { color: "#8a9099", roughness: 0.9 })} position={[0, -0.05, 0]} receiveShadow />
+      <Character spec={spec} pose={p} t={1} />
+      <CameraRig cam={cam} />
+      <FilmPost cam={cam} grade={{ ...GRADE0, vignette: 0.1, grain: 0.004 }} frame={f} />
+    </Stage>
+  );
+};
+
+==== 2774 project/src/lookdev/ObjectSheet.tsx
+// Object look sheet: frame 2k / 2k+1 = object k from the front-left and back-right, on a grey studio floor
+// next to a 1.8 m person (scale check). Objects: the library registry + built-ins (sheet-list.json).
+import React from "react";
+import { useCurrentFrame } from "remotion";
+import { Stage } from "../cine/Stage.tsx";
+import { Lights, P_OFF, S_OFF, type LightState } from "../cine/Lights.tsx";
+import { CameraRig, FilmPost, GRADE0, type Cam } from "../cine/Post.tsx";
+import { Character } from "../cine/character/Character.tsx";
+import { restPose } from "../cine/character/pose.ts";
+import { lookSpec } from "../cine/character/looks.ts";
+import { phys } from "../cine/mats.ts";
+import { box } from "../kits/worldforge/geo.ts";
+import { OBJECTS } from "../gen/objects/registry.ts";
+import { objectInfo } from "../gen/build.ts";
+import { Compound } from "../gen/objects/Compound.tsx";
+import { Builtin } from "../gen/objects/builtin.tsx";
+import LIST from "../gen/objects/sheet-list.json";
+
+const L: LightState = {
+  bg: "#9aa3ad", fog: { color: "#9aa3ad", density: 0.0 }, env: 0.5,
+  hemi: { sky: "#dfe6ee", ground: "#5a5048", i: 0.9 },
+  moon: { dir: [0.5, 0.8, 0.6], color: "#fff4e6", i: 2.6, box: { min: [-4, 0, -4], max: [4, 6, 4] } },
+  spots: [S_OFF, S_OFF],
+  pts: [{ pos: [-2.6, 2.6, 2.4], color: "#cfe0ff", i: 3.0, dist: 9 }, P_OFF, P_OFF, P_OFF, P_OFF, P_OFF],
+};
+export const OBJECT_SHEET_FRAMES = Math.max(2, (LIST as string[]).length * 2);
+
+export const ObjectSheet: React.FC = () => {
+  const f = useCurrentFrame();
+  const names = LIST as string[];
+  const id = names[Math.floor(f / 2)] ?? names[0];
+  const objs = Object.fromEntries(OBJECTS.map((o) => [o.id, o]));
+  let info;
+  try { info = objectInfo(id, objs); } catch { return null; }
+  const [w, h, d] = info.bounds;
+  const R = Math.max(w, h * 1.1, d, 1.2) * 1.55 + 0.8;
+  const a = f % 2 ? 2.4 : -0.7;
+  const cy = Math.max(0.5, h * 0.45);
+  const cam: Cam = { pos: [Math.sin(a) * R, cy + R * 0.38, Math.cos(a) * R], target: [0, cy * 0.85, 0], fov: 34 };
+  const p = restPose();
+  p.x = -(w / 2 + 0.45); p.yaw = 0.4;
+  return (
+    <Stage overlay={() => <div style={{ position: "absolute", left: 40, top: 30, font: "600 40px Manrope", color: "#1d232b" }}>{id} · {w.toFixed(2)}×{h.toFixed(2)}×{d.toFixed(2)} m</div>}>
+      <Lights s={L} />
+      <mesh geometry={box(30, 0.1, 30, 0.01)} material={phys("osFloor", { color: "#8a9099", roughness: 0.9 })} position={[0, -0.05, 0]} receiveShadow />
+      {info.builtin ? <Builtin id={id} /> : <Compound spec={objs[id]} />}
+      {h < 4 ? <Character spec={lookSpec("ref", "pemuda")} pose={p} t={1} /> : null}
+      <CameraRig cam={cam} />
+      <FilmPost cam={cam} grade={{ ...GRADE0, vignette: 0.1, grain: 0.004 }} frame={f} />
+    </Stage>
+  );
+};
+
+==== 2210 project/src/lookdev/views.ts
+import type { LookView } from "./WorldLook.tsx";
+
+export const COAST_VIEWS: LookView[] = [
+  { label: "establish (night)", place: "cliff", time: "night", cam: { pos: [26, 24, 22], target: [2, 16, -2], fov: 38 }, s: { seaLight: 1 } },
+  { label: "from the sea", place: "cliff", time: "night", cam: { pos: [-10, 6, -48], target: [2, 18, 0], fov: 40 } },
+  { label: "edge looking out", place: "cliff", time: "night", cam: { pos: [4.2, 13.6, -3.5], target: [-40, 2, -200], fov: 40 }, s: { seaLight: 1, fog: 0.6 } },
+  { label: "long lens sea light", place: "cliff", time: "night", cam: { pos: [2.4, 13.6, -6.8], target: [-48, 4, -235], fov: 6 }, s: { seaLight: 1, fog: 0.4 } },
+  { label: "gallery", place: "gallery", time: "night", cam: { pos: [3.6, 29.6, -3.8], target: [0, 29.5, 0], fov: 40 }, s: { seaLight: 1 } },
+  { label: "cottage interior", place: "cottage", time: "night", cam: { pos: [8.0, 13.55, 1.9], target: [10.6, 12.95, -1.6], fov: 50 } },
+  { label: "boat at night", place: "sea", time: "night", cam: { pos: [-36, 5, -215], target: [-48, 2.5, -235], fov: 35 }, s: { boat: 1, seaLight: 1, fog: 0.4 } },
+  { label: "boat revealed (dawn)", place: "sea", time: "dawn", cam: { pos: [-30, 6, -205], target: [-48, 2, -235], fov: 35 }, s: { boat: 1, seaLight: 1, fog: 0.3 } },
+  { label: "day establish", place: "cliff", time: "day", cam: { pos: [26, 24, 22], target: [2, 16, -2], fov: 38 } },
+];
+
+export const KOS_VIEWS: LookView[] = [
+  { label: "hall night", place: "hall", time: "night", cam: { pos: [0.3, 1.55, -1.0], target: [-0.2, 1.4, -15], fov: 40 } },
+  { label: "hall lamps on", place: "hall", time: "night", s: { tubes: 1 }, cam: { pos: [0.3, 1.55, -1.0], target: [-0.2, 1.4, -15], fov: 40 } },
+  { label: "room night", place: "room", time: "night", cam: { pos: [-1.3, 1.6, -4.2], target: [-3.4, 0.9, -6.2], fov: 50 } },
+  { label: "room day", place: "room", time: "day", cam: { pos: [-1.3, 1.6, -4.2], target: [-3.4, 0.9, -6.2], fov: 50 } },
+  { label: "yard night", place: "yard", time: "night", cam: { pos: [2.5, 2.2, 7.5], target: [0, 1.6, 0.5], fov: 42 } },
+  { label: "end of hall", place: "hall", time: "night", cam: { pos: [0.1, 1.55, -9.5], target: [-0.3, 1.45, -15], fov: 26 } },
+];
+
+==== 1876 project/src/lookdev/WorldLook.tsx
+// World lookdev: one camera per frame over a world's places (establishing views + a few angles), with
+// the set state given in props. Render with: node scripts/stills.mjs out/look/<world> 0,1,2,… world-<id>
+import React from "react";
+import { useCurrentFrame } from "remotion";
+import { Stage } from "../cine/Stage.tsx";
+import { Lights } from "../cine/Lights.tsx";
+import { CameraRig, FilmPost, GRADE0, type Cam, type Grade } from "../cine/Post.tsx";
+import { WORLDS } from "../worlds/index.ts";
+import { SETS } from "../worlds/sets.tsx";
+import { legalCam, type SetState } from "../worlds/types.ts";
+
+export type LookView = { place: string; time: string; cam: Cam; s?: SetState; t?: number; label?: string };
+export const NIGHT_GRADE: Grade = { ...GRADE0, exposure: 1.45, lift: [0.02, 0.03, 0.055], gain: [0.96, 1.0, 1.06], sat: 0.92, contrast: 1.06, vignette: 0.32, grain: 0.02, bloom: 0.3, bloomRadius: 0.55, bloomThreshold: 0.9 };
+
+export const WorldLook: React.FC<{ world: string; views: LookView[] }> = ({ world, views }) => {
+  const f = useCurrentFrame();
+  const v = views[f % views.length];
+  const W = WORLDS[world];
+  const Set = SETS[world];
+  const pl = W.places[v.place];
+  const s: SetState = { ...Object.fromEntries(Object.entries(W.props).map(([k, p]) => [k, p.default])), ...v.s };
+  const cam = { ...v.cam, pos: legalCam(pl, v.cam.pos) };
+  const t = v.t ?? 3;
+  return (
+    <Stage overlay={() => <div style={{ position: "absolute", left: 30, top: 24, font: "600 30px Manrope", color: "#fff", textShadow: "0 2px 6px #000" }}>{v.label ?? `${v.place} · ${v.time}`}</div>}>
+      <Lights s={W.light(v.place, v.time, s, t)} />
+      <Set place={v.place} time={v.time} s={s} t={t} cam={cam} />
+      <CameraRig cam={cam} />
+      <FilmPost cam={cam} grade={v.time === "day" ? { ...GRADE0, exposure: 1.0 } : NIGHT_GRADE} frame={f} />
+    </Stage>
+  );
+};
+
+==== 2616 project/src/Root.tsx
+import React from "react";
+import { Composition } from "remotion";
+import { PRESETS } from "./cine/Stage.tsx";
+import { CAST_SHEET_FRAMES, CastSheet } from "./lookdev/CastSheet.tsx";
+import { WorldLook } from "./lookdev/WorldLook.tsx";
+import { OBJECT_SHEET_FRAMES, ObjectSheet } from "./lookdev/ObjectSheet.tsx";
+import { COAST_VIEWS, KOS_VIEWS } from "./lookdev/views.ts";
+import { Film } from "./film/Film.tsx";
+import { compile } from "./director/compile.ts";
+import { STORIES } from "./stories/registry.ts";
+
+const { final } = PRESETS.landscape;
+
+// Every story in src/stories/data (written by scripts/make.mjs) becomes <id>-preview and <id>-final:
+// portrait (default) 540×960 @ 30 / 1080×1920 @ 60, landscape 960×540 @ 30 / 1920×1080 @ 60.
+// Lookdev: cast-sheet, world-<id>, object-sheet (landscape).
+// a story that does not compile (being edited, a typo) is left out instead of breaking every other story's render
+const durationOf = (s: (typeof STORIES)[number]) => { try { return compile(s).duration; } catch (e) { console.warn(`story "${s.id}" skipped: ${(e as Error).message.split("\n")[0]}`); return null; } };
+
+export const RemotionRoot: React.FC = () => (
+  <>
+    {STORIES.map((s) => {
+      const d = durationOf(s);
+      if (d === null) return null;
+      const { draft, final } = PRESETS[s.format === "landscape" ? "landscape" : "portrait"];
+      return (
+        <React.Fragment key={s.id}>
+          <Composition id={`${s.id}-preview`} component={Film} defaultProps={{ story: s, audio: s.audio }} durationInFrames={Math.round(d * draft.fps)} fps={draft.fps} width={draft.width} height={draft.height} />
+          <Composition id={`${s.id}-final`} component={Film} defaultProps={{ story: s, audio: s.audio }} durationInFrames={Math.round(d * final.fps)} fps={final.fps} width={final.width} height={final.height} />
+        </React.Fragment>
+      );
+    })}
+    <Composition id="object-sheet" component={ObjectSheet} durationInFrames={OBJECT_SHEET_FRAMES} fps={1} width={final.width / 2} height={final.height / 2} />
+    <Composition id="cast-sheet" component={CastSheet} durationInFrames={CAST_SHEET_FRAMES} fps={1} width={final.width / 2} height={final.height / 2} />
+    <Composition id="world-coast" component={WorldLook} defaultProps={{ world: "coast", views: COAST_VIEWS }} durationInFrames={COAST_VIEWS.length} fps={1} width={final.width / 2} height={final.height / 2} />
+    <Composition id="world-kos" component={WorldLook} defaultProps={{ world: "kos", views: KOS_VIEWS }} durationInFrames={KOS_VIEWS.length} fps={1} width={final.width / 2} height={final.height / 2} />
+  </>
+);
+
+==== 0 project/src/stories/data/.keep
+
+==== 183 project/src/stories/registry.ts
+// Generated by scripts/make.mjs — every story in src/stories/data becomes two compositions.
+import type { Story } from "../director/story.ts";
+
+export const STORIES: Story[] = [];
+
+==== 26984 project/src/worlds/coast/Coast.tsx
+// Coast world, picture side: sky, sea, the headland terrain with rocks and grass, fence and bench, the
+// lighthouse (turning lamp + beams), the keeper's cottage (exterior + furnished interior) and the fishing
+// boat whose lamps are "the light at sea". Pure function of (place, time, set state, t).
+
+import React, { useMemo } from "react";
+import { BufferAttribute, BufferGeometry, Color, ConeGeometry, DoubleSide, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Quaternion, Shape, ShapeGeometry, Vector3 } from "three";
+import { box, cached, cyl, sphere, torus } from "../../kits/worldforge/geo.ts";
+import { expAxis } from "../../kits/worldforge/heightfield.ts";
+import { fbm, mulberry32 } from "../../kits/worldforge/noise.ts";
+import { canvasTex, phys } from "../../cine/mats.ts";
+import { Beam, Dust, Glow } from "../../cine/FX.tsx";
+import { SKIES, SkyDome } from "../../cine/env/Sky.tsx";
+import { Ocean, waveHeight, waveSlope } from "../../cine/env/Ocean.tsx";
+import { Bed, Chair, Desk, Door, HoledWall, MAT, OilLamp, Shelf, Slab, WallClock, Window } from "../../cine/set/parts.tsx";
+import type { Cam } from "../../cine/Post.tsx";
+import type { SetState, V3 } from "../types.ts";
+import { BED_AT, BENCH, BOAT, BOAT_YAW, COTTAGE, C_DOOR, C_WIN, DECK_Y, DESK, DESK_TOP, LAMP, LANTERN, LH, MOON, SEA_LIGHT, SUN_DAWN, TOP, beamAngle, coastZ, ground } from "./layout.ts";
+
+// ── terrain ─────────────────────────────────────────────────────────────────
+
+const PATHS: [number, number, number, number][] = [[6.4, 0.6, 3.6, 0.0], [3.9, -0.2, 2.5, -6.4], [3.4, -2.6, 5.6, -5.2], [6.4, 0.6, 9.0, 4.5]];
+const segDist = (x: number, z: number, [ax, az, bx, bz]: [number, number, number, number]) => {
+  const dx = bx - ax, dz = bz - az, k = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(x - ax - dx * k, z - az - dz * k);
+};
+
+const terrainGeo = () =>
+  cached("coastTerrain", () => {
+    const ax = expAxis(-260, 260, 0.4, 0.03), az = expAxis(-160, 260, 0.4, 0.03);
+    const nx = ax.n, nz = az.n;
+    const pos = new Float32Array(nx * nz * 3), col = new Float32Array(nx * nz * 3);
+    const grass = new Color("#3e4a2c"), grass2 = new Color("#56603a"), path = new Color("#6e5d47"), rock = new Color("#5d5752"), wet = new Color("#26292a");
+    const c = new Color();
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const x = ax.coord[i], z = az.coord[j], h = ground(x, z), k = j * nx + i;
+      pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
+      const e = 0.3, slope = Math.hypot(ground(x + e, z) - ground(x - e, z), ground(x, z + e) - ground(x, z - e)) / (2 * e);
+      c.copy(grass).lerp(grass2, 0.5 + 0.5 * fbm(x * 0.15, z * 0.15, 3));
+      const pd = Math.min(...PATHS.map((p) => segDist(x, z, p)));
+      if (h > TOP - 0.5) c.lerp(path, Math.max(0, Math.min(1, (0.55 - pd) / 0.25)) * 0.9);
+      c.lerp(rock, Math.min(1, Math.max(0, (slope - 0.7) / 0.6)));
+      if (h < 1.6) c.lerp(wet, Math.min(1, (1.6 - h) / 1.6));
+      col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+    }
+    const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
+    let n = 0;
+    for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, cc = a + nx, d = cc + 1;
+      idx[n++] = a; idx[n++] = cc; idx[n++] = b; idx[n++] = b; idx[n++] = cc; idx[n++] = d;
+    }
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(pos, 3));
+    g.setAttribute("color", new BufferAttribute(col, 3));
+    g.setIndex(new BufferAttribute(idx, 1));
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    return g;
+  });
+const terrainMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+
+const rockGeo = () =>
+  cached("coastRock", () => {
+    const g = new IcosahedronGeometry(1, 2);
+    const a = g.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i));
+      v.multiplyScalar(1 + 0.28 * fbm(v.x * 1.7 + 3, v.y * 1.7 + v.z, 3));
+      a.setXYZ(i, v.x, v.y * 0.75, v.z);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+const rockMat = new MeshStandardMaterial({ color: "#4a4643", roughness: 0.92, flatShading: true });
+
+const Rocks: React.FC = () => {
+  const mesh = useMemo(() => {
+    const r = mulberry32(31), n = 330;
+    const m = new InstancedMesh(rockGeo(), rockMat, n);
+    const M = new Matrix4(), q = new Quaternion(), c = new Color();
+    for (let i = 0; i < n; i++) {
+      const face = i % 7 < 3;
+      const x = (face ? -45 : -95) + r() * (face ? 90 : 190), zc = coastZ(x);
+      const z = face ? zc - 0.2 - r() * 1.4 : zc - 0.5 - r() * r() * 9, s = face ? 0.45 + r() * 0.9 : 0.8 + r() * 3.2;
+      const y = face ? 0.5 + r() * (TOP - 2) : Math.max(ground(x, z), -1.2 + r() * 1.5);
+      q.setFromAxisAngle(new Vector3(r(), r(), r()).normalize(), r() * 6);
+      M.compose(new Vector3(x, y, z), q, new Vector3(s * (0.8 + r() * 0.6), s * (0.6 + r() * 0.6), s));
+      m.setMatrixAt(i, M);
+      m.setColorAt(i, c.setHSL(0.07, 0.06, (face ? 0.3 : 0.2) + r() * 0.12));
+    }
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  }, []);
+  return <primitive object={mesh} />;
+};
+
+const Grass: React.FC<{ t: number }> = ({ t }) => {
+  const { mesh, base } = useMemo(() => {
+    const r = mulberry32(77), base: [number, number, number, number, number][] = [];
+    while (base.length < 2200) {
+      const x = -26 + r() * 56, z = -12 + r() * 40, h = ground(x, z);
+      if (h < TOP - 0.3 || z < coastZ(x) + 0.6) continue;
+      if (x > COTTAGE.x0 - 0.4 && x < COTTAGE.x1 + 0.4 && z > COTTAGE.z0 - 0.4 && z < COTTAGE.z1 + 0.4) continue;
+      if (Math.hypot(x, z) < LH.r0 + 0.8) continue;
+      if (Math.min(...PATHS.map((p) => segDist(x, z, p))) < 0.6) continue;
+      base.push([x, h, z, 0.6 + r() * 0.9, r() * 6.28]);
+    }
+    const g = cached("grassBlade", () => new ConeGeometry(0.05, 0.42, 4, 1).translate(0, 0.21, 0));
+    const m = new InstancedMesh(g, new MeshStandardMaterial({ color: "#ffffff", roughness: 0.9 }), base.length);
+    const c = new Color();
+    base.forEach((_, i) => m.setColorAt(i, c.setHSL(0.2 + 0.05 * r(), 0.32, 0.17 + 0.08 * r())));
+    m.receiveShadow = true;
+    return { mesh: m, base };
+  }, []);
+  const M = new Matrix4(), q = new Quaternion(), e = new Vector3();
+  base.forEach(([x, y, z, s, ph], i) => {
+    const sway = 0.18 * Math.sin(t * 1.6 + x * 0.35 + ph * 0.3) + 0.08 * Math.sin(t * 3.1 + ph);
+    q.setFromAxisAngle(e.set(1, 0, 0.3).normalize(), sway);
+    M.compose(new Vector3(x, y - 0.02, z), q, new Vector3(s, s, s));
+    mesh.setMatrixAt(i, M);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  return <primitive object={mesh} />;
+};
+
+const Fence: React.FC = () => {
+  const posts: V3[] = [];
+  for (let x = -7; x <= 9.01; x += 2) posts.push([x, ground(x, coastZ(x) + 1.1), coastZ(x) + 1.1]);
+  const wood = MAT.wood("#5a4a3a");
+  return (
+    <group>
+      {posts.map((p, i) => <mesh key={i} geometry={box(0.09, 1.05, 0.09, 0.01)} material={wood} position={[p[0], p[1] + 0.5, p[2]]} castShadow />)}
+      {posts.slice(1).map((p, i) => {
+        const a = posts[i], dx = p[0] - a[0], dz = p[2] - a[2], L = Math.hypot(dx, dz), yaw = Math.atan2(dx, dz);
+        return [0.5, 0.92].map((hh) => (
+          <mesh key={`${i}${hh}`} geometry={box(0.05, 0.07, L, 0.01)} material={wood} position={[(a[0] + p[0]) / 2, (a[1] + p[1]) / 2 + hh, (a[2] + p[2]) / 2]} rotation={[0, yaw, 0]} castShadow />
+        ));
+      })}
+    </group>
+  );
+};
+
+const Bench: React.FC = () => {
+  const w = MAT.wood("#6a5038");
+  return (
+    <group position={BENCH}>
+      <Slab min={[-0.85, 0.42, -0.2]} max={[0.85, 0.47, 0.22]} m={w} />
+      <Slab min={[-0.85, 0.52, 0.2]} max={[0.85, 0.9, 0.25]} m={w} />
+      {[-0.7, 0.7].map((x) => <Slab key={x} min={[x - 0.04, 0, -0.18]} max={[x + 0.04, 0.42, 0.2]} m={MAT.steel()} />)}
+    </group>
+  );
+};
+
+// ── lighthouse ──────────────────────────────────────────────────────────────
+
+const Lighthouse: React.FC<{ t: number; beam: number; dark: number; cam: Cam }> = ({ t, beam, dark, cam }) => {
+  const white = phys("lhWhite", { color: "#e7e3d9", roughness: 0.7 }), red = phys("lhRed", { color: "#a3302a", roughness: 0.6 });
+  const stone = phys("lhStone", { color: "#8a857c", roughness: 0.9 }), iron = phys("lhIron", { color: "#1d2124", roughness: 0.5, metalness: 0.6 });
+  const rAt = (y: number) => LH.r0 + (LH.r1 - LH.r0) * (y / LH.h);
+  const bands = [0.7, 4, 8, 12, LH.h];
+  const a = beamAngle(t);
+  const glass = phys(`lhGlass${Math.round(beam * dark * 10)}`, { color: "#cfe0ef", roughness: 0.05, transparent: true, opacity: 0.25, emissive: "#ffe8c0", emissiveIntensity: 0.12 * beam * dark, side: DoubleSide, depthWrite: false });
+  const core = phys(`lhCore${Math.round(beam * 10)}`, { color: "#fff6e0", emissive: "#fff0d0", emissiveIntensity: 0.3 + 2 * beam, roughness: 0.2 });
+  // the beam's flare toward the camera
+  const toCam = new Vector3(cam.pos[0] - LAMP[0], 0, cam.pos[2] - LAMP[2]).normalize();
+  const face = Math.max(...[0, Math.PI].map((o) => Math.max(0, -Math.sin(a + o) * toCam.x - Math.cos(a + o) * toCam.z)));
+  const camD = Math.hypot(cam.pos[0] - LAMP[0], cam.pos[1] - LAMP[1], cam.pos[2] - LAMP[2]);
+  const near = Math.min(1, Math.max(0.06, (camD - 3) / 25));
+  return (
+    <group>
+      <mesh geometry={cyl(2.95, 3.05, 0.8, 40)} material={stone} position={[0, TOP + 0.3, 0]} castShadow receiveShadow />
+      {bands.slice(0, -1).map((y0, i) => {
+        const y1 = bands[i + 1];
+        return <mesh key={i} geometry={cyl(rAt(y1), rAt(y0), y1 - y0, 48)} material={i % 2 ? red : white} position={[0, TOP + (y0 + y1) / 2, 0]} castShadow receiveShadow />;
+      })}
+      {/* door (faces +x) and small windows */}
+      <group position={[rAt(1) - 0.02, TOP + 0.7, 0]}>
+        <Slab min={[-0.05, 0, -0.55]} max={[0.12, 2.15, 0.55]} m={stone} />
+        <Slab min={[0.1, 0.02, -0.45]} max={[0.16, 2.0, 0.45]} m={phys("lhDoor", { color: "#2f4a3c", roughness: 0.55, clearcoat: 0.3 })} />
+        <mesh geometry={sphere(0.035, 10, 8)} material={MAT.brass()} position={[0.18, 1.0, 0.33]} />
+        <Slab min={[0.0, -0.7, -0.7]} max={[0.75, 0.0, 0.7]} m={stone} />
+      </group>
+      {[[5.5, -Math.PI / 2], [9.5, Math.PI], [13.2, -Math.PI / 2 + 0.6], [7.5, 0.4]].map(([y, ang], i) => {
+        const r = rAt(y);
+        return (
+          <group key={i} position={[Math.sin(ang) * r, TOP + y, Math.cos(ang) * r]} rotation={[0, ang, 0]}>
+            <mesh geometry={box(0.42, 0.72, 0.1, 0.02)} material={stone} />
+            <mesh geometry={box(0.3, 0.58, 0.04, 0.01)} material={phys("lhWin", { color: "#0c0f14", emissive: "#ffb46a", emissiveIntensity: 0.25 * dark, roughness: 0.2 })} position={[0, 0, 0.04]} />
+          </group>
+        );
+      })}
+      {/* gallery deck, corbels, railing */}
+      <mesh geometry={cyl(2.75, 2.6, 0.3, 48)} material={stone} position={[0, DECK_Y - 0.15, 0]} castShadow receiveShadow />
+      {Array.from({ length: 16 }, (_, i) => {
+        const ang = (i / 16) * Math.PI * 2;
+        return <mesh key={i} geometry={box(0.18, 0.5, 0.6, 0.02)} material={white} position={[Math.sin(ang) * (LH.r1 + 0.35), DECK_Y - 0.5, Math.cos(ang) * (LH.r1 + 0.35)]} rotation={[0, ang, 0]} castShadow />;
+      })}
+      {Array.from({ length: 28 }, (_, i) => {
+        const ang = (i / 28) * Math.PI * 2;
+        return <mesh key={i} geometry={cyl(0.022, 0.022, 1.05, 6)} material={iron} position={[Math.sin(ang) * 2.6, DECK_Y + 0.52, Math.cos(ang) * 2.6]} castShadow />;
+      })}
+      {[1.05, 0.55].map((h) => <mesh key={h} geometry={torus(2.6, 0.028, 6, 96)} material={iron} position={[0, DECK_Y + h, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow />)}
+      {/* lamp room */}
+      <mesh geometry={cyl(LANTERN.r + 0.08, LANTERN.r + 0.1, 0.8, 32)} material={white} position={[0, DECK_Y + 0.4, 0]} castShadow receiveShadow />
+      <mesh geometry={cyl(LANTERN.r, LANTERN.r, 1.85, 32, true)} material={glass} position={[0, DECK_Y + 1.73, 0]} />
+      {Array.from({ length: 10 }, (_, i) => {
+        const ang = (i / 10) * Math.PI * 2;
+        return <mesh key={i} geometry={box(0.05, 1.9, 0.05, 0.005)} material={iron} position={[Math.sin(ang) * LANTERN.r, DECK_Y + 1.73, Math.cos(ang) * LANTERN.r]} castShadow />;
+      })}
+      {[DECK_Y + 0.82, DECK_Y + 2.65].map((y) => <mesh key={y} geometry={torus(LANTERN.r, 0.04, 6, 48)} material={iron} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]} />)}
+      <mesh geometry={cyl(0.28, LANTERN.r + 0.32, 1.0, 32)} material={red} position={[0, LANTERN.y1 + 0.15, 0]} castShadow />
+      <mesh geometry={sphere(0.3, 20, 14)} material={iron} position={[0, LANTERN.y1 + 0.85, 0]} castShadow />
+      <mesh geometry={cyl(0.02, 0.02, 1.1, 6)} material={iron} position={[0, LANTERN.y1 + 1.5, 0]} />
+      {/* lens + bright core, turning */}
+      <group position={LAMP} rotation={[0, a, 0]}>
+        <mesh geometry={sphere(0.14, 20, 14)} material={core} />
+        {[-0.3, -0.15, 0, 0.15, 0.3].map((y) => <mesh key={y} geometry={torus(0.42 - Math.abs(y) * 0.6, 0.05, 8, 32)} material={phys("lens", { color: "#c8dce4", roughness: 0.02, transparent: true, opacity: 0.35 })} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]} />)}
+        {[1, -1].map((s) => <mesh key={s} geometry={cyl(0.38, 0.38, 0.04, 28)} material={phys(`bullseye${Math.round(beam * 10)}`, { color: "#e8f4f8", roughness: 0.02, transparent: true, opacity: 0.4, emissive: "#fff0d0", emissiveIntensity: 0.22 * beam })} position={[0, 0, s * -0.5]} rotation={[Math.PI / 2, 0, 0]} />)}
+      </group>
+      {/* beams read as volumes from afar; close to the lamp (on the gallery) they would be solid tubes */}
+      {[0, Math.PI].map((o) => <Beam key={o} pos={LAMP} yaw={a + o} pitch={-0.015} len={160} radius={9} color="#fff2d6" i={0.55 * beam * dark * Math.min(1, Math.max(0, (camD - 5) / 6))} />)}
+      <Glow pos={LAMP} size={(2.2 + 14 * face ** 24) * near} color="#ffe9c4" i={beam * (0.35 + 0.65 * dark) * (0.5 + 0.5 * face ** 6) * near} />
+    </group>
+  );
+};
+
+// ── cottage ─────────────────────────────────────────────────────────────────
+
+const chartTex = () =>
+  canvasTex("seaChart", 512, 360, (g, w, h) => {
+    g.fillStyle = "#d9cfb3"; g.fillRect(0, 0, w, h);
+    g.strokeStyle = "rgba(60,80,110,0.55)"; g.lineWidth = 2;
+    for (let i = 0; i < 6; i++) { g.beginPath(); g.moveTo(0, 60 + i * 50); for (let x = 0; x <= w; x += 16) g.lineTo(x, 60 + i * 50 + 18 * Math.sin(x * 0.02 + i)); g.stroke(); }
+    g.fillStyle = "#8a7a58"; g.beginPath(); g.moveTo(w, 0); g.lineTo(w * 0.62, 0); g.bezierCurveTo(w * 0.7, h * 0.3, w * 0.55, h * 0.5, w * 0.72, h); g.lineTo(w, h); g.fill();
+    g.strokeStyle = "rgba(120,30,30,0.8)"; g.setLineDash([8, 6]); g.beginPath(); g.moveTo(w * 0.15, h * 0.8); g.lineTo(w * 0.6, h * 0.35); g.stroke();
+  });
+const logTex = () =>
+  canvasTex("logbook", 512, 320, (g, w, h) => {
+    g.fillStyle = "#efe6cf"; g.fillRect(0, 0, w, h);
+    g.strokeStyle = "rgba(90,110,160,0.35)"; g.lineWidth = 1;
+    for (let y = 30; y < h; y += 18) { g.beginPath(); g.moveTo(10, y); g.lineTo(w - 10, y); g.stroke(); }
+    g.strokeStyle = "rgba(40,40,60,0.75)"; g.lineWidth = 2;
+    const r = mulberry32(4);
+    for (let y = 26; y < h - 40; y += 18) { g.beginPath(); let x = 20; g.moveTo(x, y); while (x < (y > 200 ? 180 : w / 2 - 30)) { x += 6 + r() * 10; g.lineTo(x, y - r() * 6); } g.stroke(); }
+    g.fillStyle = "rgba(60,60,60,0.4)"; g.fillRect(w / 2 - 2, 0, 4, h);
+  });
+
+const Cottage: React.FC<{ s: SetState; dark: number; inside: boolean; t: number }> = ({ s, dark, inside, t }) => {
+  const { x0, x1, z0, z1, y, h, t: th } = COTTAGE;
+  const wallOut = MAT.wall("#d9dcd6"), dado = MAT.dado("#4f6b6a"), roofM = phys("roof", { color: "#6e3426", roughness: 0.75 });
+  const lamp = s.lamp ?? 1;
+  const rise = 1.5, ov = 0.45, halfW = (z1 - z0) / 2 + ov, slope = Math.atan2(rise, halfW), L = Math.hypot(rise, halfW);
+  const gable = useMemo(() => {
+    const sh = new Shape();
+    sh.moveTo(z0 - 0.02, 0); sh.lineTo(z1 + 0.02, 0); sh.lineTo((z0 + z1) / 2, rise); sh.closePath();
+    return new ShapeGeometry(sh);
+  }, [z0, z1]);
+  return (
+    <group>
+      {/* foundation + floor */}
+      <Slab min={[x0 - 0.1, TOP - 1.5, z0 - 0.1]} max={[x1 + 0.1, y - 0.1, z1 + 0.1]} m={phys("found", { color: "#6d675e", roughness: 0.95 })} />
+      <Slab min={[x0, y - 0.12, z0]} max={[x1, y, z1]} m={MAT.planks([3, 3], "#c9a27a")} />
+      <Slab min={[x0 - 0.6, TOP - 0.3, C_DOOR.z - 0.6]} max={[x0, y - 0.05, C_DOOR.z + 0.6]} m={phys("found", { color: "#6d675e", roughness: 0.95 })} />
+      {/* walls */}
+      <HoledWall axis="z" c={x0 + th / 2} a0={z0} a1={z1} y0={y} top={h} t={th} m={wallOut} dado={dado} holes={[{ a0: C_DOOR.z - C_DOOR.w / 2, a1: C_DOOR.z + C_DOOR.w / 2, y0: 0, y1: 2.05 }]} />
+      <HoledWall axis="z" c={x1 - th / 2} a0={z0} a1={z1} y0={y} top={h} t={th} m={wallOut} dado={dado} holes={[{ a0: -1.1, a1: -0.2, y0: 1.0, y1: 1.9 }]} />
+      <HoledWall axis="x" c={z0 + th / 2} a0={x0} a1={x1} y0={y} top={h} t={th} m={wallOut} dado={dado} holes={[{ a0: C_WIN.x - C_WIN.w / 2, a1: C_WIN.x + C_WIN.w / 2, y0: C_WIN.y0, y1: C_WIN.y1 }]} />
+      <HoledWall axis="x" c={z1 - th / 2} a0={x0} a1={x1} y0={y} top={h} t={th} m={wallOut} dado={dado} holes={[{ a0: 8.3, a1: 9.1, y0: 1.1, y1: 1.85 }]} />
+      {/* windows, door */}
+      <Window at={[C_WIN.x, y + C_WIN.y0, z0 + th / 2]} axis="x" w={C_WIN.w} h={C_WIN.y1 - C_WIN.y0} />
+      <Window at={[x1 - th / 2, y + 1.0, -0.65]} axis="z" w={0.9} h={0.9} />
+      <Window at={[8.7, y + 1.1, z1 - th / 2]} axis="x" w={0.8} h={0.75} />
+      <Door at={[x0 + th / 2, y, C_DOOR.z]} axis="z" w={C_DOOR.w} open={s.door ?? 0} inside={-1} leaf={phys("cDoor", { color: "#3d5a6e", roughness: 0.5, clearcoat: 0.3 })} />
+      {/* roof: two pitches along x + gables */}
+      {[1, -1].map((k) => (
+        <mesh key={k} geometry={box(x1 - x0 + 2 * ov, 0.09, L, 0.01)} material={roofM} position={[(x0 + x1) / 2, y + h + rise / 2, (z0 + z1) / 2 + k * (halfW / 2)]} rotation={[k * slope, 0, 0]} castShadow receiveShadow />
+      ))}
+      {[x0, x1].map((x) => <mesh key={x} geometry={gable} material={wallOut} position={[x + (x === x0 ? 0.02 : -0.02), y + h, 0]} rotation={[0, Math.PI / 2, 0]} castShadow />)}
+      {/* ceiling */}
+      <Slab min={[x0 + th, y + h - 0.05, z0 + th]} max={[x1 - th, y + h, z1 - th]} m={MAT.planks([2, 2], "#b89a78")} />
+      {/* porch lamp */}
+      <mesh geometry={box(0.16, 0.22, 0.16, 0.02)} material={phys(`porch${Math.round(lamp * dark * 10)}`, { color: "#2a2620", emissive: "#ffb76e", emissiveIntensity: 2.5 * lamp * dark, roughness: 0.4 })} position={[x0 - 0.12, y + 2.35, C_DOOR.z + 0.62]} />
+      {inside ? <Interior lamp={lamp} t={t} /> : null}
+      {/* warm window glow seen from outside */}
+      {!inside ? <Glow pos={[C_WIN.x, y + 1.5, z0 - 0.05]} size={2.4} color="#ffb05a" i={0.22 * lamp * dark} /> : null}
+    </group>
+  );
+};
+
+const Interior: React.FC<{ lamp: number; t: number }> = ({ lamp, t }) => {
+  const y = COTTAGE.y;
+  return (
+    <group>
+      <Desk at={DESK} w={1.5} d={0.66} top={DESK_TOP} wood="#6e4c30" />
+      <Chair at={[DESK[0], y, DESK[2] + 0.75]} yaw={Math.PI} />
+      {/* open logbook + pen, radio, mug, oil lamp */}
+      <group position={[DESK[0] - 0.15, y + DESK_TOP + 0.012, DESK[2] + 0.06]} rotation={[0, 0.08, 0]}>
+        <mesh geometry={box(0.42, 0.016, 0.3, 0.004)} material={phys("logCover", { color: "#4a2c1e", roughness: 0.7 })} />
+        <mesh geometry={box(0.4, 0.004, 0.28, 0)} material={phys("logPages", { color: "#ffffff", map: logTex(), roughness: 0.85 })} position={[0, 0.011, 0]} />
+        <mesh geometry={cyl(0.004, 0.004, 0.14, 6)} material={phys("pen", { color: "#1d2b4a", roughness: 0.4 })} position={[0.12, 0.018, 0.05]} rotation={[Math.PI / 2, 0, 0.6]} />
+      </group>
+      <group position={[DESK[0] - 0.58, y + DESK_TOP, DESK[2] - 0.12]}>
+        <mesh geometry={box(0.3, 0.2, 0.16, 0.02)} material={phys("radio", { color: "#5a4632", roughness: 0.6 })} position={[0, 0.1, 0]} castShadow />
+        <mesh geometry={box(0.16, 0.06, 0.01, 0.004)} material={phys("dial", { color: "#1a2a1a", emissive: "#7aff9a", emissiveIntensity: 0.6, roughness: 0.3 })} position={[0.03, 0.13, 0.082]} />
+        <mesh geometry={cyl(0.003, 0.003, 0.45, 6)} material={MAT.steel()} position={[-0.11, 0.42, 0]} rotation={[0, 0, 0.25]} />
+      </group>
+      <mesh geometry={cyl(0.04, 0.035, 0.09, 16)} material={MAT.plastic("#d9d2c2")} position={[DESK[0] + 0.15, y + DESK_TOP + 0.045, DESK[2] - 0.15]} castShadow />
+      <OilLamp at={[DESK[0] + 0.5, y + DESK_TOP, DESK[2] - 0.05]} on={lamp * (0.94 + 0.06 * Math.sin(t * 13) * Math.sin(t * 7.3))} />
+      <Bed at={BED_AT} yaw={Math.PI} L={1.9} W={0.92} blanket="#4a5a7a" />
+      <Shelf at={[COTTAGE.x1 - COTTAGE.t, y + 1.55, 1.2]} yaw={-Math.PI / 2} w={1.2} />
+      <WallClock at={[10.4, y + 2.05, COTTAGE.z1 - COTTAGE.t - 0.02]} yaw={Math.PI} time={2.3} />
+      <mesh geometry={box(0.9, 0.62, 0.01, 0)} material={phys("chart", { color: "#ffffff", map: chartTex(), roughness: 0.8 })} position={[COTTAGE.x0 + COTTAGE.t + 0.01, y + 1.55, -1.3]} rotation={[0, Math.PI / 2, 0]} />
+      {/* yellow raincoat on a hook by the door */}
+      <mesh geometry={box(0.42, 0.95, 0.12, 0.05)} material={phys("raincoat", { color: "#d8a21e", roughness: 0.4, clearcoat: 0.6 })} position={[COTTAGE.x0 + COTTAGE.t + 0.08, y + 1.35, 1.55]} rotation={[0, Math.PI / 2, 0.04]} castShadow />
+      <mesh geometry={box(1.6, 0.012, 1.0, 0.004)} material={MAT.fabric("rug", "#7a3a2a", "#c9a26a")} position={[9.3, y + 0.006, 0.4]} receiveShadow />
+      <Dust min={[COTTAGE.x0 + 0.3, y + 0.2, COTTAGE.z0 + 0.3]} max={[COTTAGE.x1 - 0.3, y + 2.4, COTTAGE.z1 - 0.3]} n={200} t={t} i={0.25} size={0.008} color="#ffd9b0" />
+    </group>
+  );
+};
+
+// ── the boat and its lamps (the "light at sea") ─────────────────────────────
+
+const Boat: React.FC<{ t: number; amp: number; seaLight: number; boat: number; fog: number; cam: Cam }> = ({ t, amp, seaLight, boat, fog, cam }) => {
+  const hy = waveHeight(BOAT[0], BOAT[2], t, amp) * 0.85;
+  const [sx, sz] = waveSlope(BOAT[0], BOAT[2], t, amp);
+  const hull = phys("hull", { color: "#2c4a6a", roughness: 0.6 }), stripe = phys("hullStripe", { color: "#e6e0d0", roughness: 0.6 }), wood = MAT.wood("#5a4030");
+  // blink: the lamps dip behind the swells now and then (their reflection on the water comes from the point light)
+  const blink = 0.55 + 0.45 * Math.min(1, Math.max(0, 0.5 + 0.9 * (Math.sin(t * 1.25) + 0.6 * Math.sin(t * 0.71 + 1.0))));
+  const on = Math.max(seaLight * blink, boat);
+  const lampM = phys(`boatLamp${Math.round(on * 10)}`, { color: "#fff8e8", emissive: "#ffe4b0", emissiveIntensity: 8 * on, roughness: 0.2 });
+  const dist = Math.hypot(cam.pos[0] - SEA_LIGHT[0], cam.pos[2] - SEA_LIGHT[2]);
+  const far = Math.min(1, Math.max(0, (dist - 30) / 120));
+  return (
+    <group>
+      <group position={[BOAT[0], hy, BOAT[2]]} rotation={[sz * 0.8, BOAT_YAW, -sx * 0.8]}>
+        <mesh geometry={cached("boatHull", () => new IcosahedronGeometry(1, 3))} material={hull} scale={[1.15, 0.7, 5.0]} position={[0, 0.25, 0]} castShadow />
+        <mesh geometry={box(1.7, 0.06, 7.6, 0.03)} material={wood} position={[0, 0.72, 0]} castShadow receiveShadow />
+        <mesh geometry={box(2.2, 0.12, 0.12, 0.02)} material={stripe} position={[0, 0.62, 3.2]} />
+        <mesh geometry={box(1.3, 0.85, 1.5, 0.05)} material={phys("cabin", { color: "#c9b48a", roughness: 0.7 })} position={[0, 1.18, 2.0]} castShadow />
+        <mesh geometry={box(1.55, 0.06, 1.8, 0.02)} material={phys("cabinRoof", { color: "#3a5a7a", roughness: 0.6 })} position={[0, 1.64, 2.0]} rotation={[0.08, 0, 0]} castShadow />
+        <mesh geometry={cyl(0.07, 0.09, 5.2, 8)} material={wood} position={[0, 2.95, -0.6]} castShadow />
+        <mesh geometry={cyl(0.04, 0.04, 3.4, 6)} material={wood} position={[0, 4.2, -0.6]} rotation={[0, 0, Math.PI / 2]} />
+        {[-1.5, -0.5, 0.5, 1.5].map((x) => <mesh key={x} geometry={sphere(0.14, 12, 8)} material={lampM} position={[x, 4.05, -0.6]} />)}
+        {/* outriggers (cadik) */}
+        {[1, -1].map((k) => (
+          <group key={k}>
+            <mesh geometry={cyl(0.12, 0.12, 8.5, 8)} material={wood} position={[k * 2.6, 0.1, 0]} rotation={[Math.PI / 2, 0, 0]} />
+            {[-2.2, 2.2].map((z) => <mesh key={z} geometry={cyl(0.05, 0.05, 2.7, 6)} material={wood} position={[k * 1.35, 0.55, z]} rotation={[0, 0, Math.PI / 2 - k * 0.2]} />)}
+          </group>
+        ))}
+      </group>
+      {/* the light as seen from far away: glow + halo in fog + its streak on the water */}
+      <Glow pos={[SEA_LIGHT[0], SEA_LIGHT[1] + hy, SEA_LIGHT[2]]} size={(3 + 4 * fog) * (0.4 + 0.6 * far)} color="#ffe8c4" i={on * (0.55 + 0.45 * far)} />
+      <Glow pos={[SEA_LIGHT[0], SEA_LIGHT[1] + hy, SEA_LIGHT[2]]} size={(6 + 7 * fog) * far} color="#c8d8ff" i={on * fog * 0.14 * far} />
+    </group>
+  );
+};
+
+// ── the world ───────────────────────────────────────────────────────────────
+
+const TIME_SKY: Record<string, { look: keyof typeof SKIES; dir: V3; dark: number; sea: string }> = {
+  night: { look: "night", dir: MOON, dark: 1, sea: "#08141f" },
+  dusk: { look: "dusk", dir: [0.6, 0.12, -0.78], dark: 0.6, sea: "#1a2232" },
+  dawn: { look: "dawn", dir: SUN_DAWN, dark: 0.35, sea: "#1d3346" },
+  day: { look: "day", dir: [0.4, 0.75, -0.5], dark: 0, sea: "#1d4258" },
+};
+
+export const CoastSet: React.FC<{ place: string; time: string; s: SetState; t: number; cam: Cam }> = ({ place, time, s, t, cam }) => {
+  const T = TIME_SKY[time] ?? TIME_SKY.night;
+  const inside = place === "cottage";
+  const amp = s.waves ?? 1;
+  return (
+    <group>
+      <SkyDome look={SKIES[T.look]} dir={T.dir} cam={cam.pos} t={t} />
+      <Ocean t={t} amp={amp} color={T.sea} />
+      <mesh geometry={terrainGeo()} material={terrainMat} receiveShadow castShadow />
+      <Rocks />
+      <Grass t={t} />
+      <Fence />
+      <Bench />
+      <Lighthouse t={t} beam={s.beam ?? 1} dark={T.dark} cam={cam} />
+      <Cottage s={s} dark={T.dark} inside={inside} t={t} />
+      <Boat t={t} amp={amp} seaLight={(s.seaLight ?? 0) * (0.3 + 0.7 * T.dark)} boat={s.boat ?? 0} fog={s.fog ?? 0.3} cam={cam} />
+      {place === "gallery" ? <Dust min={[-3, DECK_Y, -3]} max={[3, DECK_Y + 3, 3]} n={140} t={t} i={0.18} size={0.012} /> : null}
+    </group>
+  );
+};
+
+==== 10787 project/src/worlds/coast/data.ts
+// Coast world, data side: places (marks, POIs, camera space), set props and the light rig per time.
+
+import { P_OFF, S_OFF, type LightState, type PointL } from "../../cine/types.ts";
+import type { Place, SetState, WorldData } from "../types.ts";
+import { BED_AT, BENCH, BOAT, COTTAGE, C_DOOR, C_WIN, DECK_Y, DESK, DESK_TOP, LAMP, LANTERN, LH, MOON, SEA_LIGHT, SUN_DAWN, TOP, beamAngle, ground } from "./layout.ts";
+
+const SEA = { sea: [-40, 1, -200] as [number, number, number], light: SEA_LIGHT, horizon: [0, 2, -600] as [number, number, number], boat: [BOAT[0], 1.5, BOAT[2]] as [number, number, number] };
+const towerSolid = { min: [-LH.r0 - 0.4, -8, -LH.r0 - 0.4] as [number, number, number], max: [LH.r0 + 0.4, DECK_Y - 0.1, LH.r0 + 0.4] as [number, number, number] };
+const lanternSolid = { min: [-LANTERN.r - 0.15, DECK_Y, -LANTERN.r - 0.15] as [number, number, number], max: [LANTERN.r + 0.15, LANTERN.y1 + 1.6, LANTERN.r + 0.15] as [number, number, number] };
+const cottageSolid = { min: [COTTAGE.x0 - 0.2, TOP - 2, COTTAGE.z0 - 0.2] as [number, number, number], max: [COTTAGE.x1 + 0.2, TOP + COTTAGE.h + 1.9, COTTAGE.z1 + 0.2] as [number, number, number] };
+
+const cliff: Place = {
+  id: "cliff", doc: "the headland outside: lighthouse, keeper's cottage, bench and fence at the cliff edge, the open sea below",
+  kind: "exterior", floor: TOP,
+  marks: {
+    "cottage-door": { p: [6.3, C_DOOR.z], yaw: -Math.PI / 2, doc: "outside the cottage door" },
+    "lighthouse-door": { p: [3.2, 0], yaw: -Math.PI / 2, doc: "at the lighthouse door" },
+    path: { p: [4.6, -2.8], yaw: Math.PI, doc: "on the path between the buildings, facing the sea" },
+    edge: { p: [2.4, -6.7], yaw: Math.PI, doc: "at the fence on the cliff edge, facing the sea" },
+    "edge-left": { p: [-3.2, -6.3], yaw: Math.PI, doc: "further left along the fence" },
+    bench: { p: [BENCH[0], BENCH[2] + 0.12], yaw: Math.PI, seat: 0.45, doc: "the bench facing the sea (sit)" },
+  },
+  pois: { ...SEA, "lighthouse-top": [0, LANTERN.y0 + 1.5, 0], lighthouse: [0, TOP + 8, 0], cottage: [10, TOP + 1.6, 0], "cottage-window": [C_WIN.x, TOP + 1.6, COTTAGE.z0], "cottage-door": [COTTAGE.x0, TOP + 1.1, C_DOOR.z], bench: [BENCH[0], TOP + 0.5, BENCH[2]], moon: [MOON[0] * 500, MOON[1] * 500, MOON[2] * 500] },
+  box: { min: [-60, TOP - 6, -120], max: [60, 70, 60] },
+  solids: [towerSolid, cottageSolid],
+  ground,
+  establish: { center: [2, TOP + 8, -3], radius: 42, height: 9, yaw: 2.4 },
+  view: "sea", ambience: "coast", surface: "grass", reverb: 0.1,
+};
+
+const gallery: Place = {
+  id: "gallery", doc: "the balcony around the lamp room at the top of the lighthouse, railing, the sea far below",
+  kind: "exterior", floor: DECK_Y,
+  marks: {
+    "gallery-sea": { p: [0.35, -1.95], y: DECK_Y, yaw: Math.PI, doc: "at the railing facing the sea" },
+    "gallery-left": { p: [-1.75, -1.0], y: DECK_Y, yaw: Math.PI + 0.9, doc: "railing, left side" },
+    "gallery-door": { p: [1.95, 0.4], y: DECK_Y, yaw: -Math.PI / 2, doc: "by the lamp-room door" },
+  },
+  pois: { ...SEA, lamp: LAMP, cottage: [10, TOP + 1.6, 0], below: [2, TOP, -8] },
+  box: { min: [-30, DECK_Y - 3, -30], max: [30, DECK_Y + 25, 30] },
+  solids: [towerSolid, lanternSolid],
+  ground,
+  establish: { center: [0, DECK_Y + 1.2, 0], radius: 9, height: 4, yaw: 2.3 },
+  view: "sea", ambience: "gallery", surface: "metal", reverb: 0.05,
+};
+
+const cottage: Place = {
+  id: "cottage", doc: "inside the keeper's cottage: desk with logbook, oil lamp and radio under the sea window, bed, door",
+  kind: "interior", floor: COTTAGE.y,
+  marks: {
+    desk: { p: [DESK[0], DESK[2] + 0.72], y: COTTAGE.y, yaw: Math.PI, seat: 0.46, doc: "the chair at the desk, facing the window (sit)" },
+    window: { p: [11.55, -1.75], y: COTTAGE.y, yaw: Math.PI, doc: "standing at the window" },
+    door: { p: [7.75, C_DOOR.z], y: COTTAGE.y, yaw: Math.PI / 2, doc: "just inside the door" },
+    middle: { p: [9.4, 0.4], y: COTTAGE.y, yaw: Math.PI, doc: "middle of the room" },
+    bed: { p: [BED_AT[0], BED_AT[2]], y: COTTAGE.y, yaw: -Math.PI / 2, bed: { head: [12.65, BED_AT[2]], y: 0.58 }, doc: "the bed (lie / sit up / wake)" },
+  },
+  pois: { ...SEA, window: [C_WIN.x, COTTAGE.y + 1.5, COTTAGE.z0], logbook: [DESK[0] - 0.15, COTTAGE.y + DESK_TOP + 0.02, DESK[2] + 0.05], lamp: [DESK[0] + 0.5, COTTAGE.y + DESK_TOP + 0.2, DESK[2] - 0.05], radio: [DESK[0] - 0.55, COTTAGE.y + DESK_TOP + 0.12, DESK[2] - 0.1], door: [COTTAGE.x0, COTTAGE.y + 1.1, C_DOOR.z], bed: [BED_AT[0], COTTAGE.y + 0.6, BED_AT[2]] },
+  box: { min: [COTTAGE.x0 + 0.3, COTTAGE.y + 0.3, COTTAGE.z0 + 0.3], max: [COTTAGE.x1 - 0.3, COTTAGE.y + COTTAGE.h - 0.2, COTTAGE.z1 - 0.3] },
+  solids: [
+    { min: [DESK[0] - 0.7, COTTAGE.y, DESK[2] - 0.35], max: [DESK[0] + 0.7, COTTAGE.y + DESK_TOP + 0.3, DESK[2] + 0.35] },
+    { min: [BED_AT[0] - 1.0, COTTAGE.y, BED_AT[2] - 0.5], max: [BED_AT[0] + 1.0, COTTAGE.y + 0.7, BED_AT[2] + 0.5] },
+  ],
+  establish: { center: [10, COTTAGE.y + 1.1, -0.6], radius: 2.6, height: 1.6, yaw: -0.6 },
+  view: "window", window: "window", ambience: "cottage", surface: "wood", reverb: 0.25,
+};
+
+const sea: Place = {
+  id: "sea", doc: "out on the water near the fishing boat (outrigger perahu with a lamp pole); the headland far behind",
+  kind: "exterior", floor: 0,
+  marks: {},
+  pois: { boat: [BOAT[0], 1.5, BOAT[2]], lamps: [BOAT[0], 4.1, BOAT[2]], lighthouse: [0, LANTERN.y0 + 1.5, 0], cliff: [2, TOP, -8], horizon: [0, 2, -600] },
+  box: { min: [-140, 0.9, -330], max: [60, 80, -60] },
+  solids: [{ min: [BOAT[0] - 5, -2, BOAT[2] - 6], max: [BOAT[0] + 5, 5, BOAT[2] + 6] }],
+  establish: { center: [BOAT[0], 2, BOAT[2]], radius: 26, height: 7, yaw: 0.9 },
+  view: "boat", ambience: "sea", surface: "wood", reverb: 0.0,
+};
+
+type TimeLook = { bg: string; fog: string; hemiSky: string; hemiGround: string; hemi: number; key: string; keyI: number; dir: [number, number, number]; env: number; fill: string; dark: number };
+const TIMES: Record<string, TimeLook> = {
+  night: { bg: "#050913", fog: "#0c1626", hemiSky: "#2b3f66", hemiGround: "#0b0c0e", hemi: 0.5, key: "#a8c0ff", keyI: 2.4, dir: MOON, env: 0.05, fill: "#3e5c96", dark: 1 },
+  dusk: { bg: "#2a2a3e", fog: "#6a5a68", hemiSky: "#7a7aa0", hemiGround: "#2a2018", hemi: 0.9, key: "#ffb27a", keyI: 2.6, dir: [0.6, 0.12, -0.78], env: 0.18, fill: "#8a6a7a", dark: 0.6 },
+  dawn: { bg: "#5a6a88", fog: "#9a9aa8", hemiSky: "#a8b8d8", hemiGround: "#3a3028", hemi: 1.1, key: "#ffd2a0", keyI: 3.0, dir: SUN_DAWN, env: 0.3, fill: "#a0a8c0", dark: 0.35 },
+  day: { bg: "#9ab8d8", fog: "#b8c8d8", hemiSky: "#cfe0f2", hemiGround: "#5a5040", hemi: 1.4, key: "#fff4e0", keyI: 3.4, dir: [0.4, 0.75, -0.5], env: 0.5, fill: "#c0d0e0", dark: 0 },
+};
+
+const pt = (pos: [number, number, number], color: string, i: number, dist: number): PointL => (i > 0.001 ? { pos, color, i, dist } : P_OFF);
+
+const light = (place: string, time: string, s: SetState, t: number): LightState => {
+  const T = TIMES[time] ?? TIMES.night;
+  const fog = s.fog ?? 0.3, beam = s.beam ?? 1, lamp = s.lamp ?? 1, seaL = s.seaLight ?? 0, boat = s.boat ?? 0;
+  const dark = T.dark;
+  if (place === "cottage") {
+    // the lamp beam sweeps past the sea window twice a revolution: a cold flash through the glass
+    const a = beamAngle(t), toWin = Math.atan2(C_WIN.x, COTTAGE.z0);
+    const flash = beam * dark * Math.max(0, Math.cos(a - toWin)) ** 40 + beam * dark * Math.max(0, Math.cos(a + Math.PI - toWin)) ** 40;
+    return {
+      bg: T.bg, fog: { color: T.fog, density: 0.0035 + 0.011 * fog }, env: T.env * 0.6 + 0.03,
+      hemi: { sky: T.hemiSky, ground: "#1a120c", i: T.hemi * 0.55 },
+      moon: { dir: T.dir, color: T.key, i: T.keyI * 0.75, box: { min: [COTTAGE.x0, COTTAGE.y - 0.2, COTTAGE.z0 - 0.5], max: [COTTAGE.x1, COTTAGE.y + COTTAGE.h, COTTAGE.z1] } },
+      spots: [S_OFF, S_OFF],
+      pts: [
+        pt([DESK[0] + 0.5, COTTAGE.y + DESK_TOP + 0.3, DESK[2] + 0.1], "#ffb257", 1.7 * lamp * (0.4 + 0.6 * dark), 6),
+        pt([DESK[0] + 0.3, COTTAGE.y + COTTAGE.h - 0.1, DESK[2] + 0.8], "#ff9a50", 0.7 * lamp * dark, 6),
+        pt([C_WIN.x, COTTAGE.y + 1.6, COTTAGE.z0 + 0.6], T.fill, 0.6 + 0.6 * (1 - dark), 4.5),
+        pt([C_WIN.x, COTTAGE.y + 1.5, COTTAGE.z0 + 1.4], "#fff2d8", 3 * flash, 7),
+        P_OFF, P_OFF,
+      ],
+    };
+  }
+  const gal = place === "gallery";
+  const atSea = place === "sea";
+  const box = atSea ? { min: [BOAT[0] - 10, -2, BOAT[2] - 10] as [number, number, number], max: [BOAT[0] + 10, 8, BOAT[2] + 10] as [number, number, number] } : gal ? { min: [-4, DECK_Y - 1, -4] as [number, number, number], max: [4, DECK_Y + 4, 4] as [number, number, number] } : { min: [-14, TOP - 3, -12] as [number, number, number], max: [15, TOP + 18, 6] as [number, number, number] };
+  return {
+    bg: T.bg, fog: { color: T.fog, density: 0.0035 + 0.011 * fog }, env: T.env,
+    hemi: { sky: T.hemiSky, ground: T.hemiGround, i: T.hemi },
+    moon: { dir: T.dir, color: T.key, i: T.keyI, box },
+    spots: [
+      dark > 0.2 ? { pos: [COTTAGE.x0 - 0.35, TOP + 2.55, C_DOOR.z], target: [COTTAGE.x0 - 2.2, TOP, C_DOOR.z], color: "#ffb76e", i: 7 * lamp * dark, angle: 0.95, penumbra: 0.8, dist: 10 } : S_OFF,
+      S_OFF,
+    ],
+    pts: [
+      pt(LAMP, "#ffdcaa", (gal ? 1.6 : 9) * beam * (0.3 + 0.7 * dark), gal ? 6 : 22),
+      pt([C_WIN.x, TOP + 1.5, COTTAGE.z0 - 0.7], "#ffb46a", 1.4 * lamp * dark, 6),
+      pt([SEA_LIGHT[0], SEA_LIGHT[1] + 1, SEA_LIGHT[2] + 3], "#ffe9c0", 60 * Math.max(seaL, boat), 70),
+      pt([BOAT[0] + 6, 6, BOAT[2] + 10], "#ffe2b0", 40 * boat, 30),
+      P_OFF,
+      pt(atSea ? [BOAT[0] + 8, 10, BOAT[2] + 14] : gal ? [2.5, DECK_Y + 2.5, -3] : [4, TOP + 5, -4], T.fill, 0.8, gal ? 9 : 26),
+    ],
+  };
+};
+
+export const COAST: WorldData = {
+  id: "coast",
+  doc: "a rocky headland with a red-and-white lighthouse, the keeper's cottage and the open sea (Indonesian coast)",
+  places: { cliff, gallery, cottage, sea },
+  times: ["night", "dusk", "dawn", "day"],
+  props: {
+    beam: { default: 1, doc: "lighthouse lamp turning, beams sweep the sea (0 off, 1 on)", sfx: { up: "machine", down: "click" } },
+    lamp: { default: 1, doc: "oil lamp in the cottage + porch light (0 off, 1 on)", sfx: { up: "click", down: "click" } },
+    seaLight: { default: 0, doc: "the light far out at sea (0 none, 1 bright); it bobs and seems to blink", sfx: { up: "shimmer" } },
+    boat: { default: 0, doc: "the fishing boat under the sea light is revealed and lit (0 hidden in the dark, 1 clearly visible)", sfx: { up: "reveal" } },
+    fog: { default: 0.3, doc: "sea fog (0 clear, 1 thick; the sea light gets a big halo)" },
+    waves: { default: 1, doc: "swell height (0.5 calm, 1 normal, 1.6 rough)" },
+    door: { default: 0, doc: "cottage door (0 shut, 1 open)", sfx: { up: "door-open", down: "door-close" } },
+  },
+  light,
+};
+
+==== 2539 project/src/worlds/coast/layout.ts
+// The coast: one coordinate plan for the headland, lighthouse, keeper's cottage, sea and the boat. Units
+// metres, y up, sea level y = 0, the sea lies toward −z. Every place, light and camera reads these numbers.
+
+import { fbm } from "../../kits/worldforge/noise.ts";
+import type { V3 } from "../types.ts";
+
+/** Plateau height of the headland. */
+export const TOP = 12;
+/** Coastline (cliff edge) z for an x; land is z greater than this. */
+export const coastZ = (x: number) => -9 + 0.0035 * x * x + 0.8 * Math.sin(x * 0.21) + 0.5 * Math.sin(x * 0.53 + 1);
+
+const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/** Terrain height (headland plateau, cliff, seabed). Flattened around the buildings and paths. */
+export const ground = (x: number, z: number) => {
+  const d = z - coastZ(x) + 0.5 * fbm(x * 0.3 + 11, z * 0.3, 3);
+  const flat = sstep(14, 6, Math.hypot(Math.max(0, Math.abs(x - 5) - 7), Math.max(0, Math.abs(z) - 4)));
+  const plateau = TOP + 2.8 * sstep(10, 70, z) + (1 - flat) * 0.35 * fbm(x * 0.05, z * 0.05, 3) + 0.07 * fbm(x * 0.6, z * 0.6, 2);
+  const cliff = sstep(-2.2, 1.0, d);
+  const rock = (1 - cliff) * cliff * 3.5 * fbm(x * 0.9, z * 0.9 + 3, 3);
+  const sea = -4 - 0.06 * Math.max(0, -d);
+  return sea + (plateau - sea) * cliff + rock;
+};
+
+export const LH = { x: 0, z: 0, r0: 2.3, r1: 1.62, h: 16 };
+export const DECK_Y = TOP + LH.h + 0.3;
+export const LANTERN = { r: 1.35, y0: DECK_Y, y1: DECK_Y + 3.0 };
+export const LAMP: V3 = [0, DECK_Y + 1.5, 0];
+/** Seconds per revolution of the lamp (two opposite beams). */
+export const BEAM_PERIOD = 10;
+export const beamAngle = (t: number) => (t / BEAM_PERIOD) * Math.PI * 2;
+
+export const COTTAGE = { x0: 7, x1: 13, z0: -2.6, z1: 2.6, y: TOP + 0.15, h: 2.6, t: 0.18 };
+export const C_DOOR = { z: 0.6, w: 0.9 };
+export const C_WIN = { x: 10.2, w: 1.4, y0: 0.95, y1: 2.05 };
+export const DESK: V3 = [10.2, COTTAGE.y, -2.08];
+export const DESK_TOP = 0.76;
+export const BED_AT: V3 = [11.9, COTTAGE.y, 1.5];
+
+/** The light at sea (a fishing boat's lamps, seen from the headland). */
+export const BOAT: V3 = [-48, 0, -235];
+export const BOAT_YAW = 0.6;
+export const SEA_LIGHT: V3 = [BOAT[0], 4.2, BOAT[2]];
+
+/** Direction toward the moon (over the sea, a little left). */
+export const MOON: V3 = [-0.33, 0.42, -0.84];
+/** Direction toward the low sun at dawn (rises over the sea, right). */
+export const SUN_DAWN: V3 = [0.55, 0.16, -0.82];
+
+export const BENCH: V3 = [6.0, TOP, -5.5];
+
+==== 297 project/src/worlds/index.ts
+// World registry (data side). Add a world: its data.ts here and its Set component in sets.tsx.
+import type { WorldData } from "./types.ts";
+import { COAST } from "./coast/data.ts";
+import { KOS } from "./kos/data.ts";
+
+export const WORLDS: Record<string, WorldData> = { coast: COAST, kos: KOS };
+
+==== 8181 project/src/worlds/kos/data.ts
+// Kos world (an Indonesian boarding house, from Dunia Nabel EP01): a bedroom, the long hallway with seven
+// room doors, the end of the hallway (gudang door, vent, a raincoat on a hook, small window, water
+// dispenser) and the front yard with the terrace lamp, gate and street.
+
+import { P_OFF, S_OFF, type LightState } from "../../cine/types.ts";
+import type { Place, SetState, WorldData } from "../types.ts";
+import { BED, CCTV, CEIL, DESK, DISPENSER, DOORS, END_Z, ENTRANCE_Z, FAN, GATE, HALL, MARK_CREEP, MARK_STOP, ROOM_DOOR, RAINCOAT_HOOK, ROOM, ROOM_WIN, SMALL_WIN, SOCKET, STREET_LAMP, TERRACE_LAMP, TUBES, VENT, WALL, WARDROBE, YARD } from "./layout.ts";
+import { L_DAY_EXT, L_EXT, L_HALL, L_HALL_LIT, L_ROOM, L_ROOM_DAY } from "./looks.ts";
+
+/** the hallway light switch beside the bedroom door (left wall) */
+const SWITCH: [number, number, number] = [HALL.x0 + 0.01, 1.35, ROOM_DOOR.z + ROOM_DOOR.w / 2 + 0.2];
+
+const room: Place = {
+  id: "room", doc: "a small kos bedroom: bed under the window, desk with an LED clock, standing fan, wardrobe, door to the hallway",
+  kind: "interior", floor: 0,
+  marks: {
+    bed: { p: [(BED.x0 + BED.x1) / 2, (BED.z0 + BED.z1) / 2], yaw: Math.PI / 2, bed: { head: [BED.x0 + 0.25, (BED.z0 + BED.z1) / 2], y: BED.top }, doc: "the bed (lie / sleep / wake / sitUp)" },
+    desk: { p: [DESK.x0 + 0.42, DESK.z - DESK.d - 0.32], yaw: 0.35, seat: 0.45, doc: "the desk chair (sit)" },
+    door: { p: [HALL.x0 - 0.65, ROOM_DOOR.z], yaw: Math.PI / 2, doc: "inside the door, facing it" },
+    window: { p: [ROOM.x0 + 0.65, (ROOM_WIN.z0 + ROOM_WIN.z1) / 2], yaw: -Math.PI / 2, doc: "at the window" },
+    middle: { p: [-2.6, -5.4], yaw: Math.PI / 2, doc: "middle of the room" },
+  },
+  pois: {
+    door: [HALL.x0, 1.1, ROOM_DOOR.z], window: [ROOM.x0, 1.5, (ROOM_WIN.z0 + ROOM_WIN.z1) / 2], clock: [-2.68, DESK.top + 0.04, -4.17], fan: [FAN[0], 1.12, FAN[2]],
+    bed: [(BED.x0 + BED.x1) / 2, BED.top + 0.2, (BED.z0 + BED.z1) / 2], desk: [(DESK.x0 + DESK.x1) / 2, DESK.top, DESK.z - DESK.d / 2], socket: SOCKET, wardrobe: [(WARDROBE.x0 + WARDROBE.x1) / 2, 1.2, WARDROBE.z - WARDROBE.d / 2],
+  },
+  box: { min: [ROOM.x0 + 0.25, 0.3, ROOM.z0 + 0.25], max: [ROOM.x1 - 0.25, 2.55, ROOM.z1 - 0.25] },
+  solids: [
+    { min: [BED.x0, 0, BED.z0], max: [BED.x1, 0.75, BED.z1] },
+    { min: [DESK.x0, 0, DESK.z - DESK.d], max: [DESK.x1, 0.95, DESK.z] },
+    { min: [WARDROBE.x0, 0, WARDROBE.z - WARDROBE.d], max: [WARDROBE.x1, WARDROBE.h, WARDROBE.z] },
+  ],
+  establish: { center: [-2.6, 1.0, -5.5], radius: 1.6, height: 1.5, yaw: 0.9 },
+  view: "door", window: "window", ambience: "room", surface: "tile", reverb: 0.2,
+};
+
+const hall: Place = {
+  id: "hall", doc: "the long kos hallway (16 m), room doors left and right, ceiling tube lamps, CCTV at the entrance; at the far end: gudang door, vent, raincoat on a hook, small window, water dispenser",
+  kind: "interior", floor: 0,
+  marks: {
+    entrance: { p: [0, ENTRANCE_Z - 0.7], yaw: Math.PI, doc: "just inside the entrance, facing down the hallway" },
+    "room-door": { p: [-0.25, ROOM_DOOR.z], yaw: -Math.PI / 2, doc: "outside room 2's door (the bedroom), facing it" },
+    middle: { p: MARK_STOP, yaw: Math.PI, doc: "halfway down, facing the end" },
+    near: { p: MARK_CREEP, yaw: Math.PI, doc: "a step closer to the end" },
+    dispenser: { p: [DISPENSER[0] - 0.55, DISPENSER[2]], yaw: Math.PI / 2, doc: "at the water dispenser" },
+    end: { p: [0.15, END_Z + 1.3], yaw: Math.PI, doc: "at the end of the hallway" },
+    switch: { p: [HALL.x0 + 0.45, SWITCH[2]], yaw: -Math.PI / 2, doc: "at the light switch on the left wall (reach → switch, then set tubes: 1)" },
+  },
+  pois: {
+    end: [0, 1.4, END_Z], coat: [RAINCOAT_HOOK[0], 1.45, RAINCOAT_HOOK[2] + 0.15], vent: [VENT.x, (VENT.y0 + VENT.y1) / 2, END_Z], "small-window": [SMALL_WIN.x, (SMALL_WIN.y0 + SMALL_WIN.y1) / 2, (SMALL_WIN.z0 + SMALL_WIN.z1) / 2],
+    switch: SWITCH, dispenser: [DISPENSER[0], 1.0, DISPENSER[2]], entrance: [0, 1.4, ENTRANCE_Z + 1], cctv: CCTV, lamp: TUBES[0], "room-door": [HALL.x0, 1.1, ROOM_DOOR.z],
+    ...Object.fromEntries(DOORS.map((d) => [`door-${d.label}`, [d.side * HALL.x1, 1.1, d.z] as [number, number, number]])),
+  },
+  box: { min: [HALL.x0 + 0.15, 0.3, END_Z + 0.25], max: [HALL.x1 - 0.15, 2.6, ENTRANCE_Z + 0.4] },
+  solids: [{ min: [DISPENSER[0] - 0.2, 0, DISPENSER[2] - 0.2], max: [HALL.x1, 1.3, DISPENSER[2] + 0.2] }],
+  establish: { center: [0, 1.3, -7], radius: 7.5, height: 0.6, yaw: 0.0 },
+  view: "end", ambience: "hall", surface: "tile", reverb: 0.55,
+};
+
+const yard: Place = {
+  id: "yard", doc: "outside the kos: front yard, terrace lamp over the entrance, low gate, the street with a sodium lamp, a parked scooter",
+  kind: "exterior", floor: 0,
+  marks: {
+    terrace: { p: [0, ENTRANCE_Z + 0.9], yaw: 0, doc: "on the terrace, facing the gate" },
+    "terrace-in": { p: [0, ENTRANCE_Z + 0.9], yaw: Math.PI, doc: "on the terrace, facing the entrance" },
+    yard: { p: [1.4, 3.8], yaw: Math.PI, doc: "in the yard, facing the house" },
+    gate: { p: [0, GATE.z - 0.6], yaw: Math.PI, doc: "inside the gate, facing the house" },
+  },
+  pois: { kos: [0, 2.2, ENTRANCE_Z], entrance: [0, 1.2, ENTRANCE_Z], gate: [0, 1, GATE.z], street: [STREET_LAMP[0], 1.2, STREET_LAMP[2]], "terrace-lamp": TERRACE_LAMP, sky: [0, 30, -20] },
+  box: { min: [YARD.x0 + 0.3, 0.3, ENTRANCE_Z + 0.3], max: [YARD.x1 + 8, 14, YARD.z1 + 10] },
+  // what the camera must not stand behind or inside (set/Exterior.tsx): fence walls and gate pillars, terrace posts,
+  // the parked scooters, the neighbours' houses across the street
+  solids: [
+    { min: [YARD.x0, 0, GATE.z - 0.1], max: [GATE.x0 - 0.27, 1.6, GATE.z + 0.1] },
+    { min: [GATE.x1 + 0.27, 0, GATE.z - 0.1], max: [YARD.x1, 1.6, GATE.z + 0.1] },
+    ...[GATE.x0 - 0.12, GATE.x1 + 0.12].map((x) => ({ min: [x - 0.15, 0, GATE.z - 0.15] as [number, number, number], max: [x + 0.15, GATE.h + 0.25, GATE.z + 0.15] as [number, number, number] })),
+    ...[ROOM.x0 - WALL + 0.3, -ROOM.x0 + WALL - 0.3].map((x) => ({ min: [x - 0.1, 0, ENTRANCE_Z + 1.5] as [number, number, number], max: [x + 0.1, CEIL + 0.1, ENTRANCE_Z + 1.7] as [number, number, number] })),
+    ...[[-2.4, 3.6], [-3.5, 3.4]].map(([x, z]) => ({ min: [x - 0.45, 0, z - 0.95] as [number, number, number], max: [x + 0.45, 1.15, z + 0.95] as [number, number, number] })),
+    ...[[-14, 12, 7, 4.6], [-5.5, 12, 6, 3.6], [3.5, 12, 7, 5.2], [12, 12, 6, 3.8]].map(([x, z, w, h]) => ({ min: [x - w / 2, 0, z - 2.5] as [number, number, number], max: [x + w / 2, h, z + 2.5] as [number, number, number] })),
+  ],
+  establish: { center: [0, 2.2, 1.5], radius: 9, height: 3.5, yaw: 0.25 },
+  view: "kos", ambience: "outdoor", surface: "stone", reverb: 0.05,
+};
+
+const light = (place: string, time: string, s: SetState): LightState => {
+  const day = time === "day";
+  if (place === "room") return day ? L_ROOM_DAY : L_ROOM;
+  if (place === "yard") return day ? L_DAY_EXT : L_EXT;
+  const lit = (s.tubes ?? 0) > 0.5 || day;
+  return lit ? L_HALL_LIT : L_HALL;
+};
+void P_OFF; void S_OFF;
+
+export const KOS: WorldData = {
+  id: "kos",
+  doc: "an Indonesian boarding house (kos): bedroom, long hallway with seven doors, the front yard (from Dunia Nabel EP01)",
+  places: { room, hall, yard },
+  times: ["night", "day"],
+  props: {
+    door: { default: 0, doc: "the bedroom door (0 shut, 1 wide open)", sfx: { up: "door-open", down: "door-close" } },
+    tubes: { default: 0, doc: "hallway ceiling lamps (0 off — moonlit, 1 on)", sfx: { up: "click", down: "click" } },
+    fan: { default: 1, doc: "the standing fan in the bedroom turning (0 off, 1 on)" },
+    vent: { default: 0, doc: "the loose vent flap at the end of the hallway rattles (0 still, 1 rattling)", sfx: { up: "knock" } },
+    coat: { default: 1, doc: "the long black raincoat hanging at the end of the hallway (0 gone, 1 there)" },
+    pile: { default: 0, doc: "clothes piled on the desk chair (0 none, 1 a pile that looks like someone sitting)" },
+    gudang: { default: 0, doc: "the storage-room door at the end (0 shut, 1 open)", sfx: { up: "door-open", down: "door-close" } },
+  },
+  light: (p, t, s) => light(p, t, s),
+};
+void END_Z;

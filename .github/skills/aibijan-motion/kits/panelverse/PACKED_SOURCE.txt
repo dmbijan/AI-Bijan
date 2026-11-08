@@ -1,0 +1,2804 @@
+AI BIJAN Motion - packed source files of this folder. Do not edit by hand.
+The skill upload in the Claude app accepts at most 200 files, so the source files are packed here.
+`node <skill folder>/new-project.mjs <project folder> --kit=<style>` unpacks them into the project.
+Format: per file one line with four '=' signs, the byte length and the path, then exactly that many bytes.
+
+==== 150 root.json
+{
+  "marker": "PanelverseFilms",
+  "import": "import { PanelverseFilms } from \"./kits/panelverse/Films.tsx\";",
+  "element": "<PanelverseFilms />"
+}
+
+==== 7309 scripts/pv-align.mjs
+// Word timings for PANELVERSE without whisper.cpp: clause ↔ speech-segment alignment.
+//   node scripts/pv-align.mjs <vo.mp3> --script=<text file> --out=src/pv-stories/<id>/words.json [--id=<id>]
+// With whisper.cpp installed it hands over to scripts/transcribe.mjs (exact word timings).
+// Otherwise: the script is split into clauses at punctuation (. , ! ? ; : …), the VO's speech segments are found with
+// silence detection (several thresholds are tried until segments and clauses match one-to-one), and each clause's words
+// are spread over its segment by syllable count. Typical error ≈ ±0.1 s per word when the clauses match; if no threshold
+// matches, it falls back to transcribe.mjs (sentence-level, ≈ ±0.3–0.5 s) and says so.
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const vo = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const scriptFile = opt("script"), out = opt("out"), id = opt("id");
+if (!vo || !fs.existsSync(vo) || !out) {
+  console.error("usage: node scripts/pv-align.mjs <vo.mp3> --script=<text file> --out=src/pv-stories/<id>/words.json [--id=<id>]");
+  process.exit(1);
+}
+const run = (c, a) => spawnSync(c, a, { encoding: "utf8", maxBuffer: 1 << 28 });
+const handOver = (why) => {
+  console.log(`pv-align: ${why} → scripts/transcribe.mjs`);
+  const r = spawnSync("node", [path.join("scripts", "transcribe.mjs"), vo, `--out=${out}`, ...(scriptFile ? [`--script=${scriptFile}`] : []), ...(id ? [`--id=${id}`] : []), "--lang=id"], { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+};
+// whisper.cpp present → exact timings from transcribe.mjs
+const hasWhisper = run("sh", ["-c", "command -v whisper-cli"]).stdout.trim() || ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"].some((f) => fs.existsSync(f)) || process.env.WHISPER_CLI;
+if (hasWhisper) handOver("whisper.cpp found");
+if (!scriptFile || !fs.existsSync(scriptFile)) { console.error("pv-align: without whisper.cpp the VO text is needed: --script=<text file>"); process.exit(1); }
+if (id) {
+  if (!/^[a-z0-9-]+$/.test(id)) { console.error(`--id "${id}" must use only a-z, 0-9 and "-"`); process.exit(1); }
+  const dst = path.join("public", "audio", `${id}${path.extname(vo).toLowerCase() || ".mp3"}`);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  if (path.resolve(dst) !== path.resolve(vo)) fs.copyFileSync(vo, dst);
+  console.log(`vo: ${dst}`);
+}
+const text = fs.readFileSync(scriptFile, "utf8").replace(/\s+/g, " ").trim();
+// clauses: words grouped until a punctuation mark closes the clause
+const tokens = text.split(" ").filter(Boolean);
+const clauses = [];
+let cur = [];
+for (const t of tokens) {
+  cur.push(t);
+  if (/[.,!?;:…]["')\]]*$/.test(t)) { clauses.push(cur); cur = []; }
+}
+if (cur.length) clauses.push(cur);
+const duration = Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vo]).stdout.trim());
+const segmentsFor = (noise, d) => {
+  const txt = run("ffmpeg", ["-hide_banner", "-i", vo, "-af", `silencedetect=noise=${noise}dB:d=${d}`, "-f", "null", "-"]).stderr;
+  const starts = [...txt.matchAll(/silence_start: ([\d.]+)/g)].map((m) => Number(m[1]));
+  const ends = [...txt.matchAll(/silence_end: ([\d.]+)/g)].map((m) => Number(m[1]));
+  // speech = gaps between silences
+  const segs = [];
+  let t = 0;
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i] - t > 0.08) segs.push([t, starts[i]]);
+    t = ends[i] ?? duration;
+  }
+  if (duration - t > 0.08) segs.push([t, duration]);
+  return segs.filter(([a, b]) => b - a > 0.08);
+};
+const syl = (w) => Math.max(1, (w.toLowerCase().match(/[aiueoé]+/g) ?? []).length);
+const csyl = clauses.map((c) => c.reduce((n, w) => n + syl(w), 0));
+const totalSyl = csyl.reduce((a, b) => a + b, 0);
+// monotonic alignment: each step pairs 1 clause with 1–4 consecutive segments, or 2–3 clauses with 1 segment.
+// cost = squared log ratio of segment speech time to the expected time (syllables × speech rate), weighted by size
+const align = (segs) => {
+  const C = clauses.length, Sn = segs.length;
+  const speech = segs.reduce((n, [a, b]) => n + b - a, 0);
+  const rate = speech / totalSyl;
+  const segDur = (j0, j1) => segs.slice(j0, j1).reduce((n, [a, b]) => n + b - a, 0);
+  const sylOf = (i0, i1) => csyl.slice(i0, i1).reduce((a, b) => a + b, 0);
+  const pairCost = (i0, i1, j0, j1) => {
+    const exp = sylOf(i0, i1) * rate, got = segDur(j0, j1);
+    const r = Math.log(Math.max(got, 0.05) / Math.max(exp, 0.05));
+    return r * r * sylOf(i0, i1) + 0.6 * (i1 - i0 - 1) + 0.4 * (j1 - j0 - 1);
+  };
+  const INF = 1e9;
+  const f = Array.from({ length: C + 1 }, () => new Array(Sn + 1).fill(INF));
+  const back = Array.from({ length: C + 1 }, () => new Array(Sn + 1).fill(null));
+  f[0][0] = 0;
+  for (let i = 0; i <= C; i++) for (let j = 0; j <= Sn; j++) {
+    if (f[i][j] >= INF) continue;
+    for (let k = 1; k <= 4 && j + k <= Sn && i + 1 <= C; k++) {
+      const c = f[i][j] + pairCost(i, i + 1, j, j + k);
+      if (c < f[i + 1][j + k]) { f[i + 1][j + k] = c; back[i + 1][j + k] = [i, j]; }
+    }
+    for (let k = 2; k <= 3 && i + k <= C && j + 1 <= Sn; k++) {
+      const c = f[i][j] + pairCost(i, i + k, j, j + 1);
+      if (c < f[i + k][j + 1]) { f[i + k][j + 1] = c; back[i + k][j + 1] = [i, j]; }
+    }
+  }
+  if (f[C][Sn] >= INF) return null;
+  const steps = [];
+  for (let i = C, j = Sn; i > 0 || j > 0; ) { const [pi, pj] = back[i][j]; steps.unshift([pi, i, pj, j]); i = pi; j = pj; }
+  return { cost: f[C][Sn] / totalSyl, steps };
+};
+let best = null;
+for (const noise of [-30, -32, -35, -38, -40, -45]) for (const d of [0.08, 0.1, 0.12, 0.15, 0.2, 0.25]) {
+  const segs = segmentsFor(noise, d);
+  if (!segs.length) continue;
+  const a = align(segs);
+  if (a && (!best || a.cost < best.cost)) best = { ...a, segs, noise, d };
+}
+if (!best || best.cost > 0.35) handOver(best ? `the VO's pauses do not match the script's punctuation well (fit ${best.cost.toFixed(2)})` : "no speech segments found");
+const words = [];
+for (const [i0, i1, j0, j1] of best.steps) {
+  // the clause run's words spread over the segment run's speech time (pauses between segments skipped)
+  const segs = best.segs.slice(j0, j1);
+  const ws = clauses.slice(i0, i1).flat();
+  const n = ws.map(syl), total = n.reduce((a, b) => a + b, 0);
+  const speech = segs.reduce((m, [a, b]) => m + b - a, 0);
+  const at = (x) => { // speech-time offset → real time
+    for (const [a, b] of segs) { if (x <= b - a) return a + x; x -= b - a; }
+    return segs[segs.length - 1][1];
+  };
+  let acc = 0;
+  ws.forEach((w, k) => {
+    const dur = (speech * n[k]) / total;
+    words.push([w, +at(acc + Math.min(0.01, dur * 0.1)).toFixed(3), +at(acc + dur * 0.94).toFixed(3)]);
+    acc += dur;
+  });
+}
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, JSON.stringify(words));
+console.log(`words: ${out} — ${words.length} words, ${clauses.length} clauses aligned to ${best.segs.length} speech segments (silence ${best.noise} dB / ${best.d} s, fit ${best.cost.toFixed(3)}), ≈ ±0.1 s per word`);
+console.log(words.map(([w, s]) => `${s.toFixed(2)} ${w}`).join("  "));
+
+==== 15147 scripts/pv-make.mjs
+// PANELVERSE: one command from a story file to a checked video.
+//   node scripts/pv-make.mjs src/pv-stories/<id>/story.ts [--lint] [--stills=2,5.5,9] [--preview] [--final] [--force] [--concurrency=4]
+//
+//   1. resolve   words.json → words.ts, load the story (Node, type stripping), regenerate src/pv-stories/registry.ts
+//   2. lint      validity, safe zone, variety / anti-monotony rules (errors stop; --force to override)
+//   3. sound     SFX kit (once) + auto sound cues + ducked mix with the VO → public/audio/<id>-mix.wav
+//   4. render    --stills: silent preview frames + sheet · --preview: 540×960@30 with sound ·
+//                --final (default): 1080×1920@60, segments (re-run resumes), −14 LUFS master
+//   5. QA        scripts/qa.mjs (13 automated checks + contact sheets) + REVIEW.md visual gate
+
+import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+if (!process.features.typescript) {
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", ...process.argv.slice(1)], { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const flag = (k) => args.includes(`--${k}`);
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+if (!file || !fs.existsSync(file)) {
+  console.error("usage: node scripts/pv-make.mjs src/pv-stories/<id>/story.ts [--lint] [--stills=…] [--preview] [--final] [--force]");
+  process.exit(1);
+}
+const step = (s) => console.log(`\n▶ ${s}`);
+const sh = (cmd, a) => {
+  const r = spawnSync(cmd, a, { stdio: "inherit" });
+  if (r.status !== 0) { console.error(`✗ ${cmd} ${a.join(" ")} failed`); process.exit(r.status ?? 1); }
+};
+const dir = path.dirname(path.resolve(file));
+const id = path.basename(dir);
+if (!/^[a-z0-9-]+$/.test(id)) { console.error(`folder name "${id}" must use only a-z, 0-9 and "-" (it is the story id)`); process.exit(1); }
+
+// 1 ── resolve ───────────────────────────────────────────────────────────────
+step("resolve story");
+const wj = path.join(dir, "words.json"), wt = path.join(dir, "words.ts");
+if (!fs.existsSync(wj) && !fs.existsSync(wt)) { console.error(`✗ ${wj} missing — run scripts/transcribe.mjs <vo> --out=${path.relative(".", wj)} first`); process.exit(1); }
+if (fs.existsSync(wj) && (!fs.existsSync(wt) || fs.statSync(wj).mtimeMs > fs.statSync(wt).mtimeMs)) {
+  const words = JSON.parse(fs.readFileSync(wj, "utf8")).map((w) => [String(w[0]), Number(w[1]), Number(w[2])]);
+  fs.writeFileSync(wt, `// Generated from words.json by scripts/pv-make.mjs — [word, start s, end s] in VO time.\nexport const WORDS = ${JSON.stringify(words)} as const;\n`);
+}
+let story;
+try {
+  story = (await import(pathToFileURL(path.resolve(file)).href)).default;
+} catch (e) {
+  console.error(`✗ the story does not load: ${e.message}`);
+  process.exit(1);
+}
+if (!story || story.id !== id) { console.error(`✗ story.ts must \`export default story({ id: "${id}", … })\` (got id "${story?.id}")`); process.exit(1); }
+const voPath = path.join("public", story.vo.file);
+if (!fs.existsSync(voPath)) { console.error(`✗ VO not found: ${voPath}`); process.exit(1); }
+const voDur = Number(spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", voPath], { encoding: "utf8" }).stdout.trim());
+const voEndFrame = Math.round((story.vo.offset + voDur) * 60);
+
+// registry: every story folder with a story.ts (+ its elements.tsx)
+const root = "src/pv-stories";
+const ids = fs.readdirSync(root).filter((d) => fs.existsSync(path.join(root, d, "story.ts"))).sort();
+const camel = (s) => "s_" + s.replace(/-/g, "_");
+fs.writeFileSync(path.join(root, "registry.ts"), [
+  "// Generated by scripts/pv-make.mjs — every story in src/pv-stories/<id>/ becomes two compositions.",
+  'import type { StoryDef } from "../kits/panelverse/director/types.ts";',
+  ...ids.flatMap((d) => [`import ${camel(d)} from "./${d}/story.ts";`, ...(fs.existsSync(path.join(root, d, "elements.tsx")) ? [`import "./${d}/elements.tsx";`] : [])]),
+  "",
+  `export const PV_STORIES: StoryDef[] = [${ids.map(camel).join(", ")}];`,
+  "",
+].join("\n"));
+const rootFile = "src/Root.tsx", rootSrc = fs.readFileSync(rootFile, "utf8");
+if (!rootSrc.includes("PanelverseFilms")) {
+  const lastImport = [...rootSrc.matchAll(/^import .*;$/gm)].pop(), close = rootSrc.lastIndexOf("</>");
+  if (!lastImport || close < 0) { console.error(`✗ add <PanelverseFilms /> (from "./kits/panelverse/Films.tsx") to ${rootFile} by hand`); process.exit(1); }
+  const at = lastImport.index + lastImport[0].length;
+  const withEl = rootSrc.slice(0, close) + "  <PanelverseFilms />\n  " + rootSrc.slice(close);
+  fs.writeFileSync(rootFile, withEl.slice(0, at) + '\nimport { PanelverseFilms } from "./kits/panelverse/Films.tsx";' + withEl.slice(at));
+  console.log(`  registered PANELVERSE films in ${rootFile}`);
+}
+const D = story.durationInFrames;
+console.log(`  ${id}: ${(D / 60).toFixed(2)} s · VO ${voDur.toFixed(2)} s from ${story.vo.offset} s · ${Object.keys(story.shots).length} shots · ${story.panels.length} panels · ${story.fx.length} fx · cast ${Object.keys(story.cast).join(", ")}`);
+
+// 2 ── lint ──────────────────────────────────────────────────────────────────
+step("lint (validity · safe zone · variety)");
+const names = (src, re) => [...src.matchAll(re)].map((m) => m[1]);
+const libSrc = fs.readFileSync("src/kits/panelverse/engine/three/library.tsx", "utf8");
+const items = names(libSrc, /^ {2}(\w+): \{\n\s+desc:/gm);
+const elSrc = fs.existsSync(path.join(dir, "elements.tsx")) ? fs.readFileSync(path.join(dir, "elements.tsx"), "utf8") : "";
+const own = names(elSrc, /(\w+):\s*\{\s*desc:/g);
+const props = names(fs.readFileSync("src/kits/panelverse/director/ShotRenderer.tsx", "utf8"), /^ {2}(\w+): \(p/gm);
+const { lintStory } = await import(pathToFileURL(path.resolve("src/kits/panelverse/director/lint.ts")).href);
+const L = lintStory(story, { voEndFrame, items: [...items, ...own], props });
+for (const [k, v] of Object.entries(L.stats)) console.log(`  ${k.padEnd(12)} ${v}`);
+for (const w of L.warnings) console.log(`  ⚠ ${w}`);
+for (const e of L.errors) console.log(`  ✗ ${e}`);
+const missing = (story.elements ?? []).filter((e) => !own.includes(e));
+if (missing.length) { console.log(`  ✗ story.elements ${missing.join(", ")} not registered in elements.tsx`); L.errors.push("elements"); }
+if (L.errors.length && !flag("force")) { console.error(`\n✗ ${L.errors.length} lint error(s) — fix the story (or --force for a test render)`); process.exit(1); }
+if (flag("lint")) process.exit(0);
+
+// 3 ── sound ─────────────────────────────────────────────────────────────────
+step("sound (auto SFX + ducked mix)");
+sh(process.execPath, ["scripts/pv-sfx.mjs"]);
+const { soundsFor, duckGain } = await import(pathToFileURL(path.resolve("src/kits/panelverse/director/kit.ts")).href);
+const cues = soundsFor(story);
+const SR = 48000;
+const decode = (f) => {
+  const r = spawnSync("ffmpeg", ["-v", "error", "-i", f, "-f", "f32le", "-ac", "1", "-ar", String(SR), "-"], { maxBuffer: 1 << 30 });
+  return new Float32Array(r.stdout.buffer, r.stdout.byteOffset, Math.floor(r.stdout.length / 4));
+};
+const N = Math.ceil((D / 60) * SR);
+const mix = new Float32Array(N);
+const vo = decode(voPath);
+const o = Math.round(story.vo.offset * SR);
+for (let i = 0; i < vo.length && i + o < N; i++) mix[i + o] += vo[i];
+const cache = new Map();
+for (const c of cues) {
+  const f = path.join("public", c.src);
+  if (!fs.existsSync(f)) { console.error(`✗ sound not found: ${f}`); process.exit(1); }
+  if (!cache.has(f)) cache.set(f, decode(f));
+  const s = cache.get(f), start = Math.round((c.at / 60) * SR);
+  for (let i = 0; i < s.length && start + i < N; i++) {
+    const fr = (start + i) / SR * 60;
+    if (c.until !== undefined && fr >= c.until) break;
+    const duck = story.duck ? 1 - (1 - duckGain(story.duck, fr)) * (c.duck ?? 1) : 1;
+    const tail = c.until !== undefined ? Math.min(1, (c.until - fr) / 6) : 1;
+    mix[start + i] += s[i] * c.volume * duck * tail;
+  }
+}
+let peak = 0;
+for (const v of mix) peak = Math.max(peak, Math.abs(v));
+const g = peak > 0.95 ? 0.95 / peak : 1;
+const pcm = Buffer.alloc(N * 4);
+for (let i = 0; i < N; i++) { const v = Math.round(Math.max(-1, Math.min(1, mix[i] * g)) * 32767); pcm.writeInt16LE(v, i * 4); pcm.writeInt16LE(v, i * 4 + 2); }
+const hdr = Buffer.alloc(44);
+hdr.write("RIFF", 0); hdr.writeUInt32LE(36 + pcm.length, 4); hdr.write("WAVE", 8); hdr.write("fmt ", 12); hdr.writeUInt32LE(16, 16); hdr.writeUInt16LE(1, 20); hdr.writeUInt16LE(2, 22);
+hdr.writeUInt32LE(SR, 24); hdr.writeUInt32LE(SR * 4, 28); hdr.writeUInt16LE(4, 32); hdr.writeUInt16LE(16, 34); hdr.write("data", 36); hdr.writeUInt32LE(pcm.length, 40);
+const mixFile = path.join("public", "audio", `${id}-mix.wav`);
+fs.mkdirSync(path.dirname(mixFile), { recursive: true });
+fs.writeFileSync(mixFile, Buffer.concat([hdr, pcm]));
+console.log(`  ${cues.length} sound cues → ${mixFile}${g < 1 ? ` (scaled ${g.toFixed(2)} to avoid clipping)` : ""}`);
+
+// plan for the record (and for revisions)
+const outDir = path.join("out", id);
+fs.mkdirSync(outDir, { recursive: true });
+const shots = story.panels.map((p) => ({ kind: "panel", a: p.shot, t0: p.from / 60, t1: Math.min(p.to, D) / 60 }));
+fs.writeFileSync(path.join(outDir, "shots.json"), JSON.stringify({ duration: D / 60, voOffset: story.vo.offset, shots }, null, 1));
+fs.writeFileSync(path.join(outDir, "plan.txt"), [
+  `${id} — ${(D / 60).toFixed(2)} s`,
+  ...Object.entries(L.stats).map(([k, v]) => `${k}: ${v}`),
+  "", "beats:", ...(story.beats ?? []).map((b) => `  ${(b.at / 60).toFixed(2).padStart(6)} s  "${b.words}" → ${b.idea} [${b.device}]`),
+  "", "panels:", ...story.panels.map((p) => `  ${(p.from / 60).toFixed(2).padStart(6)}–${(p.to / 60).toFixed(2).padEnd(6)} ${p.shot} ${(p.moves ?? []).map((m) => `${m.type}@${(m.at / 60).toFixed(2)}`).join(" ")}`),
+  "", "sound:", ...cues.map((c) => `  ${(c.at / 60).toFixed(2).padStart(6)} s  ${path.basename(c.src)} ×${c.volume}`),
+  ...(L.warnings.length ? ["", "warnings:", ...L.warnings.map((w) => `  ${w}`)] : []),
+].join("\n") + "\n");
+
+// 4 ── render ────────────────────────────────────────────────────────────────
+const stills = opt("stills");
+if (stills) {
+  step("stills");
+  const all = stills.split(",").map(Number).filter(Number.isFinite);
+  const ok = all.filter((x) => x >= 0 && x < D / 60 - 0.05);
+  if (!ok.length) { console.error("✗ no stills inside the film"); process.exit(1); }
+  sh("node", ["scripts/stills.mjs", path.join(outDir, "stills"), ok.map((x) => `${x}s`).join(","), `${id}-stills`]);
+}
+const preview = flag("preview"), final = flag("final") || (!preview && !stills);
+let video = null;
+if (preview) {
+  step("render preview (540×960 @ 30, with sound)");
+  video = path.join(outDir, `${id}_preview.mp4`);
+  sh("npx", ["remotion", "render", `${id}-preview`, video, "--codec=h264", "--crf=20", `--concurrency=${opt("concurrency", "4")}`]);
+}
+if (final) {
+  step("render final (1080×1920 @ 60, H.264 + AAC, −14 LUFS)");
+  const seg = path.join(outDir, "seg"), stamp = path.join(seg, "stamp.txt");
+  const h = crypto.createHash("sha1");
+  for (const f of [file, wt, path.join(dir, "elements.tsx"), mixFile]) if (fs.existsSync(f)) h.update(fs.readFileSync(f));
+  const sig = h.digest("hex");
+  if (!fs.existsSync(stamp) || fs.readFileSync(stamp, "utf8") !== sig) fs.rmSync(seg, { recursive: true, force: true });
+  fs.mkdirSync(seg, { recursive: true });
+  fs.writeFileSync(stamp, sig);
+  video = path.join(outDir, `${id}_1080x1920_60fps.mp4`);
+  sh("node", ["scripts/render-final.mjs", `--comp=${id}-final`, `--out=${video}`, `--vo=${mixFile}`, "--offset=0", "--parts=4", `--concurrency=${opt("concurrency", "4")}`, `--seg=${seg}`]);
+}
+
+// 5 ── QA ────────────────────────────────────────────────────────────────────
+if (video && !flag("no-qa")) {
+  step("QA");
+  const qa = spawnSync("node", ["scripts/qa.mjs", video, `--vo=${voPath}`, `--offset=${story.vo.offset}`, `--expect=${(D / 60).toFixed(3)}`, `--shots=${path.join(outDir, "shots.json")}`, ...(final ? ["--final"] : []), ...(final ? [] : ["--size=540x960"])], { stdio: "inherit" });
+  const qaDir = path.join(outDir, "qa");
+  const pages = JSON.parse(fs.readFileSync(path.join(qaDir, "qa.json"), "utf8")).contactPages ?? [];
+  const rows = [
+    "every beat reads with the sound off (the picture says what the VO says)",
+    "faces readable in every shot that carries an emotion; no face hidden by props, bubbles or lettering",
+    "lettering fully in frame, inside the safe zone, spelled right, never over a face",
+    "no limbs at odd angles; nobody inside furniture or another person; hands touch what they hold",
+    "panels: borders clean, no gaps / slivers at transitions, content does not slide inside a moving panel",
+    "no camera inside or against walls / props; nothing cut at an edge that matters",
+    "variety: layouts, transitions and devices change with the beats — no stretch feels repeated or static",
+    "the story's own elements appear and read (they were made for this script)",
+    "frame errors: black / white / frozen / flicker, burnt highlights, blank page",
+    "VO sync: events land on their words; the narration is never covered by a sound",
+    "ending lands (freeze / page / punchline) and holds long enough",
+  ];
+  fs.writeFileSync(path.join(qaDir, "REVIEW.md"), [
+    `# Visual review — ${id} (${path.basename(video)})`, "", "STATUS: PENDING VISUAL REVIEW", "",
+    `Look at EVERY page of the 1-fps contact sheet — ${pages.map((p) => `${p.file} (${p.from}–${p.to} s)`).join(", ") || "contact_1fps_*.jpg"} — and shots_start_mid_end.jpg; open the video for anything doubtful, especially transitions. Tick each page below.`, "",
+    ...pages.map((p) => `- [ ] ${p.file} (${p.from}–${p.to} s) seen`), "",
+    "Then fill every row with PASS / FIX + what you saw. Set STATUS to PASS only when no FIX is left.", "",
+    "| check | verdict | notes |", "|---|---|---|", ...rows.map((r) => `| ${r} | | |`), "",
+  ].join("\n"));
+  console.log(`  review gate → ${path.join(qaDir, "REVIEW.md")} (PENDING until a visual review is written)`);
+  if (qa.status !== 0) process.exit(qa.status ?? 3);
+}
+console.log(`\n✓ done${video ? `: ${video}` : ""}`);
+
+==== 16797 scripts/pv-sfx.mjs
+// PANELVERSE sound kit — every effect is synthesised here from oscillators + filtered noise.
+// Deterministic (seeded PRNG), dependency-free, original (no samples, no licensing questions).
+//   node scripts/pv-sfx.mjs            → public/sfx/pv-*.wav  (48 kHz, mono, 16-bit; skips existing files)
+//   node scripts/pv-sfx.mjs --force    → rebuild all
+import fs from "node:fs";
+import path from "node:path";
+
+const SR = 48000;
+const OUT = path.resolve("public/sfx");
+fs.mkdirSync(OUT, { recursive: true });
+
+// ── primitives ───────────────────────────────────────────────────────────────────────────────
+const rng = (seed) => () => {
+  seed |= 0;
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const buf = (sec) => new Float32Array(Math.max(1, Math.round(sec * SR)));
+const white = (n, seed) => {
+  const r = rng(seed);
+  const b = new Float32Array(n);
+  for (let i = 0; i < n; i++) b[i] = r() * 2 - 1;
+  return b;
+};
+const brown = (n, seed) => {
+  const w = white(n, seed);
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    acc = (acc + w[i] * 0.02) * 0.998;
+    w[i] = acc * 3.5;
+  }
+  return w;
+};
+/** RBJ biquad; `f` may be a number or a function of sample index (sweeps). */
+const biquad = (x, type, f, q = 0.707) => {
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const fc = Math.min(SR * 0.45, Math.max(20, typeof f === "function" ? f(i) : f));
+    const w = (2 * Math.PI * fc) / SR;
+    const c = Math.cos(w), s = Math.sin(w), a = s / (2 * q);
+    let b0, b1, b2;
+    if (type === "lp") { b0 = (1 - c) / 2; b1 = 1 - c; b2 = (1 - c) / 2; }
+    else if (type === "hp") { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2; }
+    else { b0 = a; b1 = 0; b2 = -a; } // band-pass (constant 0 dB peak)
+    const a0 = 1 + a, a1 = -2 * c, a2 = 1 - a;
+    const out = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+    x2 = x1; x1 = x[i]; y2 = y1; y1 = out;
+    y[i] = out;
+  }
+  return y;
+};
+/** sine with a frequency function f(t) (Hz) — phase-accumulated so glides are clean */
+const osc = (sec, f, shape = "sin") => {
+  const b = buf(sec);
+  let ph = 0;
+  for (let i = 0; i < b.length; i++) {
+    const t = i / SR;
+    ph += (2 * Math.PI * (typeof f === "function" ? f(t) : f)) / SR;
+    b[i] = shape === "sq" ? Math.tanh(Math.sin(ph) * 4) : shape === "tri" ? (2 / Math.PI) * Math.asin(Math.sin(ph)) : Math.sin(ph);
+  }
+  return b;
+};
+const env = (b, fn) => {
+  for (let i = 0; i < b.length; i++) b[i] *= fn(i / SR, i / b.length);
+  return b;
+};
+const adsr = (a, d) => (t) => (t < a ? t / a : Math.exp(-(t - a) / d));
+const bell = (t, len) => Math.sin(Math.PI * Math.min(1, Math.max(0, t / len)));
+const gain = (b, g) => b.map((v) => v * g);
+const mixInto = (dst, src, at = 0, g = 1) => {
+  const o = Math.round(at * SR);
+  for (let i = 0; i < src.length && i + o < dst.length; i++) if (i + o >= 0) dst[i + o] += src[i] * g;
+  return dst;
+};
+const sat = (b, drive) => b.map((v) => Math.tanh(v * drive) / Math.tanh(drive));
+const fadeOut = (b, sec = 0.01) => {
+  const n = Math.round(sec * SR);
+  for (let i = 0; i < n && i < b.length; i++) b[b.length - 1 - i] *= i / n;
+  return b;
+};
+const normalize = (b, peak = 0.89) => {
+  let m = 0;
+  for (const v of b) m = Math.max(m, Math.abs(v));
+  return m > 0 ? gain(b, peak / m) : b;
+};
+const writeWav = (name, b) => {
+  b = fadeOut(normalize(b));
+  const data = Buffer.alloc(b.length * 2);
+  for (let i = 0; i < b.length; i++) data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, b[i])) * 32767), i * 2);
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0); h.writeUInt32LE(36 + data.length, 4); h.write("WAVE", 8); h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(SR, 24);
+  h.writeUInt32LE(SR * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write("data", 36); h.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(path.join(OUT, `pv-${name}.wav`), Buffer.concat([h, data]));
+};
+
+// ── building blocks ──────────────────────────────────────────────────────────────────────────
+const click = (sec, fc, seed, decay = 0.004) => env(biquad(white(Math.round(sec * SR), seed), "bp", fc, 1.2), adsr(0.0005, decay));
+const thump = (f0, f1, sec, decay) => env(osc(sec, (t) => f1 + (f0 - f1) * Math.exp(-t * 18)), adsr(0.002, decay));
+const sweepNoise = (sec, f0, f1, q, seed, shape = (t, k) => bell(k, 1)) => {
+  const n = Math.round(sec * SR);
+  return env(biquad(white(n, seed), "bp", (i) => f0 * Math.pow(f1 / f0, i / n), q), shape);
+};
+const bellTone = (sec, f, partials = [[1, 1], [2.76, 0.45], [5.4, 0.22]], decay = 0.35) => {
+  const b = buf(sec);
+  for (const [m, a] of partials) mixInto(b, env(osc(sec, f * m), adsr(0.002, decay / Math.sqrt(m))), 0, a);
+  return b;
+};
+
+// ── the kit ───────────────────────────────────────────────────────────────────────────────────
+const S = {};
+// phone & chat
+S.tap = () => mixInto(click(0.05, 2600, 11, 0.006), env(osc(0.05, 1800), adsr(0.001, 0.012)), 0, 0.25);
+S.tap2 = () => mixInto(click(0.05, 3100, 12, 0.005), env(osc(0.05, 2100), adsr(0.001, 0.01)), 0, 0.25);
+S.send = () => {
+  const b = sweepNoise(0.42, 350, 3800, 2.2, 21, (t, k) => Math.pow(Math.sin(Math.PI * k), 1.5));
+  return mixInto(b, env(osc(0.12, (t) => 500 + 1400 * t * 8), adsr(0.002, 0.05)), 0.3, 0.5);
+};
+S.blip = () => mixInto(env(osc(0.14, 1240), adsr(0.002, 0.04)), env(osc(0.14, 2480), adsr(0.002, 0.025)), 0, 0.3);
+S.ding = () => {
+  const b = buf(0.9);
+  mixInto(b, bellTone(0.9, 1318.5, undefined, 0.3), 0, 0.8);
+  mixInto(b, bellTone(0.8, 1975.5, undefined, 0.35), 0.09, 1);
+  return b;
+};
+S.pop = () => mixInto(env(osc(0.12, (t) => 280 + 700 * Math.exp(-t * 60)), adsr(0.001, 0.035)), click(0.02, 3000, 5, 0.002), 0, 0.6);
+const buzzPulses = (pulses) => {
+  const b = buf(0.3 + pulses[pulses.length - 1]);
+  for (const at of pulses) {
+    const tone = env(biquad(osc(0.24, 168, "sq"), "lp", 900), (t) => Math.min(1, t / 0.01) * Math.min(1, (0.24 - t) / 0.02));
+    const rattle = env(biquad(white(tone.length, 33 + at * 10), "bp", 2200, 3), (t) => 0.4 * (0.5 + 0.5 * Math.sin(t * 2 * Math.PI * 84)));
+    mixInto(b, tone, at, 0.9);
+    mixInto(b, rattle, at, 0.25);
+  }
+  return b;
+};
+S.buzz = () => buzzPulses([0, 0.32]);
+S.buzz1 = () => buzzPulses([0]); // single rattle, over before the next spoken word
+S.punch = () => {
+  const b = buf(0.6);
+  mixInto(b, sweepNoise(0.12, 800, 3500, 1.5, 41, (t, k) => k * k), 0, 0.5); // pre-whoosh
+  mixInto(b, sat(thump(140, 42, 0.45, 0.16), 2.2), 0.1, 1);
+  mixInto(b, env(biquad(white(Math.round(0.05 * SR), 42), "lp", 2200), adsr(0.001, 0.02)), 0.1, 0.6);
+  return b;
+};
+/** low-end only impact: lands under a spoken word without masking it */
+S.punchDry = () => sat(biquad(thump(130, 40, 0.5, 0.17), "lp", 260), 2);
+// freeze & overthinking
+S.freeze = () => {
+  const b = buf(1.4);
+  mixInto(b, bellTone(1.2, 3520, [[1, 1], [1.5, 0.5], [2.76, 0.3]], 0.5), 0, 0.5);
+  mixInto(b, env(osc(1.4, (t) => 62 - 20 * t), adsr(0.004, 0.55)), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(1.2 * SR), 51), "hp", 6000), adsr(0.002, 0.25)), 0, 0.25);
+  return b;
+};
+S.vertigo = () => {
+  const sec = 1.15;
+  const b = buf(sec);
+  for (const [det, a] of [[1, 1], [1.012, 0.8], [2.004, 0.25]]) {
+    mixInto(b, env(osc(sec, (t) => (230 + 520 * Math.pow(t / sec, 1.6)) * det * (1 + 0.012 * Math.sin(t * 2 * Math.PI * (4 + 7 * t)))), (t) => Math.min(1, t / 0.3)), 0, a);
+  }
+  mixInto(b, sweepNoise(sec, 300, 3000, 1.2, 52, (t, k) => k), 0, 0.5);
+  return b;
+};
+S.bloop = () => env(osc(0.16, (t) => 260 + 520 * Math.min(1, t * 12)), (t) => adsr(0.003, 0.05)(t) * 0.9);
+S.cloud = () => sweepNoise(0.55, 250, 4200, 0.9, 61, (t, k) => Math.pow(k, 1.4) * (k < 0.97 ? 1 : (1 - k) / 0.03));
+// page / panels
+S.slam = () => {
+  const b = buf(0.4);
+  mixInto(b, env(biquad(white(Math.round(0.08 * SR), 71), "bp", 1300, 0.9), adsr(0.001, 0.018)), 0, 0.8);
+  mixInto(b, sat(thump(160, 70, 0.35, 0.07), 1.6), 0, 1);
+  return b;
+};
+S.whoosh = () => sweepNoise(0.5, 220, 2400, 1.4, 81, (t, k) => Math.pow(Math.sin(Math.PI * k), 2));
+S.whooshShort = () => sweepNoise(0.3, 300, 2600, 1.4, 82, (t, k) => Math.pow(Math.sin(Math.PI * k), 2));
+S.swish = () => sweepNoise(0.22, 1800, 9000, 1.6, 91, (t, k) => Math.pow(Math.sin(Math.PI * Math.min(1, k * 1.2)), 1.2));
+S.hit = () => {
+  const b = buf(0.35);
+  mixInto(b, sat(thump(180, 80, 0.3, 0.06), 1.4), 0, 1);
+  mixInto(b, click(0.03, 2400, 101, 0.004), 0, 0.5);
+  return b;
+};
+// scenario 1
+S.boom = () => {
+  const b = buf(1.3);
+  mixInto(b, sat(env(osc(1.3, (t) => 34 + 50 * Math.exp(-t * 9)), adsr(0.003, 0.4)), 2.5), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.3 * SR), 111), "lp", 900), adsr(0.001, 0.07)), 0, 0.8);
+  mixInto(b, env(biquad(brown(Math.round(1.2 * SR), 112), "lp", 160), adsr(0.02, 0.4)), 0.05, 0.6);
+  return b;
+};
+S.hiss = () => env(biquad(white(Math.round(1.1 * SR), 121), "hp", 3800), (t) => Math.min(1, t / 0.15) * Math.min(1, (1.1 - t) / 0.3) * (0.75 + 0.25 * Math.sin(t * 2 * Math.PI * 9)));
+// scenario 2
+const tinkles = (sec, count, seed, fLo = 2000, fHi = 7000) => {
+  const r = rng(seed);
+  const b = buf(sec);
+  for (let i = 0; i < count; i++) {
+    const at = Math.pow(r(), 1.8) * sec * 0.75;
+    const f = fLo + r() * (fHi - fLo);
+    mixInto(b, env(osc(0.12, f), adsr(0.0008, 0.02 + r() * 0.05)), at, 0.25 + r() * 0.4);
+  }
+  return b;
+};
+S.shatter = () => {
+  const b = buf(0.7);
+  mixInto(b, click(0.04, 4200, 131, 0.006), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.5 * SR), 132), "hp", 2500), adsr(0.001, 0.09)), 0, 0.6);
+  mixInto(b, tinkles(0.7, 26, 133), 0.01, 0.8);
+  return b;
+};
+S.slap = () => {
+  const b = buf(0.15);
+  mixInto(b, env(biquad(white(Math.round(0.03 * SR), 141), "bp", 1100, 0.8), adsr(0.0005, 0.008)), 0, 1);
+  mixInto(b, thump(260, 140, 0.1, 0.03), 0, 0.6);
+  return b;
+};
+S.bigShatter = () => {
+  const b = buf(1.3);
+  mixInto(b, sat(thump(120, 50, 0.6, 0.18), 1.8), 0, 0.9);
+  mixInto(b, click(0.06, 3600, 151, 0.01), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.9 * SR), 152), "hp", 1800), adsr(0.001, 0.2)), 0, 0.55);
+  mixInto(b, tinkles(1.2, 60, 153, 1500, 8000), 0.02, 0.9);
+  mixInto(b, sweepNoise(0.6, 2500, 300, 1.2, 154), 0.05, 0.4);
+  return b;
+};
+// scenario 3
+S.rumble = () => {
+  const sec = 1.4;
+  return env(biquad(brown(Math.round(sec * SR), 161), "lp", 140), (t) => Math.min(1, t / 0.4) * Math.min(1, (sec - t) / 0.4) * (0.7 + 0.3 * Math.sin(t * 2 * Math.PI * 3.3)));
+};
+S.crack = () => {
+  const b = buf(0.45);
+  for (const [at, f] of [[0, 900], [0.045, 1400], [0.08, 700]]) {
+    mixInto(b, env(biquad(white(Math.round(0.2 * SR), 171 + at * 1000), "bp", f, 6), adsr(0.0004, 0.05)), at, 1);
+    mixInto(b, click(0.02, 5000, 175 + at * 100, 0.002), at, 0.6);
+  }
+  mixInto(b, thump(110, 55, 0.4, 0.1), 0, 0.5);
+  return b;
+};
+S.tamat = () => {
+  const sec = 2.4;
+  const b = buf(sec);
+  mixInto(b, sat(env(osc(sec, (t) => 28 + 70 * Math.exp(-t * 7)), adsr(0.003, 0.7)), 3), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.4 * SR), 181), "lp", 1200), adsr(0.001, 0.1)), 0, 0.8);
+  // crash cymbal: inharmonic metallic partials + bright noise
+  const crash = env(biquad(white(Math.round(sec * SR), 182), "hp", 4500), adsr(0.002, 0.7));
+  for (const f of [3210, 4377, 5150, 6020, 7433]) mixInto(crash, env(osc(sec, f), adsr(0.002, 0.5)), 0, 0.06);
+  mixInto(b, crash, 0.005, 0.5);
+  return b;
+};
+S.splat = () => {
+  const b = buf(0.5);
+  mixInto(b, env(biquad(white(Math.round(0.25 * SR), 191), "lp", 1400), adsr(0.002, 0.05)), 0, 0.7);
+  mixInto(b, env(osc(0.3, (t) => 90 + 260 * Math.exp(-t * 25)), adsr(0.002, 0.08)), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.3 * SR), 192), "bp", 600, 4), adsr(0.01, 0.06)), 0.05, 0.4);
+  return b;
+};
+S.scratch = () => {
+  const sec = 0.36;
+  const n = Math.round(sec * SR);
+  // record scratch: band-passed noise whose centre swings fast (vinyl back-and-forth)
+  return env(biquad(white(n, 201), "bp", (i) => 900 + 1700 * Math.abs(Math.sin((i / SR) * 2 * Math.PI * 4.2)), 4), (t) => Math.min(1, t / 0.01) * (t < 0.3 ? 1 : (sec - t) / 0.06));
+};
+// reality
+S.room = () => {
+  const sec = 4.0;
+  const b = env(biquad(brown(Math.round(sec * SR), 211), "lp", 900), (t) => Math.min(1, t / 0.6));
+  return mixInto(b, env(biquad(white(Math.round(sec * SR), 212), "bp", 1800, 0.6), () => 0.05), 0, 1);
+};
+S.tick = () => mixInto(env(biquad(white(Math.round(0.06 * SR), 221), "bp", 3000, 1.4), adsr(0.0008, 0.012)), thump(700, 400, 0.05, 0.012), 0, 0.4);
+S.blow = () => env(biquad(white(Math.round(0.6 * SR), 231), "bp", (i) => 900 + 300 * Math.sin(i / SR * 9), 1.1), (t) => bell(t, 0.6) * 0.9);
+S.clink = () => bellTone(0.6, 2240, [[1, 1], [1.53, 0.6], [2.31, 0.35], [3.1, 0.2]], 0.18);
+S.nom = () => {
+  const b = buf(0.22);
+  mixInto(b, env(osc(0.22, (t) => 190 - 80 * t * 4), adsr(0.004, 0.06)), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.1 * SR), 241), "bp", 700, 2), adsr(0.002, 0.03)), 0, 0.6);
+  return b;
+};
+S.chew = () => {
+  const b = buf(0.72);
+  for (let k = 0; k < 4; k++) {
+    mixInto(b, env(biquad(white(Math.round(0.08 * SR), 251 + k), "lp", 900), adsr(0.004, 0.025)), k * 0.19, 0.8 - k * 0.1);
+    mixInto(b, env(osc(0.08, 150 + k * 8), adsr(0.004, 0.03)), k * 0.19, 0.6);
+  }
+  return b;
+};
+S.sparkle = () => {
+  const b = buf(0.8);
+  [2637, 3136, 3951].forEach((f, i) => mixInto(b, bellTone(0.5, f, [[1, 1], [2.0, 0.3]], 0.15), i * 0.07, 0.7));
+  return b;
+};
+S.stamp = () => {
+  const b = buf(0.6);
+  mixInto(b, click(0.02, 4500, 261, 0.002), 0, 0.7); // shutter
+  mixInto(b, click(0.02, 3800, 262, 0.002), 0.045, 0.5);
+  mixInto(b, sat(thump(120, 60, 0.4, 0.09), 1.8), 0.05, 1);
+  mixInto(b, env(biquad(white(Math.round(0.12 * SR), 263), "bp", 1500, 0.8), adsr(0.001, 0.025)), 0.05, 0.6);
+  return b;
+};
+
+// ── extra kit for script variety ───────────────────────────────────────────────────────────────
+S.ring = () => {
+  const b = buf(1.2);
+  for (let k = 0; k < 6; k++) mixInto(b, env(osc(0.09, (t) => (k % 2 ? 1760 : 1480) * (1 + 0.02 * Math.sin(t * 2 * Math.PI * 30))), adsr(0.002, 0.05)), k * 0.1 + (k > 2 ? 0.3 : 0), 0.8);
+  return b;
+};
+S.kaching = () => {
+  const b = buf(1.0);
+  mixInto(b, click(0.04, 3000, 301, 0.01), 0, 0.8);
+  mixInto(b, thump(220, 120, 0.15, 0.04), 0, 0.5);
+  mixInto(b, bellTone(0.9, 2093, [[1, 1], [2.4, 0.4], [3.9, 0.2]], 0.35), 0.08, 0.8);
+  mixInto(b, bellTone(0.8, 2637, [[1, 1], [2.4, 0.3]], 0.3), 0.14, 0.6);
+  return b;
+};
+S.coins = () => {
+  const r = rng(311);
+  const b = buf(1.0);
+  for (let i = 0; i < 14; i++) mixInto(b, bellTone(0.25, 2400 + r() * 2600, [[1, 1], [2.7, 0.3]], 0.05), Math.pow(r(), 1.3) * 0.7, 0.4 + r() * 0.4);
+  return b;
+};
+S.page = () => sweepNoise(0.28, 900, 5200, 0.8, 321, (t, k) => Math.pow(Math.sin(Math.PI * k), 0.8) * (1 - 0.6 * k));
+S.boing = () => env(osc(0.6, (t) => 180 + 140 * Math.sin(t * 2 * Math.PI * 9) * Math.exp(-t * 5) + 120 * t), adsr(0.004, 0.25));
+S.gulp = () => {
+  const b = buf(0.3);
+  mixInto(b, env(osc(0.25, (t) => 420 - 260 * Math.min(1, t * 6)), adsr(0.004, 0.06)), 0, 1);
+  mixInto(b, env(biquad(white(Math.round(0.08 * SR), 331), "bp", 500, 3), adsr(0.002, 0.02)), 0.02, 0.5);
+  return b;
+};
+S.heartbeat = () => {
+  const b = buf(1.1);
+  for (const at of [0, 0.22, 0.6, 0.82]) mixInto(b, sat(thump(70, 40, 0.25, 0.07), 1.5), at, at % 0.6 ? 0.7 : 1);
+  return b;
+};
+S.sadTrombone = () => {
+  const b = buf(2.0);
+  [[392, 0.0, 0.32], [370, 0.36, 0.32], [349, 0.72, 0.32], [330, 1.08, 0.85]].forEach(([fq, at, len], i) => {
+    const tone = env(biquad(osc(len, (t) => fq * (1 + (i === 3 ? 0.03 * Math.sin(t * 2 * Math.PI * 6) : 0)), "sq"), "lp", 1100, 1.2), (t) => Math.min(1, t / 0.03) * Math.min(1, (len - t) / 0.08));
+    mixInto(b, tone, at, 0.8);
+  });
+  return b;
+};
+
+const force = process.argv.includes("--force");
+let made = 0;
+for (const [name, make] of Object.entries(S)) {
+  if (!force && fs.existsSync(path.join(OUT, `pv-${name}.wav`))) continue;
+  writeWav(name, make());
+  made++;
+}
+console.log(`sfx kit: ${made} built, ${Object.keys(S).length} total → ${OUT}`);
+
+==== 12702 scripts/qa.mjs
+// Automated QA of a rendered video. Writes out/<id>/qa/{qa.json, contact_1fps_001.jpg …, shots_start_mid_end.jpg}
+// (the 1-fps contact sheet covers the whole video in pages of 96 seconds, each tile stamped with its second)
+// and prints PASS/FAIL per check. The contact sheets are for the visual review that follows.
+//   node scripts/qa.mjs <video.mp4> --vo=public/audio/x.mp3 --offset=0.4 --expect=49.8 [--shots=out/<id>/shots.json] [--final]
+//                       [--size=1080x1920] [--from=12]   (--from: the video is a section starting at that film second)
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const video = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const final = args.includes("--final");
+if (!video || !fs.existsSync(video)) { console.error("usage: node scripts/qa.mjs <video.mp4> --vo=… --offset=… --expect=… [--shots=…] [--final]"); process.exit(1); }
+const run = (c, a) => spawnSync(c, a, { encoding: "utf8", maxBuffer: 1 << 30 });
+const qaDir = path.join(path.dirname(video), "qa");
+fs.mkdirSync(qaDir, { recursive: true });
+const checks = [];
+const check = (name, ok, detail) => { checks.push({ name, ok, detail }); console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}: ${detail}`); };
+
+// streams
+const probe = JSON.parse(run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", video]).stdout);
+const v = probe.streams.find((s) => s.codec_type === "video"), a = probe.streams.find((s) => s.codec_type === "audio");
+const dur = Number(probe.format.duration), expect = Number(opt("expect", dur));
+const [fn, fd] = v.r_frame_rate.split("/").map(Number);
+const fps = fn / fd;
+const [sw, shh] = opt("size", "1080x1920").split("x").map(Number);
+const portraitV = shh > sw;
+// previews are half size; finals must be the exact delivery size at 60 fps
+const sizeOk = final ? v.width === sw && v.height === shh && Math.abs(fps - 60) < 0.01 : Math.abs(v.width / v.height - sw / shh) < 0.01;
+check("video stream", v.codec_name === "h264" && sizeOk, `${v.codec_name} ${v.width}×${v.height} @ ${fps} fps${final ? ` (final must be ${sw}×${shh} @ 60)` : ` (${portraitV ? "portrait" : "landscape"} aspect)`}`);
+check("audio stream", !!a && a.codec_name === "aac", a ? `${a.codec_name} ${a.sample_rate} Hz, ${Number(a.duration ?? dur).toFixed(2)} s` : "missing");
+check("duration", Math.abs(dur - expect) < 0.12, `${dur.toFixed(2)} s (expected ${expect.toFixed(2)} s)`);
+if (a) check("audio length = video length", Math.abs(Number(a.duration ?? dur) - dur) < 0.15, `${Number(a.duration ?? dur).toFixed(2)} vs ${dur.toFixed(2)} s`);
+
+// frame scan: white / black / sudden flashes
+const ylog = path.join(qaDir, "yavg.txt");
+run("ffmpeg", ["-v", "error", "-i", video, "-vf", `scale=192:108,signalstats,metadata=mode=print:file=${ylog}`, "-f", "null", "-"]);
+const ytxt = fs.readFileSync(ylog, "utf8");
+const y = (ytxt.match(/YAVG=[\d.]+/g) ?? []).map((s) => Number(s.slice(5)));
+// 90th percentile luma per frame (video range: black is 16) — a frame whose p90 stays ≤ 24 is practically black
+const y90 = (ytxt.match(/YHIGH=[\d.]+/g) ?? []).map((s) => Number(s.slice(6)));
+// black: the opening fade, scene fades and the end card may be dark on purpose — only long runs fail
+const white = y.filter((x) => x > 225).length;
+// blown highlights: share of the picture burnt to white (a lamp in close-up, bloom) — the mean luma misses it
+const hlog = path.join(qaDir, "hot.txt");
+// the middle of the frame (a bright sky at the top is not a lamp in the lens); video range: white is 235
+run("ffmpeg", ["-v", "error", "-i", video, "-vf", `crop=iw*0.7:ih*0.6:iw*0.15:ih*0.2,scale=160:120,lutyuv=y='if(gt(val,222),255,0)',signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:file=${hlog}`, "-f", "null", "-"]);
+const hot = (fs.readFileSync(hlog, "utf8").match(/YAVG=[\d.]+/g) ?? []).map((s) => Number(s.slice(5)) / 255);
+let hr = 0, hotLongest = 0, hotAt = -1;
+hot.forEach((x, i) => { hr = x > 0.12 ? hr + 1 : 0; if (hr > hotLongest) { hotLongest = hr; hotAt = (i - hr + 1) / fps; } });
+let run0 = 0, longest = 0;
+y.slice(Math.round(fps * 0.9), y.length - Math.round(fps * 1.2)).forEach((x) => { run0 = x < 7 ? run0 + 1 : 0; longest = Math.max(longest, run0); });
+const black = longest > fps * 0.7 ? longest : 0;
+check("no white frames", white === 0, `${white} frames with mean luma > 225`);
+check("no blown-out highlights", hotLongest < fps * 0.5, hotLongest ? `${(hotLongest / fps).toFixed(1)} s with > 12 % of the middle of the picture burnt white (from ${(hotAt + Number(opt("from", 0))).toFixed(1)} s) — a lamp / bloom too close` : "none");
+check("no black gaps (outside fades)", black === 0, `longest near-black run ${(longest / fps).toFixed(2)} s (fails above 0.7 s)`);
+// frozen picture (a stuck render shows as identical frames)
+const fz = run("ffmpeg", ["-v", "info", "-i", video, "-vf", "scale=320:180,freezedetect=n=0.0006:d=2.5", "-an", "-f", "null", "-"]).stderr;
+const freezes = [...fz.matchAll(/freeze_start: ([\d.]+)/g)].map((m) => Number(m[1])).filter((t) => t > 1 && t < dur - 6);
+check("no frozen picture", freezes.length === 0, freezes.length ? `frozen from ${freezes.map((t) => t.toFixed(1)).join(", ")} s` : "none (≥ 2.5 s)");
+// loudness (final delivery is mastered to −14 LUFS, true peak ≤ −1 dBTP)
+if (a) {
+  const lu = run("ffmpeg", ["-v", "info", "-nostats", "-i", video, "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"]).stderr;
+  const I = Number((lu.match(/I:\s+(-?[\d.]+) LUFS/g) ?? []).pop()?.match(/-?[\d.]+/)?.[0]);
+  const TP = Number((lu.match(/Peak:\s+(-?[\d.]+) dBFS/g) ?? []).pop()?.match(/-?[\d.]+/)?.[0]);
+  check("loudness", !final || (Math.abs(I + 14) < 1.2 && TP <= -0.8), `${I.toFixed(1)} LUFS integrated, true peak ${TP.toFixed(1)} dBTP${final ? " (target −14 LUFS, ≤ −1 dBTP)" : ""}`);
+}
+const jumps = [];
+for (let i = 1; i < y.length; i++) if (Math.abs(y[i] - y[i - 1]) > 45) jumps.push(+(i / fps).toFixed(2));
+console.log(`  info  luma ${Math.min(...y).toFixed(0)}–${Math.max(...y).toFixed(0)}, big jumps (cuts) at ${jumps.join(", ") || "none"}`);
+
+// VO sync: cross-correlate the film's audio with the VO around the expected offset
+const voFile = opt("vo"), off0 = Number(opt("offset", 0)), section = opt("from") !== "";
+// a section that starts after the VO has begun: compare with the VO from that point (expected lag 0)
+const voSkip = Math.max(0, -off0), off = Math.max(0, off0);
+if (voFile && fs.existsSync(voFile)) {
+  const SR = 8000;
+  const raw = (f, ss = 0) => { const r = spawnSync("ffmpeg", ["-v", "error", ...(ss ? ["-ss", ss.toFixed(3)] : []), "-i", f, "-f", "f32le", "-ac", "1", "-ar", String(SR), "-"], { maxBuffer: 1 << 30 }); return new Float32Array(r.stdout.buffer, r.stdout.byteOffset, Math.floor(r.stdout.length / 4)); };
+  const film = raw(video), vo = raw(voFile, voSkip);
+  let best = -1, lag = 0;
+  for (let L = Math.round((off - 0.25) * SR); L <= Math.round((off + 0.25) * SR); L++) {
+    if (L < 0) continue;
+    let s = 0, e1 = 0, e2 = 0;
+    for (let i = 0; i < vo.length && i + L < film.length; i += 3) { const p = vo[i], q = film[i + L]; s += p * q; e1 += p * p; e2 += q * q; }
+    const c = s / Math.sqrt(e1 * e2 + 1e-12);
+    if (c > best) { best = c; lag = L; }
+  }
+  const err = lag / SR - off;
+  check("VO sync", Math.abs(err) < 0.03 && best > 0.6, `VO found at ${(lag / SR).toFixed(3)} s (expected ${off.toFixed(3)}, error ${(err * 1000).toFixed(0)} ms, correlation ${best.toFixed(2)})`);
+  const voEnd = off + vo.length / SR;
+  if (!section) check("VO not cut", voEnd <= dur + 0.02, `VO ends at ${voEnd.toFixed(2)} s, video ${dur.toFixed(2)} s`);
+}
+
+// contact sheets (portrait: tall tiles): one tile per second for the WHOLE video, 96 per page
+// (contact_1fps_001.jpg, _002.jpg …), every tile stamped with its film second so nothing can be skipped unseen
+const tw = portraitV ? 180 : 320, thh = portraitV ? 320 : 180;
+const grid = portraitV ? [12, 8] : [8, 12], perPage = grid[0] * grid[1];
+for (const f of fs.readdirSync(qaDir)) if (/^contact_1fps(_\d+)?\.jpg$/.test(f)) fs.rmSync(path.join(qaDir, f));
+// a second stamp on each tile when this ffmpeg has drawtext (not every build does); the page ranges are always listed
+const hasDrawtext = /drawtext/.test(run("ffmpeg", ["-hide_banner", "-filters"]).stdout ?? "");
+const fontFile = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf"].find((f) => fs.existsSync(f));
+const t0s = Number(opt("from", 0));
+const stamp = hasDrawtext && fontFile ? `,drawtext=fontfile='${fontFile}':text='%{eif\\:t+${t0s}\\:d}s':x=6:y=6:fontsize=${portraitV ? 22 : 20}:fontcolor=yellow:box=1:boxcolor=black@0.6` : "";
+const sheetArgs = (sync) => ["-v", "error", "-y", "-i", video, "-vf", `fps=1,scale=${tw}:${thh}${stamp},tile=${grid[0]}x${grid[1]}`, ...sync, "-start_number", "1", path.join(qaDir, "contact_1fps_%03d.jpg")];
+// one output image per full (or last, partial) page: -fps_mode on ffmpeg ≥ 5.1, -vsync on older builds
+if (run("ffmpeg", sheetArgs(["-fps_mode", "passthrough"])).status !== 0) run("ffmpeg", sheetArgs(["-vsync", "0"]));
+const pages = fs.readdirSync(qaDir).filter((f) => /^contact_1fps_\d+\.jpg$/.test(f)).sort();
+const needPages = Math.max(1, Math.ceil(Math.floor(dur) / perPage));
+const pageRanges = pages.map((f, i) => ({ file: f, from: Math.round(t0s + i * perPage), to: Math.round(t0s + Math.min(dur, (i + 1) * perPage)) }));
+check("contact sheet covers the whole video", pages.length >= needPages, `${pages.length} page(s) of ${perPage} s for ${dur.toFixed(1)} s: ${pageRanges.map((p) => `${p.file} ${p.from}–${p.to} s`).join(", ")}${stamp ? "" : " (tiles not stamped: this ffmpeg has no drawtext — tiles run left→right, top→bottom, one per second)"}`);
+const shotsFile = opt("shots");
+const from = Number(opt("from", 0));
+if (shotsFile && fs.existsSync(shotsFile)) {
+  const { shots: all } = JSON.parse(fs.readFileSync(shotsFile, "utf8"));
+  // shots of this video (a section: only those inside it, in video time)
+  const shots = all.map((s) => ({ ...s, t0: Math.max(0, s.t0 - from), t1: Math.min(dur, s.t1 - from) })).filter((s) => s.t1 - s.t0 > 0.2);
+  // phone readability: the middle of every shot must not sink into black (night ≠ unreadable)
+  const dark = shots.filter((s) => { const i = Math.round(((s.t0 + s.t1) / 2) * fps); return y[i] !== undefined && y[i] < 22 && !(s.t0 < 1); });
+  // a shot that is practically black for its whole length shows nothing on a phone (darkness needs a sliver of light)
+  const black = shots.filter((s) => { if (s.t1 - s.t0 < 1.4 || s.t0 < 1 || s.t1 > dur - 1) return false; const a = Math.round((s.t0 + 0.3) * fps), b = Math.round((s.t1 - 0.3) * fps); const seg = y.slice(a, b); return seg.length && Math.max(...y90.slice(a, b)) <= 24; });
+  check("readable on a phone (not too dark)", dark.length <= Math.max(1, Math.floor(shots.length * 0.15)) && black.length === 0, `${dark.length}/${shots.length} shots with mid-frame mean luma < 22${dark.length ? ` (at ${dark.map((s) => (s.t0 + from).toFixed(1)).join(", ")} s)` : ""}${black.length ? ` · ${black.length} practically black shot(s) at ${black.map((s) => (s.t0 + from).toFixed(1)).join(", ")} s` : ""}`);
+  const tmp = path.join(qaDir, "tmp");
+  fs.mkdirSync(tmp, { recursive: true });
+  let n = 0;
+  for (const s of shots) for (const f of [0.12, 0.5, 0.88]) {
+    const t = Math.min(dur - 0.05, s.t0 + (s.t1 - s.t0) * f);
+    run("ffmpeg", ["-v", "error", "-y", "-ss", t.toFixed(3), "-i", video, "-frames:v", "1", "-vf", `scale=${tw}:${thh}`, path.join(tmp, `f${String(n++).padStart(3, "0")}.png`)]);
+  }
+  const cols = portraitV ? 9 : 6;
+  run("ffmpeg", ["-v", "error", "-y", "-pattern_type", "glob", "-i", path.join(tmp, "f*.png"), "-vf", `tile=${cols}x${Math.ceil(n / cols)}`, "-frames:v", "1", path.join(qaDir, "shots_start_mid_end.jpg")]);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  console.log(`  info  ${shots.length} shots sampled at start/middle/end → ${path.join(qaDir, "shots_start_mid_end.jpg")}`);
+}
+fs.writeFileSync(path.join(qaDir, "qa.json"), JSON.stringify({ video, duration: dur, fps, checks, cutsAt: jumps, contactSheets: pages, contactPages: pageRanges }, null, 1));
+const failed = checks.filter((c) => !c.ok);
+console.log(failed.length ? `\nQA: ${failed.length} check(s) FAILED — fix before delivering` : `\nQA: all ${checks.length} automated checks passed — now review ${qaDir}/*.jpg`);
+process.exit(failed.length ? 3 : 0);
+
+==== 6401 scripts/transcribe.mjs
+// Word timings for a voice-over → JSON [[word, start, end], …] (VO seconds).
+//   node scripts/transcribe.mjs <vo.mp3> --out=stories/<id>/words.json [--script=script.txt] [--lang=id]
+//   node scripts/transcribe.mjs <any/path/vo.mp3> --id=<id> [--script=…]   copies the VO to public/audio/<id>.<ext>
+//                                                                          and writes stories/<id>/words.json
+//
+// 1. whisper.cpp when available (WHISPER_CLI + WHISPER_MODEL, or `whisper-cli` on PATH with a model in
+//    ~/.cache/whisper.cpp or ./models) — real word timings.
+// 2. otherwise, with the script text: the VO's speech segments (silence detection) are matched to the
+//    script's sentences and words are spread by length inside each segment — close enough for beats
+//    and captions, not exact per word.
+// Without whisper and without a script there is nothing to align: the script text must be provided.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+const id = opt("id");
+if (id && !/^[a-z0-9-]+$/.test(id)) { console.error(`--id "${id}" must use only a-z, 0-9 and "-"`); process.exit(1); }
+const out = opt("out") || (id ? `stories/${id}/words.json` : "");
+if (file && fs.existsSync(file) && id) {
+  const dst = path.join("public", "audio", `${id}${path.extname(file).toLowerCase() || ".mp3"}`);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  if (path.resolve(dst) !== path.resolve(file)) fs.copyFileSync(file, dst);
+  console.log(`vo: ${dst}  →  story.json "vo": { "file": "${path.relative("public", dst)}", "offset": 0.4 }`);
+}
+if (!file || !fs.existsSync(file) || !out) {
+  console.error("usage: node scripts/transcribe.mjs <vo.mp3> (--id=<id> | --out=stories/<id>/words.json) [--script=script.txt] [--lang=id]");
+  process.exit(1);
+}
+const run = (cmd, a) => spawnSync(cmd, a, { encoding: "utf8", maxBuffer: 1 << 28 });
+const duration = Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).stdout.trim());
+
+const findWhisper = () => {
+  const home = os.homedir();
+  const cands = [process.env.WHISPER_CLI, run("sh", ["-c", "command -v whisper-cli"]).stdout.trim(), "/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"].filter(Boolean);
+  const cli = cands.find((c) => fs.existsSync(c));
+  const modelDirs = [path.join(home, ".cache/whisper.cpp"), path.resolve("models"), "/opt/homebrew/share/whisper-cpp"];
+  let model = process.env.WHISPER_MODEL && fs.existsSync(process.env.WHISPER_MODEL) ? process.env.WHISPER_MODEL : null;
+  if (!model) for (const d of modelDirs) { if (!fs.existsSync(d)) continue; const m = fs.readdirSync(d).filter((f) => f.endsWith(".bin")).sort((a, b) => (b.includes("large") ? 1 : 0) - (a.includes("large") ? 1 : 0))[0]; if (m) { model = path.join(d, m); break; } }
+  return cli && model ? { cli, model } : null;
+};
+
+let words = null, method = "";
+const W = findWhisper();
+if (W) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cf-vo-"));
+  const wav = path.join(tmp, "vo16k.wav");
+  run("ffmpeg", ["-v", "error", "-y", "-i", file, "-ar", "16000", "-ac", "1", wav]);
+  run(W.cli, ["-m", W.model, "-f", wav, "-l", opt("lang", "id"), "-ml", "1", "-sow", "-ojf", "-of", path.join(tmp, "w")]);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(tmp, "w.json"), "utf8"));
+    words = j.transcription.map((s) => [s.text.trim(), s.offsets.from / 1000, s.offsets.to / 1000]).filter((w) => w[0]);
+    method = `whisper.cpp (${path.basename(W.model)})`;
+  } catch { words = null; }
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+if (!words) {
+  const scriptFile = opt("script");
+  if (!scriptFile || !fs.existsSync(scriptFile)) {
+    console.error("No whisper.cpp found and no --script given. Provide the narration text (e.g. --script=stories/<id>/script.txt) or install whisper.cpp (see the skill's references/setup.md).");
+    process.exit(2);
+  }
+  const text = fs.readFileSync(scriptFile, "utf8").replace(/\s+/g, " ").trim();
+  // speech segments from silence detection
+  const log = run("ffmpeg", ["-v", "info", "-i", file, "-af", "silencedetect=n=-38dB:d=0.18", "-f", "null", "-"]).stderr;
+  const st = [...log.matchAll(/silence_start: ([\d.]+)/g)].map((m) => Number(m[1]));
+  const en = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((m) => Number(m[1]));
+  const segs = [];
+  let cur = 0;
+  st.forEach((s, i) => { if (s - cur > 0.12) segs.push([cur, s]); cur = en[i] ?? duration; });
+  if (duration - cur > 0.12) segs.push([cur, duration]);
+  const toks = text.split(" ").filter(Boolean);
+  // sentences / clauses = groups ending in punctuation; map groups to segments by cumulative length
+  const total = toks.reduce((s, w) => s + w.length + 1, 0);
+  const speech = segs.reduce((s, [a, b]) => s + (b - a), 0);
+  // speech-time position for a fraction of the text, then into real time through the segments
+  const toTime = (frac) => {
+    let need = frac * speech;
+    for (const [a, b] of segs) { if (need <= b - a) return a + need; need -= b - a; }
+    return segs.length ? segs[segs.length - 1][1] : duration;
+  };
+  // snap clause ends to the nearest segment end when one is close
+  let acc = 0;
+  words = toks.map((w) => {
+    const a = acc / total;
+    acc += w.length + 1;
+    const b = (acc - 1) / total;
+    let t0 = toTime(a), t1 = toTime(b);
+    if (/[.,?!;:]$/.test(w)) { const near = segs.map((s) => s[1]).reduce((best, e) => (Math.abs(e - t1) < Math.abs(best - t1) ? e : best), t1); if (Math.abs(near - t1) < 0.6) t1 = near; }
+    return [w, +t0.toFixed(2), +Math.max(t0 + 0.08, t1).toFixed(2)];
+  });
+  // keep times monotonic
+  for (let i = 1; i < words.length; i++) if (words[i][1] < words[i - 1][2]) words[i][1] = words[i - 1][2];
+  method = `script aligned to ${segs.length} speech segments (approximate word timing)`;
+}
+
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, JSON.stringify(words.map(([w, a, b]) => [w, +a.toFixed(2), +b.toFixed(2)])));
+console.log(`words: ${out} — ${words.length} words, ${duration.toFixed(2)} s, via ${method}`);
+console.log(words.map(([w, a]) => `${a.toFixed(2)} ${w}`).join("  "));
+
+==== 2032 scripts/tts.mjs
+// Offline narration with the operating system's voice (only with the user's approval — it is a
+// stand-in for a real voice-over). macOS: `say` (Indonesian voice "Damayanti"). Writes an MP3 and,
+// because the text is known, the word timings too.
+//   node scripts/tts.mjs <script.txt> <public/audio/<id>.mp3> --words=stories/<id>/words.json [--voice=Damayanti] [--rate=170]
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const [scriptFile, outMp3] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const opt = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d ?? ""}`).split("=").slice(1).join("=");
+if (!scriptFile || !outMp3) {
+  console.error("usage: node scripts/tts.mjs <script.txt> <out.mp3> --words=stories/<id>/words.json [--voice=Damayanti] [--rate=170]");
+  process.exit(1);
+}
+if (process.platform !== "darwin") {
+  console.error("Built-in TTS is only wired for macOS (`say`). On other systems record or generate the voice-over elsewhere and use scripts/transcribe.mjs.");
+  process.exit(2);
+}
+const voice = opt("voice", "Damayanti"), rate = opt("rate", "170");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cf-tts-"));
+const aiff = path.join(tmp, "vo.aiff");
+const r = spawnSync("say", ["-v", voice, "-r", rate, "-o", aiff, "-f", scriptFile], { encoding: "utf8" });
+if (r.status !== 0) { console.error(r.stderr || `say failed (voice "${voice}" installed?)`); process.exit(3); }
+fs.mkdirSync(path.dirname(outMp3), { recursive: true });
+spawnSync("ffmpeg", ["-v", "error", "-y", "-i", aiff, "-af", "apad=pad_dur=0.2", "-ar", "44100", "-ac", "1", "-b:a", "160k", outMp3]);
+fs.rmSync(tmp, { recursive: true, force: true });
+console.log(`tts: ${outMp3} (${voice}, rate ${rate})`);
+const words = opt("words");
+if (words) {
+  const t = spawnSync("node", [path.join("scripts", "transcribe.mjs"), outMp3, `--out=${words}`, `--script=${scriptFile}`], { stdio: "inherit" });
+  process.exit(t.status ?? 0);
+}
+
+==== 10694 src/kits/panelverse/catalog/Catalog.tsx
+import React, { useLayoutEffect, useRef } from "react";
+import { AbsoluteFill, useCurrentFrame } from "remotion";
+import { Box3, Group, Vector3 } from "three";
+import { ComicStage } from "../engine/three/ComicStage.tsx";
+import { ComicCharacter } from "../engine/three/ComicCharacter.tsx";
+import { LOOKS } from "../engine/three/looks.ts";
+import { EXPR, STAND } from "../engine/three/rig.ts";
+import { LIB } from "../engine/three/library.tsx";
+import { SetRenderer } from "../engine/three/sets.tsx";
+import { SET_PRESETS } from "../engine/three/setPresets.ts";
+import type { SetSpec, StageLook } from "../engine/three/setTypes.ts";
+import { LAYOUTS, type Quad } from "../engine/panels/geometry.ts";
+import { LivingPanel } from "../engine/panels/LivingPanel.tsx";
+import { CaptionBox, ImpactTypography, InkBurst, ShockLines, SfxText, SpeedLines, Stamp } from "../engine/fx/ComicFx.tsx";
+import { PaperTexture } from "../engine/fx/PaperTexture.tsx";
+import { FontGate } from "../engine/FontGate.tsx";
+import { FONT_IMPACT, FONT_LETTER } from "../theme/fonts.ts";
+import { BLUE, INK, PAPER } from "../theme/palette.ts";
+
+// Element catalog: one still per page, so a director (or a buyer) can SEE what exists before writing
+// a story. `node scripts/stills.mjs out/catalog 0,1,2,… PanelverseCatalog` → contact sheet.
+
+const ORTHO = { pos: [0, 0, 120] as [number, number, number], target: [0, 0, 0] as [number, number, number], fov: (2 * Math.atan(8 / 120) * 180) / Math.PI, roll: 0 };
+const PX = 120; // px per world unit with ORTHO
+const wx = (px: number) => (px - 540) / PX;
+const wy = (py: number) => (960 - py) / PX;
+
+/** scales + centres its children to fit a cube of `size` world units */
+const Fit: React.FC<{ size: number; children: React.ReactNode }> = ({ size, children }) => {
+  const outer = useRef<Group>(null);
+  const inner = useRef<Group>(null);
+  useLayoutEffect(() => {
+    if (!outer.current || !inner.current) return;
+    inner.current.position.set(0, 0, 0);
+    outer.current.scale.setScalar(1);
+    outer.current.updateMatrixWorld(true);
+    const b = new Box3().setFromObject(inner.current);
+    const s = b.getSize(new Vector3()), c = b.getCenter(new Vector3());
+    const k = size / Math.max(s.x, s.y, s.z * 0.6, 1e-3);
+    inner.current.position.set(-c.x, -c.y, -c.z);
+    outer.current.scale.setScalar(k);
+  });
+  return (
+    <group ref={outer}>
+      <group ref={inner}>{children}</group>
+    </group>
+  );
+};
+
+const Title: React.FC<{ text: string; sub?: string }> = ({ text, sub }) => (
+  <div style={{ position: "absolute", left: 40, top: 40, right: 40, fontFamily: `"${FONT_IMPACT}"`, fontSize: 70, color: INK, letterSpacing: 3 }}>
+    {text}
+    {sub ? <div style={{ fontFamily: `"${FONT_LETTER}"`, fontWeight: 700, fontSize: 30 }}>{sub}</div> : null}
+  </div>
+);
+const Label: React.FC<{ x: number; y: number; text: string; w?: number }> = ({ x, y, text, w = 340 }) => (
+  <div style={{ position: "absolute", left: x - w / 2, top: y, width: w, textAlign: "center", fontFamily: `"${FONT_LETTER}"`, fontWeight: 700, fontSize: 30, color: INK, background: "rgba(246,232,200,0.85)" }}>{text}</div>
+);
+
+const ITEMS = () => Object.keys(LIB);
+const PER = 12;
+const itemPages = () => Math.ceil(ITEMS().length / PER);
+const SETS = Object.keys(SET_PRESETS);
+const STAGES: StageLook[] = ["burst", "spotlight", "split", "tunnel", "paper", "dots", "cliff", "void"];
+const LAYOUT_NAMES = Object.keys(LAYOUTS) as (keyof typeof LAYOUTS)[];
+const EXPRS = Object.keys(EXPR) as (keyof typeof EXPR)[];
+// page plan
+export const CATALOG_PAGES = 8 + 1 + 2 + SETS.length + 2 + 1 + 1; // items (≤8 pages) + looks + expressions + sets + stages + layouts + fx
+
+const ItemsPage: React.FC<{ page: number }> = ({ page }) => {
+  const names = ITEMS().slice(page * PER, page * PER + PER);
+  return (
+    <>
+      <ComicStage width={1080} height={1920} frame={0} cam={ORTHO} bg={PAPER} ink={1}>
+        {names.map((n, i) => {
+          const cx = 180 + (i % 3) * 360, cy = 300 + Math.floor(i / 3) * 420;
+          return (
+            <group key={n} position={[wx(cx), wy(cy), 0]} rotation={[0.3, -0.55, 0]}>
+              <Fit size={2.3}>{LIB[n].render({ f: 0, t: 10 })}</Fit>
+            </group>
+          );
+        })}
+      </ComicStage>
+      <Title text={`ITEMS ${page + 1}/${itemPages()}`} sub="set items / item props — type name below" />
+      {names.map((n, i) => (
+        <Label key={n} x={180 + (i % 3) * 360} y={300 + Math.floor(i / 3) * 420 + 150} text={n} />
+      ))}
+    </>
+  );
+};
+
+const LooksPage: React.FC = () => {
+  const names = Object.keys(LOOKS) as (keyof typeof LOOKS)[];
+  return (
+    <>
+      <ComicStage width={1080} height={1920} frame={0} cam={ORTHO} bg={PAPER} ink={1}>
+        {names.map((n, i) => {
+          const cx = 135 + (i % 4) * 270, cy = 470 + Math.floor(i / 4) * 540;
+          return (
+            <group key={n} position={[wx(cx), wy(cy) - 1.5, 0]} rotation={[0.12, 0.35, 0]} scale={1.15}>
+              <ComicCharacter look={LOOKS[n]} pose={STAND} expr={{ ...EXPR.calm, blink: false }} shadow={false} />
+            </group>
+          );
+        })}
+      </ComicStage>
+      <Title text="CAST LOOKS" sub="LOOKS.<name> or look({...}) — hair, outfit, colours, build" />
+      {names.map((n, i) => (
+        <Label key={n} x={135 + (i % 4) * 270} y={470 + Math.floor(i / 4) * 540 + 200} text={n} w={250} />
+      ))}
+    </>
+  );
+};
+
+const ExprPage: React.FC<{ page: number }> = ({ page }) => {
+  const names = EXPRS.slice(page * 12, page * 12 + 12);
+  return (
+    <>
+      <ComicStage width={1080} height={1920} frame={0} cam={ORTHO} bg={PAPER} ink={1} light={[-0.35, 0.55, 0.9]}>
+        {names.map((n, i) => {
+          const cx = 180 + (i % 3) * 360, cy = 330 + Math.floor(i / 3) * 420;
+          const look = i % 2 ? LOOKS.sari : LOOKS.raka;
+          return (
+            <group key={n} position={[wx(cx), wy(cy) - 2.25 * 2.5, 0]} scale={2.5} rotation={[0.05, 0.35, 0]}>
+              <ComicCharacter look={look} pose={STAND} expr={{ ...EXPR[n], blink: false }} shadow={false} bust />
+            </group>
+          );
+        })}
+      </ComicStage>
+      <Title text={`EXPRESSIONS ${page + 1}/2`} sub="EXPR.<name> (mix any fields: browIn, eyeSize, mouth, tears…)" />
+      {names.map((n, i) => (
+        <Label key={n} x={180 + (i % 3) * 360} y={330 + Math.floor(i / 3) * 420 + 165} text={n} />
+      ))}
+    </>
+  );
+};
+
+const SetPage: React.FC<{ name: string }> = ({ name }) => {
+  const set = SET_PRESETS[name];
+  const ext = set.kind === "exterior";
+  return (
+    <>
+      <ComicStage width={1080} height={1920} frame={30} cam={{ pos: [0, ext ? 2.6 : 2.3, ext ? 10 : 8.4], target: [0, 1.5, -1], fov: 44, roll: 0 }} bg={ext ? "#7FC3EA" : PAPER} ink={1}>
+        <SetRenderer set={set} f={30} />
+        <ComicCharacter look={LOOKS.raka} pose={{ ...STAND, pos: [-0.6, 0, 1.2], rotY: 0.4 }} expr={EXPR.calm} />
+      </ComicStage>
+      <Title text={`SET: ${name}`} sub="SET_PRESETS.<name> — remix colours / items per story" />
+    </>
+  );
+};
+
+const StagePage: React.FC<{ page: number }> = ({ page }) => {
+  const looks = STAGES.slice(page * 4, page * 4 + 4);
+  const quads = LAYOUTS.grid4();
+  return (
+    <>
+      {looks.map((l, i) => {
+        const set: SetSpec = { kind: "stage", look: l, a: i % 2 ? "navy" : "red", b: "yellow", gap: 1.2 };
+        return (
+          <LivingPanel key={l} geom={{ pts: quads[i] as Quad, move: [0, 0], rot: 0, scale: 1, border: 8, iris: 0 }}>
+            <ComicStage width={1080} height={1920} frame={20} cam={{ pos: [0, 2.4, 15], target: [0, 1.6, 0], fov: 40, roll: 0 }} bg={BLUE} ink={1}>
+              <SetRenderer set={set} f={20} />
+              <ComicCharacter look={LOOKS.dinda} pose={{ ...STAND, pos: [l === "cliff" ? 1.1 : 0, 0, 0] }} expr={EXPR.calm} />
+            </ComicStage>
+          </LivingPanel>
+        );
+      })}
+      <Title text={`STAGE LOOKS ${page + 1}/2`} sub="set { kind: 'stage', look, a, b } — abstract comic spaces" />
+      {looks.map((l, i) => (
+        <Label key={l} x={i % 2 ? 790 : 290} y={i < 2 ? 820 : 1500} text={l} />
+      ))}
+    </>
+  );
+};
+
+const LayoutsPage: React.FC = () => (
+  <>
+    <Title text="PANEL LAYOUTS" sub="LAYOUTS.<name>() → quads for panel(…)" />
+    <svg width="1080" height="1920" style={{ position: "absolute", left: 0, top: 0 }}>
+      {LAYOUT_NAMES.map((n, i) => {
+        const ox = 40 + (i % 4) * 255, oy = 230 + Math.floor(i / 4) * 560, k = 0.2;
+        return (
+          <g key={n} transform={`translate(${ox} ${oy}) scale(${k})`}>
+            <rect x={0} y={0} width={1080} height={1920} fill="#fff7e6" stroke={INK} strokeWidth={8} />
+            {(LAYOUTS[n] as () => Quad[])().map((q, j) => (
+              <path key={j} d={`M${q.map((p) => p.join(",")).join("L")}Z`} fill={["#F5CC27", "#EF4035", "#2674B9", "#1B927C"][j % 4]} stroke={INK} strokeWidth={14} opacity={0.9} />
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+    {LAYOUT_NAMES.map((n, i) => (
+      <Label key={n} x={40 + (i % 4) * 255 + 108} y={230 + Math.floor(i / 4) * 560 + 392} text={n} w={230} />
+    ))}
+  </>
+);
+
+const FxPage: React.FC = () => (
+  <>
+    <SpeedLines f={20} from={0} to={100} opacity={0.35} />
+    <InkBurst f={20} at={0} dur={100} x={540} y={520} r={330} />
+    <ImpactTypography f={30} at={0} to={100} text="IMPACT!" x={540} y={520} size={150} />
+    <CaptionBox f={40} at={0} to={100} text="CAPTION..." x={60} y={210} size={70} />
+    <SfxText f={20} at={0} to={100} text="KRING!" x={300} y={980} size={140} />
+    <Stamp f={20} at={0} to={100} text="LUNAS" x={760} y={1000} size={100} />
+    <ShockLines f={20} from={0} to={100} x={540} y={1450} r={130} />
+    <div style={{ position: "absolute", left: 470, top: 1380, width: 140, height: 140, borderRadius: 70, background: "#F5CC27", border: `8px solid ${INK}` }} />
+    <Label x={540} y={1640} text="fx: impact · caption · burst · speed · sfxText · stamp · shock · flood · flash · impactFrame · halftoneWipe" w={1000} />
+  </>
+);
+
+export const Catalog: React.FC = () => {
+  const p = useCurrentFrame();
+  let page: React.ReactNode = null;
+  const ip = itemPages();
+  if (p < 8) page = p < ip ? <ItemsPage page={p} /> : <Title text="(no more items)" />;
+  else if (p === 8) page = <LooksPage />;
+  else if (p < 11) page = <ExprPage page={p - 9} />;
+  else if (p < 11 + SETS.length) page = <SetPage name={SETS[p - 11]} />;
+  else if (p < 13 + SETS.length) page = <StagePage page={p - 11 - SETS.length} />;
+  else if (p === 13 + SETS.length) page = <LayoutsPage />;
+  else page = <FxPage />;
+  return (
+    <AbsoluteFill style={{ background: PAPER }}>
+      <FontGate>{page}</FontGate>
+      <PaperTexture />
+    </AbsoluteFill>
+  );
+};
+
+==== 18459 src/kits/panelverse/director/kit.ts
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// PANELVERSE authoring kit — everything a story file needs, as plain TypeScript data + helpers.
+//   import { … } from "../../kits/panelverse/director/kit.ts";
+// Pure module (no React / no DOM): pv-make loads stories in Node to lint them and build the sound mix.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+import type { V3 } from "../engine/types.ts";
+import type { CamKey, CamState } from "../engine/camera.ts";
+import type { EaseName, Key } from "../engine/keyframes.ts";
+import { FULL, centerOf, type PanelKey, type Pt, type Quad } from "../engine/panels/geometry.ts";
+import { INK, PAPER, RED, YELLOW } from "../theme/palette.ts";
+import type { Ducking, FxCue, PanelCue, SegmentType, SfxCue, StoryDef } from "./types.ts";
+
+export * from "./types.ts";
+export { LAYOUTS, FULL, PANEL0, centerOf, boundsOf, shardsOf, type Quad, type Pt, type PanelKey } from "../engine/panels/geometry.ts";
+export { EXPR, STAND, NEUTRAL, type Pose, type Expr, type PoseKey, type ExprKey } from "../engine/three/rig.ts";
+export { LOOKS, look, type Look } from "../engine/three/looks.ts";
+export { SET_PRESETS } from "../engine/three/setPresets.ts";
+export type { SetSpec, ItemSpec } from "../engine/three/setTypes.ts";
+export { EASES, type Key, type EaseName } from "../engine/keyframes.ts";
+export { SW, INK, PAPER, YELLOW, RED, BLUE, TEAL } from "../theme/palette.ts";
+export type { V3 } from "../engine/types.ts";
+
+export const FPS = 60;
+export const S = (sec: number) => Math.round(sec * FPS);
+export const CENTER: Pt = [540, 960];
+
+// ── word clock: anchor every event to the spoken words ────────────────────────────────────────
+export type Word = readonly [string, number, number, ...unknown[]];
+const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+export type Clock = ReturnType<typeof clock>;
+/**
+ * `const W = clock(WORDS, { offset: 0.3 })` →
+ *   W.at("oke") / W.at("dia", 2)  frame where the word (its 2nd occurrence) starts
+ *   W.end("tamat")                frame where it ends
+ *   W.s(2.5)                      frame of a VO second · W.voEnd frame where the VO ends
+ */
+export const clock = (words: readonly Word[], opt: { offset?: number } = {}) => {
+  const offset = opt.offset ?? 0;
+  const list = words.map(([w, a, b], i) => ({ i, w, n: norm(w), a: a + offset, b: b + offset }));
+  const find = (word: string, nth = 1) => {
+    const n = norm(word);
+    let hits = list.filter((x) => x.n === n);
+    if (!hits.length) hits = list.filter((x) => x.n.startsWith(n) || (n.length > 3 && n.startsWith(x.n)));
+    const hit = hits[nth - 1];
+    if (!hit) {
+      const near = list.filter((x) => x.n.slice(0, 2) === n.slice(0, 2)).map((x) => x.w);
+      throw new Error(`word "${word}"${nth > 1 ? ` (#${nth})` : ""} not in the VO transcript${near.length ? ` — did you mean: ${[...new Set(near)].join(", ")}` : ""}`);
+    }
+    return hit;
+  };
+  return {
+    words: list,
+    offset,
+    at: (word: string, nth = 1) => Math.round(find(word, nth).a * FPS),
+    end: (word: string, nth = 1) => Math.round(find(word, nth).b * FPS),
+    s: (sec: number) => Math.round((sec + offset) * FPS),
+    voEnd: Math.round(((list[list.length - 1]?.b ?? 0) + 0) * FPS),
+    /** speech spans (frames) merged across short pauses — drives SFX ducking */
+    spans: (mergeGap = 6): [number, number][] => {
+      const out: [number, number][] = [];
+      for (const x of list) {
+        const s0 = Math.floor(x.a * FPS), e0 = Math.ceil(x.b * FPS);
+        const last = out[out.length - 1];
+        if (last && s0 - last[1] <= mergeGap) last[1] = Math.max(last[1], e0);
+        else out.push([s0, e0]);
+      }
+      return out;
+    },
+  };
+};
+
+// ── cameras ─────────────────────────────────────────────────────────────────────────────────────
+const unit = (v: V3): V3 => {
+  const l = Math.hypot(...v) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
+/** Camera along `dir` from `target`, at the distance where `worldH` units fill `frac` of the canvas height. */
+export const frameCam = (target: V3, dir: V3, worldH: number, frac: number, fov: number, roll = 0): CamState => {
+  const d = worldH / frac / (2 * Math.tan((fov * Math.PI) / 360));
+  const u = unit(dir);
+  return { pos: [target[0] + u[0] * d, target[1] + u[1] * d, target[2] + u[2] * d], target, fov, roll };
+};
+export const camKey = (f: number, c: CamState, ease?: EaseName): CamKey => ({ f, v: c, ease });
+/** Dolly zoom (vertigo): the fov changes while distance compensates so the subject keeps its size. */
+export const dollyKeys = (f0: number, f1: number, target: V3, dir: V3, dist0: number, fov0: number, fov1: number, roll = 0, steps = 8): CamKey[] => {
+  const k = dist0 * Math.tan((fov0 * Math.PI) / 360);
+  const u = unit(dir);
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const t = i / steps;
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const fov = fov0 + (fov1 - fov0) * e;
+    const d = k / Math.tan((fov * Math.PI) / 360);
+    return { f: Math.round(f0 + (f1 - f0) * t), v: { pos: [target[0] + u[0] * d, target[1] + u[1] * d, target[2] + u[2] * d] as V3, target, fov, roll }, ease: "linear" as EaseName };
+  });
+};
+/** Orbit around a target (arc move) from angle a0 to a1 (radians, around Y), at height h and distance d. */
+export const orbitKeys = (f0: number, f1: number, target: V3, d: number, h: number, a0: number, a1: number, fov = 34, steps = 6): CamKey[] =>
+  Array.from({ length: steps + 1 }, (_, i) => {
+    const t = i / steps;
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const a = a0 + (a1 - a0) * e;
+    return { f: Math.round(f0 + (f1 - f0) * t), v: { pos: [target[0] + Math.sin(a) * d, target[1] + h, target[2] + Math.cos(a) * d] as V3, target, fov, roll: 0 }, ease: "linear" as EaseName };
+  });
+/** Alternating small offsets (typing, trembling, fist shake…) as keyframes. */
+export const jitterKeys = <T extends Record<string, unknown>>(f0: number, f1: number, every: number, make: (i: number) => T): Key<T>[] => {
+  const out: Key<T>[] = [];
+  for (let f = f0, i = 0; f <= f1; f += every, i++) out.push({ f, v: make(i), ease: "inOut" });
+  return out;
+};
+
+// ── panels: build a panel's life from transition segments ─────────────────────────────────────
+export type Seg = { keys: PanelKey[]; moves: { type: SegmentType; at: number }[]; contentCenter?: Pt; shatter?: PanelCue["shatter"] };
+const offscreen = (dir: "left" | "right" | "top" | "bottom"): Pt => (dir === "left" ? [-1200, 0] : dir === "right" ? [1200, 0] : dir === "top" ? [0, -2000] : [0, 2000]);
+const WIDE: Quad = [[-260, -40], [1340, -40], [1340, 1960], [-260, 1960]];
+export const enter = {
+  /** appears instantly */
+  cut: (at: number, quad: Quad, border = 8): Seg => ({ keys: [{ f: at, v: { pts: quad, border, scale: 1, rot: 0, move: [0, 0], iris: 0 } }], moves: [{ type: "cut", at }] }),
+  /** slams onto the page (zoom-in overshoot, or flying in from a side) */
+  slam: (at: number, quad: Quad, from: "zoom" | "left" | "right" | "top" | "bottom" = "zoom", dur = 10, border = 9): Seg => {
+    const m: Pt = from === "zoom" ? [0, -50] : [offscreen(from)[0] * 0.08, offscreen(from)[1] * 0.04];
+    return {
+      keys: [
+        { f: at, v: { pts: quad, border, scale: from === "zoom" ? 1.4 : 1.12, rot: (from === "left" ? -7 : 7), move: m, iris: 0 } },
+        { f: at + dur, v: { scale: 1, rot: 0, move: [0, 0] }, ease: "outBackBig" },
+      ],
+      moves: [{ type: "slam", at: at + Math.round(dur * 0.35) }],
+    };
+  },
+  /** slides in from off-screen */
+  slide: (at: number, quad: Quad, from: "left" | "right" | "top" | "bottom" = "right", dur = 14, border = 9): Seg => ({
+    keys: [
+      { f: at, v: { pts: quad, border, scale: 1, rot: from === "left" ? -4 : 4, move: offscreen(from), iris: 0 } },
+      { f: at + dur, v: { move: [0, 0], rot: 0 }, ease: "expoOut" },
+    ],
+    moves: [{ type: "slide", at }],
+  }),
+  /** opens as a circle from its centre (iris in) */
+  iris: (at: number, quad: Quad, dur = 16, r = 1250, border = 10): Seg => ({
+    keys: [
+      { f: at, v: { pts: quad, border, iris: 1, scale: 1, rot: 0, move: [0, 0] } },
+      { f: at + dur, v: { iris: r }, ease: "inOut" },
+      { f: at + dur + 1, v: { iris: 0 }, ease: "hold" },
+    ],
+    moves: [{ type: "iris", at }],
+  }),
+  /** slashes in diagonally from a side: a half-screen split for `hold` frames, then takes the whole frame */
+  slash: (at: number, from: "left" | "right" = "right", hold = 6, border = 12): Seg => {
+    const s = from === "right" ? 1 : -1;
+    const P = (x0: number, x1: number, sk: number): Quad =>
+      s > 0 ? [[x0, -40], [x1, -40], [x1 - 0, 1960], [x0 - sk, 1960]] : [[1080 - x1, -40], [1080 - x0, -40], [1080 - x0 + sk, 1960], [1080 - x1, 1960]];
+    return {
+      keys: [
+        { f: at, v: { pts: P(1150, 1750, 200), border, scale: 1, rot: 0, move: [0, 0], iris: 0 } },
+        { f: at + 8, v: { pts: P(600, 1340, 220) }, ease: "expoOut" },
+        { f: at + 8 + hold, v: { pts: P(600, 1340, 220) } },
+        { f: at + 15 + hold, v: { pts: WIDE, border: 0 }, ease: "expoOut" },
+      ],
+      moves: [{ type: "slash", at }],
+      contentCenter: [540, 960],
+    };
+  },
+};
+export const move = {
+  /** grows to full screen (or to `to`) — the camera inside should push in at the same time */
+  expand: (at: number, dur = 20, to: Quad = FULL): Seg => ({ keys: [{ f: at, v: {} }, { f: at + dur, v: { pts: to, border: to === FULL ? 0 : 9, rot: 0, scale: 1 }, ease: "inOut" }], moves: [{ type: "expand", at }] }),
+  /** shrinks into a printed panel (freeze frames, endings) */
+  collapse: (at: number, to: Quad, dur = 14, rot = -1, border = 11): Seg => ({ keys: [{ f: at, v: {} }, { f: at + dur, v: { pts: to, border, rot }, ease: "outBack" }], moves: [{ type: "collapse", at }] }),
+  /** falls off the page */
+  fall: (at: number, dur = 22, dir: "down" | "left" | "right" = "down", rot = 14): Seg => ({
+    keys: [{ f: at, v: {} }, { f: at + dur, v: { move: dir === "down" ? [rot * 9, 1500] : dir === "left" ? [-1300, 300] : [1300, 300], rot }, ease: "in" }],
+    moves: [{ type: "fall", at }],
+  }),
+  /** slow living drift of a panel on the page */
+  drift: (at: number, dur: number, m: Pt = [0, -14], rot = 0.8): Seg => ({ keys: [{ f: at, v: {} }, { f: at + dur, v: { move: m, rot }, ease: "inOut" }], moves: [{ type: "drift", at }] }),
+  /** punch the whole panel bigger (zoom) */
+  zoom: (at: number, dur = 10, scale = 1.12): Seg => ({ keys: [{ f: at, v: {} }, { f: at + dur, v: { scale }, ease: "outBack" }], moves: [{ type: "zoom", at }] }),
+  /** closes as a circle (iris out) to radius r (0 = gone) */
+  irisOut: (at: number, dur = 16, r = 0, center?: Pt): Seg => ({ keys: [{ f: at, v: { iris: 1300 } }, { f: at + dur, v: { iris: Math.max(1, r) }, ease: "inOut" }], moves: [{ type: "iris", at }], contentCenter: center }),
+  /** breaks into flying shards (the shot freezes at `at`) */
+  shatter: (at: number, dur = 30, impact: Pt = [560, 980], cuts = [0.06, 0.29, 0.5, 0.77]): Seg => ({ keys: [], moves: [{ type: "shatter", at }], shatter: { at, dur, impact, cuts } }),
+};
+/** Assemble a panel cue from segments: `panel("rage", 349, 507, enter.slam(349, P1), move.expand(428), …)` */
+export const panel = (shot: string, from: number, to: number, ...segs: Seg[]): PanelCue => {
+  const keys = segs.flatMap((s) => s.keys).sort((a, b) => a.f - b.f);
+  return {
+    shot,
+    from,
+    to,
+    geom: keys.length ? keys : [{ f: from, v: { pts: FULL, border: 0 } }],
+    contentCenter: segs.find((s) => s.contentCenter)?.contentCenter,
+    shatter: segs.find((s) => s.shatter)?.shatter,
+    moves: segs.flatMap((s) => s.moves),
+    shadow: true,
+  };
+};
+export { centerOf as panelCenter };
+
+// ── comic FX ──────────────────────────────────────────────────────────────────────────────────
+export const fx = {
+  impact: (at: number, to: number, text: string, o: { x?: number; y?: number; size?: number; rot?: number; fill?: string; font?: "impact" | "title" } = {}): FxCue => ({
+    kind: "impact", at, to, text, x: o.x ?? 540, y: o.y ?? 340, size: o.size ?? 160, rot: o.rot ?? -6, fill: o.fill ?? YELLOW, font: o.font,
+  }),
+  caption: (at: number, to: number, text: string, o: { x?: number; y?: number; size?: number; fill?: string } = {}): FxCue => ({ kind: "caption", at, to, text, x: o.x ?? 64, y: o.y ?? 236, size: o.size ?? 84, fill: o.fill }),
+  burst: (at: number, dur: number, o: { x?: number; y?: number; r?: number; fill?: string; inner?: string; seed?: number } = {}): FxCue => ({ kind: "burst", at, dur, x: o.x ?? 540, y: o.y ?? 900, r: o.r ?? 420, fill: o.fill ?? PAPER, inner: o.inner ?? RED, seed: o.seed }),
+  speed: (from: number, to: number, o: { cx?: number; cy?: number; inner?: number; opacity?: number; color?: string } = {}): FxCue => ({ kind: "speed", from, to, ...o }),
+  flood: (at: number, dur: number, to: number, origins: Pt[] = [[540, 1500], [120, 300], [980, 520]]): FxCue => ({ kind: "flood", at, dur, to, origins }),
+  flash: (at: number, dur = 3, color = PAPER): FxCue => ({ kind: "flash", at, dur, color }),
+  sfxText: (at: number, to: number, text: string, o: { x?: number; y?: number; size?: number; rot?: number; fill?: string } = {}): FxCue => ({ kind: "sfxText", at, to, text, x: o.x ?? 540, y: o.y ?? 600, size: o.size ?? 130, rot: o.rot ?? 8, fill: o.fill ?? RED }),
+  impactFrame: (at: number, dur = 3): FxCue => ({ kind: "impactFrame", at, dur }),
+  stamp: (at: number, to: number, text: string, o: { x?: number; y?: number; size?: number; rot?: number; color?: string } = {}): FxCue => ({ kind: "stamp", at, to, text, x: o.x ?? 540, y: o.y ?? 1180, size: o.size ?? 110, rot: o.rot ?? -12, color: o.color ?? RED }),
+  shock: (from: number, to: number, x: number, y: number, r = 150): FxCue => ({ kind: "shock", from, to, x, y, r }),
+  halftoneWipe: (at: number, dur: number, to: number, o: { color?: string; reverse?: boolean } = {}): FxCue => ({ kind: "halftoneWipe", at, dur, to, color: o.color ?? INK, reverse: o.reverse }),
+};
+
+// ── sound ─────────────────────────────────────────────────────────────────────────────────────
+export const sfx = (name: string, at: number, volume: number, o: { duck?: number; until?: number } = {}): SfxCue => ({ at, src: `sfx/pv-${name}.wav`, volume, ...o });
+const MOVE_SOUND: Partial<Record<SegmentType, [string, number]>> = {
+  slam: ["slam", 0.34], slide: ["whooshShort", 0.3], iris: ["whoosh", 0.3], expand: ["whooshShort", 0.36], collapse: ["whooshShort", 0.28],
+  fall: ["whoosh", 0.22], slash: ["swish", 0.5], shatter: ["bigShatter", 0.55], zoom: ["pop", 0.2], flip: ["tick", 0.25],
+};
+/**
+ * Automatic sound for a story: every transition and comic FX gets its effect (placed on the event
+ * frame), plus the story's own `sfx`. Loud hits should sit in VO pauses — the ducking handles the rest.
+ */
+export const soundsFor = (st: StoryDef): SfxCue[] => {
+  const out: SfxCue[] = [];
+  if (st.autoSfx !== false) {
+    for (const p of st.panels) for (const m of p.moves ?? []) {
+      const s = MOVE_SOUND[m.type];
+      if (s) out.push(sfx(s[0], Math.max(0, m.at), s[1], m.type === "shatter" ? {} : { duck: 0.8 }));
+    }
+    for (const c of st.fx) {
+      if (c.kind === "impact") out.push(sfx("punchDry", c.at + 1, 0.3, { duck: 0.4 }));
+      else if (c.kind === "caption") out.push(sfx("tick", c.at + 2, 0.24));
+      else if (c.kind === "burst") out.push(sfx("boom", c.at, 0.45, { duck: 0.6 }));
+      else if (c.kind === "flood") [0, 0.25, 0.5].forEach((k, i) => out.push(sfx("splat", Math.round(c.at + c.dur * k), 0.45 - i * 0.05, { until: c.to })));
+      else if (c.kind === "sfxText") out.push(sfx("hit", c.at, 0.3, { duck: 0.6 }));
+      else if (c.kind === "impactFrame") out.push(sfx("punch", c.at, 0.34, { duck: 0.6 }));
+      else if (c.kind === "stamp") out.push(sfx("stamp", c.at + 2, 0.45));
+      else if (c.kind === "shock") out.push(sfx("freeze", c.from, 0.3, { duck: 0.8 }));
+      else if (c.kind === "halftoneWipe") out.push(sfx("cloud", c.at, 0.25, { until: c.to }));
+    }
+  }
+  out.push(...(st.sfx ?? []));
+  out.sort((a, b) => a.at - b.at);
+  // the same sound twice within 6 frames reads as a glitch: keep the first
+  return out.filter((c, i) => !out.slice(0, i).some((p) => p.src === c.src && c.at - p.at < 6));
+};
+export const duckGain = (d: Ducking, f: number) => {
+  let g = 1;
+  for (const [s, e] of d.spans) {
+    let k = 0;
+    if (f >= s && f <= e) k = 1;
+    else if (f < s && f > s - d.attack) k = 1 - (s - f) / d.attack;
+    else if (f > e && f < e + d.release) k = 1 - (f - e) / d.release;
+    g = Math.min(g, 1 - (1 - d.level) * k);
+  }
+  return g;
+};
+
+// ── story() — fills defaults so a story file stays short ──────────────────────────────────────
+export const story = (s: Omit<StoryDef, "fps" | "page" | "duck"> & { page?: Partial<StoryDef["page"]>; clock?: Clock; duck?: Ducking }): StoryDef => {
+  const { clock: W, ...rest } = s;
+  return {
+    ...rest,
+    fps: 60,
+    autoSfx: s.autoSfx ?? true,
+    page: { bg: PAPER, cam: [{ f: 0, v: { x: 0, y: 0, scale: 1, rot: 0, tiltX: 0, tiltY: 0 } }], shakes: [], ...s.page },
+    duck: s.duck ?? (W ? { spans: W.spans(), level: 0.3, attack: 4, release: 10 } : undefined),
+  };
+};
+
+==== 11364 src/kits/panelverse/director/lint.ts
+// Story lint: validity + safe-zone + anti-monotony rules, run by scripts/pv-make.mjs before rendering.
+// Pure TS (Node + browser). Errors stop the make; warnings are printed for the director to judge.
+import { samplePanel, boundsOf } from "../engine/panels/geometry.ts";
+import { sampleCam } from "../engine/camera.ts";
+import type { StoryDef } from "./types.ts";
+
+export type LintContext = { voEndFrame: number; items: string[]; props: string[] };
+export type LintResult = { errors: string[]; warnings: string[]; stats: Record<string, string | number> };
+
+const sec = (f: number) => `${(f / 60).toFixed(1)} s`;
+const TEXT_W: Record<string, number> = { impact: 0.46, title: 0.6, sfxText: 0.52, stamp: 0.62, caption: 0.5 };
+
+/** what the viewer sees at frame f, reduced to a layout signature */
+const signature = (st: StoryDef, f: number) => {
+  const vis = st.panels.filter((p) => f >= p.from && f <= (p.shatter ? Math.max(p.to, p.shatter.at + p.shatter.dur) : p.to));
+  if (!vis.length) return "empty";
+  const parts = vis.map((p) => {
+    const g = samplePanel(p.geom, f);
+    const b = boundsOf(g.pts);
+    const area = (Math.min(b.x1, 1080) - Math.max(b.x0, 0)) * (Math.min(b.y1, 1920) - Math.max(b.y0, 0)) * g.scale * g.scale;
+    return area / (1080 * 1920);
+  }).filter((a) => a > 0.02);
+  const full = parts.filter((a) => a > 0.92).length;
+  const small = parts.length - full;
+  if (full && small) return "full+inset";
+  if (full) return "full";
+  return small === 1 ? "page-1" : `page-${Math.min(small, 4)}`;
+};
+
+export const lintStory = (st: StoryDef, ctx: LintContext): LintResult => {
+  const E: string[] = [], W: string[] = [];
+  const D = st.durationInFrames;
+  // ── basics ────────────────────────────────────────────────────────────────────────────────
+  if (!/^[a-z0-9-]+$/.test(st.id)) E.push(`id "${st.id}" must use only a-z, 0-9 and "-"`);
+  if (D < ctx.voEndFrame + 12) E.push(`durationInFrames ${D} (${sec(D)}) ends before / right on the VO end ${sec(ctx.voEndFrame)} — the narration would be cut`);
+  if (D > ctx.voEndFrame + 300) W.push(`${sec(D - ctx.voEndFrame)} after the VO ends — keep the closing hold under ~3 s`);
+  // ── references ───────────────────────────────────────────────────────────────────────────
+  const shotIds = Object.keys(st.shots);
+  const items = new Set([...ctx.items, ...(st.elements ?? [])]);
+  const props = new Set(ctx.props);
+  for (const p of st.panels) {
+    if (!st.shots[p.shot]) E.push(`panel uses unknown shot "${p.shot}" (shots: ${shotIds.join(", ")})`);
+    if (p.to <= p.from) E.push(`panel "${p.shot}" ends (${p.to}) before it starts (${p.from})`);
+    if (!p.geom.length) E.push(`panel "${p.shot}" has no geometry keys`);
+  }
+  for (const id of shotIds) if (!st.panels.some((p) => p.shot === id)) W.push(`shot "${id}" is never shown in a panel`);
+  for (const [id, s] of Object.entries(st.shots)) {
+    if (!s.camera.length) E.push(`shot "${id}" has no camera keys`);
+    for (const it of s.set.items ?? []) if (!items.has(it.type)) E.push(`shot "${id}": set item "${it.type}" is not a library item or a declared story element`);
+    const allProps = [...(s.props ?? []), ...s.actors.flatMap((a) => [...(a.torso ?? []), ...(a.head ?? []), ...(a.heldR ? [a.heldR] : []), ...(a.heldL ? [a.heldL] : [])])];
+    for (const p of allProps) {
+      if (!props.has(p.kind)) E.push(`shot "${id}": prop kind "${p.kind}" does not exist (${[...props].join(", ")})`);
+      if (p.kind === "item") for (const k of p.keys) if (k.v.type && !items.has(String(k.v.type))) E.push(`shot "${id}": item prop "${k.v.type}" is not a library item or declared element`);
+    }
+    for (const a of s.actors) if (!st.cast[a.cast]) E.push(`shot "${id}": actor "${a.cast}" is not in cast (${Object.keys(st.cast).join(", ")})`);
+  }
+  // ── custom elements ("think up elements for THIS script") ────────────────────────────────
+  const used = new Set<string>();
+  for (const s of Object.values(st.shots)) {
+    for (const it of s.set.items ?? []) used.add(it.type);
+    for (const p of [...(s.props ?? []), ...s.actors.flatMap((a) => [...(a.torso ?? []), ...(a.head ?? []), ...(a.heldR ? [a.heldR] : []), ...(a.heldL ? [a.heldL] : [])])])
+      if (p.kind === "item") for (const k of p.keys) if (k.v.type) used.add(String(k.v.type));
+  }
+  if (!st.elements?.length) E.push("no story elements: design at least one element for this script in elements.tsx (registerItems) and list it in story.elements");
+  for (const el of st.elements ?? []) if (!used.has(el)) W.push(`story element "${el}" is declared but never placed`);
+  // ── beat sheet ───────────────────────────────────────────────────────────────────────────
+  const beats = st.beats ?? [];
+  const minBeats = Math.max(3, Math.floor(D / 60 / 3.5));
+  if (beats.length < minBeats) E.push(`beat sheet has ${beats.length} beats — write at least ${minBeats} (one per 2–3.5 s of VO, each with words, idea and device)`);
+  const devices = new Set(beats.map((b) => b.device.toLowerCase()));
+  if (beats.length && devices.size < Math.min(4, beats.length)) E.push(`only ${devices.size} different devices in the beat sheet — vary them (${[...devices].join(", ")})`);
+  for (let i = 1; i < beats.length; i++) if (beats[i].device.toLowerCase() === beats[i - 1].device.toLowerCase()) W.push(`beats ${i} and ${i + 1} use the same device "${beats[i].device}"`);
+  // ── variety: layouts / transitions / fx ──────────────────────────────────────────────────
+  const sigTime: Record<string, number> = {};
+  let empty = 0, emptyRun = 0;
+  for (let f = 0; f < D; f += 6) {
+    const s = signature(st, f);
+    sigTime[s] = (sigTime[s] ?? 0) + 6;
+    if (s === "empty") { emptyRun += 6; empty = Math.max(empty, emptyRun); } else emptyRun = 0;
+  }
+  const layouts = Object.entries(sigTime).filter(([k, t]) => k !== "empty" && t >= 24).map(([k]) => k);
+  if (D > 600 && layouts.length < 3) E.push(`only ${layouts.length} screen layout(s) (${layouts.join(", ")}) — use at least 3 (full-bleed, a 2–4 panel page, an inset, a printed page…)`);
+  if (empty > 30) W.push(`${sec(empty)} with no panel on screen (blank page)`);
+  const moves = st.panels.flatMap((p) => p.moves ?? []).filter((m) => m.type !== "cut" && m.type !== "drift").sort((a, b) => a.at - b.at);
+  const moveTypes = new Set(moves.map((m) => m.type));
+  if (D > 600 && moveTypes.size < 3) E.push(`only ${moveTypes.size} transition type(s) (${[...moveTypes].join(", ")}) — use at least 3 different panel moves`);
+  for (let i = 2; i < moves.length; i++) if (moves[i].type === moves[i - 1].type && moves[i].type === moves[i - 2].type && moves[i].at - moves[i - 2].at > 30) W.push(`three "${moves[i].type}" transitions in a row (${sec(moves[i - 2].at)}–${sec(moves[i].at)})`);
+  const fxKinds = new Set(st.fx.map((c) => c.kind));
+  if (D > 600 && fxKinds.size < 3) W.push(`only ${fxKinds.size} kinds of comic FX — mix lettering, bursts, speed lines, captions, stamps, shock lines…`);
+  // ── lettering ────────────────────────────────────────────────────────────────────────────
+  const texts = st.fx.filter((c) => c.kind === "impact" || c.kind === "sfxText" || c.kind === "stamp" || c.kind === "caption") as Extract<StoryDef["fx"][number], { text: string }>[];
+  const bigText = texts.filter((c) => c.kind !== "caption");
+  if (bigText.length > Math.max(3, Math.ceil(D / 60 / 2.5))) W.push(`${bigText.length} lettering hits in ${sec(D)} — more than one per 2.5 s turns into a slideshow of words`);
+  for (const c of texts) {
+    const words = c.text.trim().split(/\s+/).length;
+    if (words > 3 && c.kind !== "caption") W.push(`"${c.text}" is ${words} words — impact lettering reads best at 1–3 words`);
+    const size = "size" in c && c.size ? c.size : 84;
+    const k = c.kind === "impact" && "font" in c && c.font === "title" ? TEXT_W.title : TEXT_W[c.kind] ?? 0.55;
+    const w = c.text.length * size * k + (c.kind === "caption" ? 80 : 0);
+    const x0 = c.kind === "caption" ? c.x : c.x - w / 2, x1 = c.kind === "caption" ? c.x + w : c.x + w / 2;
+    if (x0 < 50 || x1 > 1030) E.push(`"${c.text}" (${c.kind} at ${sec(c.at)}) is ≈${Math.round(w)} px wide and leaves the frame (${Math.round(x0)}–${Math.round(x1)}) — smaller size or shorter text`);
+    else if (x1 > 920 && c.kind !== "caption") W.push(`"${c.text}" reaches x=${Math.round(x1)} — TikTok/Reels buttons sit on the right edge (keep ≤ 920)`);
+    if (c.y < 200 || c.y > 1480) E.push(`"${c.text}" at y=${c.y} is outside the mobile safe zone (200–1480)`);
+  }
+  // ── pacing: long static stretches ────────────────────────────────────────────────────────
+  for (let f0 = 0; f0 + 270 < D; f0 += 30) {
+    const sig = signature(st, f0);
+    if (sig !== "full") continue;
+    const p = st.panels.find((x) => f0 >= x.from && f0 <= x.to && signature(st, f0) === "full");
+    if (!p) continue;
+    const s = st.shots[p.shot];
+    const a = sampleCam(s.camera, f0 - s.start), b = sampleCam(s.camera, f0 + 270 - s.start);
+    const move = Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1], a.pos[2] - b.pos[2]) + Math.abs(a.fov - b.fov) * 0.05;
+    const sameShot = st.panels.filter((x) => x.from <= f0 + 270 && x.to >= f0).length === 1;
+    const fxNear = st.fx.some((c) => ("at" in c ? c.at : c.from) > f0 && ("at" in c ? c.at : c.from) < f0 + 270);
+    if (sameShot && move < 0.05 && !fxNear) { W.push(`static: one full-screen shot with no camera move and no FX for 4.5 s from ${sec(f0)}`); break; }
+  }
+  const shotsShown = new Set(st.panels.map((p) => p.shot)).size;
+  if (shotsShown < Math.min(4, Math.ceil(D / 60 / 4))) W.push(`only ${shotsShown} shots for ${sec(D)} — a new picture every 3–4 s keeps a comic alive`);
+  const setPrints = new Set(Object.values(st.shots).map((s) => JSON.stringify([s.set.kind, s.set.look, s.set.wall, s.set.floor, s.set.time, (s.set.items ?? []).map((i) => i.type).sort()])));
+  if (shotIds.length > 2 && setPrints.size < 2) W.push("every shot uses the same set — change place, stage look or colours between beats");
+  return {
+    errors: E,
+    warnings: W,
+    stats: {
+      duration: sec(D),
+      shots: shotIds.length,
+      panels: st.panels.length,
+      layouts: layouts.join(" · "),
+      transitions: [...moveTypes].join(" · "),
+      fx: [...fxKinds].join(" · "),
+      beats: beats.length,
+      devices: [...devices].join(" · "),
+      elements: (st.elements ?? []).join(" · "),
+      lettering: texts.map((t) => t.text).join(" · "),
+    },
+  };
+};
+
+==== 6548 src/kits/panelverse/director/ShotRenderer.tsx
+import React from "react";
+import { ComicStage, sampleCam } from "../engine/three/ComicStage.tsx";
+import { ComicCharacter } from "../engine/three/ComicCharacter.tsx";
+import { samplePose, sampleExpr } from "../engine/three/rig.ts";
+import { SetRenderer, PlacedItem, setAnchors } from "../engine/three/sets.tsx";
+import { ChatBubble3D, Phone, Sign, type BubbleContent, type PhoneScreen } from "../engine/three/props.tsx";
+import { BaksoBowl, BreakingHeart, BuzzArcs, FloatingHearts, ImpactStar, ShatterBubble, Spoon, SteamPuffs, SteamWisps, ThoughtCloud, ThoughtTrail } from "../engine/three/storyProps.tsx";
+import type { V3 } from "../engine/types.ts";
+import { sample, shake } from "../engine/keyframes.ts";
+import type { Look } from "../engine/three/looks.ts";
+import type { SetSpec } from "../engine/three/setTypes.ts";
+import type { PropSpec, ShotDef } from "./types.ts";
+import type { SwatchKey } from "../theme/palette.ts";
+
+type Params = Record<string, unknown>;
+const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
+const v3 = (v: unknown, d: V3 = [0, 0, 0]): V3 => (Array.isArray(v) ? (v as V3) : d);
+const sc = (v: unknown, d = 1): number | V3 => (Array.isArray(v) ? (v as V3) : n(v, d));
+
+/** Prop kinds usable in shots (`props`, actor `torso` / `head` / `heldR` / `heldL`). */
+export const PROPS: Record<string, (p: Params, f: number) => React.ReactNode> = {
+  /** any library item or story element, animated: { type, pos, rot, scale, sw, sw2, text, on, n } */
+  item: (p, f) => <PlacedItem spec={{ type: String(p.type), pos: v3(p.pos), rot: p.rot as V3 | number | undefined, scale: sc(p.scale), sw: p.sw as SwatchKey, sw2: p.sw2 as SwatchKey, text: p.text as string, sub: p.sub as string, on: Boolean(p.on), n: p.n as number, t: p.t as number }} f={f} />,
+  phone: (p) => <Phone screen={(p.screen as PhoneScreen) ?? { kind: "off" }} case={(p.case as SwatchKey) ?? "red"} position={v3(p.pos)} rotation={v3(p.rot)} scale={n(p.scale, 1)} />,
+  bubble: (p) =>
+    n(p.scale, 1) > 0.001 ? (
+      <ChatBubble3D w={n(p.w, 0.5)} h={n(p.h, 0.3)} tail={(p.tail as "left" | "right" | "none") ?? "left"} fill={p.fill as string | undefined} content={p.content as BubbleContent} position={v3(p.pos)} rotation={v3(p.rot)} scale={n(p.scale, 1)} opacity={n(p.opacity, 1)} />
+    ) : null,
+  shatterBubble: (p) => <ShatterBubble w={n(p.w, 0.5)} h={n(p.h, 0.3)} tail={(p.tail as "left" | "right") ?? "left"} fill={p.fill as string | undefined} content={p.content as BubbleContent} position={v3(p.pos)} rotation={v3(p.rot)} scale={n(p.scale, 1)} t={n(p.t)} />,
+  sign: (p) => (n(p.scale, 1) > 0.001 ? <Sign text={String(p.text ?? "")} sub={p.sub as string} w={n(p.w, 1)} h={n(p.h, 0.4)} sw={(p.sw as SwatchKey) ?? "paper"} font={(p.font as "impact" | "letter") ?? "impact"} position={v3(p.pos)} rotation={v3(p.rot)} scale={n(p.scale, 1)} /> : null),
+  thoughtCloud: (p, f) => <ThoughtCloud position={v3(p.pos)} scale={n(p.scale)} f={f} />,
+  thoughtTrail: (p, f) => <ThoughtTrail from={v3(p.from)} to={v3(p.to)} f={f} at={n(p.at)} />,
+  steam: (p, f) => <SteamPuffs origin={v3(p.pos)} f={f} count={n(p.count, 4)} spread={n(p.spread, 0.35)} size={n(p.size, 0.12) * n(p.amount, 1)} rise={n(p.rise, 0.9)} period={n(p.period, 48)} />,
+  wisps: (p, f) => <SteamWisps origin={v3(p.pos)} f={f} count={n(p.count, 3)} height={n(p.height, 0.12)} />,
+  heart: (p, f) => <BreakingHeart position={v3(p.pos)} scale={n(p.scale, 0.3)} crack={n(p.crack)} split={n(p.split)} f={f} />,
+  bowl: (p, f) => <BaksoBowl position={v3(p.pos)} f={f} balls={n(p.balls, 4)} />,
+  spoon: (p) => (
+    <group position={v3(p.pos)} rotation={v3(p.rot)}>
+      <Spoon withBakso={Boolean(p.bakso)} />
+    </group>
+  ),
+  hearts: (p, f) => <FloatingHearts origin={v3(p.pos)} f={f} at={n(p.at)} />,
+  buzz: (p, f) => <BuzzArcs position={v3(p.pos)} rotation={v3(p.rot)} on={p.on !== false} f={f} />,
+  impactStar: (p) => <ImpactStar position={v3(p.pos)} scale={n(p.scale)} rot={n(p.rot)} />,
+};
+export const PROP_KINDS = Object.keys(PROPS);
+
+const renderProp = (spec: PropSpec, f: number, key: React.Key) => {
+  if (spec.from !== undefined && f < spec.from) return null;
+  if (spec.to !== undefined && f > spec.to) return null;
+  const make = PROPS[spec.kind];
+  if (!make) throw new Error(`PANELVERSE: unknown prop kind "${spec.kind}" (use one of ${PROP_KINDS.join(", ")}, or kind "item" with a registered element)`);
+  return <React.Fragment key={key}>{make(sample<Params>(spec.keys, f), f)}</React.Fragment>;
+};
+
+export const shotLocalFrame = (shot: ShotDef, globalFrame: number) => {
+  const f = Math.max(0, globalFrame - shot.start);
+  return shot.freezeAt !== undefined ? Math.min(f, shot.freezeAt) : f;
+};
+
+/** Renders a ShotDef as a live ComicStage at the given global frame. */
+export const ShotRenderer: React.FC<{ shot: ShotDef; cast: Record<string, Look>; frame: number }> = ({ shot, cast, frame }) => {
+  const f = shotLocalFrame(shot, frame);
+  const cam = sampleCam(shot.camera, f);
+  const sh: V3 = [0, 0, 0];
+  for (const s of shot.shakes ?? []) {
+    sh[0] += shake(f, s.at, s.dur, s.amp, s.seed ?? 1);
+    sh[1] += shake(f, s.at, s.dur, s.amp * 0.8, (s.seed ?? 1) + 7);
+  }
+  const set: SetSpec = shot.setKeys ? { ...shot.set, ...sample<Partial<SetSpec>>(shot.setKeys, f) } : shot.set;
+  const anchors = setAnchors(set);
+  return (
+    <ComicStage width={1080} height={1920} frame={f} cam={cam} shake={sh} bg={shot.bg} light={shot.light} ink={shot.ink ?? 1.15}>
+      <SetRenderer set={set} f={f} />
+      {shot.actors.map((a, i) => {
+        const look = cast[a.cast];
+        if (!look) throw new Error(`PANELVERSE: actor "${a.cast}" is not in story.cast`);
+        const body = (
+          <ComicCharacter
+            key={i}
+            look={look}
+            pose={samplePose(a.pose, f)}
+            expr={sampleExpr(a.expr, f)}
+            shadow={a.shadow ?? true}
+            torsoExtras={a.torso?.map((p, k) => renderProp(p, f, k))}
+            headExtras={a.head?.map((p, k) => renderProp(p, f, k))}
+            heldR={a.heldR ? renderProp(a.heldR, f, "hr") : undefined}
+            heldL={a.heldL ? renderProp(a.heldL, f, "hl") : undefined}
+            holdRotR={a.holdRotR}
+            holdRotL={a.holdRotL}
+          />
+        );
+        const an = a.anchor ? anchors[a.anchor] : undefined;
+        return an ? (
+          <group key={i} position={an.pos} rotation={an.rot}>
+            {body}
+          </group>
+        ) : (
+          body
+        );
+      })}
+      {shot.props?.map((p, i) => renderProp(p, f, i))}
+    </ComicStage>
+  );
+};
+
+==== 5216 src/kits/panelverse/director/StoryPlayer.tsx
+import React from "react";
+import { AbsoluteFill, Audio, staticFile, useCurrentFrame } from "remotion";
+import { ShotRenderer } from "./ShotRenderer.tsx";
+import { LivingPanel, PageCamera, PanelShard } from "../engine/panels/LivingPanel.tsx";
+import { PAGECAM0, centerOf, samplePanel, shardsOf, type PageCam, type Pt } from "../engine/panels/geometry.ts";
+import { CaptionBox, Flash, HalftoneWipe, ImpactFrame, ImpactTypography, InkBurst, InkFlood, ShockLines, SpeedLines, SfxText, Stamp } from "../engine/fx/ComicFx.tsx";
+import { PaperTexture } from "../engine/fx/PaperTexture.tsx";
+import { FontGate } from "../engine/FontGate.tsx";
+import { RenderScaleCtx } from "../engine/three/Toon.tsx";
+import { EASES, clamp, hash, sample, shake } from "../engine/keyframes.ts";
+import type { FxCue, PanelCue, StoryDef } from "./types.ts";
+
+const renderPanel = (story: StoryDef, cue: PanelCue, f: number, key: React.Key) => {
+  const end = cue.shatter ? Math.max(cue.to, cue.shatter.at + cue.shatter.dur) : cue.to;
+  if (f < cue.from || f > end) return null;
+  const shot = story.shots[cue.shot];
+  if (!shot) throw new Error(`PANELVERSE: panel uses unknown shot "${cue.shot}"`);
+  const geom = samplePanel(cue.geom, f);
+  const cc: Pt = cue.contentCenter ?? centerOf(geom.pts);
+  if (cue.shatter && f >= cue.shatter.at) {
+    const t = (f - cue.shatter.at) / cue.shatter.dur;
+    if (t > 1) return null;
+    const k = EASES.in(clamp(t));
+    const sh = cue.shatter;
+    return (
+      <React.Fragment key={key}>
+        {shardsOf(geom.pts, sh.impact, sh.cuts).map((pts, i) => {
+          const c = centerOf(pts);
+          const dx = c[0] - sh.impact[0], dy = c[1] - sh.impact[1];
+          const l = Math.hypot(dx, dy) || 1;
+          const pop = EASES.out(clamp(t * 3)) * 26;
+          return (
+            <PanelShard key={i} pts={pts} contentCenter={cc} move={[(dx / l) * (pop + k * 1100), (dy / l) * (pop + k * 700) + k * k * 900]} rot={hash(i * 3.3 + 1) * 6 * EASES.out(clamp(t * 3)) + hash(i * 1.7) * 55 * k}>
+              <ShotRenderer shot={shot} cast={story.cast} frame={sh.at} />
+            </PanelShard>
+          );
+        })}
+      </React.Fragment>
+    );
+  }
+  return (
+    <LivingPanel key={key} geom={geom} contentCenter={cc} dropShadow={cue.shadow ?? true}>
+      <ShotRenderer shot={shot} cast={story.cast} frame={f} />
+    </LivingPanel>
+  );
+};
+
+const renderFx = (c: FxCue, f: number, key: React.Key) => {
+  switch (c.kind) {
+    case "impact":
+      return <ImpactTypography key={key} f={f} at={c.at} to={c.to} text={c.text} x={c.x} y={c.y} size={c.size} rot={c.rot} fill={c.fill} font={c.font} />;
+    case "caption":
+      return <CaptionBox key={key} f={f} at={c.at} to={c.to} text={c.text} x={c.x} y={c.y} size={c.size} fill={c.fill} />;
+    case "burst":
+      return <InkBurst key={key} f={f} at={c.at} dur={c.dur} x={c.x} y={c.y} r={c.r} fill={c.fill} inner={c.inner} seed={c.seed} spikes={16} />;
+    case "speed":
+      return <SpeedLines key={key} f={f} from={c.from} to={c.to} cx={c.cx} cy={c.cy} inner={c.inner} opacity={c.opacity} color={c.color} />;
+    case "flood":
+      return <InkFlood key={key} f={f} at={c.at} dur={c.dur} to={c.to} origins={c.origins} />;
+    case "flash":
+      return <Flash key={key} f={f} at={c.at} dur={c.dur} color={c.color} />;
+    case "sfxText":
+      return <SfxText key={key} f={f} at={c.at} to={c.to} text={c.text} x={c.x} y={c.y} size={c.size} rot={c.rot} fill={c.fill} />;
+    case "impactFrame":
+      return <ImpactFrame key={key} f={f} at={c.at} dur={c.dur} />;
+    case "stamp":
+      return <Stamp key={key} f={f} at={c.at} to={c.to} text={c.text} x={c.x} y={c.y} size={c.size} rot={c.rot} color={c.color} />;
+    case "shock":
+      return <ShockLines key={key} f={f} from={c.from} to={c.to} x={c.x} y={c.y} r={c.r} />;
+    case "halftoneWipe":
+      return <HalftoneWipe key={key} f={f} at={c.at} dur={c.dur} to={c.to} color={c.color} reverse={c.reverse} />;
+  }
+};
+
+/** Plays any StoryDef. `step` = story frames per composition frame (2 for a 30 fps preview). */
+export const StoryPlayer: React.FC<{ story: StoryDef; step?: number; scale?: number; audio?: string }> = ({ story, step = 1, scale = 1, audio }) => {
+  const f = useCurrentFrame() * step;
+  const cam: PageCam = { ...PAGECAM0, ...sample<Partial<PageCam>>(story.page.cam, f) };
+  let sx = 0, sy = 0;
+  story.page.shakes.forEach((s, i) => {
+    sx += shake(f, s.at, s.dur, s.amp, 20 + i);
+    sy += shake(f, s.at, s.dur, s.amp, 40 + i);
+  });
+  return (
+    <AbsoluteFill style={{ background: story.page.bg, overflow: "hidden" }}>
+      {audio ? <Audio src={staticFile(audio)} /> : null}
+      <RenderScaleCtx.Provider value={scale}>
+        <AbsoluteFill style={{ width: 1080, height: 1920, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
+          <FontGate>
+            <AbsoluteFill style={{ transform: `translate(${sx}px, ${sy}px)` }}>
+              <PageCamera cam={cam}>{story.panels.map((p, i) => renderPanel(story, p, f, i))}</PageCamera>
+              {story.fx.map((c, i) => renderFx(c, f, i))}
+            </AbsoluteFill>
+          </FontGate>
+          <PaperTexture />
+        </AbsoluteFill>
+      </RenderScaleCtx.Provider>
+    </AbsoluteFill>
+  );
+};
+
+==== 4179 src/kits/panelverse/director/types.ts
+// The PANELVERSE story schema (pure types). One file per video: src/pv-stories/<id>/story.ts.
+import type { Key } from "../engine/keyframes.ts";
+import type { V3 } from "../engine/types.ts";
+import type { CamKey } from "../engine/camera.ts";
+import type { PoseKey, ExprKey } from "../engine/three/rig.ts";
+import type { Look } from "../engine/three/looks.ts";
+import type { SetSpec } from "../engine/three/setTypes.ts";
+import type { PageCam, PanelKey, Pt } from "../engine/panels/geometry.ts";
+
+type Params = Record<string, unknown>;
+/** A prop that lives in a shot (bubble, phone, thought cloud, any library item…), keyframed. */
+export type PropSpec = { kind: string; keys: Key<Params>[]; from?: number; to?: number };
+export type ActorSpec = {
+  cast: string; // key into story.cast
+  pose: PoseKey[];
+  expr: ExprKey[];
+  anchor?: string; // parent to a set anchor (cliff halves…)
+  torso?: PropSpec[];
+  head?: PropSpec[];
+  heldR?: PropSpec;
+  heldL?: PropSpec;
+  holdRotR?: V3;
+  holdRotL?: V3;
+  shadow?: boolean;
+};
+export type ShakeSpec = { at: number; dur: number; amp: number; seed?: number };
+export type ShotDef = {
+  start: number; // global frame of shot-local frame 0
+  freezeAt?: number; // shot-local frame where time stops
+  set: SetSpec;
+  setKeys?: Key<Partial<SetSpec>>[]; // animate set fields (wall colour, cliff gap…) in shot frames
+  bg: string;
+  light?: V3;
+  ink?: number;
+  camera: CamKey[]; // shot-local frames
+  shakes?: ShakeSpec[];
+  actors: ActorSpec[];
+  props?: PropSpec[];
+};
+
+export type SegmentType = "cut" | "slam" | "slide" | "iris" | "expand" | "collapse" | "fall" | "slash" | "shatter" | "drift" | "zoom" | "flip";
+export type SfxCue = { at: number; src: string; volume: number; duck?: number; until?: number };
+export type PanelCue = {
+  shot: string;
+  from: number;
+  to: number;
+  geom: PanelKey[];
+  contentCenter?: Pt;
+  shadow?: boolean;
+  shatter?: { at: number; dur: number; impact: Pt; cuts: number[] };
+  /** transition vocabulary used by this panel (for variety lint + automatic sound) */
+  moves?: { type: SegmentType; at: number }[];
+};
+
+export type FxCue =
+  | { kind: "impact"; at: number; to: number; text: string; x: number; y: number; size: number; rot?: number; fill?: string; font?: "impact" | "title" }
+  | { kind: "caption"; at: number; to: number; text: string; x: number; y: number; size?: number; fill?: string }
+  | { kind: "burst"; at: number; dur: number; x: number; y: number; r: number; fill?: string; inner?: string; seed?: number }
+  | { kind: "speed"; from: number; to: number; cx?: number; cy?: number; inner?: number; opacity?: number; color?: string }
+  | { kind: "flood"; at: number; dur: number; to: number; origins: Pt[] }
+  | { kind: "flash"; at: number; dur?: number; color?: string }
+  | { kind: "sfxText"; at: number; to: number; text: string; x: number; y: number; size: number; rot?: number; fill?: string }
+  | { kind: "impactFrame"; at: number; dur?: number }
+  | { kind: "stamp"; at: number; to: number; text: string; x: number; y: number; size?: number; rot?: number; color?: string }
+  | { kind: "shock"; from: number; to: number; x: number; y: number; r?: number }
+  | { kind: "halftoneWipe"; at: number; dur: number; to: number; color?: string; reverse?: boolean };
+
+export type Ducking = { spans: [number, number][]; level: number; attack: number; release: number };
+export type Beat = { at: number; words: string; idea: string; device: string };
+
+export type StoryDef = {
+  id: string;
+  title?: string;
+  fps: 60;
+  durationInFrames: number;
+  vo: { file: string; offset: number }; // public/<file>, seconds of silence before the VO
+  cast: Record<string, Look>;
+  shots: Record<string, ShotDef>;
+  panels: PanelCue[];
+  fx: FxCue[];
+  sfx?: SfxCue[];
+  autoSfx?: boolean; // default true: transitions + FX get their sounds automatically
+  duck?: Ducking;
+  page: { bg: string; cam: Key<Partial<PageCam>>[]; shakes: { at: number; dur: number; amp: number }[] };
+  /** names of the story's own elements registered in elements.tsx */
+  elements?: string[];
+  /** the beat sheet the film was directed from (checked by the lint, kept for revisions) */
+  beats?: Beat[];
+};
+
+==== 513 src/kits/panelverse/engine/camera.ts
+// Camera state + keyframes (pure data; the 3D rig lives in three/ComicStage.tsx).
+import { sample, type Key } from "./keyframes.ts";
+import type { V3 } from "./types.ts";
+
+export type CamState = { pos: V3; target: V3; fov: number; roll: number };
+export type CamKey = Key<Partial<CamState>>;
+export const CAM0: CamState = { pos: [0, 1.6, 6], target: [0, 1.4, 0], fov: 35, roll: 0 };
+export const sampleCam = (keys: readonly CamKey[], f: number): CamState => ({ ...CAM0, ...sample<Partial<CamState>>(keys, f) });
+
+==== 850 src/kits/panelverse/engine/FontGate.tsx
+import React, { useEffect, useState } from "react";
+import { useDelayRender } from "remotion";
+import { ensureFonts } from "../theme/fonts.ts";
+
+/** Holds the render until the bundled comic fonts are ready, then mounts children (3D lettering needs them). */
+export const FontGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { delayRender, continueRender, cancelRender } = useDelayRender();
+  const [handle] = useState(() => delayRender("PANELVERSE comic fonts"));
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    ensureFonts()
+      .then(() => document.fonts.ready)
+      .then(() => setReady(true))
+      .catch((e) => cancelRender(e));
+  }, [cancelRender]);
+  useEffect(() => {
+    if (ready) continueRender(handle);
+  }, [ready, handle, continueRender]);
+  return ready ? <>{children}</> : null;
+};
+
+==== 15890 src/kits/panelverse/engine/fx/ComicFx.tsx
+import React from "react";
+import { AbsoluteFill } from "remotion";
+import { INK, PAPER, RED, YELLOW } from "../../theme/palette.ts";
+import { FONT_IMPACT, FONT_TITLE } from "../../theme/fonts.ts";
+import { EASES, clamp, hash, prog } from "../keyframes.ts";
+
+// ── InkBurst: jagged hand-cut explosion star ─────────────────────────────────────────────────
+export const burstPath = (cx: number, cy: number, r: number, spikes: number, seed: number, jag = 0.38, squash = 1) => {
+  const pts: string[] = [];
+  for (let i = 0; i < spikes * 2; i++) {
+    const a = (i / (spikes * 2)) * Math.PI * 2 + hash(seed + i * 0.37) * 0.08;
+    const outer = i % 2 === 0;
+    const rr = outer ? r * (0.9 + 0.22 * hash(seed + i * 1.7)) : r * (1 - jag) * (0.92 + 0.12 * hash(seed + i * 2.3));
+    pts.push(`${(cx + Math.cos(a) * rr).toFixed(1)},${(cy + Math.sin(a) * rr * squash).toFixed(1)}`);
+  }
+  return `M${pts.join("L")}Z`;
+};
+
+export const InkBurst: React.FC<{
+  f: number;
+  at: number;
+  x: number;
+  y: number;
+  r: number;
+  fill?: string;
+  inner?: string;
+  spikes?: number;
+  seed?: number;
+  dur?: number;
+  rot?: number;
+  boil?: boolean;
+}> = ({ f, at, x, y, r, fill = YELLOW, inner = RED, spikes = 14, seed = 1, dur = 40, rot = 0, boil = true }) => {
+  if (f < at || f > at + dur) return null;
+  const t = f - at;
+  const s = EASES.outBackBig(clamp(t / 9)) * (t > dur - 8 ? (dur - t) / 8 : 1);
+  const sd = boil ? seed + Math.floor(t / 3) * 0.13 : seed; // "boiling" redraw on threes, like hand animation
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <g transform={`translate(${x} ${y}) rotate(${rot + t * 0.4}) scale(${s}) translate(${-x} ${-y})`}>
+          <path d={burstPath(x + 10, y + 12, r, spikes, sd)} fill={INK} />
+          <path d={burstPath(x, y, r, spikes, sd)} fill={fill} stroke={INK} strokeWidth={9} strokeLinejoin="round" />
+          {inner ? <path d={burstPath(x, y, r * 0.62, spikes - 2, sd + 5, 0.3)} fill={inner} stroke={INK} strokeWidth={6} strokeLinejoin="round" /> : null}
+        </g>
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+// ── SpeedLines: radial focus lines, redrawn on threes ─────────────────────────────────────────
+export const SpeedLines: React.FC<{ f: number; from: number; to: number; cx?: number; cy?: number; color?: string; count?: number; inner?: number; opacity?: number }> = ({
+  f,
+  from,
+  to,
+  cx = 540,
+  cy = 960,
+  color = INK,
+  count = 64,
+  inner = 520,
+  opacity = 1,
+}) => {
+  if (f < from || f > to) return null;
+  const fadeIn = prog(f, from, from + 4);
+  const fadeOut = 1 - prog(f, to - 8, to);
+  const step = Math.floor(f / 3);
+  const R = 1500;
+  const paths: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + hash(i * 3.1 + step) * 0.05;
+    const w = 0.008 + 0.014 * (hash(i * 7.7 + step * 1.3) + 1) * 0.5;
+    const r0 = inner * (0.85 + 0.45 * (hash(i * 5.3 + step * 0.7) + 1) * 0.5);
+    const p0 = [cx + Math.cos(a) * r0, cy + Math.sin(a) * r0];
+    const p1 = [cx + Math.cos(a - w) * R, cy + Math.sin(a - w) * R];
+    const p2 = [cx + Math.cos(a + w) * R, cy + Math.sin(a + w) * R];
+    paths.push(`M${p0[0].toFixed(1)},${p0[1].toFixed(1)}L${p1[0].toFixed(1)},${p1[1].toFixed(1)}L${p2[0].toFixed(1)},${p2[1].toFixed(1)}Z`);
+  }
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none", opacity: opacity * fadeIn * fadeOut }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <path d={paths.join("")} fill={color} />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+// ── ImpactTypography: slammed comic lettering with printed 3D drop ───────────────────────────
+export const ImpactTypography: React.FC<{
+  f: number;
+  at: number;
+  to: number;
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  rot?: number;
+  fill?: string;
+  font?: "impact" | "title";
+  depth?: number;
+  slam?: number;
+  exit?: "pop" | "none";
+}> = ({ f, at, to, text, x, y, size, rot = -6, fill = YELLOW, font = "impact", depth = 14, slam = 1.3, exit = "pop" }) => {
+  if (f < at || f > to) return null;
+  const t = f - at;
+  // slam from slightly oversized with an overshoot; kept ≤1.3x so lettering never leaves the frame
+  const inS = slam - (slam - 1) * EASES.outBackBig(clamp(t / 9));
+  const fadeIn = clamp(t / 2.5);
+  const outS = exit === "pop" ? 1 - EASES.inBack(prog(f, to - 7, to)) : 1;
+  const jitter = Math.floor(f / 2);
+  const jx = hash(jitter * 1.3) * 1.6;
+  const jy = hash(jitter * 2.1) * 1.6;
+  const family = font === "title" ? FONT_TITLE : FONT_IMPACT;
+  const shadow = Array.from({ length: depth }, (_, i) => `${i + 1}px ${i + 1}px 0 ${INK}`).join(",");
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        transform: `translate(-50%, -50%) rotate(${rot}deg) skewX(-6deg) scale(${Math.max(0, inS * outS)}) translate(${jx}px, ${jy}px)`,
+        fontFamily: `"${family}"`,
+        fontSize: size,
+        lineHeight: 0.92,
+        letterSpacing: font === "title" ? 2 : 4,
+        color: fill,
+        WebkitTextStroke: `${Math.round(size / 18)}px ${INK}`,
+        paintOrder: "stroke fill",
+        textShadow: shadow,
+        whiteSpace: "pre",
+        textAlign: "center",
+        pointerEvents: "none",
+        opacity: fadeIn,
+      }}
+    >
+      {text}
+    </div>
+  );
+};
+
+// ── CaptionBox: narrator box (yellow, inked, offset print shadow) ─────────────────────────────
+export const CaptionBox: React.FC<{ f: number; at: number; to: number; text: string; x: number; y: number; size?: number; rot?: number; fill?: string }> = ({
+  f,
+  at,
+  to,
+  text,
+  x,
+  y,
+  size = 84,
+  rot = -2,
+  fill = YELLOW,
+}) => {
+  if (f < at || f > to) return null;
+  const pIn = EASES.outBack(prog(f, at, at + 12));
+  const pOut = prog(f, to - 8, to, "in");
+  // letters type on like a letterer's hand
+  const shown = Math.ceil(text.length * prog(f, at + 4, at + 24));
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        transform: `translate(${(1 - pIn) * -120 - pOut * 300}px, 0) rotate(${rot}deg)`,
+        opacity: 1 - pOut,
+        background: fill,
+        border: `8px solid ${INK}`,
+        boxShadow: `14px 14px 0 ${INK}`,
+        padding: "14px 34px 8px",
+        fontFamily: `"${FONT_IMPACT}"`,
+        fontSize: size,
+        letterSpacing: 4,
+        color: INK,
+        whiteSpace: "pre",
+      }}
+    >
+      <span>{text.slice(0, shown)}</span>
+      <span style={{ opacity: 0 }}>{text.slice(shown)}</span>
+    </div>
+  );
+};
+
+// ── Flash: one- or two-frame print flash (paper / ink) ─────────────────────────────────────────
+export const Flash: React.FC<{ f: number; at: number; dur?: number; color?: string }> = ({ f, at, dur = 3, color = PAPER }) =>
+  f >= at && f < at + dur ? <AbsoluteFill style={{ background: color, opacity: 1 - (f - at) / (dur + 1) }} /> : null;
+
+// ── InkFlood: ComicTransition — ink splats bloom from impact points until the page is black ───
+const blob = (cx: number, cy: number, r: number, seed: number, lobes = 11) => {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < lobes; i++) {
+    const a = (i / lobes) * Math.PI * 2;
+    const rr = r * (0.82 + 0.3 * (hash(seed + i * 1.91) + 1) * 0.5);
+    pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+  }
+  let d = "";
+  for (let i = 0; i < lobes; i++) {
+    const p0 = pts[i];
+    const p1 = pts[(i + 1) % lobes];
+    const mx = (p0[0] + p1[0]) / 2;
+    const my = (p0[1] + p1[1]) / 2;
+    if (i === 0) d += `M${mx.toFixed(1)},${my.toFixed(1)}`;
+    const p2 = pts[(i + 2) % lobes];
+    d += `Q${p1[0].toFixed(1)},${p1[1].toFixed(1)} ${((p1[0] + p2[0]) / 2).toFixed(1)},${((p1[1] + p2[1]) / 2).toFixed(1)}`;
+  }
+  return d + "Z";
+};
+
+export const InkFlood: React.FC<{ f: number; at: number; dur: number; to?: number; origins: [number, number][]; color?: string; reverse?: boolean }> = ({
+  f,
+  at,
+  dur,
+  to = 1e9,
+  origins,
+  color = INK,
+  reverse = false,
+}) => {
+  if (f < at || f > to) return null;
+  const p = clamp((f - at) / dur);
+  const k = reverse ? 1 - EASES.inOut(p) : EASES.in(p) * 0.35 + EASES.inOut(p) * 0.65;
+  if (k <= 0.001) return null;
+  const R = 2300 * k;
+  const d: string[] = [];
+  origins.forEach(([x, y], i) => {
+    d.push(blob(x, y, R * (0.55 + 0.2 * i), i * 13.7));
+    // satellite droplets
+    for (let j = 0; j < 7; j++) {
+      const a = hash(i * 31 + j * 7.3) * Math.PI;
+      const dist = R * (0.7 + 0.5 * (hash(i * 11 + j) + 1) * 0.5);
+      d.push(blob(x + Math.cos(a) * dist, y + Math.sin(a) * dist, R * 0.12 * (0.6 + 0.4 * hash(j + i * 3)), i * 5 + j, 7));
+    }
+  });
+  // vertical drips from the top edge
+  for (let j = 0; j < 9; j++) {
+    const x = 60 + j * 120 + hash(j) * 30;
+    const len = R * 0.55 * (0.6 + 0.4 * (hash(j * 4.1) + 1) * 0.5);
+    d.push(`M${x - 26},0 L${x + 26},0 L${x + 18},${len} Q${x},${len + 34} ${x - 18},${len} Z`);
+  }
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <path d={d.join("")} fill={color} />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+// ── Small hand-drawn accents ───────────────────────────────────────────────────────────────────
+export const ShakeMarks: React.FC<{ f: number; from: number; to: number; x: number; y: number; r?: number; color?: string }> = ({ f, from, to, x, y, r = 120, color = INK }) => {
+  if (f < from || f > to) return null;
+  const on = Math.floor(f / 3) % 2 === 0;
+  const arcs = [-1, 1].map((s) => {
+    const a0 = s === -1 ? 150 : -30;
+    const pts = [0, 1].map((k) => {
+      const rr = r + k * 34;
+      const a1 = ((a0 - 22) * Math.PI) / 180;
+      const a2 = ((a0 + 22) * Math.PI) / 180;
+      return `M${x + Math.cos(a1) * rr},${y + Math.sin(a1) * rr} A${rr},${rr} 0 0 1 ${x + Math.cos(a2) * rr},${y + Math.sin(a2) * rr}`;
+    });
+    return pts.join(" ");
+  });
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none", opacity: on ? 1 : 0.55 }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <path d={arcs.join(" ")} stroke={color} strokeWidth={10} strokeLinecap="round" fill="none" />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+// ── Onomatopoeia: hand-lettered sound word (KRING! DUG! BRAK!) — wobbly letters, coloured, inked ──
+export const SfxText: React.FC<{ f: number; at: number; to: number; text: string; x: number; y: number; size: number; rot?: number; fill?: string }> = ({
+  f,
+  at,
+  to,
+  text,
+  x,
+  y,
+  size,
+  rot = 8,
+  fill = RED,
+}) => {
+  if (f < at || f > to) return null;
+  const t = f - at;
+  const s = EASES.outBackBig(clamp(t / 8)) * (1 - EASES.in(prog(f, to - 6, to)));
+  const boil = Math.floor(f / 3);
+  return (
+    <div style={{ position: "absolute", left: x, top: y, transform: `translate(-50%, -50%) rotate(${rot}deg) scale(${s})`, whiteSpace: "pre", pointerEvents: "none" }}>
+      {[...text].map((ch, i) => (
+        <span
+          key={i}
+          style={{
+            display: "inline-block",
+            fontFamily: `"${FONT_IMPACT}"`,
+            fontSize: size * (1 + 0.08 * hash(i * 3.1 + boil)),
+            color: fill,
+            WebkitTextStroke: `${Math.round(size / 14)}px ${INK}`,
+            paintOrder: "stroke fill",
+            textShadow: `6px 6px 0 ${INK}`,
+            transform: `translateY(${hash(i * 7.7 + boil) * size * 0.06}px) rotate(${hash(i * 5.3 + boil * 0.5) * 9}deg)`,
+            letterSpacing: 2,
+          }}
+        >
+          {ch}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// ── Impact frame: 2–3 frames of inverted, high-contrast "negative" print (manga/comic hit) ─────
+export const ImpactFrame: React.FC<{ f: number; at: number; dur?: number }> = ({ f, at, dur = 3 }) =>
+  f >= at && f < at + dur ? <AbsoluteFill style={{ backdropFilter: "invert(1) grayscale(1) contrast(3)", WebkitBackdropFilter: "invert(1) grayscale(1) contrast(3)" }} /> : null;
+
+// ── Rubber stamp: slams in rotated with an ink-bleed border (LUNAS / DITOLAK / GAGAL…) ──────────
+export const Stamp: React.FC<{ f: number; at: number; to: number; text: string; x: number; y: number; size?: number; rot?: number; color?: string }> = ({
+  f,
+  at,
+  to,
+  text,
+  x,
+  y,
+  size = 110,
+  rot = -12,
+  color = RED,
+}) => {
+  if (f < at || f > to) return null;
+  const t = f - at;
+  const s = 1.8 - 0.8 * EASES.out(clamp(t / 5));
+  const o = clamp(t / 3) * (1 - prog(f, to - 6, to));
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        transform: `translate(-50%, -50%) rotate(${rot}deg) scale(${s})`,
+        opacity: o,
+        border: `${Math.round(size / 9)}px solid ${color}`,
+        borderRadius: 14,
+        padding: `${size * 0.08}px ${size * 0.3}px ${size * 0.02}px`,
+        fontFamily: `"${FONT_IMPACT}"`,
+        fontSize: size,
+        letterSpacing: 6,
+        color,
+        mixBlendMode: "multiply",
+        whiteSpace: "pre",
+        boxShadow: `inset 0 0 0 ${Math.round(size / 22)}px ${PAPER}`,
+        pointerEvents: "none",
+      }}
+    >
+      {text}
+    </div>
+  );
+};
+
+// ── Shock lines: short radiating strokes around a head (realisation, panic, "deg!") ────────────
+export const ShockLines: React.FC<{ f: number; from: number; to: number; x: number; y: number; r?: number }> = ({ f, from, to, x, y, r = 150 }) => {
+  if (f < from || f > to) return null;
+  const k = EASES.outBack(clamp((f - from) / 6)) * (1 - prog(f, to - 5, to));
+  const boil = Math.floor(f / 3);
+  const d = Array.from({ length: 12 }, (_, i) => {
+    const a = (i / 12) * Math.PI * 2 + hash(i + boil) * 0.12;
+    const r0 = r * (1 + 0.08 * hash(i * 3 + boil)), r1 = r0 + r * 0.42 * k;
+    return `M${(x + Math.cos(a) * r0).toFixed(1)},${(y + Math.sin(a) * r0).toFixed(1)}L${(x + Math.cos(a) * r1).toFixed(1)},${(y + Math.sin(a) * r1).toFixed(1)}`;
+  }).join("");
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <path d={d} stroke={INK} strokeWidth={11} strokeLinecap="round" fill="none" />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+// ── Halftone wipe: a printed dot screen grows until the frame is solid (or shrinks away) ───────
+export const HalftoneWipe: React.FC<{ f: number; at: number; dur: number; to: number; color?: string; reverse?: boolean }> = ({ f, at, dur, to, color = INK, reverse }) => {
+  if (f < at || f > to) return null;
+  const p = clamp((f - at) / dur);
+  const k = reverse ? 1 - EASES.inOut(p) : EASES.inOut(p);
+  if (k <= 0.001) return null;
+  const cell = 64;
+  const dots: string[] = [];
+  for (let gy = -1; gy < 1920 / cell + 1; gy++) {
+    for (let gx = -1; gx < 1080 / cell + 2; gx++) {
+      const cx = gx * cell + (gy % 2 ? cell / 2 : 0), cy = gy * cell;
+      // dots grow in a diagonal sweep: top-left first
+      const local = clamp(k * 1.6 - ((cx / 1080) * 0.35 + (cy / 1920) * 0.25));
+      const r = local * cell * 0.75;
+      if (r > 0.5) dots.push(`M${cx - r},${cy}a${r},${r} 0 1,0 ${2 * r},0a${r},${r} 0 1,0 ${-2 * r},0`);
+    }
+  }
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <svg width="100%" height="100%" viewBox="0 0 1080 1920">
+        <path d={dots.join("")} fill={color} />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+==== 1396 src/kits/panelverse/engine/fx/PaperTexture.tsx
+import React from "react";
+import { AbsoluteFill } from "remotion";
+
+/**
+ * Vintage newsprint feel over the whole frame: fine fibre grain (multiply) + faint warm tooth.
+ * Static seed → no "boiling" noise; the print sits still like real paper while the art moves.
+ */
+export const PaperTexture: React.FC<{ strength?: number; id?: string }> = ({ strength = 1, id = "paper" }) => (
+  <AbsoluteFill style={{ pointerEvents: "none", mixBlendMode: "multiply", opacity: 0.55 * strength }}>
+    <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+      <filter id={`${id}-grain`} x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="7" result="n" />
+        <feColorMatrix
+          in="n"
+          type="matrix"
+          values="0 0 0 0 0.93  0 0 0 0 0.86  0 0 0 0 0.72  0 0 0 -1.6 1.25"
+        />
+      </filter>
+      <filter id={`${id}-fibre`} x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.06" numOctaves="3" seed="3" result="n" />
+        <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.9  0 0 0 0 0.82  0 0 0 0 0.66  0 0 0 -2.2 1.35" />
+      </filter>
+      <rect width="100%" height="100%" filter={`url(#${id}-grain)`} />
+      <rect width="100%" height="100%" filter={`url(#${id}-fibre)`} opacity={0.5} />
+    </svg>
+  </AbsoluteFill>
+);
+
+==== 4469 src/kits/panelverse/engine/keyframes.ts
+// Deterministic keyframe engine. Every animated value in PANELVERSE is a pure function of a frame
+// number, so any frame renders identically in any tab, in any order.
+
+export type EaseName =
+  | "linear"
+  | "in"
+  | "out"
+  | "inOut"
+  | "outBack"
+  | "outBackBig"
+  | "inBack"
+  | "outElastic"
+  | "hold"
+  | "expoOut"
+  | "expoIn";
+
+const c1 = 1.70158;
+export const EASES: Record<EaseName, (t: number) => number> = {
+  linear: (t) => t,
+  in: (t) => t * t * t,
+  out: (t) => 1 - Math.pow(1 - t, 3),
+  inOut: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+  outBack: (t) => 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2),
+  outBackBig: (t) => {
+    const c = 3.2;
+    return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
+  },
+  inBack: (t) => (c1 + 1) * t * t * t - c1 * t * t,
+  outElastic: (t) =>
+    t === 0 || t === 1 ? t : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1,
+  hold: () => 0,
+  expoOut: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
+  expoIn: (t) => (t <= 0 ? 0 : Math.pow(2, 10 * t - 10)),
+};
+
+export const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** 0→1 progress of f through [a, b] with easing. */
+export const prog = (f: number, a: number, b: number, ease: EaseName = "linear") =>
+  EASES[ease](clamp((f - a) / Math.max(1e-6, b - a)));
+
+type Val = number | string | boolean | readonly unknown[] | { [k: string]: unknown } | undefined;
+
+const mix = (a: Val, b: Val, t: number): Val => {
+  if (typeof a === "number" && typeof b === "number") return lerp(a, b, t);
+  if (Array.isArray(a) && Array.isArray(b)) return a.map((x, i) => mix(x as Val, b[i] as Val, t));
+  if (a && b && typeof a === "object" && typeof b === "object" && !Array.isArray(a)) {
+    const out: Record<string, unknown> = {};
+    const ka = a as Record<string, unknown>;
+    const kb = b as Record<string, unknown>;
+    for (const k of new Set([...Object.keys(ka), ...Object.keys(kb)])) {
+      out[k] = k in ka && k in kb ? mix(ka[k] as Val, kb[k] as Val, t) : (kb[k] ?? ka[k]);
+    }
+    return out;
+  }
+  // discrete values switch at the halfway point of the transition
+  return t < 0.5 ? a : b;
+};
+
+const merge = (base: Val, over: Val): Val => {
+  if (over === undefined) return base;
+  if (base && over && typeof base === "object" && typeof over === "object" && !Array.isArray(base) && !Array.isArray(over)) {
+    const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+    for (const [k, v] of Object.entries(over as Record<string, unknown>)) out[k] = merge(out[k] as Val, v as Val);
+    return out;
+  }
+  return over;
+};
+
+/** A keyframe: value `v` is reached at frame `f`, travelling from the previous key with `ease`. */
+export type Key<T> = { f: number; v: T; ease?: EaseName };
+
+/**
+ * Sample a sparse keyframe track. Object keys are cumulative: each key only needs the fields that
+ * change, the rest carry over from earlier keys.
+ */
+export function sample<T>(keys: readonly Key<T>[], f: number): T {
+  if (keys.length === 0) throw new Error("empty track");
+  // resolve cumulative values
+  const full: { f: number; v: Val; ease: EaseName }[] = [];
+  let acc: Val = undefined;
+  for (const k of keys) {
+    acc = merge(acc, k.v as Val);
+    full.push({ f: k.f, v: acc, ease: k.ease ?? "inOut" });
+  }
+  if (f <= full[0].f) return full[0].v as T;
+  for (let i = 1; i < full.length; i++) {
+    if (f <= full[i].f) {
+      const a = full[i - 1];
+      const b = full[i];
+      const t = EASES[b.ease](clamp((f - a.f) / Math.max(1e-6, b.f - a.f)));
+      return mix(a.v, b.v, t) as T;
+    }
+  }
+  return full[full.length - 1].v as T;
+}
+
+/** Deterministic hash noise in [-1, 1]. */
+export const hash = (n: number) => {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return (s - Math.floor(s)) * 2 - 1;
+};
+/** Smooth 1D value noise in [-1, 1]. */
+export const noise1 = (x: number, seed = 0) => {
+  const i = Math.floor(x);
+  const fr = x - i;
+  const u = fr * fr * (3 - 2 * fr);
+  return lerp(hash(i + seed * 101.3), hash(i + 1 + seed * 101.3), u);
+};
+
+/** Decaying camera/impact shake: amplitude envelope starting at frame `at`. */
+export const shake = (f: number, at: number, dur: number, amp: number, seed = 1, freq = 0.9) => {
+  if (f < at || f > at + dur) return 0;
+  const e = 1 - (f - at) / dur;
+  return noise1((f - at) * freq, seed) * amp * e * e;
+};
+
+==== 7011 src/kits/panelverse/engine/panels/geometry.ts
+// Panel geometry: pure data + math (no React), so story files can use it from Node and the browser.
+import { sample, type Key } from "../keyframes.ts";
+
+export type Pt = [number, number];
+/** Clockwise from top-left, in 1080×1920 frame pixels. */
+export type Quad = [Pt, Pt, Pt, Pt];
+export type PanelGeom = {
+  pts: Quad;
+  move: Pt; // extra translation of the whole panel (slide in / fall away)
+  rot: number; // degrees, around the panel centre
+  scale: number;
+  border: number; // ink border px (0 = none)
+  /** 0 = quad window; >0 = circular window of this radius (px) centred on the quad (iris shots) */
+  iris: number;
+};
+export type PanelKey = Key<Partial<PanelGeom>>;
+
+export const W = 1080;
+export const H = 1920;
+export const FULL: Quad = [
+  [-16, -16],
+  [1096, -16],
+  [1096, 1936],
+  [-16, 1936],
+];
+export const PANEL0: PanelGeom = { pts: FULL, move: [0, 0], rot: 0, scale: 1, border: 8, iris: 0 };
+export const samplePanel = (keys: readonly PanelKey[], f: number): PanelGeom => ({ ...PANEL0, ...sample<Partial<PanelGeom>>(keys, f) });
+
+export const centerOf = (q: readonly Pt[]): Pt => {
+  const xs = q.map((p) => p[0]);
+  const ys = q.map((p) => p[1]);
+  return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+};
+export const boundsOf = (q: readonly Pt[]) => {
+  const xs = q.map((p) => p[0]);
+  const ys = q.map((p) => p[1]);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+};
+
+// ── Layout library ───────────────────────────────────────────────────────────────────────────
+// Every layout keeps panels inside the mobile-safe page area (x 56–1024, y 200–1580) with ≈28 px
+// gutters and slight slants, so pages read as printed comics, not UI grids.
+const X0 = 60, X1 = 1020, Y0 = 214, Y1 = 1572, G = 30;
+const q = (x0: number, y0: number, x1: number, y1: number, tl = 0, tr = 0, br = 0, bl = 0): Quad => [
+  [x0, y0 + tl],
+  [x1, y0 + tr],
+  [x1, y1 + br],
+  [x0, y1 + bl],
+];
+const rows = (n: number, slant: number) => {
+  const h = (Y1 - Y0 - G * (n - 1)) / n;
+  return Array.from({ length: n }, (_, i) => {
+    const y0 = Y0 + i * (h + G), y1 = y0 + h;
+    const s0 = i === 0 ? 0 : (i % 2 ? slant : -slant), s1 = i === n - 1 ? 0 : (i % 2 ? -slant : slant);
+    return q(X0, y0, X1, y1, s0, -s0, s1, -s1);
+  });
+};
+export const LAYOUTS = {
+  /** one full-bleed image */
+  splash: (): Quad[] => [FULL],
+  /** one printed panel with paper margins (freeze / end page) */
+  page: (): Quad[] => [[[56, 210], [1024, 182], [1024, 1536], [56, 1572]]],
+  /** two stacked panels, slanted gutter */
+  twoUp: (slant = 26): Quad[] => rows(2, slant),
+  /** three stacked bands (the classic overthinking page) */
+  threeUp: (slant = 20): Quad[] => rows(3, slant),
+  /** four stacked strips (lists, countdowns) */
+  fourUp: (slant = 14): Quad[] => rows(4, slant),
+  /** 2 × 2 grid */
+  grid4: (): Quad[] => {
+    const xm = 540, ym = (Y0 + Y1) / 2;
+    return [
+      q(X0, Y0, xm - G / 2 + 10, ym - G / 2, 0, 0, -8, 6),
+      q(xm + G / 2 + 10, Y0, X1, ym - G / 2 - 8, 0, 0, 8, 0),
+      q(X0, ym + G / 2 + 6, xm - G / 2 - 10, Y1, 0, -8, 0, 0),
+      q(xm + G / 2 - 10, ym + G / 2 - 8, X1, Y1, 8, 0, 0, 0),
+    ];
+  },
+  /** two tall columns (side-by-side comparison: ekspektasi / realita) */
+  twoCol: (): Quad[] => [
+    [[X0, Y0], [540 - G / 2 + 24, Y0], [540 - G / 2 - 24, Y1], [X0, Y1]],
+    [[540 + G / 2 + 24, Y0], [X1, Y0], [X1, Y1], [540 + G / 2 - 24, Y1]],
+  ],
+  /** one big panel on top + two small side by side below */
+  bigTop: (): Quad[] => {
+    const ym = Y0 + (Y1 - Y0) * 0.6;
+    return [
+      q(X0, Y0, X1, ym - G / 2, 0, 0, -14, 14),
+      [[X0, ym + G / 2 + 14], [540 - G / 2 + 12, ym + G / 2 + 2], [540 - G / 2 - 12, Y1], [X0, Y1]],
+      [[540 + G / 2 + 12, ym + G / 2], [X1, ym + G / 2 - 14], [X1, Y1], [540 + G / 2 - 12, Y1]],
+    ];
+  },
+  /** two small side by side on top + one big panel below */
+  bigBottom: (): Quad[] => {
+    const ym = Y0 + (Y1 - Y0) * 0.4;
+    return [
+      [[X0, Y0], [540 - G / 2 + 12, Y0], [540 - G / 2 - 12, ym - G / 2 + 10], [X0, ym - G / 2 + 18]],
+      [[540 + G / 2 + 12, Y0], [X1, Y0], [X1, ym - G / 2], [540 + G / 2 - 12, ym - G / 2 + 8]],
+      q(X0, ym + G / 2 + 18, X1, Y1, 0, -18, 0, 0),
+    ];
+  },
+  /** three tall vertical strips (a moment in three beats) */
+  strip3: (): Quad[] => {
+    const w = (X1 - X0 - 2 * G) / 3;
+    return [0, 1, 2].map((i) => {
+      const x0 = X0 + i * (w + G), x1 = x0 + w;
+      return [[x0 + (i ? 14 : 0), Y0], [x1 + (i < 2 ? 14 : 0), Y0], [x1 - (i < 2 ? 14 : 0), Y1], [x0 - (i ? 14 : 0), Y1]] as Quad;
+    });
+  },
+  /** full-bleed diagonal split (no margins): versus / before-after */
+  diagonal: (cut = 160): Quad[] => [
+    [[-16, -16], [1096, -16], [1096, 960 - cut - 14], [-16, 960 + cut - 14]],
+    [[-16, 960 + cut + 14], [1096, 960 - cut + 14], [1096, 1936], [-16, 1936]],
+  ],
+  /** full-bleed image + a small inset panel in a corner */
+  inset: (corner: "br" | "bl" | "tr" | "tl" = "br", w = 440, h = 420): Quad[] => {
+    const x0 = corner.endsWith("r") ? 1030 - w : 50, y0 = corner.startsWith("b") ? 1560 - h : 230;
+    return [FULL, [[x0, y0 + 20], [x0 + w, y0], [x0 + w, y0 + h - 20], [x0, y0 + h]]];
+  },
+};
+export type LayoutName = keyof typeof LAYOUTS;
+
+/** Split a quad into shards (fan from an impact point) for the panel-shatter transition. */
+export const shardsOf = (quad: readonly Pt[], impact: Pt, cuts: number[]): Pt[][] => {
+  const edges: [Pt, Pt][] = quad.map((p, i) => [p, quad[(i + 1) % quad.length]]);
+  const lens = edges.map(([a, b]) => Math.hypot(b[0] - a[0], b[1] - a[1]));
+  const total = lens.reduce((s, l) => s + l, 0);
+  const at = (t: number): Pt => {
+    let d = (((t % 1) + 1) % 1) * total;
+    for (let i = 0; i < edges.length; i++) {
+      if (d <= lens[i]) {
+        const [a, b] = edges[i];
+        const k = d / lens[i];
+        return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+      }
+      d -= lens[i];
+    }
+    return quad[0];
+  };
+  const corners: number[] = [];
+  let acc = 0;
+  for (const l of lens) {
+    corners.push(acc / total);
+    acc += l;
+  }
+  const sorted = [...cuts].sort((a, b) => a - b);
+  return sorted.map((c0, i) => {
+    const c1 = i === sorted.length - 1 ? sorted[0] + 1 : sorted[i + 1];
+    const pts: Pt[] = [impact, at(c0)];
+    for (const k of [...corners, ...corners.map((x) => x + 1)]) if (k > c0 && k < c1) pts.push(at(k));
+    pts.push(at(c1));
+    return pts;
+  });
+};
+
+// ── Page camera (2.5D move over the printed page) ─────────────────────────────────────────────
+export type PageCam = { x: number; y: number; scale: number; rot: number; tiltX: number; tiltY: number };
+export const PAGECAM0: PageCam = { x: 0, y: 0, scale: 1, rot: 0, tiltX: 0, tiltY: 0 };
+
+==== 4251 src/kits/panelverse/engine/panels/LivingPanel.tsx
+import React from "react";
+import { AbsoluteFill } from "remotion";
+import { INK, PAPER } from "../../theme/palette.ts";
+import { centerOf, type PageCam, type PanelGeom, type Pt } from "./geometry.ts";
+
+const poly = (q: readonly Pt[]) => q.map((p) => `${p[0].toFixed(1)}px ${p[1].toFixed(1)}px`).join(",");
+const pathOf = (q: readonly Pt[]) => `M${q.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("L")}Z`;
+
+/**
+ * LivingPanel: a comic panel window. Its content (normally a full-frame ComicStage canvas) is centred
+ * on `contentCenter` and clipped to the panel quad — or to a circle (`geom.iris` > 0) — so panels can
+ * split, expand, collapse, tilt, iris and shatter while the 3D scene inside keeps rendering live.
+ */
+export const LivingPanel: React.FC<{
+  geom: PanelGeom;
+  contentCenter?: Pt;
+  bg?: string;
+  dropShadow?: boolean;
+  children: React.ReactNode;
+}> = ({ geom, contentCenter, bg = PAPER, dropShadow = true, children }) => {
+  const c = centerOf(geom.pts);
+  const cc = contentCenter ?? c;
+  const tf = `translate(${geom.move[0]}px, ${geom.move[1]}px) translate(${c[0]}px, ${c[1]}px) rotate(${geom.rot}deg) scale(${geom.scale}) translate(${-c[0]}px, ${-c[1]}px)`;
+  const iris = geom.iris > 0.5;
+  const clip = iris ? `circle(${geom.iris.toFixed(1)}px at ${c[0].toFixed(1)}px ${c[1].toFixed(1)}px)` : `polygon(${poly(geom.pts)})`;
+  return (
+    <AbsoluteFill style={{ transform: tf, transformOrigin: "0 0" }}>
+      {dropShadow ? (
+        <svg width="1080" height="1920" style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}>
+          {iris ? <circle cx={c[0] + 12} cy={c[1] + 14} r={geom.iris} fill={INK} /> : <path d={pathOf(geom.pts)} fill={INK} transform="translate(12 14)" />}
+        </svg>
+      ) : null}
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1080, height: 1920, clipPath: clip, background: bg }}>
+        <div style={{ position: "absolute", left: cc[0] - 540, top: cc[1] - 960, width: 1080, height: 1920 }}>{children}</div>
+      </div>
+      {geom.border > 0 ? (
+        <svg width="1080" height="1920" style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}>
+          {iris ? (
+            <circle cx={c[0]} cy={c[1]} r={geom.iris} fill="none" stroke={INK} strokeWidth={geom.border} />
+          ) : (
+            <path d={pathOf(geom.pts)} fill="none" stroke={INK} strokeWidth={geom.border} strokeLinejoin="miter" />
+          )}
+        </svg>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+export const PageCamera: React.FC<{ cam: PageCam; children: React.ReactNode }> = ({ cam, children }) => (
+  <AbsoluteFill style={{ perspective: 2400, perspectiveOrigin: "540px 960px" }}>
+    <AbsoluteFill
+      style={{
+        transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale}) rotate(${cam.rot}deg) rotateX(${cam.tiltX}deg) rotateY(${cam.tiltY}deg)`,
+        transformOrigin: "540px 960px",
+        transformStyle: "preserve-3d",
+      }}
+    >
+      {children}
+    </AbsoluteFill>
+  </AbsoluteFill>
+);
+
+/** A shard of a panel: clipped copy of the panel content, flying away. */
+export const PanelShard: React.FC<{ pts: Pt[]; contentCenter: Pt; move: Pt; rot: number; children: React.ReactNode }> = ({
+  pts,
+  contentCenter,
+  move,
+  rot,
+  children,
+}) => {
+  const c = centerOf(pts);
+  const tf = `translate(${move[0]}px, ${move[1]}px) translate(${c[0]}px, ${c[1]}px) rotate(${rot}deg) translate(${-c[0]}px, ${-c[1]}px)`;
+  return (
+    <AbsoluteFill style={{ transform: tf, transformOrigin: "0 0" }}>
+      <svg width="1080" height="1920" style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}>
+        <path d={pathOf(pts)} fill={INK} transform="translate(10 12)" />
+      </svg>
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1080, height: 1920, clipPath: `polygon(${poly(pts)})` }}>
+        <div style={{ position: "absolute", left: contentCenter[0] - 540, top: contentCenter[1] - 960, width: 1080, height: 1920 }}>{children}</div>
+      </div>
+      <svg width="1080" height="1920" style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}>
+        <path d={pathOf(pts)} fill="none" stroke={INK} strokeWidth={7} strokeLinejoin="round" />
+      </svg>
+    </AbsoluteFill>
+  );
+};
+
+==== 1345 src/kits/panelverse/engine/three/canvasTexture.ts
+import { useMemo } from "react";
+import { CanvasTexture, LinearFilter, SRGBColorSpace } from "three";
+
+/**
+ * A 2D-canvas texture redrawn synchronously whenever `key` changes. Fonts are guaranteed loaded by
+ * <FontGate> before any 3D stage mounts, so text drawn here is always the real comic lettering.
+ */
+export const useCanvasTexture = (w: number, h: number, key: string, draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void) => {
+  const { canvas, tex } = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const t = new CanvasTexture(c);
+    t.colorSpace = SRGBColorSpace;
+    t.minFilter = LinearFilter;
+    t.magFilter = LinearFilter;
+    t.anisotropy = 4;
+    return { canvas: c, tex: t };
+  }, [w, h]);
+  useMemo(() => {
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, w, h);
+    draw(ctx, w, h);
+    tex.needsUpdate = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas, key]);
+  return tex;
+};
+
+export const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};

@@ -1,0 +1,683 @@
+{
+  "concept": {
+    "idea": "Before/after is the whole pitch: the viewer must SEE raw footage turn into an edit while the speaker explains it.",
+    "signature": "Opens on the raw, ungraded clip with a viewfinder, then one lime wipe reveals the edited version - and the real waveform of this clip shows its own pause being cut."
+  },
+  "_note": "Worked example (brand names replaced by the placeholder StudioKamu): 27 s Indonesian talking-head ad (9:16) for an AI-editing course. Word indices refer to that video's transcript (93 words) - copy the STRUCTURE, never the indices, into a new job.",
+  "style": "impact",
+  "settings": {
+    "editing_intensity": "medium",
+    "aspect_ratio": "9:16",
+    "caption_style": "kinetic",
+    "music": "enabled",
+    "sound_effects": "medium",
+    "visual_overlays": "extensive"
+  },
+  "trim": {
+    "end_after_word": 92,
+    "tail": 0.12,
+    "head": 0.0
+  },
+  "end_hold": 1.0,
+  "jump_zoom": false,
+  "glossary": {
+    "Studio Kamu": "StudioKamu",
+    "potong jeda": "potong jeda",
+    "sound effect": "sound effect"
+  },
+  "emphasize": [
+    {
+      "w": 3
+    },
+    {
+      "w": 13,
+      "icon": "sparkle"
+    },
+    {
+      "w": 17
+    },
+    {
+      "w": 23,
+      "icon": "sparkle"
+    },
+    {
+      "w": 27,
+      "icon": "scissors"
+    },
+    {
+      "w": 29,
+      "icon": "cc"
+    },
+    {
+      "w": 30,
+      "icon": "wand"
+    },
+    {
+      "w": 31,
+      "icon": "zoom"
+    },
+    {
+      "w": 32,
+      "icon": "film"
+    },
+    {
+      "w": 34,
+      "icon": "sound"
+    },
+    {
+      "w": 40,
+      "icon": "chat"
+    },
+    {
+      "w": 50
+    },
+    {
+      "w": 52,
+      "icon": "sparkle"
+    },
+    {
+      "w": 62,
+      "icon": "layers"
+    },
+    {
+      "w": 69,
+      "icon": "play"
+    },
+    {
+      "w": 71
+    },
+    {
+      "w": 75,
+      "icon": "sparkle"
+    },
+    {
+      "w": 84
+    },
+    {
+      "w": 92
+    }
+  ],
+  "captions": {
+    "zones": [
+      {
+        "from": "t:0",
+        "to": "t:0.40",
+        "variant": "raw",
+        "y": 1240
+      },
+      {
+        "from": "t:0.40",
+        "to": "w:14e+0.15",
+        "variant": "hook"
+      },
+      {
+        "from": "w:81-0.12",
+        "to": "end",
+        "y": 858,
+        "size": 54,
+        "maxWidth": 760
+      },
+      {
+        "from": "w:84-0.07",
+        "to": "w:86-0.07",
+        "hidden": true,
+        "y": 858
+      },
+      {
+        "from": "w:92e+0.14",
+        "to": "end",
+        "hidden": true
+      }
+    ]
+  },
+  "camera": [
+    {
+      "at": "t:0",
+      "preset": "talk"
+    },
+    {
+      "at": "w:13",
+      "preset": "punch",
+      "amount": 0.12,
+      "hold": 0.45
+    },
+    {
+      "at": "w:31",
+      "preset": "punch",
+      "amount": 0.14,
+      "hold": 0.4
+    },
+    {
+      "at": "w:36",
+      "preset": "close",
+      "dur": 1.4
+    },
+    {
+      "at": "w:57-0.15",
+      "preset": "talk",
+      "dur": 0
+    },
+    {
+      "at": "w:62",
+      "preset": "punch",
+      "amount": 0.1,
+      "hold": 0.5
+    },
+    {
+      "at": "w:69-0.2",
+      "preset": "talk",
+      "dur": 0.5
+    }
+  ],
+  "layouts": [
+    {
+      "at": "t:0",
+      "preset": "custom",
+      "transition": "cut",
+      "views": [
+        {
+          "id": "raw",
+          "camera": false,
+          "z": 1.0,
+          "fx": null,
+          "grade": 0
+        }
+      ]
+    },
+    {
+      "at": "t:0.34",
+      "preset": "full",
+      "transition": "wipe",
+      "dur": 0.4
+    },
+    {
+      "at": "w:15-0.1",
+      "preset": "custom",
+      "transition": "cut",
+      "dur": 0,
+      "ease": "inOut",
+      "views": [
+        {
+          "id": "raw",
+          "camera": false,
+          "z": 1.0,
+          "fx": null,
+          "grade": 0,
+          "enter": {
+            "s": 1.04,
+            "dy": 0,
+            "o": 0
+          }
+        }
+      ]
+    },
+    {
+      "at": "w:18-0.12",
+      "preset": "split",
+      "dur": 0.6,
+      "y": 280,
+      "h": 1290,
+      "z": 1.28,
+      "fy": 0.44,
+      "left_tag": {
+        "text": "MENTAH",
+        "tone": "ink"
+      },
+      "right_tag": {
+        "text": "SETELAH AI",
+        "tone": "accent",
+        "icon": "sparkle"
+      }
+    },
+    {
+      "at": "w:26-0.16",
+      "preset": "full",
+      "dur": 0.55
+    },
+    {
+      "at": "w:42-0.12",
+      "preset": "split",
+      "only": "right",
+      "dur": 0.6,
+      "y": 280,
+      "h": 836,
+      "z": 1.3,
+      "fy": 0.44,
+      "border": 0,
+      "right_tag": {
+        "text": "VERSI 1",
+        "tone": "ink"
+      }
+    },
+    {
+      "at": "w:56",
+      "preset": "split",
+      "only": "right",
+      "transition": "cut",
+      "dur": 0,
+      "y": 280,
+      "h": 836,
+      "z": 1.3,
+      "fy": 0.44,
+      "border": 6,
+      "right_tag": {
+        "text": "VERSI 2",
+        "tone": "accent",
+        "icon": "check"
+      }
+    },
+    {
+      "at": "w:57-0.15",
+      "preset": "full",
+      "dur": 0.55
+    },
+    {
+      "at": "w:81-0.1",
+      "preset": "pip",
+      "dur": 0.65,
+      "size": 470,
+      "rect": [
+        305,
+        285,
+        470,
+        470
+      ],
+      "z": 1.55,
+      "fy": 0.5,
+      "border": 8
+    },
+    {
+      "at": "w:92e-0.2",
+      "preset": "none",
+      "dur": 0.3,
+      "sfx": "swoosh"
+    }
+  ],
+  "overlays": [
+    {
+      "type": "Viewfinder",
+      "start": "t:0",
+      "end": "t:0.66",
+      "label": "RAW",
+      "tcOffset": 0,
+      "rect": [
+        64,
+        286,
+        952,
+        1000
+      ]
+    },
+    {
+      "type": "Badge",
+      "start": "w:12",
+      "end": "w:15-0.12",
+      "text": "DIEDIT PAKE AI",
+      "icon": "sparkle",
+      "tone": "accent",
+      "x": 540,
+      "y": 360,
+      "size": 44
+    },
+    {
+      "type": "Burst",
+      "start": "w:13",
+      "end": "w:13+0.7",
+      "at": "w:13",
+      "x": 540,
+      "y": 1190,
+      "radius": 300,
+      "count": 14
+    },
+    {
+      "type": "Viewfinder",
+      "start": "w:15-0.1",
+      "end": "w:18",
+      "label": "RAW",
+      "rect": [
+        64,
+        286,
+        952,
+        1000
+      ]
+    },
+    {
+      "type": "Flash",
+      "start": "w:15-0.1",
+      "end": "w:15+0.12",
+      "at": "w:15-0.1",
+      "dur": 0.2,
+      "amount": 0.75
+    },
+    {
+      "type": "PromptBar",
+      "start": "w:21-0.1",
+      "end": "w:26-0.1",
+      "at": "w:21",
+      "typing": 0.72,
+      "text": "Edit video ini jadi konten 30 detik",
+      "x": 540,
+      "y": 1088,
+      "w": 900,
+      "fontSize": 31
+    },
+    {
+      "type": "Waveform",
+      "start": "w:26",
+      "end": "w:29-0.05",
+      "cutAt": "w:28",
+      "x": 540,
+      "y": 378,
+      "w": 700,
+      "h": 70,
+      "peaks_from": {
+        "src_from": 5.9,
+        "src_to": 8.1,
+        "bars": 56
+      },
+      "cuts": "auto",
+      "label": "AUTO CUT"
+    },
+    {
+      "type": "Tile",
+      "start": "w:27",
+      "end": "w:36+0.1",
+      "at": "w:27",
+      "x": 183,
+      "y": 560,
+      "from": "left",
+      "icon": "scissors",
+      "label": "Potong jeda",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 1
+    },
+    {
+      "type": "Tile",
+      "start": "w:29",
+      "end": "w:36+0.16",
+      "at": "w:29",
+      "x": 897,
+      "y": 560,
+      "from": "right",
+      "icon": "cc",
+      "label": "Subtitle",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 2
+    },
+    {
+      "type": "Tile",
+      "start": "w:30",
+      "end": "w:36+0.22",
+      "at": "w:30",
+      "x": 183,
+      "y": 765,
+      "from": "left",
+      "icon": "wand",
+      "label": "Animasi",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 3
+    },
+    {
+      "type": "Tile",
+      "start": "w:31",
+      "end": "w:36+0.28",
+      "at": "w:31",
+      "x": 897,
+      "y": 765,
+      "from": "right",
+      "icon": "zoom",
+      "label": "Zoom",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 4
+    },
+    {
+      "type": "Tile",
+      "start": "w:32",
+      "end": "w:36+0.34",
+      "at": "w:32",
+      "x": 183,
+      "y": 970,
+      "from": "left",
+      "icon": "film",
+      "label": "B-roll",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 5,
+      "iconBg": "accent2"
+    },
+    {
+      "type": "Tile",
+      "start": "w:34",
+      "end": "w:36+0.4",
+      "at": "w:34",
+      "x": 897,
+      "y": 970,
+      "from": "right",
+      "icon": "sound",
+      "label": "Sound effect",
+      "exitTo": [
+        540,
+        378
+      ],
+      "seed": 6,
+      "iconBg": "accent2"
+    },
+    {
+      "type": "PromptBar",
+      "start": "w:36+0.25",
+      "end": "w:42-0.15",
+      "at": "w:36+0.4",
+      "typing": 0.95,
+      "text": "Potong jeda, subtitle, zoom, SFX...",
+      "x": 540,
+      "y": 378,
+      "w": 900,
+      "fontSize": 31
+    },
+    {
+      "type": "ChatPanel",
+      "start": "w:42+0.2",
+      "end": "w:57-0.12",
+      "x": 290,
+      "y": 280,
+      "w": 476,
+      "threadH": 560,
+      "fontSize": 33,
+      "inputSize": 28,
+      "title": "AI Editor",
+      "badge": "CHAT",
+      "placeholder": "Ketik revisi...",
+      "messages": [
+        {
+          "role": "ai",
+          "at": "w:42+0.45",
+          "text": "Video v1 selesai.",
+          "progress": {
+            "at": "w:42+0.45",
+            "dur": 0.01,
+            "label": "Render",
+            "doneText": "v1 siap"
+          }
+        },
+        {
+          "role": "user",
+          "at": "w:50-0.05",
+          "typing": 0.78,
+          "text": "Detik 5 terlalu cepat, perlambat ya"
+        },
+        {
+          "role": "ai",
+          "at": "w:52",
+          "thinking": 0.25,
+          "text": "Siap, aku render ulang.",
+          "progress": {
+            "at": "w:53",
+            "dur": 1.0,
+            "label": "Render ulang",
+            "doneText": "Versi 2 siap"
+          }
+        }
+      ],
+      "anchor": "top"
+    },
+    {
+      "type": "Badge",
+      "start": "w:60",
+      "end": "w:69-0.25",
+      "text": "MAU WORKFLOW-NYA?",
+      "icon": "layers",
+      "tone": "ink",
+      "x": 540,
+      "y": 372,
+      "size": 44
+    },
+    {
+      "type": "FloatCard",
+      "start": "w:69",
+      "end": "w:81-0.1",
+      "at": "w:69",
+      "subAt": "w:70",
+      "x": 290,
+      "y": 380,
+      "w": 440,
+      "from": "left",
+      "tilt": 8,
+      "icon": "play",
+      "title": "Tutorial",
+      "subtitle": "DARI NOL · LENGKAP",
+      "tone": "paper",
+      "seed": 1
+    },
+    {
+      "type": "FloatCard",
+      "start": "w:74",
+      "end": "w:81-0.1",
+      "at": "w:74",
+      "subAt": "w:78",
+      "x": 790,
+      "y": 380,
+      "w": 440,
+      "from": "right",
+      "tilt": 8,
+      "icon": "sparkle",
+      "iconBg": "accent",
+      "title": "AI Skill",
+      "subtitle": "BISA DIPAKAI SENDIRI",
+      "subIcon": "check",
+      "tone": "ink",
+      "seed": 2
+    },
+    {
+      "type": "EndCard",
+      "start": "w:81",
+      "end": "end",
+      "y": 884,
+      "kicker": "MAU WORKFLOW-NYA?",
+      "word1": "STUDIO",
+      "word2": "KAMU",
+      "button": "PELAJARI SELENGKAPNYA",
+      "size": 112,
+      "at": {
+        "kicker": "w:81+0.1",
+        "wordmark": "w:84",
+        "button": "w:87"
+      },
+      "gap": 22,
+      "chevrons": true,
+      "shiftAt": "w:92e+0.12",
+      "y2": 690,
+      "shiftDur": 0.55,
+      "copy": "user"
+    },
+    {
+      "type": "Burst",
+      "start": "w:84",
+      "end": "w:84+0.7",
+      "at": "w:84",
+      "x": 540,
+      "y": 1035,
+      "radius": 420,
+      "count": 16,
+      "layer": "below"
+    },
+    {
+      "type": "Burst",
+      "start": "w:92",
+      "end": "w:92+0.7",
+      "at": "w:92",
+      "x": 540,
+      "y": 1035,
+      "radius": 460,
+      "count": 18,
+      "layer": "below"
+    }
+  ],
+  "sfx": [
+    {
+      "at": "t:0.03",
+      "kind": "click",
+      "gain_db": -2
+    },
+    {
+      "at": "w:13",
+      "kind": "impact",
+      "gain_db": -2
+    },
+    {
+      "at": "w:84-0.05",
+      "kind": "riser",
+      "dur": 1.0,
+      "gain_db": -6
+    },
+    {
+      "at": "w:92",
+      "kind": "impact",
+      "gain_db": -1
+    },
+    {
+      "at": "w:34",
+      "kind": "ding",
+      "gain_db": -6,
+      "pitch": 1.2
+    },
+    {
+      "at": "w:15-0.1",
+      "kind": "click",
+      "gain_db": 0,
+      "pitch": 0.8
+    },
+    {
+      "at": "w:15-0.06",
+      "kind": "swoosh",
+      "gain_db": -8
+    }
+  ],
+  "music": {
+    "hit_at": "w:92"
+  },
+  "_beats": [
+    "0.0-0.4s  RAW: ungraded full frame + viewfinder + plain subtitle = the 'before' look",
+    "0.34s     WIPE (signature move, used once): lime band reveals graded, reframed footage + big hook captions",
+    "w:12-14   badge 'DIEDIT PAKE AI' above the head, punch-in + impact + burst on 'AI'",
+    "w:15      hard cut + flash back to RAW on 'Ini video mentahannya' (callback to the opening)",
+    "w:18      split: raw card left / edited card right on 'dan ini setelah'; prompt bar types on 'suruh AI untuk ngedit'",
+    "w:26-35   full frame; REAL waveform of the clip shows the removed pause being cut on 'jeda'; one feature tile per spoken feature; real punch-in on 'zoom'",
+    "w:36-41   tiles fly into a prompt bar = 'semuanya gue arahin lewat chat doang'",
+    "w:42-56   chat split: user types the revision on 'ketik revisinya', AI re-renders on 'AI yang bantu kerjain lagi', card tag v1 -> v2",
+    "w:57-80   back to full frame; 'MAU WORKFLOW-NYA?' badge; Tutorial / AI Skill cards when those words are spoken",
+    "w:81-end  end card: face in a circle, kicker, brand wordmark (the user's brand, written by the user) on the spoken brand, CTA button on 'tombol di bawah ini', music hit on 'Let's go!'"
+  ]
+}

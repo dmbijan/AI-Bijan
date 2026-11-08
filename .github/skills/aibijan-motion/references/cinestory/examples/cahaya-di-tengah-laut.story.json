@@ -1,0 +1,281 @@
+{
+  "id": "mercusuar",
+  "title": "Cahaya di Tengah Laut",
+  "vo": {
+    "file": "audio/mercusuar.mp3",
+    "offset": 1.5
+  },
+  "words": "words.json",
+  "world": "coast",
+  "cast": [
+    {
+      "id": "darma",
+      "look": "penjaga-mercusuar",
+      "name": "Pak Darma",
+      "prop": "binoculars"
+    }
+  ],
+  "titleCard": {
+    "at": "Malam",
+    "until": "ini",
+    "text": "CAHAYA DI TENGAH LAUT"
+  },
+  "disclaimer": {
+    "at": "Seperti",
+    "until": "tipis",
+    "text": "Kisah ilustrasi — tokoh dan kejadian fiktif"
+  },
+  "endCard": {
+    "text": "CAHAYA DI TENGAH LAUT"
+  },
+  "scenes": [
+    {
+      "at": 0,
+      "place": "cliff",
+      "time": "night",
+      "mood": "mystery",
+      "set": {
+        "beam": 1,
+        "seaLight": 0,
+        "fog": 0.25,
+        "lamp": 1
+      },
+      "cast": {
+        "darma": {
+          "at": "lighthouse-door"
+        }
+      },
+      "beats": [
+        {
+          "at": "Malam"
+        },
+        {
+          "at": "Pak",
+          "do": "walk",
+          "to": "cottage-door"
+        }
+      ]
+    },
+    {
+      "at": "Seperti",
+      "place": "cottage",
+      "mood": "calm",
+      "cast": {
+        "darma": {
+          "at": "desk",
+          "do": "sit"
+        }
+      },
+      "beats": [
+        {
+          "at": "Seperti",
+          "do": "write"
+        },
+        {
+          "at": "Angin",
+          "shot": {
+            "type": "insert",
+            "target": "logbook"
+          }
+        },
+        {
+          "at": "Lalu",
+          "do": "look",
+          "target": "window"
+        },
+        {
+          "at": "Jauh",
+          "show": "light",
+          "set": {
+            "seaLight": 1
+          },
+          "fade": 1.5
+        }
+      ]
+    },
+    {
+      "at": "Cahaya",
+      "place": "cliff",
+      "mood": "tense",
+      "set": {
+        "fog": 0.35
+      },
+      "cast": {
+        "darma": {
+          "at": "edge"
+        }
+      },
+      "beats": [
+        {
+          "at": "Cahaya",
+          "do": "peer",
+          "target": "light"
+        },
+        {
+          "at": "menyala",
+          "show": "light"
+        },
+        {
+          "at": "Seolah",
+          "do": "freeze",
+          "target": "light"
+        }
+      ]
+    },
+    {
+      "at": "Pak",
+      "place": "gallery",
+      "mood": "tense",
+      "cast": {
+        "darma": {
+          "at": "gallery-sea"
+        }
+      },
+      "beats": [
+        {
+          "at": "Pak",
+          "do": "stand",
+          "target": "light"
+        },
+        {
+          "at": "mengambil",
+          "do": "binoculars",
+          "target": "light"
+        },
+        {
+          "at": "Di balik",
+          "show": "light",
+          "set": {
+            "fog": 0.85
+          },
+          "fade": 2.5
+        },
+        {
+          "at": "Seperti melayang",
+          "shot": "pov",
+          "target": "light"
+        },
+        {
+          "at": "Malam semakin",
+          "do": "shiver",
+          "target": "light"
+        },
+        {
+          "at": "sampai",
+          "shot": "pull"
+        }
+      ]
+    },
+    {
+      "at": "Saat",
+      "place": "sea",
+      "time": "dawn",
+      "mood": "reveal",
+      "cut": "fade",
+      "set": {
+        "boat": 1,
+        "seaLight": 1,
+        "fog": 0.2,
+        "beam": 0,
+        "lamp": 0
+      },
+      "beats": [
+        {
+          "at": "Saat"
+        },
+        {
+          "at": "Sebuah",
+          "show": "boat",
+          "hit": true
+        }
+      ]
+    },
+    {
+      "at": "Nelayan memasang",
+      "place": "sea",
+      "mood": "science",
+      "beats": [
+        {
+          "at": "Nelayan memasang",
+          "shot": "drone",
+          "ui": {
+            "type": "callout",
+            "poi": "lamps",
+            "text": "LAMPU NELAYAN",
+            "sub": "menarik ikan di malam hari"
+          }
+        },
+        {
+          "at": "Kabut membuat",
+          "shot": "map",
+          "set": {
+            "fog": 0.45
+          },
+          "fade": 1.5,
+          "ui": {
+            "type": "card",
+            "title": "Kenapa tampak misterius?",
+            "lines": [
+              "Lampu terang menarik ikan",
+              "Kabut menyebarkan cahaya",
+              "Ombak sesekali menutupinya"
+            ]
+          },
+          "until": "berkedip"
+        },
+        {
+          "at": "Dan ombak",
+          "set": {
+            "waves": 1.5
+          },
+          "fade": 1.2,
+          "show": "lamps"
+        }
+      ]
+    },
+    {
+      "at": "Pak",
+      "place": "cottage",
+      "time": "dawn",
+      "mood": "warm",
+      "cut": "fade",
+      "set": {
+        "lamp": 0.3,
+        "seaLight": 0,
+        "boat": 0,
+        "beam": 0,
+        "fog": 0.1,
+        "waves": 0.8
+      },
+      "cast": {
+        "darma": {
+          "at": "desk",
+          "do": "sit"
+        }
+      },
+      "beats": [
+        {
+          "at": "Pak",
+          "do": "reach",
+          "target": "logbook"
+        },
+        {
+          "at": "tersenyum",
+          "do": "stand",
+          "face": "smile",
+          "shot": "cu"
+        },
+        {
+          "at": "Laut tidak",
+          "do": "look",
+          "target": "window",
+          "face": "calm"
+        },
+        {
+          "at": "Di luar",
+          "shot": "pull"
+        }
+      ]
+    }
+  ]
+}

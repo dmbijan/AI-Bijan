@@ -1,0 +1,12 @@
+{
+  "id": "park-bench",
+  "doc": "park bench 1.6 m, wooden slats on dark iron sides; sits facing +z",
+  "anchors": { "seat": [0, 0.45, 0.04], "front": [0, 0, 0.75] },
+  "parts": [
+    { "shape": "box", "size": [1.6, 0.03, 0.1], "at": [0, 0.44, 0.17], "mat": "wood:#9a6a3c", "repeat": { "n": 4, "step": [0, 0, -0.11] } },
+    { "shape": "box", "size": [1.6, 0.09, 0.025], "at": [0, 0.6, -0.2], "rot": [-12, 0, 0], "mat": "wood:#9a6a3c", "repeat": { "n": 3, "step": [0, 0.12, -0.025] } },
+    { "shape": "box", "size": [0.05, 0.44, 0.05], "at": [0.72, 0.22, 0.18], "mat": "metal:#2a2c2e", "mirror": "x" },
+    { "shape": "box", "size": [0.05, 0.86, 0.05], "at": [0.72, 0.43, -0.2], "rot": [-8, 0, 0], "mat": "metal:#2a2c2e", "mirror": "x" },
+    { "shape": "box", "size": [0.05, 0.04, 0.46], "at": [0.72, 0.62, 0.0], "mat": "metal:#2a2c2e", "mirror": "x" }
+  ]
+}

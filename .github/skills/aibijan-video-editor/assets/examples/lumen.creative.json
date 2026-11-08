@@ -1,0 +1,228 @@
+{
+  "_note": "Worked plan for the LUMEN style. Hypothetical 35 s talking head about a small shop's bookkeeping: 'Omzet jalan terus (w:0-2), tapi uangnya ke mana? (w:3-5) Masalahnya (w:7) bukan di jualan kamu (w:8-11). Kamu cuma (w:13-14) gak tau angka (w:15-17) untung-ruginya (w:18). Makanya (w:20) aku pakai pembukuan (w:21-23). Catat transaksi (w:25-26), laba rugi langsung jadi (w:28-31). Kalkulator HPP-nya juga gratis (w:33-37), link-nya di bawah (w:39-41).' Word indices are this script's own - never copy them, its words or its compositions into another video.",
+  "concept": {
+    "idea": "Money that moves but can't be seen: coins float around him until the numbers light up as glowing words",
+    "signature": "'gak tau / ANGKA' glowing gold at the chest while Rp coins spin around his head, then 'laba rugi' switches to ice-blue with a check pill"
+  },
+  "style": "lumen",
+  "settings": {
+    "editing_intensity": "medium",
+    "sound_effects": "medium",
+    "visual_overlays": "moderate"
+  },
+  "emphasize": [
+    2,
+    9,
+    16,
+    22,
+    30,
+    36
+  ],
+  "camera": [
+    {
+      "at": "t:0",
+      "preset": "talk"
+    },
+    {
+      "at": "w:7",
+      "preset": "punch",
+      "amount": 0.06,
+      "hold": 0.45
+    },
+    {
+      "at": "w:20",
+      "preset": "close",
+      "dur": 1.4
+    },
+    {
+      "at": "w:27",
+      "preset": "talk",
+      "dur": 0.6
+    }
+  ],
+  "overlays": [
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "start": "w:0",
+      "end": "w:6",
+      "y": 280,
+      "lines": [
+        {
+          "text": "jalan terus",
+          "at": "w:1",
+          "size": 120,
+          "font": "script"
+        },
+        {
+          "text": "omzet",
+          "at": "w:0",
+          "size": 260,
+          "grad": "fire"
+        }
+      ]
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "layer": "below",
+      "start": "w:7",
+      "end": "w:12",
+      "y": 870,
+      "lines": [
+        {
+          "text": "masalahnya",
+          "at": "w:7",
+          "size": 44,
+          "font": "ui",
+          "track": 0.3,
+          "look": "fill",
+          "tone": "paper"
+        },
+        {
+          "text": "bukan",
+          "at": "w:8",
+          "size": 200,
+          "grad": "ice"
+        }
+      ]
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "signature": true,
+      "start": "w:13",
+      "end": "w:19",
+      "y": 280,
+      "lines": [
+        {
+          "text": "gak tau",
+          "at": "w:15",
+          "size": 110,
+          "font": "script"
+        },
+        {
+          "text": "angka",
+          "at": "w:16",
+          "size": 260,
+          "grad": "gold"
+        }
+      ]
+    },
+    {
+      "type": "Glossy",
+      "start": "w:16",
+      "end": "w:20",
+      "items": [
+        {
+          "kind": "coin",
+          "symbol": "Rp",
+          "at": "w:16",
+          "slot": "left",
+          "size": 140,
+          "depth": 0.35
+        },
+        {
+          "kind": "coin",
+          "symbol": "Rp",
+          "at": "w:17",
+          "slot": "above-right",
+          "size": 120,
+          "depth": 0.75
+        },
+        {
+          "kind": "coin",
+          "at": "w:18",
+          "slot": "shoulder-right",
+          "size": 110,
+          "depth": 0.5
+        }
+      ]
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "start": "w:21",
+      "end": "w:27",
+      "y": 280,
+      "align": "left",
+      "lines": [
+        {
+          "text": "pembukuan",
+          "at": "w:22",
+          "size": 200,
+          "look": "fill",
+          "tone": "paper"
+        },
+        {
+          "text": "pro",
+          "at": "w:23",
+          "size": 160,
+          "font": "script",
+          "grad": "fire"
+        }
+      ]
+    },
+    {
+      "type": "GlowPill",
+      "start": "w:28",
+      "end": "w:33",
+      "text": "laba rugi",
+      "sub": "langsung jadi",
+      "subAt": "w:30",
+      "badge": "check",
+      "slot": "chest",
+      "dy": -30
+    },
+    {
+      "type": "DepthText",
+      "mode": "stack",
+      "start": "w:33",
+      "end": "w:39",
+      "y": 280,
+      "align": "right",
+      "lines": [
+        {
+          "text": "kalkulator",
+          "at": "w:33",
+          "size": 70,
+          "font": "ui",
+          "track": 0.2,
+          "look": "fill",
+          "tone": "paper"
+        },
+        {
+          "text": "HPP",
+          "at": "w:34",
+          "size": 260,
+          "grad": "fire"
+        },
+        {
+          "text": "gratis",
+          "at": "w:36",
+          "size": 120,
+          "font": "script",
+          "grad": "fire"
+        }
+      ]
+    },
+    {
+      "type": "GlowPill",
+      "start": "w:39",
+      "end": "end",
+      "text": "link-nya di bawah",
+      "badge": "down",
+      "surface": "paper",
+      "slot": "chest",
+      "dy": -30
+    }
+  ],
+  "_beats": [
+    "HOOK script 'jalan terus' + glowing OMZET behind the head",
+    "PROBLEM kicker + 'bukan' in ice at the chest",
+    "SIGNATURE 'gak tau / ANGKA' gold + Rp coins spinning around the head",
+    "SOLUTION left-aligned PEMBUKUAN + script 'pro'",
+    "PROOF glass pill 'laba rugi' with a check, sub 'langsung jadi'",
+    "PAYOFF right-aligned KALKULATOR / HPP / gratis, CTA pill"
+  ]
+}
