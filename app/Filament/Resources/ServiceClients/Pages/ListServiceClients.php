@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ServiceClients\Pages;
 
 use App\Filament\Resources\ServiceClients\ServiceClientResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListServiceClients extends ListRecords
@@ -11,6 +12,6 @@ class ListServiceClients extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

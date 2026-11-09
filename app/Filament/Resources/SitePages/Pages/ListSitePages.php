@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SitePages\Pages;
 
 use App\Filament\Resources\SitePages\SitePageResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListSitePages extends ListRecords
@@ -11,6 +12,6 @@ class ListSitePages extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\FlowDefinitions\Pages;
 
 use App\Filament\Resources\FlowDefinitions\FlowDefinitionResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListFlowDefinitions extends ListRecords
@@ -11,6 +12,6 @@ class ListFlowDefinitions extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

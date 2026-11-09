@@ -107,10 +107,10 @@ Senarai penuh: [`docs/SENARAI-MODUL.md`](docs/SENARAI-MODUL.md)
 
 | Jurang | Nilai | Kesan |
 |---|---|---|
-| **UI untuk 15 modul integrasi 2026** | **0/15** | Modul boleh diakses via API sahaja — tiada UI Filament mahupun blade |
-| Unit test | **2 fail** (vs 112 feature) | Logik domain tidak diuji unit |
+| UI untuk 15 modul integrasi 2026 | ✅ **30/30 resource** | Semua modul ada UI Filament + 30 ujian render HTTP 200 |
+| Unit test | **2 fail** (vs 142 feature) | Logik domain tidak diuji unit |
 | Ujian API pengasingan | **43/56** | 13 modul hanya uji model |
-| UI Filament keseluruhan | **40/75 modul** | 35 modul API sahaja |
+| UI Filament keseluruhan | **55/75 modul** | 20 modul API sahaja |
 | OpenAPI / Swagger | **Tiada** | 1,629 laluan tanpa skema |
 
 📄 Analisis penuh + keutamaan: [`docs/NIRVANA-AI-BIJAN.md`](docs/NIRVANA-AI-BIJAN.md)

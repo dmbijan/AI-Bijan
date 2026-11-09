@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\OmniChannels\Pages;
 
 use App\Filament\Resources\OmniChannels\OmniChannelResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListOmniChannels extends ListRecords
@@ -11,6 +12,6 @@ class ListOmniChannels extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

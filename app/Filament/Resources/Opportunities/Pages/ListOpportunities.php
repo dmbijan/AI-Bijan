@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Opportunities\Pages;
 
 use App\Filament\Resources\Opportunities\OpportunityResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListOpportunities extends ListRecords
@@ -11,6 +12,6 @@ class ListOpportunities extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

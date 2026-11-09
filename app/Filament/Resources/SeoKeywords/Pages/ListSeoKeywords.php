@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SeoKeywords\Pages;
 
 use App\Filament\Resources\SeoKeywords\SeoKeywordResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListSeoKeywords extends ListRecords
@@ -11,6 +12,6 @@ class ListSeoKeywords extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

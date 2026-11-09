@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\AdeReviews\Pages;
 
 use App\Filament\Resources\AdeReviews\AdeReviewResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAdeReviews extends ListRecords
@@ -12,7 +13,7 @@ class ListAdeReviews extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            \Filament\Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 }

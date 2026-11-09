@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MediaAssets\Pages;
 
 use App\Filament\Resources\MediaAssets\MediaAssetResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListMediaAssets extends ListRecords
@@ -11,6 +12,6 @@ class ListMediaAssets extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

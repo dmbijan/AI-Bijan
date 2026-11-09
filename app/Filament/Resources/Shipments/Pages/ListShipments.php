@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Shipments\Pages;
 
 use App\Filament\Resources\Shipments\ShipmentResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListShipments extends ListRecords
@@ -11,6 +12,6 @@ class ListShipments extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

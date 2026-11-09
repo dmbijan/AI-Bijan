@@ -4,9 +4,15 @@ namespace App\Filament\Resources\Reminders;
 
 use App\Filament\Concerns\HasModulePermission;
 use App\Modules\Reminder\Models\Reminder;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
+use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Resource Filament — Peringatan.
@@ -58,10 +64,10 @@ class ReminderResource extends Resource
      * resource tidak pecah apabila skema berubah. Ganti dengan borang
      * eksplisit bila keperluan domain jelas.
      */
-    public static function form(\Filament\Forms\Form $form): \Filament\Forms\Form
+    public static function form(Form $form): Form
     {
         $model = new (static::$model);
-        $lajur = \Illuminate\Support\Facades\Schema::getColumnListing($model->getTable());
+        $lajur = Schema::getColumnListing($model->getTable());
 
         // Jangan dedah medan sistem.
         $haram = ['id', 'tenant_id', 'created_at', 'updated_at', 'deleted_at', 'ulid'];
@@ -76,11 +82,11 @@ class ReminderResource extends Resource
             $label = ucfirst(str_replace('_', ' ', $l));
 
             $komponen[] = match (true) {
-                $l === 'notes', $l === 'description' => \Filament\Forms\Components\Textarea::make($l)->label($label)->rows(2)->columnSpanFull(),
-                str_ends_with($l, '_at'), str_ends_with($l, '_date'), $l === 'date' => \Filament\Forms\Components\DateTimePicker::make($l)->label($label),
-                str_starts_with($l, 'is_'), str_starts_with($l, 'has_') => \Filament\Forms\Components\Toggle::make($l)->label($label),
-                str_contains($l, 'amount'), str_contains($l, 'total'), str_contains($l, 'price') => \Filament\Forms\Components\TextInput::make($l)->label($label)->numeric()->prefix('RM'),
-                default => \Filament\Forms\Components\TextInput::make($l)->label($label)->maxLength(255),
+                $l === 'notes', $l === 'description' => Textarea::make($l)->label($label)->rows(2)->columnSpanFull(),
+                str_ends_with($l, '_at'), str_ends_with($l, '_date'), $l === 'date' => DateTimePicker::make($l)->label($label),
+                str_starts_with($l, 'is_'), str_starts_with($l, 'has_') => Toggle::make($l)->label($label),
+                str_contains($l, 'amount'), str_contains($l, 'total'), str_contains($l, 'price') => TextInput::make($l)->label($label)->numeric()->prefix('RM'),
+                default => TextInput::make($l)->label($label)->maxLength(255),
             };
         }
 
@@ -112,7 +118,7 @@ class ReminderResource extends Resource
             'date', 'issue_date', 'created_at',
         ];
 
-        $lajur = \Illuminate\Support\Facades\Schema::getColumnListing($model->getTable());
+        $lajur = Schema::getColumnListing($model->getTable());
 
         foreach ($medan as $m) {
             if (! in_array($m, $lajur, true)) {

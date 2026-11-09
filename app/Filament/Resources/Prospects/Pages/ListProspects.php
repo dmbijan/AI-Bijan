@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Prospects\Pages;
 
 use App\Filament\Resources\Prospects\ProspectResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListProspects extends ListRecords
@@ -11,6 +12,6 @@ class ListProspects extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\BusinessIdeas\Pages;
 
 use App\Filament\Resources\BusinessIdeas\BusinessIdeaResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListBusinessIdeas extends ListRecords
@@ -11,6 +12,6 @@ class ListBusinessIdeas extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

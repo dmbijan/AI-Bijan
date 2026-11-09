@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CctvCameras\Pages;
 
 use App\Filament\Resources\CctvCameras\CctvCameraResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListCctvCameras extends ListRecords
@@ -11,6 +12,6 @@ class ListCctvCameras extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

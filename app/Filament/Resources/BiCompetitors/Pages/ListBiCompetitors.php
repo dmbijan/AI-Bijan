@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\BiCompetitors\Pages;
 
 use App\Filament\Resources\BiCompetitors\BiCompetitorResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListBiCompetitors extends ListRecords
@@ -11,6 +12,6 @@ class ListBiCompetitors extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

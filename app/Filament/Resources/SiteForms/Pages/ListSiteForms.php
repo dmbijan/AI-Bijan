@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SiteForms\Pages;
 
 use App\Filament\Resources\SiteForms\SiteFormResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListSiteForms extends ListRecords
@@ -11,6 +12,6 @@ class ListSiteForms extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

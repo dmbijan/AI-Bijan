@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\DocumentAis\Pages;
 
 use App\Filament\Resources\DocumentAis\DocumentAiResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListDocumentAis extends ListRecords
@@ -11,6 +12,6 @@ class ListDocumentAis extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

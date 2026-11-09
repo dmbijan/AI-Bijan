@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rewards\Pages;
 
 use App\Filament\Resources\Rewards\RewardResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListRewards extends ListRecords
@@ -11,6 +12,6 @@ class ListRewards extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

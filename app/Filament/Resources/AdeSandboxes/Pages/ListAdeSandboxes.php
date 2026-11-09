@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\AdeSandboxes\Pages;
 
 use App\Filament\Resources\AdeSandboxes\AdeSandboxResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAdeSandboxes extends ListRecords
@@ -12,7 +13,7 @@ class ListAdeSandboxes extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            \Filament\Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 }

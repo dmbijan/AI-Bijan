@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\IndustryProfiles\Pages;
 
 use App\Filament\Resources\IndustryProfiles\IndustryProfileResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListIndustryProfiles extends ListRecords
@@ -11,6 +12,6 @@ class ListIndustryProfiles extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

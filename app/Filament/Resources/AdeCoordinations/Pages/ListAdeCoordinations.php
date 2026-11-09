@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\AdeCoordinations\Pages;
 
 use App\Filament\Resources\AdeCoordinations\AdeCoordinationResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAdeCoordinations extends ListRecords
@@ -12,7 +13,7 @@ class ListAdeCoordinations extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            \Filament\Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\BoardroomSessions\Pages;
 
 use App\Filament\Resources\BoardroomSessions\BoardroomSessionResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListBoardroomSessions extends ListRecords
@@ -11,6 +12,6 @@ class ListBoardroomSessions extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

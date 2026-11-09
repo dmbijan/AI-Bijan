@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Assets2\Pages;
 
 use App\Filament\Resources\Assets2\AssetResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAssets2 extends ListRecords
@@ -11,6 +12,6 @@ class ListAssets2 extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

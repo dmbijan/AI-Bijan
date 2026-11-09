@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Affiliates\Pages;
 
 use App\Filament\Resources\Affiliates\AffiliateResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAffiliates extends ListRecords
@@ -11,6 +12,6 @@ class ListAffiliates extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

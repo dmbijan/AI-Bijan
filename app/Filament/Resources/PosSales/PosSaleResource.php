@@ -7,7 +7,6 @@ use App\Modules\POS\Models\POSSale;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Resource POS — Jualan Kaunter (baca sahaja + lihat).

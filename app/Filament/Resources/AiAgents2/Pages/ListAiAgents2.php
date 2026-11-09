@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\AiAgents2\Pages;
 
 use App\Filament\Resources\AiAgents2\AiAgentResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListAiAgents2 extends ListRecords
@@ -11,6 +12,6 @@ class ListAiAgents2 extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

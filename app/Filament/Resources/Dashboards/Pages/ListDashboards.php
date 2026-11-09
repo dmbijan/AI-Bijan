@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Dashboards\Pages;
 
 use App\Filament\Resources\Dashboards\DashboardResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListDashboards extends ListRecords
@@ -11,6 +12,6 @@ class ListDashboards extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

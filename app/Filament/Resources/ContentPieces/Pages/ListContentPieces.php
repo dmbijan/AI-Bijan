@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ContentPieces\Pages;
 
 use App\Filament\Resources\ContentPieces\ContentPieceResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListContentPieces extends ListRecords
@@ -11,6 +12,6 @@ class ListContentPieces extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

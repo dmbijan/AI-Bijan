@@ -230,10 +230,10 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 
 | Jurang | Nilai | Kesan |
 |---|---|---|
-| **Unit test** | **2 fail** (vs 112 feature) | Logik domain tiada ujian unit — hanya ujian Feature |
+| **Unit test** | **2 fail** (vs 142 feature) | Logik domain tiada ujian unit — hanya ujian Feature |
 | **Ujian API pengasingan** | **43/56** | 13 modul hanya uji model, bukan laluan API sebenar |
-| **UI Filament** | **40/75 modul** | 35 modul API sahaja |
-| **UI modul integrasi 2026** | **0/15** | ⚠️ Tiada UI langsung untuk 15 modul baharu |
+| **UI Filament** | **55/75 modul** | 20 modul API sahaja |
+| **UI modul integrasi 2026** | ✅ **30/30 resource** | Semua 15 modul ada UI Filament + ujian render |
 | **OpenAPI / Swagger** | **Tiada** | 1,629 laluan tanpa skema/dokumentasi |
 
 ---
@@ -253,7 +253,7 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 | P0-07 | Backup/restore + rollback drill | ⬜ Belum |
 | P0-08 | Label status ciri dengan jujur | ⬜ Belum — tiada registry status ciri |
 | P0-09 | Bersihkan status dokumen lama | ✅ Selesai (commit `bba5560`) |
-| **P0-10** | **UI untuk 15 modul integrasi 2026** | ⬜ **Belum — pengguna tak boleh guna modul ini langsung** |
+| P0-10 | **UI untuk 15 modul integrasi 2026** | ✅ Selesai — 30 resource Filament + 30 ujian render HTTP 200 |
 
 ### 🟡 P1 — Sebelum skal atau menjual integrasi sebagai "siap"
 
@@ -294,18 +294,20 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 | Urutan | Tindakan | sebab | Fail |
 |---|---|---|---|
 | 1 | Semak & merge PR `feat/integrasi-9-suite` → `main` | Semua kerja integrasi & susunan repo | GitHub |
-| 2 | **Bina UI Filament untuk 15 modul integrasi** | Tanpa UI, pengguna tak boleh guna modul langsung | `app/Filament/Resources/` |
-| 3 | Unit test untuk logik domain | Hanya 2 fail unit vs 112 feature | `tests/Unit/` |
-| 4 | Ujian API untuk 13 modul | Hanya model diuji, bukan laluan sebenar | `tests/Feature/Pengasingan/` |
+| 2 | Unit test untuk logik domain | Hanya 2 fail unit vs 142 feature | `tests/Unit/` |
+| 3 | Ujian API untuk 13 modul | Hanya model diuji, bukan laluan sebenar | `tests/Feature/Pengasingan/` |
+| 4 | UI Filament untuk 20 modul baki | 55/75 modul ada UI | `app/Filament/Resources/` |
 | 5 | P0-06, P0-07, P0-08 (secret, backup, feature registry) | Audit induk §15 | — |
 | 6 | Sambungkan provider luar (CHIP, Meta, kurier) | Tiada integrasi live | — |
 | 7 | Skema OpenAPI untuk 1,629 laluan | Tiada kontrak/dokumentasi API | — |
 | 8 | MySQL + backup drill | Dev masih SQLite | — |
 
-> ⚠️ **Nota:** item 2–4 adalah jurang yang **baru wujud** — ia muncul
-> apabila semua 15 modul integrasi telah dibina dengan API lengkap
-> tetapi tanpa lapisan UI dan ujian domain. Sebelum ini ia tersembunyi
-> kerana modul belum wujud.
+> ✅ **P0-10 (UI 15 modul integrasi) sudah selesai** — 30 resource Filament
+> dijana & disahkan boleh dirender (HTTP 200) oleh
+> `tests/Feature/Integration2026UiTest.php`.
+>
+> ⚠️ Item 2–4 masih terbuka — ia muncul apabila semua 15 modul integrasi
+> dibina dengan API lengkap tetapi tanpa lapisan UI dan ujian domain.
 
 ---
 

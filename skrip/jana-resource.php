@@ -232,6 +232,103 @@ $definisi = [
     // ===== PERSONAL AI =====
     ['PersonalTasks', 'PersonalTaskResource', 'PersonalTask',
         'tugasan-saya', 'Tugasan', 'Tugasan Saya', 'heroicon-o-check-circle', 'Automasi', 83, 'personal_ai', true],
+
+    // ===== INTEGRASI 2026 (15 modul) =====
+    // Setiap modul: 1-2 resource utama. Model '&' bermaksud "model ini".
+
+    // 1. OpenGenAI — enjin generatif
+    ['GenAiProviders', 'GenAiProviderResource', 'GenAiProvider',
+        'penyedia-ai', 'Penyedia AI', 'Penyedia AI', 'heroicon-o-cpu-chip', 'Integrasi AI', 10, 'open_gen_ai', true],
+    ['GenAiJobs', 'GenAiJobResource', 'GenAiJob',
+        'penjanaan-ai', 'Penjanaan', 'Penjanaan AI', 'heroicon-o-sparkles', 'Integrasi AI', 11, 'open_gen_ai', false],
+
+    // 2. VoiceStudio — enjin suara
+    ['VoiceProfiles', 'VoiceProfileResource', 'VoiceProfile',
+        'profil-suara', 'Profil Suara', 'Profil Suara', 'heroicon-o-microphone', 'Integrasi AI', 12, 'voice_studio', true],
+    ['VoiceTracks', 'VoiceTrackResource', 'VoiceTrack',
+        'rakaman-suara', 'Rakaman Suara', 'Rakaman Suara', 'heroicon-o-musical-note', 'Integrasi AI', 13, 'voice_studio', false],
+
+    // 3. OpenWhispr — diktasi
+    ['DictationSessions', 'DictationSessionResource', 'DictationSession',
+        'sesi-diktasi', 'Sesi Diktasi', 'Sesi Diktasi', 'heroicon-o-waving-hand', 'Integrasi AI', 14, 'open_whispr', false],
+    ['DictationVocabularies', 'DictationVocabularyResource', 'DictationVocabulary',
+        'kamus-diktasi', 'Kamus', 'Kamus Diktasi', 'heroicon-o-book-open', 'Integrasi AI', 15, 'open_whispr', true],
+
+    // 4. OpenSEO — intel kompetitif
+    ['SeoProjects', 'SeoProjectResource', 'SeoProject',
+        'projek-seo', 'Projek SEO', 'Projek SEO', 'heroicon-o-chart-bar', 'Integrasi AI', 16, 'open_seo', true],
+    ['SeoKeywordResearch', 'SeoKeywordResearchResource', 'SeoKeywordResearch',
+        'kata-kunci-seo', 'Kata Kunci', 'Kata Kunci SEO', 'heroicon-o-magnifying-glass', 'Integrasi AI', 17, 'open_seo', true],
+
+    // 5. Workspace — dokumen kolaboratif
+    ['WorkspaceSpaces', 'WorkspaceSpaceResource', 'WorkspaceSpace',
+        'ruang-kerja', 'Ruang Kerja', 'Ruang Kerja', 'heroicon-o-square-3-stack-3d', 'Integrasi AI', 18, 'workspace', true],
+    ['WorkspacePages', 'WorkspacePageResource', 'WorkspacePage',
+        'halaman', 'Halaman', 'Halaman', 'heroicon-o-document-text', 'Integrasi AI', 19, 'workspace', true],
+
+    // 6. WorkManagement — pengurusan kerja
+    ['ProjectTimelines', 'ProjectTimelineResource', 'ProjectTimeline',
+        'garis-masa', 'Garis Masa', 'Garis Masa Projek', 'heroicon-o-chart-pie', 'Operasi', 70, 'work_management', true],
+    ['ProjectPortfolios', 'ProjectPortfolioResource', 'ProjectPortfolio',
+        'portfolio-projek', 'Portfolio', 'Portfolio Projek', 'heroicon-o-rectangle-group', 'Operasi', 71, 'work_management', true],
+
+    // 7. Scheduling — penjadualan
+    ['SchedulingLinks', 'SchedulingLinkResource', 'SchedulingLink',
+        'pautan-jadwal', 'Pautan Jadwal', 'Pautan Jadwal', 'heroicon-o-calendar-days', 'Operasi', 72, 'scheduling', true],
+    ['SchedulingSlots', 'SchedulingSlotResource', 'SchedulingSlot',
+        'slot-jadwal', 'Slot', 'Slot Jadwal', 'heroicon-o-clock', 'Operasi', 73, 'scheduling', false],
+
+    // 8. SharedInbox — peti masuk bersama
+    ['SharedInboxes', 'SharedInboxResource', 'SharedInbox',
+        'peti-masuk', 'Peti Masuk', 'Peti Masuk Bersama', 'heroicon-o-inbox-stack', 'Sokongan', 90, 'shared_inbox', true],
+    ['InboxConversations', 'InboxConversationResource', 'InboxConversation',
+        'perbincangan', 'Perbincangan', 'Perbincangan', 'heroicon-o-chat-bubble-left-right', 'Sokongan', 91, 'shared_inbox', true],
+
+    // 9. ScreenRecorder — rakaman skrin
+    ['ScreenRecordings', 'ScreenRecordingResource', 'ScreenRecording',
+        'rakaman-skrin', 'Rakaman Skrin', 'Rakaman Skrin', 'heroicon-o-video-camera', 'Integrasi AI', 20, 'screen_recorder', true],
+
+    // 10. VideoStudio — orkestrasi video
+    ['VideoProjects', 'VideoProjectResource', 'VideoProject',
+        'projek-video', 'Projek Video', 'Projek Video', 'heroicon-o-film', 'Integrasi AI', 21, 'video_studio', true],
+    ['VideoBrandKits', 'VideoBrandKitResource', 'VideoBrandKit',
+        'jenama-video', 'Jenama Video', 'Jenama Video', 'heroicon-o-swatch', 'Integrasi AI', 22, 'video_studio', true],
+
+    // 11. POSBpos — ciri POS lanjutan
+    ['PosGiftCards', 'PosGiftCardResource', 'PosGiftCard',
+        'kad-hadiah', 'Kad Hadiah', 'Kad Hadiah', 'heroicon-o-gift', 'Jualan', 25, 'pos', true],
+    ['PosTableReservations', 'PosTableReservationResource', 'PosTableReservation',
+        'tempahan-meja', 'Tempahan Meja', 'Tempahan Meja', 'heroicon-o-calendar', 'Jualan', 26, 'pos', true],
+    ['PosFoodCourts', 'PosFoodCourtResource', 'PosFoodCourt',
+        'food-court', 'Food Court', 'Food Court', 'heroicon-o-building-storefront', 'Jualan', 27, 'pos', true],
+    ['PosOnlineStores', 'PosOnlineStoreResource', 'PosOnlineStore',
+        'kedai-online', 'Kedai Online', 'Kedai Online', 'heroicon-o-globe-alt', 'Jualan', 28, 'pos', true],
+
+    // 12. OmniOrder — pesanan omnichannel
+    ['OmniOrders', 'OmniOrderResource', 'OmniOrder',
+        'pesanan-omnichannel', 'Pesanan', 'Pesanan Omnichannel', 'heroicon-o-shopping-bag', 'Jualan', 29, 'omni_order', true],
+    ['OmniCouriers', 'OmniCourierResource', 'OmniCourier',
+        'kurier', 'Kurier', 'Kurier', 'heroicon-o-truck', 'Jualan', 30, 'omni_order', true],
+
+    // 13. SocialBridge — terhindar silang
+    ['SocialAccounts', 'SocialAccountResource', 'SocialAccount',
+        'akaun-sosial', 'Akaun Sosial', 'Akaun Sosial', 'heroicon-o-share', 'Pemasaran', 64, 'social_bridge', true],
+    ['SocialPosts', 'SocialPostResource', 'SocialPost',
+        'catatan-sosial', 'Catatan', 'Catatan Sosial', 'heroicon-o-pencil-square', 'Pemasaran', 63, 'social_bridge', true],
+
+    // 14. ContentForge — kandungan & SEO
+    ['ContentDocuments', 'ContentDocumentResource', 'ContentDocument',
+        'dokumen-kandungan', 'Dokumen', 'Dokumen Kandungan', 'heroicon-o-pencil', 'Pemasaran', 68, 'content_forge', true],
+    ['ContentSites', 'ContentSiteResource', 'ContentSite',
+        'laman-kandungan', 'Laman', 'Laman Kandungan', 'heroicon-o-globe', 'Pemasaran', 69, 'content_forge', true],
+
+    // 15. WhatsAppSuite — automasi WhatsApp
+    ['WaDevices', 'WaDeviceResource', 'WaDevice',
+        'peranti-wa', 'Peranti', 'Peranti WhatsApp', 'heroicon-o-device-phone-mobile', 'Sokongan', 92, 'whatsapp_suite', true],
+    ['WaCampaigns', 'WaCampaignResource', 'WaCampaign',
+        'kempen-wa', 'Kempen', 'Kempen WhatsApp', 'heroicon-o-megaphone', 'Sokongan', 93, 'whatsapp_suite', true],
+    ['WaContacts', 'WaContactResource', 'WaContact',
+        'kontak-wa', 'Kontak', 'Kontak WhatsApp', 'heroicon-o-users', 'Sokongan', 94, 'whatsapp_suite', true],
 ];
 
 $ditulis = 0;

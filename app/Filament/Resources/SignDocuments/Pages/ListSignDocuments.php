@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SignDocuments\Pages;
 
 use App\Filament\Resources\SignDocuments\SignDocumentResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListSignDocuments extends ListRecords
@@ -11,6 +12,6 @@ class ListSignDocuments extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

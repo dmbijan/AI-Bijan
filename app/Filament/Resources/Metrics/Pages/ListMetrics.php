@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Metrics\Pages;
 
 use App\Filament\Resources\Metrics\MetricResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListMetrics extends ListRecords
@@ -11,6 +12,6 @@ class ListMetrics extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

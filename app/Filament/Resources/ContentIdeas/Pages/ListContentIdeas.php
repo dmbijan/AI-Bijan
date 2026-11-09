@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ContentIdeas\Pages;
 
 use App\Filament\Resources\ContentIdeas\ContentIdeaResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListContentIdeas extends ListRecords
@@ -11,6 +12,6 @@ class ListContentIdeas extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

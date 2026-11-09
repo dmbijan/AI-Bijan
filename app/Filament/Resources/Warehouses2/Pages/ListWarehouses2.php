@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Warehouses2\Pages;
 
 use App\Filament\Resources\Warehouses2\WarehouseResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListWarehouses2 extends ListRecords
@@ -11,6 +12,6 @@ class ListWarehouses2 extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

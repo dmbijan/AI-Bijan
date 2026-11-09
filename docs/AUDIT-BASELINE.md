@@ -27,9 +27,9 @@ controller, resource Filament, widget, laluan, kaedah ujian). Dijana oleh
 | Model | **372** | `app/Modules/**/Models/*.php` |
 | Service | **197** | `app/Modules/**/Services/*.php` |
 | Controller (modul) | **150** | `app/Modules/**/Http/Controllers/*.php` |
-| Resource Filament | **66** | direktori di `app/Filament/Resources/` |
+| Resource Filament | **98** | direktori di `app/Filament/Resources/` |
 | Widget dashboard | **6** | `app/Filament/Widgets/*.php` |
-| Kaedah ujian | **1,150** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
+| Kaedah ujian | **1,151** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
 | Laluan `api/v1` | **1,629** | router Laravel (`php artisan route:list`) |
 | Jadual DB sebenar | **440** | `sqlite_master` / `SHOW TABLES` |
 | Kebenaran | **252** | jadual `permissions` |

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Campaigns\Pages;
 
 use App\Filament\Resources\Campaigns\CampaignResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListCampaigns extends ListRecords
@@ -11,6 +12,6 @@ class ListCampaigns extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }

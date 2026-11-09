@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\FleetVehicles\Pages;
 
 use App\Filament\Resources\FleetVehicles\FleetVehicleResource;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListFleetVehicles extends ListRecords
@@ -11,6 +12,6 @@ class ListFleetVehicles extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [\Filament\Actions\CreateAction::make()];
+        return [CreateAction::make()];
     }
 }
