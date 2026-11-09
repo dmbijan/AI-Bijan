@@ -22,17 +22,17 @@ controller, resource Filament, widget, laluan, kaedah ujian). Dijana oleh
 
 | METRIK | **NILAI** | CARA DIUKUR |
 |---|---|---:|
-| Modul | **75** | direktori di `app/Modules/` |
+| Modul | **76** | direktori di `app/Modules/` |
 | Migration | **58** | fail di `database/migrations/` |
-| Model | **372** | `app/Modules/**/Models/*.php` |
-| Service | **197** | `app/Modules/**/Services/*.php` |
-| Controller (modul) | **150** | `app/Modules/**/Http/Controllers/*.php` |
-| Resource Filament | **98** | direktori di `app/Filament/Resources/` |
+| Model | **382** | `app/Modules/**/Models/*.php` |
+| Service | **204** | `app/Modules/**/Services/*.php` |
+| Controller (modul) | **153** | `app/Modules/**/Http/Controllers/*.php` |
+| Resource Filament | **152** | direktori di `app/Filament/Resources/` |
 | Widget dashboard | **6** | `app/Filament/Widgets/*.php` |
-| Kaedah ujian | **1,151** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
-| Laluan `api/v1` | **1,629** | router Laravel (`php artisan route:list`) |
-| Jadual DB sebenar | **440** | `sqlite_master` / `SHOW TABLES` |
-| Kebenaran | **252** | jadual `permissions` |
+| Kaedah ujian | **1,193** | `test*` + `#[Test]` + `/** @test */` di `tests/` |
+| Laluan `api/v1` | **1,660** | router Laravel (`php artisan route:list`) |
+| Jadual DB sebenar | **450** | `sqlite_master` / `SHOW TABLES` |
+| Kebenaran | **261** | jadual `permissions` |
 
 ### 1.1 Angka tambahan (kiraan statik manual)
 
@@ -72,20 +72,20 @@ Baseline ini menggantikan angka berikut yang tersalah papar dalam dokumen lama:
 
 | Metrik | Nilai lama (salah) | Nilai sebenar | Sumber nilai lama |
 |---|---:|---:|---|
-| Laluan API | 1,518 | **1,419** | `SISTEM-AI-BIJAN.md`, `TODO.md`, `AUDIT-INDUK` |
-| Laluan API | 1,388 | **1,419** | `KATALOG-MODUL-AI-BIJAN.md` |
-| Ujian lulus | 962 / 963 / 1,009 | **1,136 kaedah** | `AUDIT-INDUK`, `TODO.md` |
-| Jadual DB | 346 / 366 | **379** (ukur sebenar) | `AUDIT-INDUK`, `SISTEM` |
-| Migration | 49 / 55 / 58 | **56** | `TODO.md`, `SISTEM`, v9.6 |
-| Resource Filament | 65 / 66 | **66** | semua dokumen |
-| Model | 292 / 310 | **312** | `AUDIT-INDUK`, `TODO.md` |
-| Service | 166 / 174 | **179** | `AUDIT-INDUK`, `TODO.md` |
-| Controller | 127 / 134 | **135** | `AUDIT-INDUK`, `TODO.md` |
-| Modul | 58 (+1 spesifikasi) | **60 (semua dikod)** | `AUDIT-INDUK` §3.1 |
+| Laluan API | 1,518 | **1,660** | `SISTEM-AI-BIJAN.md`, `TODO.md`, `AUDIT-INDUK` |
+| Laluan API | 1,388 | **1,660** | `KATALOG-MODUL-AI-BIJAN.md` |
+| Ujian lulus | 962 / 963 / 1,009 | **1,192 kaedah** | `AUDIT-INDUK`, `TODO.md` |
+| Jadual DB | 346 / 366 | **450** (ukur sebenar) | `AUDIT-INDUK`, `SISTEM` |
+| Migration | 49 / 55 / 58 | **58** | `TODO.md`, `SISTEM`, v9.6 |
+| Resource Filament | 65 / 66 | **152** | semua dokumen |
+| Model | 292 / 310 | **382** | `AUDIT-INDUK`, `TODO.md` |
+| Service | 166 / 174 | **204** | `AUDIT-INDUK`, `TODO.md` |
+| Controller | 127 / 134 | **153** | `AUDIT-INDUK`, `TODO.md` |
+| Modul | 58 (+1 spesifikasi) | **76 (semua dikod)** | `AUDIT-INDUK` §3.1 |
 
 > **Nota jadual.** "368 jadual" dalam dokumen lama ialah kiraan fail migration,
 > bukan jadual sebenar — satu migration boleh mencipta beberapa jadual. Nilai
-> sebenar (`379`) diukur daripada `sqlite_master` oleh `skrip/jana-baseline.php`.
+> sebenar (`450`) diukur daripada `sqlite_master` oleh `skrip/jana-baseline.php`.
 
 ---
 

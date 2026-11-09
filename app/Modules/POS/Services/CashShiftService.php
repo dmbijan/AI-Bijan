@@ -3,6 +3,11 @@
 namespace App\Modules\POS\Services;
 
 use App\Modules\POS\Models\CashShift;
+use App\Modules\POS\Models\POSSale;
+use App\Modules\POS\Models\POSSalePayment;
+use App\Modules\POS\Models\POSSaleTender;
+use App\Modules\POS\Models\POSShiftCashMovement;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -11,7 +16,7 @@ class CashShiftService
     /**
      * Open a new cash shift for a register.
      */
-    public function openShift(int $registerId, int $userId, float $openingCash = 200.00, int $tenantId): CashShift
+    public function openShift(int $registerId, int $userId, int $tenantId, float $openingCash = 200.00): CashShift
     {
         // Check if there's already an open shift for this register
         $existingOpen = CashShift::forTenant($tenantId)
@@ -58,13 +63,13 @@ class CashShiftService
     {
         $shift = $this->getShift($shiftId, $tenantId);
 
-        if (!$shift || $shift->status !== 'open') {
+        if (! $shift || $shift->status !== 'open') {
             throw ValidationException::withMessages([
                 'shift_id' => ['Shift not found or already closed.'],
             ]);
         }
 
-        return DB::transaction(function () use ($shift, $closureData, $userId, $tenantId) {
+        return DB::transaction(function () use ($shift, $closureData, $userId) {
             $closingCash = $closureData['closing_cash'] ?? 0;
             $expectedCash = $this->calculateExpectedCash($shift);
             $cashDiscrepancy = $closingCash - $expectedCash;
@@ -97,22 +102,22 @@ class CashShiftService
      */
     public function calculateExpectedCash(CashShift $shift): float
     {
-        $tunaiDiterima = (float) \App\Modules\POS\Models\POSSaleTender::query()
+        $tunaiDiterima = (float) POSSaleTender::query()
             ->whereHas('sale', fn ($q) => $q
                 ->where('cash_shift_id', $shift->id)
                 ->where('status', 'completed'))
-            ->where('method', \App\Modules\POS\Models\POSSaleTender::METHOD_CASH)
+            ->where('method', POSSaleTender::METHOD_CASH)
             ->sum('cash_received');
 
-        $bakiDipulangkan = (float) \App\Modules\POS\Models\POSSaleTender::query()
+        $bakiDipulangkan = (float) POSSaleTender::query()
             ->whereHas('sale', fn ($q) => $q
                 ->where('cash_shift_id', $shift->id)
                 ->where('status', 'completed'))
-            ->where('method', \App\Modules\POS\Models\POSSaleTender::METHOD_CASH)
+            ->where('method', POSSaleTender::METHOD_CASH)
             ->sum('change_amount');
 
         // Rekod lama (sebelum T-79) hanya ada pos_sale_payments.
-        $tunaiLama = (float) \App\Modules\POS\Models\POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
+        $tunaiLama = (float) POSSalePayment::join('pos_sales', 'pos_sale_payments.sale_id', '=', 'pos_sales.id')
             ->where('pos_sales.cash_shift_id', $shift->id)
             ->where('pos_sales.status', 'completed')
             ->where('pos_sale_payments.payment_method', 'cash')
@@ -129,7 +134,7 @@ class CashShiftService
     /**
      * List cash shifts with filters.
      */
-    public function listShifts(int $tenantId, array $filters = []): \Illuminate\Pagination\LengthAwarePaginator
+    public function listShifts(int $tenantId, array $filters = []): LengthAwarePaginator
     {
         $query = CashShift::forTenant($tenantId)
             ->with(['register', 'opener', 'closer']);
@@ -166,7 +171,7 @@ class CashShiftService
     {
         $shift = $this->getShift($shiftId, $tenantId);
 
-        if (!$shift || $shift->status !== 'closed') {
+        if (! $shift || $shift->status !== 'closed') {
             return null;
         }
 
@@ -193,12 +198,12 @@ class CashShiftService
         float $amaun,
         ?string $sebab = null,
         ?int $userId = null
-    ): \App\Modules\POS\Models\POSShiftCashMovement {
+    ): POSShiftCashMovement {
         $jenisSah = [
-            \App\Modules\POS\Models\POSShiftCashMovement::TYPE_DROP,
-            \App\Modules\POS\Models\POSShiftCashMovement::TYPE_PICKUP,
-            \App\Modules\POS\Models\POSShiftCashMovement::TYPE_EXPENSE,
-            \App\Modules\POS\Models\POSShiftCashMovement::TYPE_ADJUSTMENT,
+            POSShiftCashMovement::TYPE_DROP,
+            POSShiftCashMovement::TYPE_PICKUP,
+            POSShiftCashMovement::TYPE_EXPENSE,
+            POSShiftCashMovement::TYPE_ADJUSTMENT,
         ];
 
         if (! in_array($jenis, $jenisSah, true)) {
@@ -233,19 +238,19 @@ class CashShiftService
      */
     public function ringkasan(CashShift $shift): array
     {
-        $jualan = \App\Modules\POS\Models\POSSale::where('cash_shift_id', $shift->id)
+        $jualan = POSSale::where('cash_shift_id', $shift->id)
             ->where('status', 'completed')
             ->get();
 
-        $tender = \App\Modules\POS\Models\POSSaleTender::query()
+        $tender = POSSaleTender::query()
             ->whereHas('sale', fn ($q) => $q
                 ->where('cash_shift_id', $shift->id)
                 ->where('status', 'completed'))
             ->get();
 
-        $tunaiDiterima = (float) $tender->where('method', \App\Modules\POS\Models\POSSaleTender::METHOD_CASH)->sum('cash_received');
-        $bakiDipulangkan = (float) $tender->where('method', \App\Modules\POS\Models\POSSaleTender::METHOD_CASH)->sum('change_amount');
-        $bukanTunai = (float) $tender->where('method', '!=', \App\Modules\POS\Models\POSSaleTender::METHOD_CASH)->sum('amount');
+        $tunaiDiterima = (float) $tender->where('method', POSSaleTender::METHOD_CASH)->sum('cash_received');
+        $bakiDipulangkan = (float) $tender->where('method', POSSaleTender::METHOD_CASH)->sum('change_amount');
+        $bukanTunai = (float) $tender->where('method', '!=', POSSaleTender::METHOD_CASH)->sum('amount');
 
         $pergerakanKeluar = (float) $shift->cashMovements
             ->filter(fn ($m) => $m->kesanPadaLaci() < 0)
@@ -320,7 +325,7 @@ class CashShiftService
             'closed_shifts' => $shifts->where('status', 'closed')->count(),
             'locked_shifts' => $shifts->where('status', 'locked')->count(),
             'total_discrepancy' => $shifts->sum('cash_discrepancy'),
-            'avg_shift_duration' => $shifts->filter(fn($s) => $s->closed_at)->avg(fn($s) => $s->opened_at->diffInMinutes($s->closed_at)),
+            'avg_shift_duration' => $shifts->filter(fn ($s) => $s->closed_at)->avg(fn ($s) => $s->opened_at->diffInMinutes($s->closed_at)),
         ];
     }
 }

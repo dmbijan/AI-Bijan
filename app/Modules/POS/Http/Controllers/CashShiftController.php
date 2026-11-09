@@ -2,16 +2,14 @@
 
 namespace App\Modules\POS\Http\Controllers;
 
-use App\Support\Tenancy\TenantContext;
-
 use App\Http\Controllers\Controller;
 use App\Modules\POS\Services\CashShiftService;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class CashShiftController extends Controller
 {
-
     /**
      * ID tenant semasa — MESTI dari konteks keahlian, BUKAN input klien.
      *
@@ -22,6 +20,7 @@ class CashShiftController extends Controller
     {
         return (int) app(TenantContext::class)->id();
     }
+
     protected CashShiftService $cashShiftService;
 
     public function __construct(CashShiftService $cashShiftService)
@@ -46,7 +45,7 @@ class CashShiftController extends Controller
     {
         $shift = $this->cashShiftService->getShift($id, $this->tenantId());
 
-        if (!$shift) {
+        if (! $shift) {
             return response()->json(['message' => 'Shift not found.'], 404);
         }
 
@@ -67,8 +66,8 @@ class CashShiftController extends Controller
             $shift = $this->cashShiftService->openShift(
                 $validated['register_id'],
                 $request->user()->id,
-                $validated['opening_cash'] ?? config('pos.cash_shift.float_cash', 200.00),
-                $this->tenantId()
+                $this->tenantId(),
+                $validated['opening_cash'] ?? config('pos.cash_shift.float_cash', 200.00)
             );
 
             return response()->json($shift, 201);
@@ -84,7 +83,7 @@ class CashShiftController extends Controller
     {
         $shift = $this->cashShiftService->getOpenShift($registerId, $this->tenantId());
 
-        if (!$shift) {
+        if (! $shift) {
             return response()->json(['message' => 'No open shift for this register.'], 404);
         }
 
@@ -122,7 +121,7 @@ class CashShiftController extends Controller
     {
         $result = $this->cashShiftService->lockShift($id, $request->user()->id, $this->tenantId());
 
-        if (!$result) {
+        if (! $result) {
             return response()->json(['message' => 'Shift not found or not in closed status.'], 404);
         }
 

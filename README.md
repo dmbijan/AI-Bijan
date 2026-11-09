@@ -56,7 +56,7 @@ Panduan penuh: [`docs/getting-started.md`](docs/getting-started.md)
 |---|---|
 | Backend | **Laravel 12.70.1** · **PHP 8.2.12** |
 | Pangkalan data | SQLite (dev) · MySQL 8.x (prod) |
-| Admin panel | **Filament 3.3.53** — 66 resource di `/admin` |
+| Admin panel | **Filament 3.3.53** — 147 resource di `/admin` |
 | Auth | Laravel Sanctum + `spatie/laravel-permission` |
 | Cache / Queue | Laravel database driver |
 | Frontend | Blade + Vite |
@@ -69,7 +69,7 @@ Panduan penuh: [`docs/getting-started.md`](docs/getting-started.md)
 | Lokasi | Isi |
 |---|---|
 | `app/Modules/` | **75 modul** domain — setiap satu provider + config + routes sendiri |
-| `app/Filament/` | **66 resource** UI admin |
+| `app/Filament/` | **147 resource** UI admin |
 | `app/Support/Tenancy/` | `TenantContext` — pusat pengasingan tenant |
 | `routes/api.php` | Laluan API utama |
 | `docs/` | **49 dokumen** aktif · `archive/` untuk versi lama |
@@ -108,9 +108,10 @@ Senarai penuh: [`docs/SENARAI-MODUL.md`](docs/SENARAI-MODUL.md)
 | Jurang | Nilai | Kesan |
 |---|---|---|
 | UI untuk 15 modul integrasi 2026 | ✅ **30/30 resource** | Semua modul ada UI Filament + 30 ujian render HTTP 200 |
+| UI untuk 20 modul baki + BLive + McpStudio | ✅ **59/59 resource** | `tests/Feature/Remaining20UiTest.php` |
 | Unit test | **2 fail** (vs 142 feature) | Logik domain tidak diuji unit |
 | Ujian API pengasingan | **43/56** | 13 modul hanya uji model |
-| UI Filament keseluruhan | **55/75 modul** | 20 modul API sahaja |
+| UI Filament keseluruhan | ✅ **147 resource** | Setiap modul domain ada sekurang-kurangnya satu resource |
 | OpenAPI / Swagger | **Tiada** | 1,629 laluan tanpa skema |
 
 📄 Analisis penuh + keutamaan: [`docs/NIRVANA-AI-BIJAN.md`](docs/NIRVANA-AI-BIJAN.md)

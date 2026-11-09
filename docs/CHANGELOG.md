@@ -9,6 +9,57 @@ sebelum ini berselerak dalam `TODO.md`, supaya `TODO.md` boleh menjadi senarai
 
 ---
 
+## v9.7 — UI Penuh 76 Modul (Filament)
+
+### Kerja berbukti kod
+
+- **UI Filament untuk 20 modul baki** (P0-11) dibina. `skrip/jana-resource.php`
+  kehilangan ~30 definisi; kini penjana menulis **152 resource** (dari 66 pada
+  v9.6). Modul platform yang guna model teras (`Helpdesk`→`Ticket`,
+  `Inventory`→`Item`/`Warehouse`, `Manufacturing`→`Bom`/`WorkOrder`,
+  `SalesCopilot`→`Prospect`) kini ada UI tanpa model tambahan.
+- **Modul `BLive`** (host digital AI) dan **`McpStudio`** (Model Context
+  Protocol) previously tiada UI langsung — kini **16 resource** baharu
+  (`LiveAvatars`, `LiveHostPersonalities`, `LiveSessions`, `LiveStreamDestinations`,
+  `LiveMessages`, `LiveModerationEvents`, `LiveRenderJobs`, `LiveConsentRecords`,
+  `LiveMetrics`, `LiveControls`, `McpTools`, `McpResources`, `McpPrompts`,
+  `McpSessions`, `McpExecutions`, `McpAuditLogs`).
+- **9 kebenaran baharu** ditambah ke `config/aibijan.php`:
+  `billing.view/manage`, `team_ai.view/manage`, `blive.view/manage/execute`,
+  `ai_gateway.view/manage` — namespace `billing`, `team_ai`, `blive` tidak
+  wujud dalam katalog sebelum ini, jadi resource Filament baharu ditolak 403.
+  Peranan `tenant_admin` (206 kebenaran) dan `staff` (62) dikemas kini.
+- **Pepijat sebenar ditemui & dibaiki:** `App\Modules\BLive\Models\ModerationEvent`
+  merujuk `self::SOURCE_AI` yang hanyaتهي ada pada `LiveMessage` — setiap
+  instantiate `ModerationEvent` meneka `Error: Undefined constant`.
+- **Validasi ikon kekal dalam penjana:** `skrip/jana-resource.php` kini
+  menyemak setiap ikon terhadap `vendor/blade-ui-kit/blade-heroicons/…/o-*.svg`
+  dan menggantikan ia dengan `heroicon-o-cube` jika tiada. Tiga ikon rosak
+  (`globe`, `waving-hand`, `clipboard-check`) telah diganti kepada
+  `globe-alt` / `hand-raised` / `clipboard-document-check`.
+- **`tests/Feature/Remaining20UiTest.php`** ditambah — **59 ujian** render
+  HTTP 200 merangkumi 20 modul baki + BLive + McpStudio, termasuk satu ujian
+  liputan yang mengesahkan setiap namespace kebenaran modul ada resource.
+
+### Dokumen
+
+- `AUDIT-BASELINE.md` dijana semula: **76 modul / 58 migration / 382 model /
+  204 servis / 153 controller / 152 resource / 1,192 kaedah ujian / 1,660 laluan
+  `api/v1` / 450 jadual / 261 kebenaran**. §2 jadual "nilai lama vs sebenar"
+  dikemas kini kepada angka terkini.
+- `NIRVANA-AI-BIJAN.md` §6 jurang & §7 P0/P1: P0-11 (UI 20 modul baki)
+  ditanda ✅. `README.md` dikemas kini (152 resource).
+
+### Isu terbuka (tidak diselesaikan)
+
+- Unit test domain masih 2 fail sahaja (vs 142 feature).
+- 13 modul masih tanpa ujian API pengasingan sebenar.
+- Tiada skema OpenAPI untuk 1,660 laluan.
+- `billing.*`, `team_ai.*`, `blive.*` kini kebenaran UI sahaja — tiada laluan
+  API menggunakannya lagi.
+
+---
+
 ## v9.6.1 — 28 Oktober 2026
 
 ### Kerja berbukti kod (bukan dokumen)

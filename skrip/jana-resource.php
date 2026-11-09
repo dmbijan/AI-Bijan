@@ -250,7 +250,7 @@ $definisi = [
 
     // 3. OpenWhispr — diktasi
     ['DictationSessions', 'DictationSessionResource', 'DictationSession',
-        'sesi-diktasi', 'Sesi Diktasi', 'Sesi Diktasi', 'heroicon-o-waving-hand', 'Integrasi AI', 14, 'open_whispr', false],
+        'sesi-diktasi', 'Sesi Diktasi', 'Sesi Diktasi', 'heroicon-o-hand-raised', 'Integrasi AI', 14, 'open_whispr', false],
     ['DictationVocabularies', 'DictationVocabularyResource', 'DictationVocabulary',
         'kamus-diktasi', 'Kamus', 'Kamus Diktasi', 'heroicon-o-book-open', 'Integrasi AI', 15, 'open_whispr', true],
 
@@ -320,7 +320,7 @@ $definisi = [
     ['ContentDocuments', 'ContentDocumentResource', 'ContentDocument',
         'dokumen-kandungan', 'Dokumen', 'Dokumen Kandungan', 'heroicon-o-pencil', 'Pemasaran', 68, 'content_forge', true],
     ['ContentSites', 'ContentSiteResource', 'ContentSite',
-        'laman-kandungan', 'Laman', 'Laman Kandungan', 'heroicon-o-globe', 'Pemasaran', 69, 'content_forge', true],
+        'laman-kandungan', 'Laman', 'Laman Kandungan', 'heroicon-o-globe-alt', 'Pemasaran', 69, 'content_forge', true],
 
     // 15. WhatsAppSuite — automasi WhatsApp
     ['WaDevices', 'WaDeviceResource', 'WaDevice',
@@ -329,6 +329,162 @@ $definisi = [
         'kempen-wa', 'Kempen', 'Kempen WhatsApp', 'heroicon-o-megaphone', 'Sokongan', 93, 'whatsapp_suite', true],
     ['WaContacts', 'WaContactResource', 'WaContact',
         'kontak-wa', 'Kontak', 'Kontak WhatsApp', 'heroicon-o-users', 'Sokongan', 94, 'whatsapp_suite', true],
+
+    // ===== UI MODUL BAKI (20 modul tanpa Filament) =====
+    // 1. AIGateway — katalog model & wallet kredit
+    ['AiModels', 'AiModelResource', 'AiModel',
+        'model-ai', 'Model AI', 'Model AI', 'heroicon-o-cpu-chip', 'AI', 5, 'ai_gateway', false],
+    ['AiUsageEvents', 'AiUsageEventResource', 'AiUsageEvent',
+        'penggunaan-ai', 'Penggunaan AI', 'Penggunaan AI', 'heroicon-o-chart-bar', 'AI', 6, 'ai_gateway', false],
+
+    // 2. Billing — langganan & reseller
+    ['BillingSubscriptions', 'BillingSubscriptionResource', 'BillingSubscription',
+        'langganan', 'Langganan', 'Langganan', 'heroicon-o-credit-card', 'Kewangan', 12, 'billing', false],
+    ['Resellers', 'ResellerResource', 'Reseller',
+        'reseller', 'Reseller', 'Reseller', 'heroicon-o-user-group', 'Kewangan', 13, 'billing', true],
+    ['ResellerCommissions', 'ResellerCommissionResource', 'ResellerCommission',
+        'komisen-reseller', 'Komisen', 'Komisen Reseller', 'heroicon-o-banknotes', 'Kewangan', 14, 'billing', false],
+
+    // 3. BrainHub — insight, ramalan, cadangan
+    ['BrainInsights', 'InsightResource', 'Insight',
+        'insight', 'Insight', 'Insight', 'heroicon-o-light-bulb', 'Intelijen', 11, 'brainhub', false],
+    ['BrainForecasts', 'ForecastResource', 'Forecast',
+        'ramalan', 'Ramalan', 'Ramalan', 'heroicon-o-arrow-trending-up', 'Intelijen', 12, 'brainhub', false],
+    ['BrainRecommendations', 'RecommendationResource', 'Recommendation',
+        'cadangan', 'Cadangan', 'Cadangan', 'heroicon-o-sparkles', 'Intelijen', 13, 'brainhub', false],
+
+    // 4. COGS — kos produk
+    ['ProductCosts', 'ProductCostResource', 'ProductCost',
+        'kos-produk', 'Kos Produk', 'Kos Produk', 'heroicon-o-calculator', 'Kewangan', 15, 'finance', false],
+    ['CostComponents', 'CostComponentResource', 'CostComponent',
+        'komponen-kos', 'Komponen Kos', 'Komponen Kos', 'heroicon-o-puzzle-piece', 'Kewangan', 16, 'finance', false],
+
+    // 5. Community — ruang komuniti
+    ['CommunitySpaces', 'CommunitySpaceResource', 'CommunitySpace',
+        'ruang-komuniti', 'Ruang', 'Ruang Komuniti', 'heroicon-o-users', 'Komuniti', 75, 'community', true],
+    ['CommunityPosts', 'CommunityPostResource', 'CommunityPost',
+        'post-komuniti', 'Post', 'Post Komuniti', 'heroicon-o-chat-bubble-oval-left-ellipsis', 'Komuniti', 76, 'community', true],
+
+    // 6. Entitlement — plan, grant, had
+    ['EntitlementGrants', 'EntitlementGrantResource', 'EntitlementGrant',
+        'grant-modul', 'Grant Modul', 'Grant Modul', 'heroicon-o-key', 'Tetapan', 95, 'entitlement', true],
+    ['PlanLimits', 'PlanLimitResource', 'PlanLimit',
+        'had-plan', 'Had Plan', 'Had Plan', 'heroicon-o-adjustments-horizontal', 'Tetapan', 96, 'entitlement', true],
+    ['UsageCounters', 'UsageCounterResource', 'UsageCounter',
+        'kaunter-guna', 'Kaunter', 'Kaunter Guna', 'heroicon-o-chart-pie', 'Tetapan', 97, 'entitlement', false],
+
+    // 7. ExecutiveAI — ringkasan eksekutif
+    ['ExecutiveBriefings', 'ExecutiveBriefingResource', 'ExecutiveBriefing',
+        'ringkasan-eksekutif', 'Ringkasan', 'Ringkasan Eksekutif', 'heroicon-o-presentation-chart-bar', 'AI', 7, 'executive_ai', false],
+
+    // 8. Fundamental — pemerSaatan & amaran
+    ['MetricSnapshots', 'MetricSnapshotResource', 'MetricSnapshot',
+        'metrik-pemantauan', 'Metrik', 'Metrik Pemantauan', 'heroicon-o-chart-bar', 'Tetapan', 98, 'fundamental', false],
+    ['AlertRules', 'AlertRuleResource', 'AlertRule',
+        'peraturan-amaran', 'Peraturan Amaran', 'Peraturan Amaran', 'heroicon-o-exclamation-triangle', 'Tetapan', 99, 'fundamental', true],
+    ['RestoreDrills', 'RestoreDrillResource', 'RestoreDrill',
+        'latihan-pulih', 'Latihan Pulih', 'Latihan Pemulihan', 'heroicon-o-arrow-path', 'Tetapan', 100, 'fundamental', false],
+
+    // 9. Helpdesk — resource 'Tickets' sudah wujud dalam definisi atas
+    // 10. Inventory — 'Items' juga sudah wujud; tambah Gudang sahaja
+    ['Warehouses', 'WarehouseResource', 'Warehouse',
+        'gudang', 'Gudang', 'Gudang', 'heroicon-o-building-storefront', 'Inventori', 12, 'inventory', true],
+
+    // 11. Link — dynamic links & kad digital
+    ['LinkPages', 'LinkPageResource', 'LinkPage',
+        'laman-pautan', 'Laman Pautan', 'Laman Pautan', 'heroicon-o-link', 'Pemasaran', 67, 'link', true],
+    ['DigitalCards', 'DigitalCardResource', 'DigitalCard',
+        'kad-digital', 'Kad Digital', 'Kad Digital', 'heroicon-o-identification', 'Pemasaran', 62, 'link', true],
+
+    // 12. LiveSupport — saluran & panggilan
+    ['LiveSupportChannels', 'LiveSupportChannelResource', 'LiveSupportChannel',
+        'saluran-sokongan', 'Saluran', 'Saluran Sokongan', 'heroicon-o-phone', 'Sokongan', 96, 'live_support', true],
+    ['LiveSupportCalls', 'LiveSupportCallResource', 'LiveSupportCall',
+        'panggilan-sokongan', 'Panggilan', 'Panggilan Sokongan', 'heroicon-o-device-phone-mobile', 'Sokongan', 97, 'live_support', false],
+
+    // 13. Manufacturing — BOM & work order
+    ['Boms', 'BomResource', 'Bom',
+        'resen-pengeluaran', 'Resen', 'Resen Pengeluaran', 'heroicon-o-clipboard-document-list', 'Inventori', 13, 'manufacturing', true],
+    ['WorkOrders', 'WorkOrderResource', 'WorkOrder',
+        'perintah-kerja', 'Perintah Kerja', 'Perintah Kerja', 'heroicon-o-wrench-screwdriver', 'Inventori', 14, 'manufacturing', true],
+
+    // 14. McpStudio — alat & sesi MCP
+    ['McpTools', 'McpToolResource', 'McpTool',
+        'alat-mcp', 'Alat', 'Alat MCP', 'heroicon-o-wrench', 'AI', 8, 'mcp_studio', true],
+    ['McpSessions', 'McpSessionResource', 'McpSession',
+        'sesi-mcp', 'Sesi', 'Sesi MCP', 'heroicon-o-server-stack', 'AI', 9, 'mcp_studio', false],
+
+    // 15. MediaEditor — projek & template
+    ['MediaProjects', 'MediaProjectResource', 'MediaProject',
+        'projek-media', 'Projek Media', 'Projek Media', 'heroicon-o-film', 'Media', 20, 'media_editor', true],
+    ['MediaTemplates', 'MediaTemplateResource', 'MediaTemplate',
+        'templat-media', 'Templat', 'Templat Media', 'heroicon-o-swatch', 'Media', 21, 'media_editor', true],
+
+    // 16. ProofOfValue — metrik hasil
+    ['PovMetrics', 'PovMetricResource', 'PovMetric',
+        'metrik-hasil', 'Metrik Hasil', 'Metrik Hasil', 'heroicon-o-chart-bar', 'Intelijen', 14, 'proof_of_value', true],
+    ['PovReadings', 'PovReadingResource', 'PovReading',
+        'bacaan-hasil', 'Bacaan', 'Bacaan Hasil', 'heroicon-o-book-open', 'Intelijen', 15, 'proof_of_value', false],
+
+    // 17. SalesCopilot — brief prospek & analisis balasan
+    ['SalesCopilotProspects', 'SalesCopilotProspectResource', 'Prospect',
+        'prospekt-jualan', 'Prospek Jualan', 'Prospek Jualan', 'heroicon-o-sparkles', 'Jualan', 33, 'sales_copilot', false],
+
+    // 18. SignDocs — dokumen & tandatangan
+    ['Documents', 'DocumentResource', 'Document',
+        'dokumen', 'Dokumen', 'Dokumen', 'heroicon-o-document-text', 'Dokumen', 12, 'sign_docs', true],
+    ['Signatures', 'SignatureResource', 'Signature',
+        'tandatangan', 'Tandatangan', 'Tandatangan', 'heroicon-o-pencil', 'Dokumen', 13, 'sign_docs', true],
+    ['SignTemplates', 'TemplateResource', 'Template',
+        'templat-tandatangan', 'Templat', 'Templat Tandatangan', 'heroicon-o-document-duplicate', 'Dokumen', 14, 'sign_docs', true],
+
+    // 19. TeamAI — repositori & aset pasukan
+    ['TeamAiRepositories', 'TeamAiRepositoryResource', 'TeamAiRepository',
+        'repositori-pasukan', 'Repositori', 'Repositori Pasukan', 'heroicon-o-rectangle-group', 'AI', 10, 'team_ai', true],
+    ['TeamAiAssets', 'TeamAiAssetResource', 'TeamAiAsset',
+        'aset-pasukan', 'Aset', 'Aset Pasukan', 'heroicon-o-cube-transparent', 'AI', 11, 'team_ai', true],
+
+    // 20. WorkflowStudio — aliran kerja
+    ['Workflows', 'WorkflowResource', 'Workflow',
+        'aliran-kerja', 'Aliran Kerja', 'Aliran Kerja', 'heroicon-o-puzzle-piece', 'Automasi', 84, 'workflow_studio', true],
+    ['WorkflowTemplates', 'WorkflowTemplateResource', 'WorkflowTemplate',
+        'templat-aliran', 'Templat Aliran', 'Templat Aliran Kerja', 'heroicon-o-document-duplicate', 'Automasi', 85, 'workflow_studio', true],
+
+    // 21. BLive — host digital, sesi langsung & penstriman
+    ['LiveAvatars', 'LiveAvatarResource', 'Avatar',
+        'avatar-live', 'Avatar', 'Avatar Live', 'heroicon-o-user-circle', 'Live', 40, 'blive', true],
+    ['LiveHostPersonalities', 'LiveHostPersonalityResource', 'HostPersonality',
+        'personaliti-hos', 'Personaliti Hos', 'Personaliti Hos', 'heroicon-o-face-smile', 'Live', 41, 'blive', true],
+    ['LiveSessions', 'LiveSessionResource', 'LiveSession',
+        'sesi-live', 'Sesi Live', 'Sesi Live', 'heroicon-o-video-camera', 'Live', 42, 'blive', false],
+    ['LiveStreamDestinations', 'LiveStreamDestinationResource', 'StreamDestination',
+        'saluran-penarahan', 'Saluran', 'Saluran Penstriman', 'heroicon-o-signal', 'Live', 43, 'blive', true],
+    ['LiveMessages', 'LiveMessageResource', 'LiveMessage',
+        'mesej-live', 'Mesej', 'Mesej Live', 'heroicon-o-chat-bubble-left-right', 'Live', 44, 'blive', false],
+    ['LiveModerationEvents', 'LiveModerationEventResource', 'ModerationEvent',
+        'moderasi-live', 'Moderasi', 'Moderasi Live', 'heroicon-o-shield-check', 'Live', 45, 'blive', false],
+    ['LiveRenderJobs', 'LiveRenderJobResource', 'RenderJob',
+        'kerja-render', 'Kerja Render', 'Kerja Render', 'heroicon-o-cpu-chip', 'Live', 46, 'blive', false],
+    ['LiveConsentRecords', 'LiveConsentRecordResource', 'ConsentRecord',
+        'kebenaran-live', 'Kebenaran', 'Kebenaran Live', 'heroicon-o-clipboard-document-check', 'Live', 47, 'blive', false],
+    ['LiveMetrics', 'LiveMetricResource', 'LiveMetric',
+        'metrik-live', 'Metrik', 'Metrik Live', 'heroicon-o-chart-bar-square', 'Live', 48, 'blive', false],
+    ['LiveControls', 'LiveControlResource', 'LiveControl',
+        'kawalan-live', 'Kawalan', 'Kawalan Live', 'heroicon-o-adjustments-horizontal', 'Live', 49, 'blive', false],
+
+    // 22. McpStudio — pelayan Model Context Protocol
+    ['McpTools', 'McpToolResource', 'McpTool',
+        'alat-mcp', 'Alat MCP', 'Alat MCP', 'heroicon-o-wrench-screwdriver', 'Integrasi', 50, 'mcp', true],
+    ['McpResources', 'McpResourceResource', 'McpResource',
+        'sumber-mcp', 'Sumber MCP', 'Sumber MCP', 'heroicon-o-circle-stack', 'Integrasi', 51, 'mcp', true],
+    ['McpPrompts', 'McpPromptResource', 'McpPrompt',
+        'prompt-mcp', 'Prompt', 'Prompt MCP', 'heroicon-o-command-line', 'Integrasi', 52, 'mcp', true],
+    ['McpSessions', 'McpSessionResource', 'McpSession',
+        'sesi-mcp', 'Sesi MCP', 'Sesi MCP', 'heroicon-o-arrow-path', 'Integrasi', 53, 'mcp', false],
+    ['McpExecutions', 'McpExecutionResource', 'McpExecution',
+        'pelaksanaan-mcp', 'Pelaksanaan', 'Pelaksanaan MCP', 'heroicon-o-play-circle', 'Integrasi', 54, 'mcp', false],
+    ['McpAuditLogs', 'McpAuditLogResource', 'McpAuditLog',
+        'log-mcp', 'Log Audit', 'Log Audit MCP', 'heroicon-o-clipboard-document-list', 'Integrasi', 55, 'mcp', false],
 ];
 
 $ditulis = 0;
@@ -336,6 +492,16 @@ $dilangkau = [];
 
 foreach ($definisi as $d) {
     [$folder, $kelas, $modelPendek, $slug, $label, $plural, $ikon, $kumpulan, $sort, $ns, $bolehCipta] = $d;
+
+    // ⚠️ Sahkan ikon benar-benar wujud dalam blade-heroicons. Ikon yang
+    // tidak sah menyebabkan 500 pada render Filament — semak di sini
+    // supaya penjana gagal cepat dan bukannya menapis render.
+    $ikonFail = __DIR__.'/../vendor/blade-ui-kit/blade-heroicons/resources/svg/o-'.substr($ikon, strlen('heroicon-o-')).'.svg';
+    if (! file_exists($ikonFail)) {
+        $ikonBenar = 'heroicon-o-cube';
+        $dilangkau[] = "{$kelas} ⚠ ikon tidak sah: {$ikon} → {$ikonBenar}";
+        $ikon = $ikonBenar;
+    }
 
     // Cari kelas penuh: App\Modules\<Modul>\Models\<Model>
     // ⚠️ Guna `file_exists`, BUKAN `class_exists` — model boleh gagal dimuat
@@ -361,6 +527,7 @@ foreach ($definisi as $d) {
     // Sahkan model wujud — jangan jana resource yang rosak.
     if ($model === null) {
         $dilangkau[] = "{$kelas} → model {$modelPendek} TIADA";
+
         continue;
     }
 
@@ -544,7 +711,7 @@ PHP;
 
     // ===== Halaman Senarai =====
     $aksiCipta = $bolehCipta
-        ? "        return [\\Filament\\Actions\\CreateAction::make()];"
+        ? '        return [\\Filament\\Actions\\CreateAction::make()];'
         : "        // Tiada \"Cipta\" — rekod ini dikawal oleh servis domain.\n        return [];";
 
     file_put_contents($dir."/Pages/List{$folder}.php", <<<PHP

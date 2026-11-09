@@ -33,6 +33,7 @@ return [
     App\Modules\CRM\CRMServiceProvider::class,
     App\Modules\Cod\CodServiceProvider::class,
     App\Modules\Billing\BillingServiceProvider::class,
+    App\Modules\BLive\BLiveServiceProvider::class,
     App\Modules\Community\CommunityServiceProvider::class,
     App\Modules\ContentStudio\ContentStudioServiceProvider::class,
     App\Modules\DocumentAI\DocumentAIServiceProvider::class,

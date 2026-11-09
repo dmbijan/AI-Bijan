@@ -69,6 +69,10 @@ down*.txt
 *.bak
 routes_dump.json
 ujian-*.txt
+.pinttmp/
+/storage/pint-k/
+/storage/test-suite.log
+/storage/framework/testing/
 
 # --- Horizen lain ---
 Homestead.json

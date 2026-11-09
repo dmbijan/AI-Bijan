@@ -46,7 +46,7 @@ Pelajar/Owner PKS  →  AI BIJAN  →  Owner, Pengurus, Ejen AI, Pelanggan
 └─────────────────────────┘      │ tenant + perm│       │ MySQL    │
          │                       └──────────────┘       │ (prod)   │
          ▼                                              └──────────┘
-  66 Filament resource (/admin)
+  147 Filament resource (/admin)
 ```
 
 | Domain | Modul |
@@ -232,8 +232,9 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 |---|---|---|
 | **Unit test** | **2 fail** (vs 142 feature) | Logik domain tiada ujian unit — hanya ujian Feature |
 | **Ujian API pengasingan** | **43/56** | 13 modul hanya uji model, bukan laluan API sebenar |
-| **UI Filament** | **55/75 modul** | 20 modul API sahaja |
+| **UI Filament** | ✅ **147 resource** | Setiap modul domain ada sekurang-kurangnya satu resource Filament |
 | **UI modul integrasi 2026** | ✅ **30/30 resource** | Semua 15 modul ada UI Filament + ujian render |
+| **UI modul baki (20 + BLive + McpStudio)** | ✅ **59/59 resource** | `tests/Feature/Remaining20UiTest.php` — HTTP 200 disahkan |
 | **OpenAPI / Swagger** | **Tiada** | 1,629 laluan tanpa skema/dokumentasi |
 
 ---
@@ -254,6 +255,7 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 | P0-08 | Label status ciri dengan jujur | ⬜ Belum — tiada registry status ciri |
 | P0-09 | Bersihkan status dokumen lama | ✅ Selesai (commit `bba5560`) |
 | P0-10 | **UI untuk 15 modul integrasi 2026** | ✅ Selesai — 30 resource Filament + 30 ujian render HTTP 200 |
+| P0-11 | **UI untuk 20 modul baki + BLive + McpStudio** | ✅ Selesai — 59 resource Filament + 59 ujian render HTTP 200 |
 
 ### 🟡 P1 — Sebelum skal atau menjual integrasi sebagai "siap"
 
@@ -296,18 +298,19 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 | 1 | Semak & merge PR `feat/integrasi-9-suite` → `main` | Semua kerja integrasi & susunan repo | GitHub |
 | 2 | Unit test untuk logik domain | Hanya 2 fail unit vs 142 feature | `tests/Unit/` |
 | 3 | Ujian API untuk 13 modul | Hanya model diuji, bukan laluan sebenar | `tests/Feature/Pengasingan/` |
-| 4 | UI Filament untuk 20 modul baki | 55/75 modul ada UI | `app/Filament/Resources/` |
+| 4 | ~~UI Filament untuk 20 modul baki~~ | ✅ Selesai — 59 resource + 59 ujian render | `app/Filament/Resources/` |
 | 5 | P0-06, P0-07, P0-08 (secret, backup, feature registry) | Audit induk §15 | — |
 | 6 | Sambungkan provider luar (CHIP, Meta, kurier) | Tiada integrasi live | — |
 | 7 | Skema OpenAPI untuk 1,629 laluan | Tiada kontrak/dokumentasi API | — |
 | 8 | MySQL + backup drill | Dev masih SQLite | — |
 
-> ✅ **P0-10 (UI 15 modul integrasi) sudah selesai** — 30 resource Filament
-> dijana & disahkan boleh dirender (HTTP 200) oleh
-> `tests/Feature/Integration2026UiTest.php`.
+> ✅ **P0-10 (UI 15 modul integrasi) dan P0-11 (UI 20 modul baki + BLive +
+> McpStudio) sudah selesai** — 89 resource Filament dijana & disahkan boleh
+> dirender (HTTP 200) oleh `tests/Feature/Integration2026UiTest.php` (30
+> ujian) dan `tests/Feature/Remaining20UiTest.php` (59 ujian).
 >
-> ⚠️ Item 2–4 masih terbuka — ia muncul apabila semua 15 modul integrasi
-> dibina dengan API lengkap tetapi tanpa lapisan UI dan ujian domain.
+> ⚠️ Item 2–3 dan 5–8 masih terbuka — ia muncul apabila semua modul
+> dibina dengan API lengkap tetapi tanpa ujian domain dan integrasi live.
 
 ---
 
@@ -316,7 +319,7 @@ POSBpos       ──→ POS               (ciri lanjutan POS)
 | Lokasi | Isi |
 |---|---|
 | `app/Modules/` | 75 modul domain |
-| `app/Filament/Resources/` | 66 resource admin UI |
+| `app/Filament/Resources/` | 147 resource admin UI |
 | `app/Support/Tenancy/` | `TenantContext` — pengasingan tenant |
 | `database/migrations/` | Migrasi platform + migrasi per modul |
 | `docs/` | 49 dokumen aktif · `archive/` versi lama |

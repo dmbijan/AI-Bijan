@@ -420,7 +420,7 @@ $summary = $service->getRegisterSalesSummary($id, $tenantId, $startDate, $endDat
 
 ```php
 // Open shift
-$shift = $service->openShift($registerId, $userId, $openingCash, $tenantId);
+$shift = $service->openShift($registerId, $userId, $tenantId, $openingCash);
 
 // Get open shift
 $shift = $service->getOpenShift($registerId, $tenantId);

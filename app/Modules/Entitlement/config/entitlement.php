@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 /**
  * Konfigurasi B-Entitlement (BAB 90).
@@ -91,6 +91,8 @@ return [
                 'work_management', 'scheduling', 'shared_inbox', 'screen_recorder',
                 // VideoStudio — skill video (mograph / motion 3D / editor)
                 'video_studio',
+                // B-Live AI — hos digital AI untuk live langsung
+                'blive',
                 // Integrasi laman web (Luxana, Post Bridge, SEO Writing, WasapBot)
                 'omni_order', 'social_bridge', 'content_forge', 'whatsapp_suite',
             ],
