@@ -4,7 +4,7 @@ Folder ini mengandungi dokumen yang **bukan** dokumentasi semasa AI BIJAN.
 
 | | |
 |---|---|
-| **Blueprint kanonik** | [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) (**v9.6**) |
+| **Blueprint kanonik** | [`../BLUEPRINT-INDUK.md`](../BLUEPRINT-INDUK.md) (**v9.6**) |
 | **Baseline angka** | [`../AUDIT-BASELINE.md`](../AUDIT-BASELINE.md) |
 | **Audit induk** | [`../AI-BIJAN-AUDIT-INDUK-LENGKAP.md`](../AI-BIJAN-AUDIT-INDUK-LENGKAP.md) |
 | **Status arkib** | `ARCHIVED / NOT AUTHORITATIVE` — sejak 27 Okt 2026 |
@@ -58,7 +58,7 @@ Dokumen ini menerangkan **produk berasingan** (`b-pos-system`), bukan AI BIJAN.
 > Rujuk: `docs/SISTEM-AI-BIJAN.md` §3.3 (pagar) dan blueprint BAB 90.
 
 > Rujukan B-POS yang sah: `C:\ai-bijan\AI-Bijan\b-pos-system\docs\`
-> Audit integrasinya: [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) BAB 88
+> Audit integrasinya: [`../BLUEPRINT-INDUK.md`](../BLUEPRINT-INDUK.md) BAB 88
 
 ---
 
@@ -68,14 +68,14 @@ Versi lama yang telah **digantikan sepenuhnya**:
 
 - `architecture-v2.md` → `architecture-v2.5-*.md`
 - `blueprint-v3.0.md`, `blueprint-v4.3-*.md`, `blueprint-v4.5.1-*.md`
-- `AI-BIJAN-MASTER-BLUEPRINT.md`, `-v8.md`, `-v8.2.md`, `-v8.3.md`
+- `AI-BIJAN-MASTER-BLUEPRINT-v8*.md`, `Master-Blueprint-v4.5-LAMA.md`
 - `ecosystem-v3.0*.md`, `industry-coverage-v4.0.md`
 - `AUDIT-PELAN-INDUK.md`, `PELAN-TINDAKAN.md`, `AI-BIJAN-AUDIT-v8.md`
 
 **Angka dalam fail ini lapuk** — cth angka modul 18/34/39/53/55 (semasa: **59**),
 ujian 220/314/486/718 (semasa: **~1,119 kaedah ujian**).
 
-✅ **Guna:** [`../AI-BIJAN-MASTER-BLUEPRINT.md`](../AI-BIJAN-MASTER-BLUEPRINT.md) (**v9.6**)
+✅ **Guna:** [`../BLUEPRINT-INDUK.md`](../BLUEPRINT-INDUK.md) (**v9.6**)
 📊 **Baseline angka:** [`../AUDIT-BASELINE.md`](../AUDIT-BASELINE.md)
 
 ---

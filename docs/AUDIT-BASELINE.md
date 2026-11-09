@@ -17,7 +17,7 @@ controller, resource Filament, widget, laluan, kaedah ujian). Dijana oleh
 ## 1. Baseline disahkan
 
 > **Dijana automatik** oleh `php skrip/jana-baseline.php --tulis`.
-> Tarikh penjanaan: 2026-11-08
+> Tarikh penjanaan: 2026-11-09
 > Jangan tulis angka di sini secara manual — jalankan skrip.
 
 | METRIK | **NILAI** | CARA DIUKUR |

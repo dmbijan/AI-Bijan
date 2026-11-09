@@ -1,7 +1,7 @@
 # AI BIJAN Master Blueprint — Laporan Audit & Cadangan (v7 → v8)
 
 **Tarikh:** 19 Oktober 2026
-**Sumber:** `AI-BIJAN-MASTER-BLUEPRINT.md` (v7, 9,079 baris, 424,866 bait)
+**Sumber:** `BLUEPRINT-INDUK.md` (v7, 9,079 baris, 424,866 bait)
 **Hasil:** `AI-BIJAN-MASTER-BLUEPRINT-v8.md` (9,575 baris, 420,991 aksara)
 
 ---

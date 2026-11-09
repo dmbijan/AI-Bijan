@@ -80,6 +80,9 @@ echo "\n=== NAMA FAIL LAMA ===\n";
 $lama = [
     'AI-BIJAN-MASTER-BLUEPRINT.md' => 'BLUEPRINT-INDUK.md',
     'AI-BIJAN-MASTER-BLUEPRINT-v8.3' => 'BLUEPRINT-INDUK.md',
+    'AI-BIJAN-MASTER-BLUEPRINT-v8.2' => 'BLUEPRINT-INDUK.md',
+    'AI-BIJAN-MASTER-BLUEPRINT-v8' => 'BLUEPRINT-INDUK.md',
+    'Master-Blueprint.md' => 'BLUEPRINT-INDUK.md',
 ];
 
 $jumpa = [];

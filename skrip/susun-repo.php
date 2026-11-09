@@ -80,7 +80,7 @@ $kategori = [
         'SENARAI-MODUL.md',
     ],
     'Strategi & Perancangan' => [
-        'AI-BIJAN-MASTER-BLUEPRINT.md',
+        'BLUEPRINT-INDUK.md',
         'BLUEPRINT-SISTEM-LENGKAP.md',
         'SISTEM-AI-BIJAN.md',
         'BUSINESS-GROWTH-ENGINE.md',

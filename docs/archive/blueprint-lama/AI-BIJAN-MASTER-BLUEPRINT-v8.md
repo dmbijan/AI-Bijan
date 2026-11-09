@@ -1,4 +1,4 @@
-﻿# AI BIJAN SaaS — Dokumen Induk Seni Bina & Produk Master Blueprint
+# AI BIJAN SaaS — Dokumen Induk Seni Bina & Produk Master Blueprint
 
 **Versi:** 8  
 **Tarikh:** 19 Oktober 2026  
@@ -3118,7 +3118,7 @@ Format: `MAJOR.MINOR.PATCH` (contoh: `4.5.1`)
 ### 35.3 Recommended Document Set
 
 Untuk development reference, gunakan dokumen berikut:
-1. **AI-BIJAN-MASTER-BLUEPRINT.md** (dokumen ini) — Single source of truth
+1. **BLUEPRINT-INDUK.md** (dokumen ini) — Single source of truth
 2. Architecture files — Detailed technical references
 3. Industry coverage — Module mapping per industry
 4. Customer-side — UX flows and portal designs

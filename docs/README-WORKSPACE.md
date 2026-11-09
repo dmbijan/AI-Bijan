@@ -176,7 +176,7 @@ npm run dev
 
 1. **[README.md](../README.md)** — Panduan sistem utama
 2. **[PASANG.md](../docs/PASANG.md)** — Panduan pemasangan cPanel
-3. **[Master-Blueprint.md](../docs/BLUEPRINT-INDUK.md)** — Blueprint keseluruhan
+3. **[BLUEPRINT-INDUK.md](../docs/BLUEPRINT-INDUK.md)** — Blueprint keseluruhan
 4. **[AGENTS.md](../docs/AGENTS.md)** — AI Agents configuration
 5. **[CLAUDE.md](../docs/CLAUDE.md)** — Claude AI configuration
 
